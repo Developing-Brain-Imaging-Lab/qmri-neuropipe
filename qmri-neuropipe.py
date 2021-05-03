@@ -2,6 +2,10 @@
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
+from core.pipelines.anatomical import AnatomicalPrepPipeline
+from core.pipelines.diffusion import DiffusionProcessingPipeline
+from core.pipelines.segmentation import SegmentationPipeline
+
 #import core.pipelines.diffusion as dwi_pipe
 #from core.pipelines.anatomical import AnatomicalPrepPipeline
 #from core.pipelines.diffusion import DiffusionProcessingPipeline
