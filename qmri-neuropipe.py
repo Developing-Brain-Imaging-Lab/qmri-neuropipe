@@ -1,3 +1,4 @@
+#!/home/dean/local/x86_64_sci7/anaconda3/bin/python
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
@@ -42,22 +43,14 @@ if args.load_json:
 ##################################
 
 
-print(args.anat_preproc_pipeline)
-print(args.dwi_proc_pipeline)
+if args.anat_preproc_pipeline:
+    anat_pipeline = AnatomicalPrepPipeline()
+    anat_pipeline.run()
 
-print(type(args.anat_preproc_pipeline))
-print(type(args.dwi_proc_pipeline))
+if args.dwi_proc_pipeline:
+    dwi_pipeline = DiffusionProcessingPipeline()
+    dwi_pipeline.run()
 
-if (args.anat_preproc_pipeline):
-    print("TEST!")
-
-exit()
-
-#if args.anat_preproc_pipeline:
-#    anat_pipeline = AnatomicalPrepPipeline()
-#    anat_pipeline.run()
-#
-#
-#if args.dwi_proc_pipeline:
-#    dwi_pipeline = DiffusionProcessingPipeline()
-#    dwi_pipeline.run()
+if args.segmentation_pipeline:
+    seg_pipeline = SegmentationPipeline()
+    seg_pipeline.run()
