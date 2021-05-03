@@ -1,0 +1,27 @@
+{
+    "bids_dir": "/study/dean_k99/Studies/infmri/processed-data/",
+    "bids_pipeline_name": "qmri-prep",
+    
+    "nthreads": 8,
+    "gpu": true,
+    "verbose": true,
+    
+	"anat_preproc_pipeline": false,
+    "anat_denoise_method": "dipy-nlmeans",
+    "anat_mask_method": "ANTS",
+	"anat_antspynet_modality": "t1",
+    "anat_ants_mask_template": "/study/dean_k99/Templates/Conte/24-Month/T1w.nii.gz",
+    "anat_ants_mask_template_mask": "/study/dean_k99/Templates/Conte/24-Month/brain_mask.nii.gz",
+    
+    "dwi_proc_pipeline": false,
+    "dwi_data_shelled": true,
+    "dwi_denoise_method": "dipy-patch2self",
+    "dwi_gibbs_correction_method": "dipy",
+    "outlier_detection": "EDDY-QUAD",
+    "dist_corr": "Registration",
+    "coregister_to_anat": true,
+    
+    "dti_fit_method": "dipy-WLS",
+    "noddi_fit_method": "NODDI-WATSON",
+    "csd_fod_algo":"csd"
+}

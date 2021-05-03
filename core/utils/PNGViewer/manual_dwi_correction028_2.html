@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="description" content="Easily identify and mark artifacts in MRI scans.">
+        <meta name="author" content="Michael Stoneman">
+        
+        <title>PNGViewer</title>
+
+        <!-- Bootstrap -->
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+    </head>
+
+    <body>
+        <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+        <script type='text/javascript' src='https://code.jquery.com/jquery-1.11.0.min.js'></script>
+        <script>
+            $(document).ready(function(){             
+                var x
+                var basestart = "<h4 class='center'>Images With Artifacts"
+                var baseend = "</h4>"
+                var outstring = basestart + baseend
+                $('.imgbox').click(function () {
+                    $(this).toggleClass('artifact');
+                    x = document.getElementsByClassName("artifact");
+                });
+
+                $('#update').click(function () {
+                    outstring = basestart + ": " + x.length + baseend 
+                    outstring = outstring.concat('<div id="tablediv"><table>')
+                    for (var i = 0; i < x.length; i++) {
+                        // outstring = outstring.concat(x[i].childNodes[0].text);
+                        outstring = outstring.concat("<tr><td>")
+                        outstring = outstring.concat(x[i].getElementsByTagName("h5")[0].innerHTML);
+                        outstring = outstring.concat("</td></tr>");
+                    }
+                    outstring = outstring.concat("</table></div>");
+                    outstring = outstring.concat('<br/>');
+                    document.getElementById("outbox").innerHTML = outstring;
+                    outstring = basestart + baseend;
+                });
+            });
+        </script>
+        <script type='text/javascript'>
+            // This script taken with minimal modification from https://gist.github.com/adilapapaya/9787842
+            $(document).ready(function () {
+
+                console.log("HELLO")
+                function exportTableToCSV($table, filename) {
+                    console.log("functioncall")
+                    var $headers = $table.find('tr:has(th)')
+                        ,$rows = $table.find('tr:has(td)')
+
+                        // Temporary delimiter characters unlikely to be typed by keyboard
+                        // This is to avoid accidentally splitting the actual contents
+                        ,tmpColDelim = String.fromCharCode(11) // vertical tab character
+                        ,tmpRowDelim = String.fromCharCode(0) // null character
+
+                        // actual delimiter characters for CSV format
+                        ,colDelim = '","'
+                        ,rowDelim = '"\r\n"';
+
+                        // Grab text from table into CSV formatted string
+                        var csv = '"';
+                        csv += formatRows($headers.map(grabRow));
+                        csv += rowDelim;
+                        csv += formatRows($rows.map(grabRow)) + '"';
+
+                        // Data URI
+                        var csvData = 'data:application/csv;charset=utf-8,' + encodeURIComponent(csv);
+
+                    $(this)
+                        .attr({
+                        'download': filename
+                            ,'href': csvData
+                            //,'target' : '_blank' //if you want it to open in a new window
+                    });
+
+                    //------------------------------------------------------------
+                    // Helper Functions 
+                    //------------------------------------------------------------
+                    // Format the output so it has the appropriate delimiters
+                    function formatRows(rows){
+                        return rows.get().join(tmpRowDelim)
+                            .split(tmpRowDelim).join(rowDelim)
+                            .split(tmpColDelim).join(colDelim);
+                    }
+                    // Grab and format a row from the table
+                    function grabRow(i,row){
+                         
+                        var $row = $(row);
+                        //for some reason $cols = $row.find('td') || $row.find('th') won't work...
+                        var $cols = $row.find('td'); 
+                        if(!$cols.length) $cols = $row.find('th');  
+
+                        return $cols.map(grabCol)
+                                    .get().join(tmpColDelim);
+                    }
+                    // Grab and format a column from the table 
+                    function grabCol(j,col){
+                        var $col = $(col),
+                            $text = $col.text();
+
+                        return $text.replace('"', '""'); // escape double quotes
+
+                    }
+                }
+
+
+                // This must be a hyperlink
+                $('#export').click(function (event) {
+                    // var outputFile = 'export'
+                    var outputFile = prompt("What do you want to name your output file (Note: This won't have any effect on Safari)") || 'export';
+                    outputFile = outputFile.replace('.csv','') + '.csv'
+                     
+                    // CSV
+                    exportTableToCSV.apply(this, [$('#tablediv>table'), outputFile]);
+                    
+                    // IF CSV, don't do event.preventDefault() or return false
+                    // We actually need this to be a typical hyperlink
+                });
+            });
+        </script>
+
+        <nav class="navbar navbar-fixed-top navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="http://www.wisc.edu">
+                        UW Madison
+                    </a>
+                </div>
+                <div class="navbar-right">
+                    <a href="#" role="button" id="update" class="btn btn-default navbar-btn">Update Table</a>
+                    <a href="#" role="button" id="export" class="btn btn-default navbar-btn">Export to CSV</a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid">
+
+            <div class="row row-border"></div>
+
+            <div class="row">
+                <div class="col-xs-4"></div>
+                <div class="col-xs-4" id="outbox">
+                    <h4 class='center'>Images With Artifacts</h4>
+                </div>
+                <div class="col-xs-4"></div>
+            </div>
+<div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0000.png" /><h5 class="center">img_0000.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0001.png" /><h5 class="center">img_0001.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0002.png" /><h5 class="center">img_0002.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0003.png" /><h5 class="center">img_0003.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0004.png" /><h5 class="center">img_0004.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0005.png" /><h5 class="center">img_0005.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0006.png" /><h5 class="center">img_0006.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0007.png" /><h5 class="center">img_0007.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0008.png" /><h5 class="center">img_0008.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0009.png" /><h5 class="center">img_0009.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0010.png" /><h5 class="center">img_0010.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0011.png" /><h5 class="center">img_0011.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0012.png" /><h5 class="center">img_0012.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0013.png" /><h5 class="center">img_0013.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0014.png" /><h5 class="center">img_0014.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0015.png" /><h5 class="center">img_0015.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0016.png" /><h5 class="center">img_0016.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0017.png" /><h5 class="center">img_0017.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0018.png" /><h5 class="center">img_0018.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0019.png" /><h5 class="center">img_0019.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0020.png" /><h5 class="center">img_0020.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0021.png" /><h5 class="center">img_0021.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0022.png" /><h5 class="center">img_0022.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0023.png" /><h5 class="center">img_0023.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0024.png" /><h5 class="center">img_0024.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0025.png" /><h5 class="center">img_0025.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0026.png" /><h5 class="center">img_0026.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0027.png" /><h5 class="center">img_0027.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0028.png" /><h5 class="center">img_0028.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0029.png" /><h5 class="center">img_0029.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0030.png" /><h5 class="center">img_0030.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0031.png" /><h5 class="center">img_0031.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0032.png" /><h5 class="center">img_0032.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0033.png" /><h5 class="center">img_0033.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0034.png" /><h5 class="center">img_0034.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0035.png" /><h5 class="center">img_0035.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0036.png" /><h5 class="center">img_0036.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0037.png" /><h5 class="center">img_0037.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0038.png" /><h5 class="center">img_0038.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0039.png" /><h5 class="center">img_0039.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0040.png" /><h5 class="center">img_0040.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0041.png" /><h5 class="center">img_0041.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0042.png" /><h5 class="center">img_0042.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0043.png" /><h5 class="center">img_0043.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0044.png" /><h5 class="center">img_0044.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0045.png" /><h5 class="center">img_0045.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0046.png" /><h5 class="center">img_0046.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0047.png" /><h5 class="center">img_0047.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0048.png" /><h5 class="center">img_0048.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0049.png" /><h5 class="center">img_0049.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0050.png" /><h5 class="center">img_0050.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0051.png" /><h5 class="center">img_0051.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0052.png" /><h5 class="center">img_0052.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0053.png" /><h5 class="center">img_0053.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0054.png" /><h5 class="center">img_0054.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0055.png" /><h5 class="center">img_0055.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0056.png" /><h5 class="center">img_0056.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0057.png" /><h5 class="center">img_0057.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0058.png" /><h5 class="center">img_0058.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0059.png" /><h5 class="center">img_0059.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0060.png" /><h5 class="center">img_0060.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0061.png" /><h5 class="center">img_0061.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0062.png" /><h5 class="center">img_0062.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0063.png" /><h5 class="center">img_0063.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0064.png" /><h5 class="center">img_0064.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0065.png" /><h5 class="center">img_0065.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0066.png" /><h5 class="center">img_0066.png</h5></div><div class="col-xs-3 imgbox">
+                <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0067.png" /><h5 class="center">img_0067.png</h5></div></div><div class="row"><div class="col-xs-3 imgbox">
+            <img class="img-responsive" src="/study/plastic/NODDI/processedSubjects_2/028_2/noddi//preprocessed/img_dir/img_0068.png" /><h5 class="center">img_0068.png</h5></div></div>            <div class="row row-border"></div>
+
+        </div>
+
+        <nav class="navbar navbar-fixed-bottom" id="footer">
+            <div class="container-fluid">
+                <div class="navbar-right">
+                    <p>Created by Michael Stoneman for the Waisman Center at UW Madison.</p>
+                </div>
+            </div>
+        </nav>
+    </body>
+</html>

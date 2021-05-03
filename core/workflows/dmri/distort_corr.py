@@ -1,0 +1,100 @@
+import os,sys, shutil, json, argparse, copy
+import nibabel as nib
+
+from bids.layout import writing, parse_file_entities
+import core.workflows.prep_rawdata as raw_proc
+import core.utils.dmri.distortion_correction as distcorr
+
+def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False):
+
+    if dist_corr == 'Topup' or dist_corr == 'Topup-Separated':
+
+        working_dir     = os.path.dirname(topup_base)
+        parsed_filename = parse_file_entities(dwi_image._get_filename())
+        
+        if not os.path.exists(working_dir):
+            os.makedirs(working_dir)
+
+        entities = {
+        'extension': '.nii.gz',
+        'subject': parsed_filename.get('subject'),
+        'session': parsed_filename.get('session'),
+        'suffix':  'fmap',
+        'desc': 'Topup'
+        }
+
+        filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+        fieldmap = writing.build_path(entities, filename_patterns)
+        
+        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
+
+            if verbose:
+                print('Performing Topup Disortion Correction')
+
+            if dist_corr == 'Topup':
+                distcorr.topup_fsl(input_dwi            = dwi_image,
+                                   output_topup_base    = topup_base,
+                                   config_file          = topup_config,
+                                   field_output         = True)
+
+            elif dist_corr == 'Topup-Separated':
+                print('Need to implement this')
+                
+            else:
+                print('Incorrect Method')
+                exit()
+
+def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
+
+    if distortion_method != None:
+
+        parsed_filename = parse_file_entities(dwi_image._get_filename())
+
+        entities = {
+        'extension': '.nii.gz',
+        'subject': parsed_filename.get('subject'),
+        'session': parsed_filename.get('session'),
+        'suffix':  'dwi',
+        'desc': 'DistortionCorrected'
+        }
+
+        if distortion_method == 'Registration':
+            working_dir += '/anatomical-distortion-correction'
+        elif distortion_method == 'Fieldmap':
+            working_dir += '/fieldmap-distortion-correction'
+
+        if not os.path.exists(working_dir):
+            os.makedirs(working_dir)
+
+        filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+
+        distcorr_file = writing.build_path(entities, filename_patterns)
+        entities['extension'] = '.bvec'
+        distcorr_bvec = writing.build_path(entities, filename_patterns)
+
+        distcorr_img = copy.deepcopy(dwi_image)
+        distcorr_img._set_filename(distcorr_file)
+        distcorr_img._set_bvecs(distcorr_bvec)
+
+        if not distcorr_img.exists():
+            if distortion_method == 'Registration':
+                if verbose:
+                    print('Performing Registration-Based Distortion Correction')
+
+                distcorr_img = distcorr.registration_method(input_dwi          = dwi_image,
+                                                            working_dir        = working_dir,
+                                                            T1_image           = t1w_image,
+                                                            T2_image           = t2w_image,
+                                                            linreg_method      = linreg_method,
+                                                            resample_to_anat   = resample_to_anat,
+                                                            nthreads           = nthreads,
+                                                            verbose            = verbose)
+
+            if distortion_method == 'Fieldmap':
+                print('NEED TO IMPLEMENT THIS')
+
+
+        return distcorr_img
+
+    else:
+        return dwi_image

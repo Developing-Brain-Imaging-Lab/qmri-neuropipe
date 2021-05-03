@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="description" content="Easily identify and mark artifacts in MRI scans.">
+        <meta name="author" content="Michael Stoneman">
+        
+        <title>PNGViewer</title>
+
+        <!-- Bootstrap -->
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <!-- Custom CSS -->
+        <link rel="stylesheet" type="text/css" href="css/custom.css">
+    </head>
+
+    <body>
+        <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+        <script type='text/javascript' src='https://code.jquery.com/jquery-1.11.0.min.js'></script>
+        <script>
+            $(document).ready(function(){             
+                var x
+                var basestart = "<h4 class='center'>Images With Artifacts"
+                var baseend = "</h4>"
+                var outstring = basestart + baseend
+                $('.imgbox').click(function () {
+                    $(this).toggleClass('artifact');
+                    x = document.getElementsByClassName("artifact");
+                });
+
+                $('#update').click(function () {
+                    outstring = basestart + ": " + x.length + baseend 
+                    outstring = outstring.concat('<div id="tablediv"><table>')
+                    for (var i = 0; i < x.length; i++) {
+                        // outstring = outstring.concat(x[i].childNodes[0].text);
+                        outstring = outstring.concat("<tr><td>")
+                        outstring = outstring.concat(x[i].getElementsByTagName("h5")[0].innerHTML);
+                        outstring = outstring.concat("</td></tr>");
+                    }
+                    outstring = outstring.concat("</table></div>");
+                    outstring = outstring.concat('<br/>');
+                    document.getElementById("outbox").innerHTML = outstring;
+                    outstring = basestart + baseend;
+                });
+            });
+        </script>
+        <script type='text/javascript'>
+            // This script taken with minimal modification from https://gist.github.com/adilapapaya/9787842
+            $(document).ready(function () {
+
+                console.log("HELLO")
+                function exportTableToCSV($table, filename) {
+                    console.log("functioncall")
+                    var $headers = $table.find('tr:has(th)')
+                        ,$rows = $table.find('tr:has(td)')
+
+                        // Temporary delimiter characters unlikely to be typed by keyboard
+                        // This is to avoid accidentally splitting the actual contents
+                        ,tmpColDelim = String.fromCharCode(11) // vertical tab character
+                        ,tmpRowDelim = String.fromCharCode(0) // null character
+
+                        // actual delimiter characters for CSV format
+                        ,colDelim = '","'
+                        ,rowDelim = '"\r\n"';
+
+                        // Grab text from table into CSV formatted string
+                        var csv = '"';
+                        csv += formatRows($headers.map(grabRow));
+                        csv += rowDelim;
+                        csv += formatRows($rows.map(grabRow)) + '"';
+
+                        // Data URI
+                        var csvData = 'data:application/csv;charset=utf-8,' + encodeURIComponent(csv);
+
+                    $(this)
+                        .attr({
+                        'download': filename
+                            ,'href': csvData
+                            //,'target' : '_blank' //if you want it to open in a new window
+                    });
+
+                    //------------------------------------------------------------
+                    // Helper Functions 
+                    //------------------------------------------------------------
+                    // Format the output so it has the appropriate delimiters
+                    function formatRows(rows){
+                        return rows.get().join(tmpRowDelim)
+                            .split(tmpRowDelim).join(rowDelim)
+                            .split(tmpColDelim).join(colDelim);
+                    }
+                    // Grab and format a row from the table
+                    function grabRow(i,row){
+                         
+                        var $row = $(row);
+                        //for some reason $cols = $row.find('td') || $row.find('th') won't work...
+                        var $cols = $row.find('td'); 
+                        if(!$cols.length) $cols = $row.find('th');  
+
+                        return $cols.map(grabCol)
+                                    .get().join(tmpColDelim);
+                    }
+                    // Grab and format a column from the table 
+                    function grabCol(j,col){
+                        var $col = $(col),
+                            $text = $col.text();
+
+                        return $text.replace('"', '""'); // escape double quotes
+
+                    }
+                }
+
+
+                // This must be a hyperlink
+                $('#export').click(function (event) {
+                    // var outputFile = 'export'
+                    var outputFile = prompt("What do you want to name your output file (Note: This won't have any effect on Safari)") || 'export';
+                    outputFile = outputFile.replace('.csv','') + '.csv'
+                     
+                    // CSV
+                    exportTableToCSV.apply(this, [$('#tablediv>table'), outputFile]);
+                    
+                    // IF CSV, don't do event.preventDefault() or return false
+                    // We actually need this to be a typical hyperlink
+                });
+            });
+        </script>
+
+        <nav class="navbar navbar-fixed-top navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="http://www.wisc.edu">
+                        UW Madison
+                    </a>
+                </div>
+                <div class="navbar-right">
+                    <a href="#" role="button" id="update" class="btn btn-default navbar-btn">Update Table</a>
+                    <a href="#" role="button" id="export" class="btn btn-default navbar-btn">Export to CSV</a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid">
+
+            <div class="row row-border"></div>
+
+            <div class="row">
+                <div class="col-xs-4"></div>
+                <div class="col-xs-4" id="outbox">
+                    <h4 class='center'>Images With Artifacts</h4>
+                </div>
+                <div class="col-xs-4"></div>
+            </div>

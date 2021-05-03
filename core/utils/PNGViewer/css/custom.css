@@ -1,0 +1,104 @@
+/* 
+ * Custom CSS stylings for the PNGViewer webapp.
+ * Designed for use with Bootstrap 3.3.4.
+ * Written by Michael Stoneman in July of 2015,
+ * at the UW Madison's Waisman Center
+ */
+
+
+/* Header */
+
+.navbar {
+	background-color: #B70101;
+  margin-bottom: 0; 
+}
+
+.navbar-default .navbar-brand {
+  color: white;
+}
+
+.navbar-btn {
+  margin:10px;
+}
+
+
+/* Page body */
+
+.row {
+  margin: 20px;
+}
+
+.row-border {
+  height: 60px;
+  margin: 0px;
+}
+
+.center, table {
+  text-align: center;
+}
+
+.img-responsive {
+  user-drag: none; 
+  -moz-user-select: none;
+  -webkit-user-drag: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.imgbox, #outbox {
+  border-color: #6E6A5B;
+  background-color: #f5f5f5;
+  border-radius: 10px;
+  border-style: solid;
+  border-width: 2px;
+  padding: 5px;
+}
+
+.imgbox:hover {
+  border-width: 3px;
+  font-weight: bold;
+}
+
+.artifact {
+  border-color: #B70101;
+  border-width: 3px;
+  font-weight: bold;
+}
+
+#outbox {
+  border-color: #660000;
+  min-height: 50px;
+  background-color: #E7D9C1;
+  text-align: center;
+}
+
+.btn-primary {
+  margin: 10px; /* Helps position the button inside the boxes */
+}
+
+#tablediv {
+  display: inline-block;
+  border: 1px solid #6E6A5B;
+  padding: 10px;
+  border-radius: 5px;
+  max-height: 100px;
+  overflow-y: scroll;
+  background-color: white;
+}
+
+table {
+  margin: auto;
+}
+
+/* Footer */
+
+#footer {
+	padding-top: 14px;
+	font-size: small;
+	color: gray;
+  background-color: #E7D9C1;
+}
+
+#footer > div > div {
+  padding-right: 50px;
+}
