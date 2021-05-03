@@ -69,6 +69,32 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
                 print('Running Eddy-correct')
             eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = dwi_image,
                                                           output_base = output_base)
+                                                          
+        
+        elif method == 'two-pass':
+            if verbose:
+                print('Running Two-stage Eddy/Motion correction')
+            
+            eddy_corr_base = working_dir + '/eddy_corr_'
+            eddy_corr_img = eddycorr.eddy_correct_fsl(input_dwi   = dwi_image,
+                                                      output_base = eddy_corr_base)
+                                                      
+            eddycorrected_img = eddycorr.eddy_fsl(input_dwi                  = eddy_corr_img,
+                                                  output_base                = output_base,
+                                                  topup_base                 = topup_base,
+                                                  repol                      = repol,
+                                                  data_shelled               = data_shelled,
+                                                  cuda                       = gpu,
+                                                  cuda_device                = cuda_device,
+                                                  estimate_move_by_suscept   = estimate_move_by_suscept,
+                                                  fsl_eddy_options           = fsl_eddy_options,
+                                                  mporder                    = mporder,
+                                                  nthreads                   = nthreads)
+            
+        else:
+            print('Incorrect Eddy method, exiting')
+            exit(-1)
+            
 
     return eddycorrected_img
 
