@@ -162,7 +162,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--eddy_current_correction',
                             type=str,
                             help='Eddy current correction method',
-                            choices=['eddy', 'eddy_correct'],
+                            choices=['eddy', 'eddy_correct', 'two-pass'],
                             default='eddy')
 
         parser.add_argument('--fsl_eddy_options',
