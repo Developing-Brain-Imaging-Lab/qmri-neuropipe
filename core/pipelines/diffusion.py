@@ -40,6 +40,18 @@ class DiffusionProcessingPipeline:
                             type=str, help='BIDS RAWDATA Directory',
                             default='rawdata')
 
+        parser.add_argument('--bids_dwi_dir',
+                            type=str, help='BIDS DWI RAWDATA Directory Basename',
+                            default='dwi')
+
+        parser.add_argument('--bids_t1w_dir',
+                            type=str, help='BIDS T1w RAWDATA Directory Basename',
+                            default='anat')
+
+        parser.add_argument('--bids_t2w_dir',
+                            type=str, help='BIDS T2w RAWDATA Directory Basename',
+                            default='anat')
+
         parser.add_argument('--load_json',
                             type=str, help='Load settings from file in json format. Command line options are overriden by values in file.',
                             default=None)
@@ -95,8 +107,8 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['BET', 'MRTRIX', 'ANTS', 'ANTSPYNET'],
-                            default='BET')
+                            choices=['bet', 'mrtrix', 'ants', 'antspynet'],
+                            default='bet')
 
         parser.add_argument('--dwi_ants_mask_template',
                             type=str,
@@ -214,6 +226,22 @@ class DiffusionProcessingPipeline:
                             choices=['AMICO', 'NODDI-WATSON', 'NODDI-BINGHAM'],
                             default=None)
 
+        parser.add_argument('--noddi_dpar',
+                            type=float,
+                            help='Parallel diffusivity value to use in the NODDI model fitting',
+                            default=1.7e-9)
+
+        parser.add_argument('--noddi_diso',
+                            type=float,
+                            help='Isotropic diffusivity value to use in the NODDI model fitting',
+                            default=3e-9)
+
+        parser.add_argument('--noddi_solver',
+                            type=str,
+                            help='DMIPY Optimization solver for NODDI model',
+                            choices=['brute2fine', 'mix'],
+                            default='brute2fine')
+
         parser.add_argument('--fwe_fit_method',
                             type=str,
                             help='Fitting Algorithm for Diffusion Tensor Imaging Model',
@@ -281,7 +309,7 @@ class DiffusionProcessingPipeline:
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
 
         #Create final processed DWI dataset
-        final_base = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', bids_id+'_desc-preproc')
+        final_base = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', bids_id+'_desc-preproc')
         final_dwi = DWImage(file        = final_base + '_dwi.nii.gz',
                             bvecs       = final_base + '_dwi.bvec',
                             bvals       = final_base + '_dwi.bval',
@@ -289,7 +317,7 @@ class DiffusionProcessingPipeline:
                             index       = final_base + '-Index_dwi.txt',
                             slspec      = final_base + '-Slspec_dwi.txt')
 
-        dwi_mask = Image(file=os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', bids_id+'_desc-brain_mask.nii.gz'))
+        dwi_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', bids_id+'_desc-brain_mask.nii.gz'))
 
         if not final_dwi.exists():
 
@@ -298,19 +326,20 @@ class DiffusionProcessingPipeline:
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
 
-
             #Setup the raw data and perform some basic checks on the data and associated files
             rawdata_img, topup_base =  raw_proc.prep_dwi_rawdata(bids_id                = bids_id,
                                                                  bids_rawdata_dir       = bids_rawdata_dir,
                                                                  bids_derivative_dir    = bids_derivative_dir,
+                                                                 bids_dwi_dir           = args.bids_dwi_dir,
                                                                  nthreads               = args.nthreads,
                                                                  resample_resolution    = args.resample_resolution,
                                                                  remove_last_vol        = args.remove_last_vol,
                                                                  topup_config           = args.topup_config,
+                                                                 outlier_detection      = args.outlier_detection,
                                                                  verbose                = args.verbose)
 
             denoised_img = img_proc.denoise_degibbs(img             = rawdata_img,
-                                                    working_dir     = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', 'denoise-degibbs/'),
+                                                    working_dir     = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', 'denoise-degibbs/'),
                                                     suffix          = 'dwi',
                                                     denoise_method  = args.dwi_denoise_method,
                                                     gibbs_method    = args.dwi_gibbs_correction_method,
@@ -318,7 +347,7 @@ class DiffusionProcessingPipeline:
                                                     verbose         = args.verbose)
 
             eddycorrected_img = eddy_proc.perform_eddy(dwi_image                  = denoised_img,
-                                                       working_dir                = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', 'eddy-correction/'),
+                                                       working_dir                = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', 'eddy-correction/'),
                                                        topup_base                 = topup_base,
                                                        method                     = args.eddy_current_correction,
                                                        gpu                        = args.gpu,
@@ -332,50 +361,61 @@ class DiffusionProcessingPipeline:
                                                        fsl_eddy_options           = args.fsl_eddy_options,
                                                        verbose                    = args.verbose)
 
-            outlier_removed_img = eddy_proc.perform_outlier_detection(dwi_image         = eddycorrected_img,
-                                                                      method            = args.outlier_detection,
-                                                                      percent_threshold = args.outlier_detection_threshold,
-                                                                      verbose           = args.verbose )
+            if args.outlier_detection != 'Manual':
+                outlier_removed_img = eddy_proc.perform_outlier_detection(dwi_image         = eddycorrected_img,
+                                                                          working_dir       = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', 'outlier-removed-images/'),
+                                                                          method            = args.outlier_detection,
+                                                                          percent_threshold = args.outlier_detection_threshold,
+                                                                          verbose           = args.verbose )
+            else:
+                outlier_removed_img = eddycorrected_img
 
-            distortion_corrected_img = distort_proc.perform_distortion_correction(dwi_image           = outlier_removed_img,
-                                                                                  working_dir         = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/'),
-                                                                                  t1w_image           = t1w,
-                                                                                  t2w_image           = t2w,
-                                                                                  distortion_method   = args.dist_corr,
-                                                                                  linreg_method       = args.distortion_linreg_method,
-                                                                                  resample_to_anat    = args.coregister_to_anat,
-                                                                                  nthreads            = args.nthreads,
-                                                                                  verbose             = args.verbose)
 
-            #If we've resampled to the anatomy from the distortion correction, no need to re-do it.
-            if args.coregister_to_anat:
-                args.coregister_to_anat = False
+
+            if args.dist_corr == 'Registration':
+                distortion_corrected_img = distort_proc.perform_distortion_correction(dwi_image           = outlier_removed_img,
+                                                                                      working_dir         = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
+                                                                                      t1w_image           = t1w,
+                                                                                      t2w_image           = t2w,
+                                                                                      distortion_method   = args.dist_corr,
+                                                                                      linreg_method       = args.distortion_linreg_method,
+                                                                                      nthreads            = args.nthreads,
+                                                                                      verbose             = args.verbose)
+
+            else:
+                distortion_corrected_img = outlier_removed_img
+
 
 
             ###BIAS FIELD CORRECTION ###
             biascorr_img = img_proc.perform_bias_correction(img         = distortion_corrected_img,
-                                                            working_dir = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', 'biasfield-correction/'),
+                                                            working_dir = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', 'biasfield-correction/'),
                                                             suffix      = 'dwi',
                                                             method      = args.dwi_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
 
-            coreg_img = coreg_proc.register_to_anat(dwi_image       = biascorr_img,
-                                                    working_dir     = os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/'),
-                                                    coreg_to_anat   = args.coregister_to_anat,
-                                                    T1_image        = t1w,
-                                                    T2_image        = t2w,
-                                                    linreg_method   = 'FSL',
-                                                    nthreads        = args.nthreads,
-                                                    verbose         = args.verbose)
 
-            #Create Brain Mask
             if args.coregister_to_anat:
+                coreg_img = coreg_proc.register_to_anat(dwi_image           = biascorr_img,
+                                                        working_dir         = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
+                                                        coreg_to_anat       = args.coregister_to_anat,
+                                                        T1_image            = t1w,
+                                                        T2_image            = t2w,
+                                                        reg_method          = 'linear',
+                                                        linreg_method       = 'ANTS',
+                                                        nonlinreg_method    = 'ANTS',
+                                                        dof                 = 12,
+                                                        nthreads            = args.nthreads,
+                                                        verbose             = args.verbose)
+
                 if args.verbose:
                     print('Copying Anatomical Mask')
 
-                shutil.copy2(anat_mask._get_filename(), dwi_mask._get_filename())
+                    shutil.copy2(anat_mask._get_filename(), dwi_mask._get_filename())
             else:
+                coreg_img = biascorr_img
+
                 if args.verbose:
                     print('Creating DWI Brain Mask')
                 mask.mask_image(input_img            = coreg_img,
@@ -412,16 +452,16 @@ class DiffusionProcessingPipeline:
                 files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
 
                 for dir in dirs_to_cleanup:
-                    if os.path.exists(os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', dir)):
-                        shutil.rmtree(os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', dir))
+                    if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
+                        shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
 
                 for file in files_to_cleanup:
-                    if os.path.exists(os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', file)):
-                        os.remove(os.path.join(bids_derivative_dir, 'dwi/', 'preprocessed/', file))
+                    if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
+                        os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
 
-        models_dir = os.path.join(bids_derivative_dir,'dwi', 'models/')
+        models_dir = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'models/')
 
         ###DTI MODELING ###
         if args.dti_fit_method != None:
@@ -454,12 +494,15 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting '+args.noddi_fit_method+' model...')
 
-                noddi_model = NODDI_Model(dwi_img   = final_dwi,
-                                          out_base  = models_dir + args.noddi_fit_method+'/' + bids_id,
-                                          fit_type  = args.noddi_fit_method,
-                                          mask      = dwi_mask,
-                                          nthreads  = args.nthreads,
-                                          verbose   = args.verbose)
+                noddi_model = NODDI_Model(dwi_img               = final_dwi,
+                                          out_base              = models_dir + args.noddi_fit_method+'/' + bids_id,
+                                          fit_type              = args.noddi_fit_method,
+                                          mask                  = dwi_mask,
+                                          parallel_diffusivity  = args.noddi_dpar,
+                                          iso_diffusivity       = args.noddi_diso,
+                                          solver                = args.noddi_solver,
+                                          nthreads              = args.nthreads,
+                                          verbose               = args.verbose)
                 noddi_model.fit()
 
 

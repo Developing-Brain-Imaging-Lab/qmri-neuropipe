@@ -31,6 +31,14 @@ class AnatomicalPrepPipeline:
                             type=str, help='BIDS RAWDATA Directory',
                             default='rawdata')
 
+        parser.add_argument('--bids_t1w_dir',
+                            type=str, help='BIDS T1w RAWDATA Directory Basename',
+                            default='anat')
+
+        parser.add_argument('--bids_t2w_dir',
+                            type=str, help='BIDS T2w RAWDATA Directory Basename',
+                            default='anat')
+
         parser.add_argument('--subject',
                             type=str,
                             help='Subject ID')
@@ -58,6 +66,21 @@ class AnatomicalPrepPipeline:
                             type=int,
                             help='CUDA Device Number',
                             default=0)
+
+        parser.add_argument('--anat_t1w_reorient_img',
+                            type=str,
+                            help='Image to use to reorient/correct header direction for T1w images',
+                            default=None)
+
+        parser.add_argument('--anat_t2w_reorient_img',
+                            type=str,
+                            help='Image to use to reorient/correct header direction for T2w images',
+                            default=None)
+
+        parser.add_argument('--anat_mp2rage',
+                            type=bool,
+                            help='MP2RAGE Acquisition',
+                            default=False)
 
         parser.add_argument('--anat_denoise_method',
                             type=str,
@@ -134,30 +157,32 @@ class AnatomicalPrepPipeline:
         t1w, t2w = raw_proc.prep_anat_rawdata(bids_id              = bids_id,
                                               bids_rawdata_dir     = bids_rawdata_dir,
                                               bids_derivative_dir  = bids_derivative_dir,
+                                              bids_t1w_dir         = args.bids_t1w_dir,
+                                              bids_t2w_dir         = args.bids_t2w_dir,
+                                              t1w_reorient_img     = args.anat_t1w_reorient_img,
+                                              t2w_reorient_img     = args.anat_t2w_reorient_img,
+                                              mp2rage              = args.anat_mp2rage,
                                               nthreads             = args.nthreads,
                                               verbose              = args.verbose)
 
-
         #Create Brain Mask
-        brain_mask = Image(file=os.path.join(bids_derivative_dir, 'anat/', bids_id+'_desc-brain_mask.nii.gz'))
-        if t1w and t2w:
+        brain_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-brain_mask.nii.gz'))
+        if (t1w != None) and (t2w != None):
             if args.anat_antspynet_modality=='infant':
                 args.anat_antspynet_modality = 't1t2infant'
                 input_img = [t1w, t2w]
             else:
                 input_img = t1w
-        elif t1w:
+        elif t1w != None:
             input_img = t1w
-
             if args.anat_antspynet_modality=='infant':
                 args.anat_antspynet_modality = 't1infant'
-
-        elif t2w:
+        elif t2w != None:
             input_img = t2w
+            brain_mask._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-brain_mask.nii.gz'))
 
             if args.anat_antspynet_modality=='infant':
                 args.anat_antspynet_modality = 't2infant'
-
         else:
             print('Anatomical Images do not exist!')
             exit()
@@ -174,9 +199,9 @@ class AnatomicalPrepPipeline:
         #Denoise and Degibbs raw data
         biascorr_t1w = None
         biascorr_t2w = None
-        if t1w:
+        if t1w != None:
             t1w = img_proc.denoise_degibbs(img             = t1w,
-                                           working_dir     = os.path.join(bids_derivative_dir, 'anat/'),
+                                           working_dir     = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
                                            suffix          = 'T1w',
                                            mask_img        = brain_mask,
                                            denoise_method  = args.anat_denoise_method,
@@ -185,17 +210,16 @@ class AnatomicalPrepPipeline:
                                            verbose         = args.verbose)
 
             biascorr_t1w = img_proc.perform_bias_correction(img         = t1w,
-                                                            working_dir = os.path.join(bids_derivative_dir, 'anat/'),
+                                                            working_dir = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
                                                             suffix      = 'T1w',
                                                             mask_img    = brain_mask,
                                                             method      = args.anat_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
 
-
-        if t2w:
+        if t2w != None:
             t2w = img_proc.denoise_degibbs(img             = t2w,
-                                           working_dir     = os.path.join(bids_derivative_dir, 'anat/'),
+                                           working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
                                            suffix          = 'T2w',
                                            mask_img        = brain_mask,
                                            denoise_method  = args.anat_denoise_method,
@@ -204,11 +228,12 @@ class AnatomicalPrepPipeline:
                                            verbose         = args.verbose)
 
             biascorr_t2w = img_proc.perform_bias_correction(img         = t2w,
-                                                            working_dir = os.path.join(bids_derivative_dir, 'anat/'),
+                                                            working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
                                                             suffix      = 'T2w',
                                                             mask_img    = brain_mask,
                                                             method      = args.anat_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
+
 
         return biascorr_t1w, biascorr_t2w, brain_mask

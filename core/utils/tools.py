@@ -14,9 +14,9 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
 
-    if not mask_img:
+    if mask_img == None:
         mask_img = Image(file=os.path.dirname(output_file)+'/mask.nii.gz')
-        mask.mask_image(input_img, mask_img)
+        mask.mask_image(input_img, mask_img, method='bet', bet_options='-f 0.25')
 
     if method=='ants' or method=='fsl':
         command ='dwibiascorrect -' + method + ' ' \
@@ -44,9 +44,14 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
         print('Available options are: ants, fsl, N4')
         exit()
 
+    #Mask the final result
+    mask.apply_mask(input_img    = output_img,
+                    mask_img     = mask_img,
+                    output_img   = output_img._get_filename())
+
     if os.path.exists(os.path.dirname(output_file)+'/mask.nii.gz'):
-        os.remove(os.path.dirname(output_file)+'/mask.nii.gz')
-        
+       os.remove(os.path.dirname(output_file)+'/mask.nii.gz')
+
     return output_img
 
 def binarize(input_img):
@@ -55,15 +60,17 @@ def binarize(input_img):
 
     return output_img
 
-
-def reorient_to_standard(input_img, output_file):
+def reorient_to_standard(input_img, output_file, reorient_img=None):
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
 
     subprocess.run(['fslreorient2std',input_img._get_filename(),output_file], stderr=subprocess.STDOUT)
-    
+
+    if reorient_img != None:
+        os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -dof 6')
+
     return output_img
-    
+
 def merge_images(list_of_images, output_file):
 
     cmd_ = 'fslmerge -t ' + output_file
@@ -95,12 +102,10 @@ def calculate_mean_img(input_img, output_file):
         mean_data = img.get_data()
 
     mean_img = nib.Nifti1Image(mean_data.astype(np.float32), img.affine, img.header)
-    mean_img.set_sform(img.get_sform())
-    mean_img.set_qform(img.get_qform())
 
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
-    nib.save(mean_img , output_img._get_filename())
+    nib.save(mean_img, output_img._get_filename())
 
     return output_img
 
@@ -123,6 +128,20 @@ def remove_end_img(input_img, output_file):
     data = img.get_data()
 
     target_img = nib.Nifti1Image(data[:,:,:,0:img.shape[3]-1].astype(np.float32), img.affine, img.header)
+    target_img.set_sform(img.get_sform())
+    target_img.set_qform(img.get_qform())
+
+    output_img = copy.deepcopy(input_img)
+    output_img._set_filename(output_file)
+    nib.save(target_img, output_img._get_filename())
+
+    return output_img
+
+def remove_end_slice(input_img, output_file):
+    img = nib.load(input_img._get_filename())
+    data = img.get_data()
+
+    target_img = nib.Nifti1Image(data[:,:,0:img.shape[2]-1,:].astype(np.float32), img.affine, img.header)
     target_img.set_sform(img.get_sform())
     target_img.set_qform(img.get_qform())
 

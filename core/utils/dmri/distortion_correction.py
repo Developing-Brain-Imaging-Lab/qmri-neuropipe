@@ -33,13 +33,18 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     b0_indices = index[ii].astype(int)
     b0_acqparams=acqparams[b0_indices-1]
 
+    indices,jj = np.unique(b0_indices, return_index=True)
+    topup_data      = b0_data[:,:,:,np.asarray(jj).flatten()]
+    topup_indices   = b0_indices[jj].astype(int)
+    topup_acqparams = b0_acqparams[jj]
+
     output_dir = os.path.dirname(output_topup_base)
     tmp_acqparams = output_dir + '/tmp.acqparams.txt'
     tmp_b0 = output_dir + '/tmp.B0.nii.gz'
 
-    b0_imgs = nib.Nifti1Image(b0_data, aff, dwi_img.header)
-    nib.save(b0_imgs, tmp_b0)
-    np.savetxt(tmp_acqparams, b0_acqparams, fmt='%.8f')
+    topup_imgs = nib.Nifti1Image(topup_data, aff, dwi_img.header)
+    nib.save(topup_imgs, tmp_b0)
+    np.savetxt(tmp_acqparams, topup_acqparams, fmt='%.8f')
 
     topup_command = 'topup --imain='+ tmp_b0 \
                   + ' --datain=' + tmp_acqparams \
@@ -52,9 +57,10 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
     if verbose:
         print(topup_command)
-        
+
+
     os.system(topup_command)
-    
+
     os.remove(output_dir + '/tmp.acqparams.txt')
     os.remove(output_dir + '/tmp.B0.nii.gz')
 
@@ -104,7 +110,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                                      output_file = mean_b0._get_filename())
 
         mean_dwi    = img_tools.biasfield_correction(input_img   = mean_dwi,
-                                                      output_file = mean_dwi._get_filename())
+                                                     output_file = mean_dwi._get_filename())
 
         #Determine the Phase Encode Direction
         #Read the JSON file and get the
@@ -179,7 +185,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                      output_file    = output_img._get_filename(),
                                      output_matrix  = rigid_fsl_transform,
                                      method         = 'FSL',
-                                     flirt_options =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     dof            = 6,
+                                     flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
                 reg_tools.apply_transform(input_img     = mean_dwi,
                                           reference_img = ref_img[0],
@@ -201,7 +208,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                            ants_mat = rigid_itk_transform )
 
             elif linreg_method == 'ANTS':
-            
+
                 if T1_image != None:
                     ref_img.append(T1_image)
                     mov_img.append(mean_dwi)
@@ -220,6 +227,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                      output_matrix  = rigid_ants_transform,
                                      method         = 'ANTS',
                                      nthreads       = nthreads,
+                                     dof            = 6,
                                      ants_options   =  '-j 1')
                 #Convert the ants transform to ITK
                 os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
@@ -268,7 +276,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                      output_file    = output_img._get_filename(),
                                      output_matrix  = rigid_fsl_transform,
                                      method         = 'FSL',
-                                     flirt_options =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     dof            = 6,
+                                     flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
                 reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
                                            ref_img  = ref_img[0],
@@ -294,9 +303,10 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                      output_file    = output_img._get_filename(),
                                      output_matrix  = rigid_ants_transform,
                                      nthreads       = nthreads,
+                                     dof            = 6,
                                      method         = 'ANTS',
                                      ants_options   =  '-j 1')
-                                     
+
                 #Convert the ants transform to ITK
                 os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
 
@@ -335,19 +345,19 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                                   output_file   = output_img._get_filename(),
                                   matrix        = transform,
                                   nthreads      = nthreads,
-                                  method        = 'MRTRIX')
+                                  method        = 'ANTS',
+                                  ants_options  = ' -e 3 -n BSpline')
 
         if verbose:
             print('Rotating bvecs')
-            
-    
+
+
         rotate_bvecs(input_img      = input_dwi,
                      ref_img        = nonlin_ref_img[0],
                      output_bvec    = output_img._get_bvecs(),
                      transform      = rigid_itk_transform,
-                     linreg_method  = linreg_method,
                      nthreads       = nthreads)
-                     
+
 
     return output_img
 

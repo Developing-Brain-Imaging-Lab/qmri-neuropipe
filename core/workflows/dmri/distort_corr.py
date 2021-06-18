@@ -11,7 +11,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
 
         working_dir     = os.path.dirname(topup_base)
         parsed_filename = parse_file_entities(dwi_image._get_filename())
-        
+
         if not os.path.exists(working_dir):
             os.makedirs(working_dir)
 
@@ -25,7 +25,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
 
         filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
         fieldmap = writing.build_path(entities, filename_patterns)
-        
+
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
 
             if verbose:
@@ -39,7 +39,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
 
             elif dist_corr == 'Topup-Separated':
                 print('Need to implement this')
-                
+
             else:
                 print('Incorrect Method')
                 exit()

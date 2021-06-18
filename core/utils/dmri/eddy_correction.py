@@ -12,24 +12,24 @@ else:
 
 def eddy_correct_fsl(input_dwi, output_base):
 
-    log_file = output_base + '.ecclog'
+    output_dir = os.path.dirname(output_base)
+
+    log_file   = output_dir + '/dwi.ecclog'
+    bvecs_file = output_dir + '/dwi.bvecs'
+    dwi_file   = output_dir + '/dwi.nii.gz'
 
     if os.path.exists(log_file):
         os.remove(log_file)
+
+    os.system('eddy_correct ' + input_dwi._get_filename() + ' ' + dwi_file + ' 0 spline')
+    os.system('fdt_rotate_bvecs ' + input_dwi._get_bvecs() + ' ' + bvecs_file + ' ' + log_file)
 
     output_img = copy.deepcopy(input_dwi)
     output_img._set_filename(output_base+'_desc-EddyCurrentCorrected_dwi.nii.gz')
     output_img._set_bvecs(output_base+'_desc-EddyCurrentCorrected_dwi.bvec')
 
-    subprocess.run(['eddy_correct',
-                    input_dwi._get_filename(),
-                    output_base,
-                    '0'], stderr=subprocess.STDOUT)
-
-    subprocess.run(['fdt_rotate_bvecs',
-                    input_dwi._get_bvecs(),
-                    output_dwi._get_bvecs(),
-                    log_file], stderr=subprocess.STDOUT)
+    os.rename(dwi_file, output_img._get_filename())
+    os.rename(bvecs_file, output_img._get_bvecs())
 
     #Rotate b-vecs after doing the eddy correction
     os.remove(log_file)

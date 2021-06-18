@@ -69,16 +69,18 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
                 print('Running Eddy-correct')
             eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = dwi_image,
                                                           output_base = output_base)
-                                                          
-        
+
+
         elif method == 'two-pass':
             if verbose:
                 print('Running Two-stage Eddy/Motion correction')
-            
-            eddy_corr_base = working_dir + '/eddy_corr_'
+
+
+            print('Running EDDY-CORRECT')
             eddy_corr_img = eddycorr.eddy_correct_fsl(input_dwi   = dwi_image,
-                                                      output_base = eddy_corr_base)
-                                                      
+                                                      output_base = output_base)
+
+            print('Running EDDY')
             eddycorrected_img = eddycorr.eddy_fsl(input_dwi                  = eddy_corr_img,
                                                   output_base                = output_base,
                                                   topup_base                 = topup_base,
@@ -90,19 +92,18 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
                                                   fsl_eddy_options           = fsl_eddy_options,
                                                   mporder                    = mporder,
                                                   nthreads                   = nthreads)
-            
+
         else:
             print('Incorrect Eddy method, exiting')
             exit(-1)
-            
+
 
     return eddycorrected_img
 
 
 
-def perform_outlier_detection(dwi_image, method, percent_threshold, verbose=False):
+def perform_outlier_detection(dwi_image, working_dir, method, percent_threshold=0.1, manual_report_dir=None, verbose=False):
 
-    working_dir     = os.path.dirname(dwi_image._get_filename())
     parsed_filename = parse_file_entities(dwi_image._get_filename())
 
     entities = {
@@ -117,6 +118,10 @@ def perform_outlier_detection(dwi_image, method, percent_threshold, verbose=Fals
     outputbase_patterns = working_dir + '/sub-{subject}[_ses-{session}]'
 
     output_base = writing.build_path(entities, outputbase_patterns)
+
+    output_dir = os.path.dirname(output_base)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     outlier_file = writing.build_path(entities, filename_patterns)
     entities['extension'] = '.bvec'
@@ -142,5 +147,6 @@ def perform_outlier_detection(dwi_image, method, percent_threshold, verbose=Fals
                                                           output_base             = output_base,
                                                           method                  = method,
                                                           percent_threshold       = percent_threshold,
-                                                          output_removed_imgs_dir = working_dir + '/outlier-removed-images/')
+                                                          manual_report_dir       = manual_report_dir,
+                                                          output_removed_imgs_dir = working_dir)
     return outlier_removed_img

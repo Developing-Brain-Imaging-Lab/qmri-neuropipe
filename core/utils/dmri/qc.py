@@ -23,7 +23,8 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
                       bvals      = output_base + '_dwi.bval',
                       bvecs      = output_base + '_dwi.bvec',
                       index      = output_base + '_desc-Index_dwi.txt',
-                      acqparams  = output_base + '_desc-Acqparams_dwi.txt')
+                      acqparams  = output_base + '_desc-Acqparams_dwi.txt',
+                      json       = output_base + '_dwi.json')
 
     #First, get the size of the images
     dwi_pepolar0 = nib.load(DWI_pepolar0._get_filename())
@@ -71,6 +72,7 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
     np.savetxt(DWI_out._get_acqparams(), acqparams, delimiter = ' ', fmt='%s')
     np.savetxt(DWI_out._get_bvals(), bvals, fmt='%i', newline=' ')
     np.savetxt(DWI_out._get_bvecs(), bvecs.transpose(), fmt='%.8f')
+    shutil.copy2(DWI_pepolar0._get_json(), DWI_out._get_json())
 
     return DWI_out
 
@@ -108,7 +110,7 @@ def check_gradient_directions(input_dwi, nthreads=1):
     tmp_bvals = dir+'/tmp_bvals.bval'
     tmp_bvecs = dir+'/tmp_bvecs.bvec'
 
-    mask.mask_image(input_dwi, tmp_mask, method='bet')
+    mask.mask_image(input_dwi, tmp_mask, method='bet', bet_options='-f 0.25',)
     subprocess.run(['dwigradcheck',
                     '-force',
                     '-quiet',
@@ -117,8 +119,9 @@ def check_gradient_directions(input_dwi, nthreads=1):
                     '-export_grad_fsl',tmp_bvecs, tmp_bvals,
                     '-nthreads', str(nthreads), input_dwi._get_filename()], stderr=subprocess.STDOUT)
 
-    shutil.copy2(tmp_bvals, input_dwi._get_bvals())
-    shutil.copy2(tmp_bvecs, input_dwi._get_bvecs())
+    bvals,bvecs=read_bvals_bvecs(tmp_bvals,tmp_bvecs)
+    np.savetxt(input_dwi._get_bvals(), bvals, fmt='%i', newline=' ')
+    np.savetxt(input_dwi._get_bvecs(), np.transpose(bvecs), fmt='%.5f')
 
     os.system('rm -rf ' + tmp_mask._get_filename() + ' ' + tmp_bvals + ' ' + tmp_bvecs)
 
@@ -141,7 +144,7 @@ def check_gradient_directions(input_dwi, nthreads=1):
 #    np.savetxt(output_bvecs, newbvecs, fmt='%.5f')
 
 
-def rotate_bvecs(input_img, ref_img, output_bvec, transform, linreg_method, nthreads=1):
+def rotate_bvecs(input_img, ref_img, output_bvec, transform, nthreads=1):
 
     output_dir = os.path.dirname(output_bvec)
 
@@ -232,21 +235,26 @@ def create_index_acqparam_files(input_dwi, output_base):
 def create_slspec_file(input_dwi, output_base):
 
     from scipy.stats import rankdata
+    slspec_file = output_base+'_desc-Slspec_dwi.txt'
 
     with open(input_dwi._get_json()) as f:
         dwi_json = json.load(f)
 
-    try:
-        slspec = rankdata(dwi_json["SliceTiming"])-1.00
-    except KeyError:
-        print('WARNING: Creating default Slice Timing file...Please check to ensure correct')
-        img = nib.load(input_dwi._get_filename())
-        even = np.arange(0, img.shape[2], 2)
-        odd  = np.arange(1, img.shape[2], 2)
-        slspec = np.concatenate((even, odd), axis=0)
+        try:
+            slice_times       = dwi_json["SliceTiming"]
+            sorted_slicetimes = np.sort(slice_times)
+            sorted_indices    = np.argsort(slice_times)
+            mb                = int(len(sorted_slicetimes)/(np.sum(np.diff(sorted_slicetimes)!=0)+1));
+            slspec            = np.reshape(sorted_indices,[int(len(sorted_indices)/mb), mb]);
 
-    slspec_file = output_base+'_desc-Slspec_dwi.txt'
-    np.savetxt(slspec_file, slspec, fmt='%i')
+        except KeyError:
+            print('WARNING: Creating default Slice Timing file...Please check to ensure correct')
+            img = nib.load(input_dwi._get_filename())
+            even = np.arange(0, img.shape[2], 2)
+            odd  = np.arange(1, img.shape[2], 2)
+            slspec = np.concatenate((even, odd), axis=0)
+
+        np.savetxt(slspec_file, slspec, fmt='%s')
 
     return slspec_file
 
@@ -277,16 +285,14 @@ def create_slspec_file(input_dwi, output_base):
 #     png_viewer.cleanupURL()
 #     os.system('mv ~/Downloads/Unknown* ' + output_file)
 #     shutil.rmtree(manual_corr_dir)
-#
-def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_img=None, method='Threshold', percent_threshold=0.1, input_topup_field=None):
+
+def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_img=None, method='Threshold', percent_threshold=0.1, input_topup_field=None, manual_report_dir=None):
 
     output_img = copy.deepcopy(input_dwi)
     output_img._set_filename(output_base + '_desc-OutlierRemoved_dwi.nii.gz' )
     output_img._set_bvals(output_base + '_desc-OutlierRemoved_dwi.bval')
     output_img._set_bvecs(output_base + '_desc-OutlierRemoved_dwi.bvec')
     output_img._set_index(output_base + '_desc-OutlierRemoved-Index_dwi.txt')
-
-    eddy_output_basename = input_dwi._get_filename().split('.')[0]
 
     #Now, correct the DWI data
     dwi_img         = nib.load(input_dwi._get_filename())
@@ -297,59 +303,60 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
     qform           = dwi_img.get_qform()
     dwi_data        = dwi_img.get_data()
 
-    if mask_img==None:
-        mask_img = Image(file = os.path.dirname(output_base) + '/mask.nii.gz')
-        mask.mask_image(input_dwi, mask_img, method='bet')
+    numberOfVolumes = dwi_img.shape[3]
 
-    input_report_file = eddy_output_basename+'.eddy_outlier_map'
+    if method == 'Manual':
+        #Read the manual report
+        imgs_to_remove = np.fromfile(manual_report_dir+'/imgs_to_remove.txt', sep=' ')
+        vols_to_remove = []
+        for img in imgs_to_remove:
+            vols_to_remove.append(int(img))
 
-    report_data = np.loadtxt(input_report_file, skiprows=1) #Skip the first row in the file as it contains text information
-    numberOfVolumes = report_data.shape[0]
+        vols_to_keep = np.delete(np.arange(numberOfVolumes),vols_to_remove).flatten()
 
-    if method == 'Threshold':
-        numberOfSlices = report_data.shape[1] #Calculate the number of slices per volume
+    else:
 
-        #Calculate the threshold at which we will deem acceptable/unacceptable.
-        threshold=np.round(float(percent_threshold)*numberOfSlices)
-        sum_data = np.sum(report_data, axis=1);
-        badVols = sum_data>=threshold
-        goodVols=sum_data<threshold
-        vols_to_remove = np.asarray(np.where(badVols)).flatten()
-        vols_to_keep = np.asarray(np.where(goodVols)).flatten()
+        eddy_output_basename = input_dwi._get_filename().split('.')[0]
+        input_report_file = eddy_output_basename+'.eddy_outlier_map'
 
-    elif method == 'Manual':
-        if len(imgs_to_remove) != 0 and imgs_to_remove[0] != '""':
-            vols_to_remove = []
+        report_data = np.loadtxt(input_report_file, skiprows=1) #Skip the first row in the file as it contains text information
 
-            for img in report_data:
-                img_to_remove = img.split('.')[0][1:]
-                vols_to_remove.append(int(img_to_remove.split('_')[1]))
+        if method == 'Threshold':
+            numberOfSlices = report_data.shape[1] #Calculate the number of slices per volume
 
-            vols_to_remove = vols_to_remove.flatten()
-            vols_to_keep = np.delete(np.arange(numberOfVolumes),vols_to_remove).flatten()
+            #Calculate the threshold at which we will deem acceptable/unacceptable.
+            threshold=np.round(float(percent_threshold)*numberOfSlices)
+            sum_data = np.sum(report_data, axis=1);
+            badVols = sum_data>=threshold
+            goodVols=sum_data<threshold
+            vols_to_remove = np.asarray(np.where(badVols)).flatten()
+            vols_to_keep = np.asarray(np.where(goodVols)).flatten()
 
-    elif method == 'EDDY-QUAD':
+        elif method == 'EDDY-QUAD':
+            if os.path.exists(output_removed_imgs_dir+'/eddy-qc/'):
+                os.system('rm -rf ' + output_removed_imgs_dir+'/eddy-qc/')
 
-        if os.path.exists(output_removed_imgs_dir):
-            os.system('rm -rf ' + output_removed_imgs_dir)
+            if mask_img==None:
+                mask_img = Image(file = os.path.dirname(output_base) + '/mask.nii.gz')
+                mask.mask_image(input_dwi, mask_img, method='bet')
 
-        eddy_quad_cmd = 'eddy_quad ' + eddy_output_basename \
-                        + ' -idx ' + input_dwi._get_index() \
-                        + ' -par ' + input_dwi._get_acqparams() \
-                        + ' -m '   + mask_img._get_filename() \
-                        + ' -b '   + input_dwi._get_bvals() \
-                        + ' -g '   + input_dwi._get_bvecs() \
-                        + ' -s '   + input_dwi._get_slspec() \
-                        + ' -o '   + output_removed_imgs_dir
+            eddy_quad_cmd = 'eddy_quad ' + eddy_output_basename \
+                            + ' -idx ' + input_dwi._get_index() \
+                            + ' -par ' + input_dwi._get_acqparams() \
+                            + ' -m '   + mask_img._get_filename() \
+                            + ' -b '   + input_dwi._get_bvals() \
+                            + ' -g '   + input_dwi._get_bvecs() \
+                            + ' -o '   + output_removed_imgs_dir + '/eddy-qc/'
 
-        if input_topup_field != None:
-            eddy_quad_cmd += ' -f ' + input_topup_field
+            if input_topup_field != None:
+                eddy_quad_cmd += ' -f ' + input_topup_field
 
-        os.system(eddy_quad_cmd)
-        vols_to_keep = np.loadtxt(output_removed_imgs_dir+'/vols_no_outliers.txt')
-        vols_to_remove = sorted(list(set(range(0, numberOfVolumes)) - set(vols_to_keep)))
+            os.system(eddy_quad_cmd)
+            vols_to_keep = np.loadtxt(output_removed_imgs_dir+'/eddy-qc/vols_no_outliers.txt')
+            vols_to_remove = sorted(list(set(range(0, numberOfVolumes)) - set(vols_to_keep)))
 
-    data_to_keep= np.delete(dwi_data, vols_to_remove, 3)
+    #Remove the DWIs, Bvals, Bvecs from the files
+    data_to_keep  = np.delete(dwi_data, vols_to_remove, 3)
     bvals_to_keep = np.delete(bvals, vols_to_remove)
     bvecs_to_keep = np.delete(bvecs, vols_to_remove, 0)
     index_to_keep = np.delete(index, vols_to_remove)
@@ -358,7 +365,6 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
     bvals_to_remove = bvals[vols_to_remove,]
 
     ##Write the bvals, bvecs, index, and corrected image data
-
     np.savetxt(output_img._get_index(), index_to_keep, fmt='%i')
     np.savetxt(output_img._get_bvals(), bvals_to_keep, fmt='%i')
     np.savetxt(output_img._get_bvecs(), np.transpose(bvecs_to_keep), fmt='%.5f')

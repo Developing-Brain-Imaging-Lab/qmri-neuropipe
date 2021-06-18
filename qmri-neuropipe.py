@@ -25,6 +25,11 @@ parser.add_argument('--dwi_proc_pipeline',
                     help='Process Diffusion Imaging Data',
                     default=False)
 
+parser.add_argument('--segmentation_pipeline',
+                    type=bool,
+                    help='Run Structural Segmentation',
+                    default=False)
+
 parser.add_argument('--verbose',
                     type=bool,
                     help='Print out information meassages and progress status',
@@ -45,7 +50,6 @@ if args.load_json:
 ##### PROCESSING STARTS HERE #####
 ##################################
 ##################################
-
 
 if args.anat_preproc_pipeline:
     anat_pipeline = AnatomicalPrepPipeline()

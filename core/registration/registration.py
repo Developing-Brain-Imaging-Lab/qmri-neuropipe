@@ -146,7 +146,7 @@ def nonlinear_reg(input_img, reference_img, output_base, nthreads=1, method='ANT
         else:
             cmd = 'antsRegistrationSyNQuick.sh'
 
-        cmd += '-d 3 -j ' + str(nthreads) + ' -o ' + output_base
+        cmd += ' -d 3 -n ' + str(nthreads) + ' -o ' + output_base
 
         if type(input_img) is list:
             for i in range(0,len(input_img)):
@@ -168,11 +168,11 @@ def nonlinear_phase_encode_restricted_reg(input_img, reference_img, output_base,
 
     os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = str(nthreads)
     cmd = 'antsRegistration -d 3 -o ' + output_base \
-        + '  --convergence [150x75x50x25,1e-4,5] -t SyN[0.3,15,0] -f 8x4x2x1 -s 4x2x1x0mm -z 1 -u 1 -g ' + ants_phase_encode_dir
+        + '  --convergence [150x75x50x25,1e-4,5] -t SyN[0.5,3,0] -f 8x4x2x1 -s 4x2x1x0mm -z 1 -u 1 -g ' + ants_phase_encode_dir
 
     if type(input_img) is list:
         for i in range(0, len(input_img)):
-            cmd += ' --metric MI['+reference_img[i]._get_filename()+','+input_img[i]._get_filename()+',.8,64,Regular,0.25]'
+            cmd += ' --metric CC['+reference_img[i]._get_filename()+','+input_img[i]._get_filename()+',.8,5,Regular,0.25]'
 
 
     os.system(cmd)

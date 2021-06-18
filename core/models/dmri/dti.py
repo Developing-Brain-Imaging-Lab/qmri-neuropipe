@@ -4,8 +4,7 @@ import numpy as np
 import nibabel as nib
 import dipy.reconst.dti as dti
 
-import dipy.denoise.noise_estimate as ne
-
+from dipy.denoise.noise_estimate import estimate_sigma
 from dipy.core.gradients import gradient_table
 from dipy.io import read_bvals_bvecs, reorient_vectors
 from dipy.io.image import load_nifti, save_nifti
@@ -93,7 +92,7 @@ class DTI_Model():
             data = ras_img.get_data()
 
             bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
-            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
+            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'LAS',axis=1)
 
             if self._inputs['mask'] != None:
                 mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask']._get_filename())).get_data()
@@ -107,10 +106,10 @@ class DTI_Model():
             ii = np.where(np.array(bvals) == bvals.min())[0]
             b0_average = np.mean(data[:,:,:,ii], axis=3)
 
-            gtab = gradient_table(bvals, bvecs)
+            gtab = gradient_table(bvals, bvecs, atol=0.05)
 
             if self._inputs['fit_type'] == 'dipy-RESTORE':
-                sigma = ne.estimate_sigma(data)
+                sigma = estimate_sigma(data)
                 dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
 
                 if self._inputs['mask']  != None:

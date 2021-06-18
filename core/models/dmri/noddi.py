@@ -117,9 +117,6 @@ class NODDI_Model():
             ae.set_model('NODDI')
             ae.CONFIG['solver_params']['numThreads'] = int(self._inputs['nthreads'])
 
-            if kernel_dir != '':
-                shutil.copytree(kernel_dir, output_dir+'/kernels/')
-
             ae.generate_kernels()
             ae.load_kernels()
             ae.fit()
