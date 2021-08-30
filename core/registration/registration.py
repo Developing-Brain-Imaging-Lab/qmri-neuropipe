@@ -133,7 +133,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
     os.system(cmd)
 
 
-def nonlinear_reg(input_img, reference_img, output_base, nthreads=1, method='ANTS', ants_options=None):
+def nonlinear_reg(input_img, reference_img, reference_mask, output_base, nthreads=1, method='ANTS', ants_options=None):
 
     cmd = ''
 
@@ -155,6 +155,8 @@ def nonlinear_reg(input_img, reference_img, output_base, nthreads=1, method='ANT
         else:
                 cmd += ' -m ' + input_img._get_filename() \
                     +  ' -f ' + reference_img._get_filename()
+
+        cmd += ' -x ' + reference_mask._get_filename()
 
         if ants_options != None:
             cmd += ' ' + ants_options

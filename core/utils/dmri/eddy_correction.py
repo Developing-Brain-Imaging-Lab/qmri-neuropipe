@@ -6,7 +6,7 @@ import core.utils.mask as mask
 
 if sys.platform == 'linux':
     eddy='eddy_openmp'
-    eddy_cuda='eddy_cuda11.1'
+    eddy_cuda='eddy_cuda10.2'
 else:
     eddy='eddy'
 
@@ -51,7 +51,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
 
     if mask_img == None:
         mask_img = Image(file = output_dir + '/mask.nii.gz')
-        mask.mask_image(input_dwi, mask_img, method='bet')
+        mask.mask_image(input_dwi, mask_img, method='bet', bet_options='-f 0.1')
 
     exe = ''
     if cuda:

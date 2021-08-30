@@ -70,13 +70,13 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                             output_mask     = mask_img,
                             output_img      = dwi_masked,
                             method          = 'bet',
-                            bet_options     = '-f 0.4')
+                            bet_options     = '-f 0.25')
 
             mask.mask_image(input_img       = mean_b0,
                             output_mask     = mask_img,
                             output_img      = b0_masked,
                             method          = 'bet',
-                            bet_options     = '-f 0.4')
+                            bet_options     = '-f 0.25')
 
             if T1_image != None:
                 ref_img.append(T1_image)
@@ -133,7 +133,6 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                 #Convert the ants transform to ITK
                 os.system('ConvertTransformFile 3 ' +  ants_transform+'0GenericAffine.mat ' +  itk_transform)
 
-            print(transform)
             reg_tools.apply_transform(input_img     = dwi_image,
                                       reference_img = ref_img[0],
                                       output_file   = coreg_img._get_filename(),

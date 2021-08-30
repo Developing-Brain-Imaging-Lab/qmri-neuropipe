@@ -10,7 +10,7 @@ import core.registration.registration as reg_tools
 import core.workflows.dmri.eddy_corr as eddy_proc
 import core.workflows.dmri.distort_corr as distort_proc
 
-def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_dir='anat', bids_t2w_dir='anat', t1w_reorient_img=None,t2w_reorient_img=None, mp2rage=False, nthreads=1, verbose=False):
+def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_dir='anat', bids_t2w_dir='anat', t1w_reorient_img=None, t2w_reorient_img=None, t1w_type='t1w', nthreads=1, verbose=False):
 
     #Setup raw data paths
     bids_t1w_rawdata_dir         = os.path.join(bids_rawdata_dir, bids_t1w_dir,'')
@@ -20,11 +20,10 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     bids_t2w_derivative_dir      = os.path.join(bids_derivative_dir, bids_t2w_dir,'')
 
     raw_t1w = Image(file = bids_t1w_rawdata_dir + bids_id + '_T1w.nii.gz',
-                json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
+                    json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
 
-    if mp2rage:
+    if t1w_type == 'mp2rage':
         raw_t1w._set_filename(bids_t1w_rawdata_dir + bids_id + '_inv-2_part-mag_MPRAGE.nii.gz')
-
 
     raw_t2w = Image(file = bids_t2w_rawdata_dir + bids_id + '_T2w.nii.gz',
                 json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
@@ -41,10 +40,8 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
         t2w = None
     elif not raw_t1w.exists():
         t1w = None
-
         if not os.path.exists(bids_t2w_derivative_dir):
             os.makedirs(bids_t2w_derivative_dir)
-
         if not t2w.exists():
             if verbose:
                 print('Reorienting T2w image to standard')
@@ -102,10 +99,13 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  flirt_options =  ' -cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
             t2w = coreg_t2
 
+    if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
+        os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
+
     return t1w, t2w
 
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', resample_resolution=None, remove_last_vol=False, topup_config=None, outlier_detection=None, nthreads=1, verbose=False ):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, topup_config=None, outlier_detection=None, nthreads=1, verbose=False ):
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, bids_dwi_dir,'')
@@ -183,8 +183,10 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
     dmri_qc.check_bvals_bvecs(input_dwi   = dwi_img,
                               output_base = preprocess_dir + bids_id)
 
-    dmri_qc.check_gradient_directions(input_dwi   = dwi_img,
-                                      nthreads    = nthreads)
+
+    if check_gradients:
+        dmri_qc.check_gradient_directions(input_dwi   = dwi_img,
+                                          nthreads    = nthreads)
 
     index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt'
     acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt'

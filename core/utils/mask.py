@@ -26,6 +26,20 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
         os.system('bet ' + tmp_img._get_filename() + ' ' + output_mask._get_filename() + ' ' + bet_options)
         output_mask = img_tools.binarize(output_mask)
+        output_mask = img_tools.fill_holes(output_mask)
+
+    elif method == 'hd-bet':
+        os.environ['MKL_THREADING_LAYER'] = 'GNU'
+        
+        if type(input_img) is list:
+            input_img = input_img[0]
+
+        tmp_mask = output_root + '/temp_mask'
+        tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
+
+        print('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
+        os.system('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
+        os.rename(tmp_mask+'_mask.nii.gz', output_mask._get_filename())
 
     elif method == 'dipy':
 
@@ -83,25 +97,32 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         ants_output = output_root + '/ants_'
 
         tmp_img = img_tools.calculate_mean_img(input_img,tmp_img._get_filename())
+        cmd = 'antsBrainExtraction.sh -d 3 -a ' + tmp_img._get_filename() \
+            + ' -e ' + ref_img._get_filename() \
+            + ' -m ' + ref_mask._get_filename() \
+            + ' -o ' + ants_output \
+            + ' -u 0'
+        os.system(cmd)
 
-        mov_image       = ants.image_read(tmp_img._get_filename())
-        fixed_image     = ants.image_read(ref_img._get_filename())
-        fixed_mask      = ants.image_read(ref_mask._get_filename())
+        # mov_image       = ants.image_read(tmp_img._get_filename())
+        # fixed_image     = ants.image_read(ref_img._get_filename())
+        # fixed_mask      = ants.image_read(ref_mask._get_filename())
+        #
+        # mov2fixed = ants.registration(moving               = mov_image,
+        #                               fixed                = fixed_image,
+        #                               type_of_transform    = 'SyNRA',
+        #                               reg_iterations       = [1000,800,500,400,300,250] )
+        #
+        # warped_mask = ants.apply_transforms(fixed           = mov_image,
+        #                                     moving          = fixed_mask,
+        #                                     transformlist   = mov2fixed['invtransforms'],
+        #                                     interpolator    = 'linear',
+        #                                     whichtoinvert   = [True,False] )
+        #
+        # warped_mask_thresh = ants.threshold_image(warped_mask, ants_lower_threshold, 1, 1, 0)
+        #ants.image_write(warped_mask_thresh, output_mask._get_filename())
 
-        mov2fixed = ants.registration(moving               = mov_image,
-                                      fixed                = fixed_image,
-                                      type_of_transform    = 'SyNRA',
-                                      reg_iterations       = [1000,800,500,400,300,250] )
-
-        warped_mask = ants.apply_transforms(fixed           = mov_image,
-                                            moving          = fixed_mask,
-                                            transformlist   = mov2fixed['invtransforms'],
-                                            interpolator    = 'linear',
-                                            whichtoinvert   = [True,False] )
-
-        warped_mask_thresh = ants.threshold_image(warped_mask, ants_lower_threshold, 1, 1, 0)
-        ants.image_write(warped_mask_thresh, output_mask._get_filename())
-
+        os.rename(ants_output+'BrainExtractionMask.nii.gz', output_mask._get_filename())
         os.system('rm -rf ' + output_root + '/ants*')
 
     elif method == 'antspynet':

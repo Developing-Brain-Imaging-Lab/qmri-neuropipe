@@ -1,5 +1,6 @@
 import os,sys, shutil, json, argparse, copy
 import nibabel as nib
+import numpy as np
 
 from bids.layout import writing
 from core.utils.io import Image, DWImage
@@ -89,7 +90,7 @@ class DiffusionProcessingPipeline:
                             help='Preprocess the Anataomical Imaging Data',
                             default=False)
 
-        parser.add_argument('--cleanup_dwi_preproc',
+        parser.add_argument('--dwi_cleanup',
                             type=bool,
                             help='Clean up the Preprocessing Subdirectories',
                             default=False)
@@ -102,6 +103,11 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--data_shelled',
                             type=bool,
                             help='Multiple Shell Diffusion Data',
+                            default=False)
+
+        parser.add_argument('--dwi_check_gradients',
+                            type=bool,
+                            help='Check DWI Gradient Directions',
                             default=False)
 
         parser.add_argument('--dwi_mask_method',
@@ -208,6 +214,21 @@ class DiffusionProcessingPipeline:
                             help = 'Coregister Diffusion MRI to Structural MRI',
                             default = False)
 
+        parser.add_argument('--coregister_to_anat_method',
+                            type = str,
+                            help = 'Linear Registration for DWI to Anat',
+                            default = 'linear')
+
+        parser.add_argument('--coregister_to_anat_linear_method',
+                            type = str,
+                            help = 'Linear Registration for DWI to Anat',
+                            default = 'FSL')
+
+        parser.add_argument('--coregister_to_anat_nonlinear_method',
+                            type = str,
+                            help = 'Linear Registration for DWI to Anat',
+                            default = 'ANTS')
+
         parser.add_argument('--resample_resolution',
                             type=int,
                             nargs='+',
@@ -220,10 +241,20 @@ class DiffusionProcessingPipeline:
                             choices=['dipy-OLS', 'dipy-WLS', 'dipy-NLLS', 'dipy-RESTORE', 'mrtrix', 'camino-RESTORE', 'camino-WLS', 'camino-NLLS', 'camino-OLS'],
                             default=None)
 
+        parser.add_argument('--dti_bmax',
+                            type=float,
+                            help='Maximum B-value to use for DTI fitting',
+                            default=None)
+
+        parser.add_argument('--dti_full_output',
+                            type=bool,
+                            help='Output Additional DTI Parameters and Fit Residuals (more memory)',
+                            default=False)
+
         parser.add_argument('--noddi_fit_method',
                             type=str,
                             help='Fitting Algorithm for Neurite Orietation Dispersion and Density Imaging Model',
-                            choices=['AMICO', 'NODDI-WATSON', 'NODDI-BINGHAM'],
+                            choices=['amico', 'noddi-watson', 'noddi-bingham'],
                             default=None)
 
         parser.add_argument('--noddi_dpar',
@@ -336,6 +367,7 @@ class DiffusionProcessingPipeline:
                                                                  remove_last_vol        = args.remove_last_vol,
                                                                  topup_config           = args.topup_config,
                                                                  outlier_detection      = args.outlier_detection,
+                                                                 check_gradients        = args.dwi_check_gradients,
                                                                  verbose                = args.verbose)
 
             denoised_img = img_proc.denoise_degibbs(img             = rawdata_img,
@@ -402,10 +434,10 @@ class DiffusionProcessingPipeline:
                                                         coreg_to_anat       = args.coregister_to_anat,
                                                         T1_image            = t1w,
                                                         T2_image            = t2w,
-                                                        reg_method          = 'linear',
-                                                        linreg_method       = 'ANTS',
-                                                        nonlinreg_method    = 'ANTS',
-                                                        dof                 = 12,
+                                                        reg_method          = args.coregister_to_anat_method,
+                                                        linreg_method       = args.coregister_to_anat_linear_method,
+                                                        nonlinreg_method    = args.coregister_to_anat_nonlinear_method,
+                                                        dof                 = 6,
                                                         nthreads            = args.nthreads,
                                                         verbose             = args.verbose)
 
@@ -430,34 +462,47 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Creating Preprocessed DWI')
 
-                final_dwi.copy_image(coreg_img)
+                final_dwi.copy_image(coreg_img, datatype=np.float32)
 
-            if args.cleanup_dwi_preproc:
-                if args.verbose:
-                    print('Cleaning up DWI Preprocessing Files')
 
-                dirs_to_cleanup = []
-                dirs_to_cleanup.append('rawdata')
-                dirs_to_cleanup.append('anatomical-distortion-correction')
-                dirs_to_cleanup.append('fieldmap-distortion-correction')
-                dirs_to_cleanup.append('biasfield-correction')
-                dirs_to_cleanup.append('denoise-degibbs')
-                dirs_to_cleanup.append('eddy-correction')
-                dirs_to_cleanup.append('topup')
-                dirs_to_cleanup.append('coregister-to-anatomy')
 
-                files_to_cleanup = []
-                files_to_cleanup.append(bids_id + '_desc-Acqparams_dwi.txt')
-                files_to_cleanup.append(bids_id + '_desc-Slspec_dwi.txt')
-                files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
+        if args.dwi_cleanup:
+            if args.verbose:
+                print('Cleaning up DWI Preprocessing Files')
 
-                for dir in dirs_to_cleanup:
-                    if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
-                        shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
+            dirs_to_cleanup = []
+            dirs_to_cleanup.append('rawdata')
+            dirs_to_cleanup.append('anatomical-distortion-correction')
+            dirs_to_cleanup.append('fieldmap-distortion-correction')
+            dirs_to_cleanup.append('biasfield-correction')
+            dirs_to_cleanup.append('denoise-degibbs')
+            dirs_to_cleanup.append('eddy-correction')
+            dirs_to_cleanup.append('topup')
+            dirs_to_cleanup.append('coregister-to-anatomy')
 
-                for file in files_to_cleanup:
-                    if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
-                        os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
+            files_to_cleanup = []
+            files_to_cleanup.append(bids_id + '_desc-Acqparams_dwi.txt')
+            files_to_cleanup.append(bids_id + '_desc-Slspec_dwi.txt')
+            files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
+
+            outlier_files_to_cleanup = []
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bval')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bvec')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.nii.gz')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
+
+            for dir in dirs_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
+                    shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
+
+            for file in files_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
+                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
+
+            for file in outlier_files_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
+                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
+
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
 
@@ -469,10 +514,12 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting DTI model with ' + args.dti_fit_method + '...')
 
-                dti_model = DTI_Model(dwi_img   = final_dwi,
-                                      out_base  = models_dir + 'DTI/' + bids_id,
-                                      fit_type  = args.dti_fit_method,
-                                      mask      = dwi_mask)
+                dti_model = DTI_Model(dwi_img       = final_dwi,
+                                      out_base      = models_dir + 'DTI/' + bids_id,
+                                      fit_type      = args.dti_fit_method,
+                                      mask          = dwi_mask,
+                                      bmax          = args.dti_bmax,
+                                      full_output   = args.dti_full_output)
                 dti_model.fit()
 
         ####FWE MODELING ###

@@ -54,7 +54,8 @@ def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output
     if mask_img==None:
         output_root, tmp    = os.path.split(output_file)
         mask_img            = Image(output_root + '/mask.nii.gz')
-        mask_image(input_img, mask_img, method='bet', bet_options='-f 0.25', nthreads = nthreads)
+        img_tools.calculate_mean_img(input_img, mask_img._get_filename())
+        #mask_image(input_img, mask_img, method='bet', bet_options='-f 0.05', nthreads = nthreads)
     else:
         output_root, tmp = os.path.split(mask_img._get_filename())
 

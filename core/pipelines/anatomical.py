@@ -8,6 +8,8 @@ import core.utils.mask as mask
 import core.workflows.prep_rawdata as raw_proc
 import core.workflows.denoise_degibbs as img_proc
 
+import core.workflows.anat.preprocess as anat_proc
+
 
 class AnatomicalPrepPipeline:
 
@@ -67,6 +69,11 @@ class AnatomicalPrepPipeline:
                             help='CUDA Device Number',
                             default=0)
 
+        parser.add_argument('--anat_cleanup',
+                    type=bool,
+                    help='Cleanup Anatomical Image Files',
+                    default=False)
+
         parser.add_argument('--anat_t1w_reorient_img',
                             type=str,
                             help='Image to use to reorient/correct header direction for T1w images',
@@ -77,10 +84,11 @@ class AnatomicalPrepPipeline:
                             help='Image to use to reorient/correct header direction for T2w images',
                             default=None)
 
-        parser.add_argument('--anat_mp2rage',
-                            type=bool,
-                            help='MP2RAGE Acquisition',
-                            default=False)
+        parser.add_argument('--anat_t1w_type',
+                            type=str,
+                            help='Type of T1w Acquisition',
+                            choices = ['t1w', 'mp2rage', 'mpnrage'],
+                            default='t1w')
 
         parser.add_argument('--anat_denoise_method',
                             type=str,
@@ -103,8 +111,8 @@ class AnatomicalPrepPipeline:
         parser.add_argument('--anat_mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['BET', 'MRTRIX', 'ANTS', 'ANTSPYNET'],
-                            default='BET')
+                            choices=['bet', 'mrtrix', 'ants', 'antspynet'],
+                            default='bet')
 
         parser.add_argument('--anat_ants_mask_template',
                             type=str,
@@ -151,6 +159,9 @@ class AnatomicalPrepPipeline:
         bids_rawdata_dir    = writing.build_path(entities, rawdata_patterns)
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
 
+        if not os.path.exists(bids_derivative_dir):
+            os.makedirs(bids_derivative_dir)
+
         if args.verbose:
             print('Running Anatomical Preparation Pipeline')
 
@@ -161,7 +172,7 @@ class AnatomicalPrepPipeline:
                                               bids_t2w_dir         = args.bids_t2w_dir,
                                               t1w_reorient_img     = args.anat_t1w_reorient_img,
                                               t2w_reorient_img     = args.anat_t2w_reorient_img,
-                                              mp2rage              = args.anat_mp2rage,
+                                              t1w_type             = args.anat_t1w_type,
                                               nthreads             = args.nthreads,
                                               verbose              = args.verbose)
 
@@ -234,6 +245,37 @@ class AnatomicalPrepPipeline:
                                                             method      = args.anat_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
+
+        if args.anat_t1w_type == 'mp2rage':
+            anat_proc.prepocess_mp2rage(bids_id             = bids_id,
+                                        bids_rawdata_dir    = bids_rawdata_dir,
+                                        bids_derivative_dir = bids_derivative_dir,
+                                        brain_mask          = brain_mask,
+                                        reorient_img        = args.anat_t1w_reorient_img,
+                                        cleanup_files       = args.anat_cleanup,
+                                        nthreads            = args.nthreads,
+                                        verbose             = args.verbose)
+
+
+        if args.anat_t1w_type == 'mpnrage':
+            anat_proc.prepocess_mpnrage(bids_id             = bids_id,
+                                        bids_rawdata_dir    = bids_rawdata_dir,
+                                        bids_derivative_dir = bids_derivative_dir,
+                                        brain_mask          = brain_mask,
+                                        reorient_img        = args.anat_t1w_reorient_img,
+                                        nthreads            = args.nthreads,
+                                        verbose             = args.verbose)
+
+        if args.anat_cleanup:
+            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz')
+            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz')
+
+            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz')
+            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
 
 
         return biascorr_t1w, biascorr_t2w, brain_mask

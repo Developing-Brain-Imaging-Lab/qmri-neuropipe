@@ -34,9 +34,16 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     b0_acqparams=acqparams[b0_indices-1]
 
     indices,jj = np.unique(b0_indices, return_index=True)
-    topup_data      = b0_data[:,:,:,np.asarray(jj).flatten()]
+    
+    topup_data = np.zeros([b0_data.shape[0], b0_data.shape[1], b0_data.shape[2], len(indices)])
+    for i in range(0,len(indices)):
+        tmp_indices = np.where(b0_indices == indices[i])
+        tmp_data = b0_data[:,:,:,np.asarray(tmp_indices).flatten()]
+        topup_data[:,:,:,i] = np.mean(tmp_data, axis=3)
+        
     topup_indices   = b0_indices[jj].astype(int)
     topup_acqparams = b0_acqparams[jj]
+    
 
     output_dir = os.path.dirname(output_topup_base)
     tmp_acqparams = output_dir + '/tmp.acqparams.txt'
@@ -45,7 +52,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     topup_imgs = nib.Nifti1Image(topup_data, aff, dwi_img.header)
     nib.save(topup_imgs, tmp_b0)
     np.savetxt(tmp_acqparams, topup_acqparams, fmt='%.8f')
-
+    
     topup_command = 'topup --imain='+ tmp_b0 \
                   + ' --datain=' + tmp_acqparams \
                   +' --out=' + output_topup_base

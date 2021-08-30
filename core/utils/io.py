@@ -1,5 +1,6 @@
 import string, os, sys, subprocess, shutil, time
 from glob import glob
+import nibabel as nib
 
 class Image:
     def __init__(self, file=None, json=None):
@@ -45,14 +46,21 @@ class DWImage(Image):
 
     def __copy__(self):
         return DWImage(self)
-        
-    def copy_image(self, dwi2copy):
-        shutil.copy2(dwi2copy._get_filename(), self._get_filename())
+
+    def copy_image(self, dwi2copy, datatype=False):
         shutil.copy2(dwi2copy._get_bvals(), self._get_bvals())
         shutil.copy2(dwi2copy._get_bvecs(), self._get_bvecs())
         shutil.copy2(dwi2copy._get_index(), self._get_index())
         shutil.copy2(dwi2copy._get_acqparams(), self._get_acqparams())
         shutil.copy2(dwi2copy._get_slspec(), self._get_slspec())
+
+        if datatype != False:
+            out_img = nib.load(dwi2copy._get_filename())
+            out_img.set_data_dtype(datatype)
+            out_img.to_filename(self._get_filename())
+        else:
+            shutil.copy2(dwi2copy._get_filename(), self._get_filename())
+
 
     def exists(self):
         try:

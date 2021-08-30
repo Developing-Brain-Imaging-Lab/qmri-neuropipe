@@ -4,6 +4,7 @@ from distutils.util import strtobool
 
 from core.pipelines.anatomical import AnatomicalPrepPipeline
 from core.pipelines.diffusion import DiffusionProcessingPipeline
+from core.pipelines.despot import DESPOTProcessingPipeline
 from core.pipelines.segmentation import SegmentationPipeline
 
 #import core.pipelines.diffusion as dwi_pipe
@@ -23,6 +24,11 @@ parser.add_argument('--anat_preproc_pipeline',
 parser.add_argument('--dwi_proc_pipeline',
                     type=bool,
                     help='Process Diffusion Imaging Data',
+                    default=False)
+
+parser.add_argument('--despot_proc_pipeline',
+                    type=bool,
+                    help='Process DESPOT Imaging Data',
                     default=False)
 
 parser.add_argument('--segmentation_pipeline',
@@ -58,6 +64,10 @@ if args.anat_preproc_pipeline:
 if args.dwi_proc_pipeline:
     dwi_pipeline = DiffusionProcessingPipeline()
     dwi_pipeline.run()
+
+if args.despot_proc_pipeline:
+    despot_pipeline = DESPOTProcessingPipeline()
+    despot_pipeline.run()
 
 if args.segmentation_pipeline:
     seg_pipeline = SegmentationPipeline()

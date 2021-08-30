@@ -46,7 +46,7 @@ from core.utils.io import Image, DWImage
 #    os.system('rm -rf ' + tmp_dir)
 
 class DTI_Model():
-    def __init__(self, dwi_img, out_base, fit_type='dipy-WLS', mask=None, bmax=None, nthreads=1):
+    def __init__(self, dwi_img, out_base, fit_type='dipy-WLS', mask=None, bmax=None, full_output=False, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_base']    = out_base
@@ -54,15 +54,15 @@ class DTI_Model():
         self._inputs['mask']        = mask
         self._inputs['bmax']        = bmax
         self._inputs['nthreads']    = nthreads
+        self._inputs['full_output'] = full_output
 
         self._outputs = {}
         self._outputs['fa']               = out_base + '_model-DTI_parameter-FA.nii.gz'
         self._outputs['md']               = out_base + '_model-DTI_parameter-MD.nii.gz'
         self._outputs['rd']               = out_base + '_model-DTI_parameter-RD.nii.gz'
         self._outputs['ad']               = out_base + '_model-DTI_parameter-AD.nii.gz'
-        self._outputs['ga']               = out_base + '_model-DTI_parameter-GA.nii.gz'
-        self._outputs['cfa']              = out_base + '_model-DTI_parameter-COLOR_FA.nii.gz'
-        self._outputs['tr']               = out_base + '_model-DTI_parameter-TRACE.nii.gz'
+        self._outputs['tensor-fsl']       = out_base + '_model-DTI_parameter-FSL_TENSOR.nii.gz'
+        self._outputs['tensor-mrtrix']    = out_base + '_model-DTI_parameter-MRTRIX_TENSOR.nii.gz'
         self._outputs['l1']               = out_base + '_model-DTI_parameter-L1.nii.gz'
         self._outputs['l2']               = out_base + '_model-DTI_parameter-L2.nii.gz'
         self._outputs['l3']               = out_base + '_model-DTI_parameter-L3.nii.gz'
@@ -70,12 +70,17 @@ class DTI_Model():
         self._outputs['v1']               = out_base + '_model-DTI_parameter-V1.nii.gz'
         self._outputs['v2']               = out_base + '_model-DTI_parameter-V2.nii.gz'
         self._outputs['v3']               = out_base + '_model-DTI_parameter-V3.nii.gz'
-        self._outputs['pl']               = out_base + '_model-DTI_parameter-PLANARITY.nii.gz'
-        self._outputs['sp']               = out_base + '_model-DTI_parameter-SPHERICITY.nii.gz'
-        self._outputs['mo']               = out_base + '_model-DTI_parameter-MODE.nii.gz'
-        self._outputs['res']              = out_base + '_model-DTI_parameter-RESIDUALS.nii.gz'
-        self._outputs['tensor-fsl']       = out_base + '_model-DTI_parameter-FSL_TENSOR.nii.gz'
-        self._outputs['tensor-mrtrix']    = out_base + '_model-DTI_parameter-MRTRIX_TENSOR.nii.gz'
+
+        self._full_outputs = {}
+        self._full_outputs['ga']          = out_base + '_model-DTI_parameter-GA.nii.gz'
+        self._full_outputs['cfa']         = out_base + '_model-DTI_parameter-COLOR_FA.nii.gz'
+        self._full_outputs['tr']          = out_base + '_model-DTI_parameter-TRACE.nii.gz'
+        self._full_outputs['pl']          = out_base + '_model-DTI_parameter-PLANARITY.nii.gz'
+        self._full_outputs['sp']          = out_base + '_model-DTI_parameter-SPHERICITY.nii.gz'
+        self._full_outputs['mo']          = out_base + '_model-DTI_parameter-MODE.nii.gz'
+        self._full_outputs['res']         = out_base + '_model-DTI_parameter-RESIDUALS.nii.gz'
+
+
 
     def fit(self):
 
@@ -92,7 +97,7 @@ class DTI_Model():
             data = ras_img.get_data()
 
             bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
-            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'LAS',axis=1)
+            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
                 mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask']._get_filename())).get_data()
@@ -189,13 +194,15 @@ class DTI_Model():
             save_nifti(self._outputs['md'], md, ras_img.affine, ras_img.header)
             save_nifti(self._outputs['rd'], rd, ras_img.affine, ras_img.header)
             save_nifti(self._outputs['ad'], ad, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['ga'], ga, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['tr'], trace, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
+
+            if self._inputs['full_output']:
+                save_nifti(self._full_outputs['ga'], ga, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['tr'], trace, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
+                save_nifti(self._full_outputs['res'], residuals, ras_img.affine, ras_img.header)
 
             orig_ornt   = nib.io_orientation(ras_img.affine)
             targ_ornt   = nib.io_orientation(img.affine)
@@ -207,6 +214,12 @@ class DTI_Model():
                 orig_img    = nib.load(self._outputs[key])
                 reoriented  = orig_img.as_reoriented(transform)
                 reoriented.to_filename(self._outputs[key])
+
+            if self._inputs['full_output']:
+                for key in self._full_outputs:
+                    orig_img    = nib.load(self._full_outputs[key])
+                    reoriented  = orig_img.as_reoriented(transform)
+                    reoriented.to_filename(self._full_outputs[key])
 
             #Correct FSL tensor for orientation
             dirs = []

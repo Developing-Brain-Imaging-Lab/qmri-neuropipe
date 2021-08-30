@@ -1,0 +1,27 @@
+universe = vanilla
+getenv = true
+executable = $(executable)
+
+periodicRemove =  (((CurrentTime - EnteredCurrentStatus) > (2*24*3600)) && JobStatus == 5)
+requirements = ( OpSys == "LINUX" && Arch == "X86_64" )
+request_cpus = 1
+request_memory = 100 Mb
+request_disk = 200 Mb
+periodic_release = (JobStatus == 5) && ((CurrentTime - EnteredCurrentStatus) > 30) && (NumSystemHolds < 10)
+match_list_length = 5
+requirements = (TARGET.Name =!= LastMatchName1)
+should_transfer_files = yes
+when_to_transfer_output = ON_EXIT
+
++WantFlocking = true
++WantGlideIn = true
+
+initialdir = $(initialDir)
+log = $(logFile)
+output = $(outFile)
+error = $(errFile)
+transfer_input_files = $(transferInputFiles)
+transfer_output_files = $(transferOutputFiles)
+arguments = $(args)
+queue
+

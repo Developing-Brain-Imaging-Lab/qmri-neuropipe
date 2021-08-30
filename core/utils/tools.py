@@ -14,16 +14,14 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
 
-    if mask_img == None:
-        mask_img = Image(file=os.path.dirname(output_file)+'/mask.nii.gz')
-        mask.mask_image(input_img, mask_img, method='bet', bet_options='-f 0.25')
-
     if method=='ants' or method=='fsl':
         command ='dwibiascorrect -' + method + ' ' \
                 + input_img._get_filename() + ' ' \
                 + output_img._get_filename() \
-                + ' -mask ' + mask_img._get_filename() \
                 + ' -force -quiet -nthreads ' + str(nthreads)
+
+        if mask_img != None:
+            command += ' -mask ' + mask_img._get_filename()
 
         if input_img._get_bvals() != None and input_img._get_bvecs() != None:
             command += ' -fslgrad ' + input_img._get_bvecs() + ' ' + input_img._get_bvals()
@@ -32,33 +30,46 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
 
     elif method=='N4':
         os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = str(nthreads)
+        command = 'N4BiasFieldCorrection -d 3 ' \
+                + '-i ' + input_img._get_filename() + ' ' \
+                + '-o ' + output_img._get_filename()
 
-        for i in range(0,iterations):
-            subprocess.run(['N4BiasFieldCorrection',
-                            '-d', '3',
-                            '-i', input_img._get_filename(),
-                            '-x', mask_img._get_filename(),
-                            '-o', output_img._get_filename()], stderr=subprocess.STDOUT)
+        if mask_img != None:
+            command += ' -x ' + mask_img._get_filename()
+
+        os.system(command)
+
+        for i in range(0, iterations -1):
+            command = 'N4BiasFieldCorrection -d 3 ' \
+                    + '-i ' + output_img._get_filename() + ' ' \
+                    + '-o ' + output_img._get_filename()
+
+            if mask_img != None:
+                command += ' -x ' + mask_img._get_filename()
+
+            os.system(command)
+
+
     else:
         print('Invalid Biasfield correction Method')
         print('Available options are: ants, fsl, N4')
         exit()
 
-    #Mask the final result
-    mask.apply_mask(input_img    = output_img,
-                    mask_img     = mask_img,
-                    output_img   = output_img._get_filename())
-
-    if os.path.exists(os.path.dirname(output_file)+'/mask.nii.gz'):
-       os.remove(os.path.dirname(output_file)+'/mask.nii.gz')
 
     return output_img
 
 def binarize(input_img):
     output_img = copy.deepcopy(input_img)
-    subprocess.run(['fslmaths', input_img._get_filename(), '-bin', input_img._get_filename()], stderr=subprocess.STDOUT)
+    subprocess.run(['fslmaths', input_img._get_filename(), '-bin', output_img._get_filename()], stderr=subprocess.STDOUT)
 
     return output_img
+
+def fill_holes(input_img):
+    output_img = copy.deepcopy(input_img)
+    subprocess.run(['fslmaths', input_img._get_filename(), '-fillh', output_img._get_filename()], stderr=subprocess.STDOUT)
+
+    return output_img
+
 
 def reorient_to_standard(input_img, output_file, reorient_img=None):
     output_img = copy.deepcopy(input_img)
@@ -67,7 +78,15 @@ def reorient_to_standard(input_img, output_file, reorient_img=None):
     subprocess.run(['fslreorient2std',input_img._get_filename(),output_file], stderr=subprocess.STDOUT)
 
     if reorient_img != None:
-        os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -dof 6')
+        output_dir  = os.path.dirname(output_file)
+        filename    = os.path.basename(output_file).split("_")
+
+        reorient_xfm = os.path.join(output_dir, filename[0]+'_'+filename[1]+'_desc-Reorient2Standard_dwi.xfm')
+
+        if os.path.exists(reorient_xfm):
+            os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -applyxfm -init ' + reorient_xfm + ' -dof 6')
+        else:
+            os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6')
 
     return output_img
 
@@ -178,39 +197,39 @@ def correct_header_orientation(img_path, new_x, new_y, new_z):
     if new_x == 'y':
         new_sform[0] = sform[1]
         new_qform[0] = qform[1]
-    if new_x == '-y':
+    if new_x == 'y-':
         new_sform[0] = -1.00*sform[1]
         new_qform[0] = -1.00*qform[1]
     if new_x == 'z':
         new_sform[0] = sform[2]
         new_qform[0] = qform[2]
-    if new_x == '-z':
+    if new_x == 'z-':
         new_sform[0] = -1.00*sform[2]
         new_qform[0] = -1.00*qform[2]
 
     if new_y == 'x':
         new_sform[1] = sform[0]
         new_qform[1] = qform[0]
-    if new_y == '-x':
+    if new_y == 'x-':
         new_sform[1] = -1.00*sform[0]
         new_qform[1] = -1.00*qform[0]
     if new_y == 'z':
         new_sform[1] = sform[2]
         new_qform[1] = qform[2]
-    if new_y == '-z':
+    if new_y == 'z-':
         new_sform[1] = -1.00*sform[2]
         new_qform[1] = -1.00*qform[2]
 
     if new_z == 'x':
         new_sform[2] = sform[0]
         new_qform[2] = qform[0]
-    if new_z == '-x':
+    if new_z == 'x-':
         new_sform[2] = -1.00*sform[0]
         new_qform[2] = -1.00*qform[0]
     if new_z == 'y':
         new_sform[2] = sform[1]
         new_qform[2] = qform[1]
-    if new_z == '-y':
+    if new_z == 'y-':
         new_sform[2] = -1.00*sform[1]
         new_qform[2] = -1.00*qform[1]
 
