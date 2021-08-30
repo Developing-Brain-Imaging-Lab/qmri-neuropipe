@@ -7,9 +7,7 @@ It has four different pipelines (anatomical, diffusion, mcdespot, segmentation).
 
 Currently the starting point is nifti files organized according to BIDS.
 
-```./qmri-neuropipe.py --load_json testing/dti-proc-config.json --subject 10021 --session 01```
-
-# Required software
+# Required software (basic installation)
 - FSL
 - MRtrix3
 - ANTS
@@ -22,7 +20,12 @@ Currently the starting point is nifti files organized according to BIDS.
 - HD-BET
 - TractSeg
 
-
+# Basic use cases
+## DTI
+```./qmri-neuropipe.py --load_json testing/dti-proc-config.json --subject 10021 --session 01```
+## NODDI
+## CSD
+## Connectomes
 
 # TODOs
 - help pages for each specific pipeline
