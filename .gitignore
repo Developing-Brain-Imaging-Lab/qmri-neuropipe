@@ -1,3 +1,4 @@
 #ignore colleen's file
 ._qmri-neuropipe_colleen.py
 qmri-neuropipe_colleen.py
+core/*/*cache*

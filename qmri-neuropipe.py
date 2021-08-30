@@ -1,4 +1,4 @@
-#!/home/dean/local/x86_64_sci7/anaconda3/bin/python
+#!/usr/bin/env python
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
