@@ -9,6 +9,20 @@ Currently the starting point is nifti files organized according to BIDS.
 
 ```./qmri-neuropipe.py --load_json testing/dti-proc-config.json --subject 10021 --session 01```
 
+# Required software
+- FSL
+- MRtrix3
+- ANTS
+- ANTSPyNET
+- Anaconda
+- DIPY
+- DMIPY
+- AMICO
+- AFNI
+- HD-BET
+- TractSeg
+
+
 
 # TODOs
 - help pages for each specific pipeline
