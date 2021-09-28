@@ -44,7 +44,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
                 print('Incorrect Method')
                 exit()
 
-def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
+def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, distortion_modality='t1w', linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
 
     if distortion_method != None:
 
@@ -81,14 +81,15 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
                 if verbose:
                     print('Performing Registration-Based Distortion Correction')
 
-                distcorr_img = distcorr.registration_method(input_dwi          = dwi_image,
-                                                            working_dir        = working_dir,
-                                                            T1_image           = t1w_image,
-                                                            T2_image           = t2w_image,
-                                                            linreg_method      = linreg_method,
-                                                            resample_to_anat   = resample_to_anat,
-                                                            nthreads           = nthreads,
-                                                            verbose            = verbose)
+                distcorr_img = distcorr.registration_method(input_dwi           = dwi_image,
+                                                            working_dir         = working_dir,
+                                                            distortion_modality = distortion_modality,
+                                                            T1_image            = t1w_image,
+                                                            T2_image            = t2w_image,
+                                                            linreg_method       = linreg_method,
+                                                            resample_to_anat    = resample_to_anat,
+                                                            nthreads            = nthreads,
+                                                            verbose             = verbose)
 
             if distortion_method == 'Fieldmap':
                 print('NEED TO IMPLEMENT THIS')

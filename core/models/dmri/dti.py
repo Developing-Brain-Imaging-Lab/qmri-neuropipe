@@ -111,7 +111,7 @@ class DTI_Model():
             ii = np.where(np.array(bvals) == bvals.min())[0]
             b0_average = np.mean(data[:,:,:,ii], axis=3)
 
-            gtab = gradient_table(bvals, bvecs, atol=0.05)
+            gtab = gradient_table(bvals, bvecs, atol=0.1)
 
             if self._inputs['fit_type'] == 'dipy-RESTORE':
                 sigma = estimate_sigma(data)

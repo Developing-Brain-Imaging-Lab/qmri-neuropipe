@@ -209,6 +209,12 @@ class DiffusionProcessingPipeline:
                             help='EDDY mporder',
                             default=0)
 
+        parser.add_argument('--coregister_to_anat_modality',
+                            type=str,
+                            help = 'Structural Image Modality to use for coregistration based distortion correction',
+                            default = 't1w',
+                            choices = ['t1w', 't2w'])
+
         parser.add_argument('--coregister_to_anat',
                             type = bool,
                             help = 'Coregister Diffusion MRI to Structural MRI',
@@ -296,6 +302,26 @@ class DiffusionProcessingPipeline:
                             help='Fiber Orientation Dispersion Estimation Algorithm',
                             choices=['csd', 'msmt_csd'],
                             default=None)
+                            
+        parser.add_argument('--csd_response_function',
+                            type=str,
+                            help='CSD Response Function file',
+                            default=None)
+                    
+        parser.add_argument('--csd_wm_response_function',
+                            type=str,
+                            help='CSD White Matter Response Function file',
+                            default=None)
+        
+        parser.add_argument('--csd_gm_response_function',
+                            type=str,
+                            help='CSD Gray Matter Response Function file',
+                            default=None)
+                            
+        parser.add_argument('--csd_csf_response_function',
+                            type=str,
+                            help='CSD CSF Response Function file',
+                            default=None)
 
         parser.add_argument('--micro_dki',
                             type=bool,
@@ -350,12 +376,16 @@ class DiffusionProcessingPipeline:
 
         dwi_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', bids_id+'_desc-brain_mask.nii.gz'))
 
-        if not final_dwi.exists():
+        t1w=None
+        t2w=None
+        anat_mask=None
 
-            #Setup the Anatomical Imaging Data if needed
-            if (args.dist_corr == 'Registration' or args.coregister_to_anat):
-                anat_pipeline = AnatomicalPrepPipeline()
-                t1w, t2w, anat_mask = anat_pipeline.run()
+        #Setup the Anatomical Imaging Data if needed
+        if (args.dist_corr == 'Registration' or args.coregister_to_anat):
+            anat_pipeline = AnatomicalPrepPipeline()
+            t1w, t2w, anat_mask = anat_pipeline.run()
+
+        if not final_dwi.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
             rawdata_img, topup_base =  raw_proc.prep_dwi_rawdata(bids_id                = bids_id,
@@ -410,6 +440,7 @@ class DiffusionProcessingPipeline:
                                                                                       t1w_image           = t1w,
                                                                                       t2w_image           = t2w,
                                                                                       distortion_method   = args.dist_corr,
+                                                                                      distortion_modality = args.coregister_to_anat_modality,
                                                                                       linreg_method       = args.distortion_linreg_method,
                                                                                       nthreads            = args.nthreads,
                                                                                       verbose             = args.verbose)
@@ -434,6 +465,7 @@ class DiffusionProcessingPipeline:
                                                         coreg_to_anat       = args.coregister_to_anat,
                                                         T1_image            = t1w,
                                                         T2_image            = t2w,
+                                                        anat_mask           = anat_mask,
                                                         reg_method          = args.coregister_to_anat_method,
                                                         linreg_method       = args.coregister_to_anat_linear_method,
                                                         nonlinreg_method    = args.coregister_to_anat_nonlinear_method,
@@ -558,7 +590,7 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting Diffusion Kurtosis Model')
 
-                dki_model = DKI_Model(dwi_img       = final_dwi,
+                dki_model = DKI_Model(dwi_img      = final_dwi,
                                          out_base  = models_dir + 'DKI/' + bids_id,
                                          fit_type  = args.dki_fit_method,
                                          mask      = dwi_mask)
@@ -566,7 +598,7 @@ class DiffusionProcessingPipeline:
 
 
         if args.csd_fod_algo != None:
-            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ):
+            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ) and not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-MSMT-5tt_parameter-WMfod.nii.gz' ):
                 if args.verbose:
                     print('Fitting Constrained Spherical Deconvolution Model')
 
@@ -575,6 +607,11 @@ class DiffusionProcessingPipeline:
                                       response_algo = args.csd_response_func_algo,
                                       fod_algo      = args.csd_fod_algo,
                                       mask          = dwi_mask,
+                                      struct_img    = t1w,
+                                      response      = args.csd_response_function,
+                                      wm_response   = args.csd_wm_response_function,
+                                      gm_response   = args.csd_gm_response_function,
+                                      csf_response  = args.csd_csf_response_function,
                                       nthreads      = args.nthreads)
                 csd_model.fit()
 

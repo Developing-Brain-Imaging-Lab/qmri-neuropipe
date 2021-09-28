@@ -30,14 +30,14 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
 
     elif method == 'hd-bet':
         os.environ['MKL_THREADING_LAYER'] = 'GNU'
-        
+
         if type(input_img) is list:
             input_img = input_img[0]
 
         tmp_mask = output_root + '/temp_mask'
         tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
 
-        print('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
+        #print('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
         os.system('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
         os.rename(tmp_mask+'_mask.nii.gz', output_mask._get_filename())
 

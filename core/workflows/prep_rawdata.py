@@ -51,7 +51,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                                  reorient_img   = t2w_reorient_img)
     elif not raw_t2w.exists():
         t2w = None
-
         if not os.path.exists(bids_t1w_derivative_dir):
             os.makedirs(bids_t1w_derivative_dir)
 

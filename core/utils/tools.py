@@ -15,11 +15,12 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
     output_img._set_filename(output_file)
 
     if method=='ants' or method=='fsl':
-        command ='dwibiascorrect ' + method + ' ' \
+        command ='dwibiascorrect -' + method + ' ' \
                 + input_img._get_filename() + ' ' \
                 + output_img._get_filename() \
                 + ' -force -quiet -nthreads ' + str(nthreads)
 
+        print(command)                                                                                                         
         if mask_img != None:
             command += ' -mask ' + mask_img._get_filename()
 

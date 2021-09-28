@@ -9,7 +9,7 @@ import core.utils.mask as mask
 from core.utils.dmri.qc import rotate_bvecs
 import core.registration.registration as reg_tools
 
-def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', nthreads=1, verbose=False):
+def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', nthreads=1, verbose=False):
 
     if coreg_to_anat:
 
@@ -55,6 +55,11 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
             mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
             save_nifti(mean_dwi._get_filename(), mean_dwi_data, affine, dwi_img.header)
 
+            dwi_laplacian   = Image(file = working_dir + '/dwi_laplacian.nii.gz')
+            b0_laplacian    = Image(file = working_dir + '/b0_laplacian.nii.gz')
+            os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
+            os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
+
             ref_img               = []
             mov_img               = []
             fsl_transform         = working_dir + '/fsl.mat'
@@ -69,23 +74,35 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
             mask.mask_image(input_img       = mean_dwi,
                             output_mask     = mask_img,
                             output_img      = dwi_masked,
-                            method          = 'bet',
+                            method          = 'hd-bet',
                             bet_options     = '-f 0.25')
 
-            mask.mask_image(input_img       = mean_b0,
-                            output_mask     = mask_img,
-                            output_img      = b0_masked,
-                            method          = 'bet',
-                            bet_options     = '-f 0.25')
+            mask.apply_mask(input_img       = mean_b0,
+                            mask_img        = mask_img,
+                            output_img      = b0_masked._get_filename())
 
             if T1_image != None:
                 ref_img.append(T1_image)
                 mov_img.append(dwi_masked)
                 flirt_options = '-cost normmi '
-            elif T2_image != None:
-                ref_img.append(T2_image)
-                mov_img.append(b0_masked)
-                flirt_options = '-cost normcorr '
+
+                T1_laplacian = Image(file = working_dir + '/T1_laplacian.nii.gz')
+                os.system('ImageMath 3 ' + T1_laplacian._get_filename() + ' Laplacian ' + T1_image._get_filename())
+
+                ref_img.append(T1_laplacian)
+                mov_img.append(dwi_laplacian)
+
+                if T2_image != None:
+                    ref_img.append(T2_image)
+                    mov_img.append(b0_masked)
+                    flirt_options = '-cost normcorr '
+
+                    T2_laplacian = Image(file = working_dir + '/T2_laplacian.nii.gz')
+                    os.system('ImageMath 3 ' + T2_laplacian._get_filename() + ' Laplacian ' + T2_image._get_filename())
+
+                    ref_img.append(T2_laplacian)
+                    mov_img.append(b0_laplacian)
+
             else:
                 print('No Anatomical Image!')
                 exit()
@@ -113,13 +130,14 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          output_matrix  = ants_transform,
                                          method         = 'ANTS',
                                          dof            = dof,
-                                         ants_options   = '')
+                                         ants_options   = '-x '+ anat_mask._get_filename())
                     os.system('ConvertTransformFile 3 ' +  ants_transform+'0GenericAffine.mat ' +  itk_transform)
 
             elif reg_method == 'nonlinear':
 
                 reg_tools.nonlinear_reg(input_img       = mov_img,
                                         reference_img   = ref_img,
+                                        reference_mask  = anat_mask,
                                         output_base     = ants_transform,
                                         nthreads        = nthreads,
                                         method          = nonlinreg_method,

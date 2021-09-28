@@ -34,16 +34,16 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     b0_acqparams=acqparams[b0_indices-1]
 
     indices,jj = np.unique(b0_indices, return_index=True)
-    
+
     topup_data = np.zeros([b0_data.shape[0], b0_data.shape[1], b0_data.shape[2], len(indices)])
     for i in range(0,len(indices)):
         tmp_indices = np.where(b0_indices == indices[i])
         tmp_data = b0_data[:,:,:,np.asarray(tmp_indices).flatten()]
         topup_data[:,:,:,i] = np.mean(tmp_data, axis=3)
-        
+
     topup_indices   = b0_indices[jj].astype(int)
     topup_acqparams = b0_acqparams[jj]
-    
+
 
     output_dir = os.path.dirname(output_topup_base)
     tmp_acqparams = output_dir + '/tmp.acqparams.txt'
@@ -52,7 +52,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     topup_imgs = nib.Nifti1Image(topup_data, aff, dwi_img.header)
     nib.save(topup_imgs, tmp_b0)
     np.savetxt(tmp_acqparams, topup_acqparams, fmt='%.8f')
-    
+
     topup_command = 'topup --imain='+ tmp_b0 \
                   + ' --datain=' + tmp_acqparams \
                   +' --out=' + output_topup_base
@@ -71,7 +71,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     os.remove(output_dir + '/tmp.acqparams.txt')
     os.remove(output_dir + '/tmp.B0.nii.gz')
 
-def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
+def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, linreg_method='FSL', distortion_modality='t1w', resample_to_anat=False, nthreads=1, verbose=False):
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
@@ -167,7 +167,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
             if linreg_method == 'FSL':
                 flirt_options=''
 
-                if T1_image != None:
+                if distortion_modality == 't1w' and T1_image != None:
                     ref_img.append(T1_image)
                     mov_img.append(mean_dwi)
                     nonlin_mov_img.append(dwi_aligned)
@@ -175,7 +175,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                     out_img = dwi_aligned
                     flirt_options = '-cost normmi '
 
-                elif T2_image != None:
+                elif distortion_modality == 't2w' and T2_image != None:
                     ref_img.append(T2_image)
                     mov_img.append(mean_b0)
                     nonlin_mov_img.append(b0_aligned)
@@ -222,11 +222,33 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                     nonlin_mov_img.append(dwi_aligned)
                     nonlin_ref_img.append(T1_image)
 
+                    #Also use the Laplacian
+                    dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
+                    t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
+                    os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
+                    os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
+
+                    ref_img.append(t1_laplacian)
+                    mov_img.append(dwi_laplacian)
+                    nonlin_mov_img.append(dwi_laplacian)
+                    nonlin_ref_img.append(t1_laplacian)
+
+
                 if T2_image != None:
                     ref_img.append(T2_image)
                     mov_img.append(mean_b0)
                     nonlin_mov_img.append(b0_aligned)
                     nonlin_ref_img.append(T2_image)
+
+                    b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
+                    t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
+                    os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
+                    os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+
+                    ref_img.append(t2_laplacian)
+                    mov_img.append(b0_laplacian)
+                    nonlin_mov_img.append(b0_laplacian)
+                    nonlin_ref_img.append(t2_laplacian)
 
                 reg_tools.linear_reg(input_img      = mov_img,
                                      reference_img  = ref_img,
@@ -259,7 +281,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
                 flirt_options = ''
 
-                if T1_image != None:
+                if distortion_modality == 't1w' and T1_image != None:
                     ref_img.append(mean_dwi)
                     mov_img.append(T1_image)
                     nonlin_mov_img.append(mean_dwi)
@@ -267,7 +289,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                     out_img = t1_aligned
                     flirt_options = '-cost normmi '
 
-                elif T2_image != None:
+                elif distortion_modality == 't2w' and T2_image != None:
                     ref_img.append(mean_b0)
                     mov_img.append(T2_image)
                     nonlin_mov_img.append(mean_b0)
@@ -299,11 +321,32 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
                     nonlin_mov_img.append(mean_dwi)
                     nonlin_ref_img.append(t1_aligned)
 
+                    #Also use the Laplacian
+                    dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
+                    t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
+                    os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
+                    os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
+
+                    mov_img.append(t1_laplacian)
+                    ref_img.append(dwi_laplacian)
+                    nonlin_ref_img.append(dwi_laplacian)
+                    nonlin_mov_img.append(t1_laplacian)
+
                 if T2_image != None:
                     ref_img.append(mean_b0)
                     mov_img.append(T2_image)
                     nonlin_mov_img.append(mean_b0)
                     nonlin_ref_img.append(t2_aligned)
+
+                    b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
+                    t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
+                    os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
+                    os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+
+                    mov_img.append(t2_laplacian)
+                    ref_img.append(b0_laplacian)
+                    nonlin_ref_img.append(b0_laplacian)
+                    nonlin_mov_img.append(t2_laplacian)
 
                 reg_tools.linear_reg(input_img      = mov_img,
                                      reference_img  = ref_img,
