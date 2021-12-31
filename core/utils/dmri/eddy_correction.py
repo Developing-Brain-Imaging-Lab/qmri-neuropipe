@@ -36,7 +36,7 @@ def eddy_correct_fsl(input_dwi, output_base):
 
     return output_img
 
-def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, repol=0, data_shelled=0, mb=None, cuda=False, mporder=0, ol_type='sw', mb_off='1', estimate_move_by_suscept=False, cuda_device=None, nthreads='1', fsl_eddy_options=''):
+def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, repol=0, data_shelled=False, mb=None, cuda=False, mporder=0, ol_type='sw', mb_off='1', estimate_move_by_suscept=False, cuda_device=None, nthreads='1', fsl_eddy_options=''):
 
     output_dir = os.path.dirname(output_base)
 
@@ -78,13 +78,13 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
         command += ' --field='+external_b0
     if repol != 0:
         command += ' --repol '
-    if data_shelled != 0:
+    if data_shelled:
         command += ' --data_is_shelled '
     if mb != None:
         command += ' --mb=' + str(mb)
     if mporder != 0:
         command += ' --mporder='+str(mporder)
-    if estimate_move_by_suscept == True:
+    if estimate_move_by_suscept:
         command += ' --estimate_move_by_susceptibility'
 
     command += ' ' + fsl_eddy_options

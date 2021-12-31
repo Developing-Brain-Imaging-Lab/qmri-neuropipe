@@ -110,7 +110,7 @@ class SegmentationPipeline:
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
 
         #Create final processed DWI dataset
-        final_base = os.path.join(bids_derivative_dir, 'anat/', 'segmentations/')
+        final_base = os.path.join(bids_derivative_dir, 'segmentations/')
 
         #Setup the Anatomical Imaging Data if needed
         anat_pipeline = AnatomicalPrepPipeline()
@@ -123,7 +123,7 @@ class SegmentationPipeline:
             target_img = ''
             atlas = Image()
             label = Image(file = self._atlases[i] + '/Seg.nii.gz')
-            
+
             if t1w != None and args.modality == 't1':
                 target_img = t1w
                 atlas._set_filename(self._atlases[i] + '/T1.nii.gz')
@@ -154,13 +154,13 @@ class SegmentationPipeline:
             target_img = ''
             atlases = []
             labels = []
-            
+
             #Collect the Multi-Atlases
             for atlas_dir in os.listdir(self._multiseg_atlases[i]):
                 if os.path.isdir(self._multiseg_atlases[i] + '/' + atlas_dir):
-                
+
                     labels.append(self._multiseg_atlases[i] + '/' + atlas_dir + '/Seg.nii.gz')
-                
+
                     if t1w != None and args.modality == 't1':
                         target_img = t1w
                         atlases.append(self._multiseg_atlases[i] + '/' + atlas_dir + '/T1.nii.gz')

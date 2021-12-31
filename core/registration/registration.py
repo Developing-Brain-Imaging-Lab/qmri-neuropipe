@@ -80,6 +80,11 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
         os.remove(mrtrix_corr_warp)
         os.remove(warped_img)
 
+    #elif method == 'FreeSurfer':
+
+
+
+
 
 def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6, nthreads=1, method='FSL', flirt_options=None, ants_options=None):
 
