@@ -1,9 +1,8 @@
 # qmri-neuropipe
 
 Remove carriage returns (`\r`) from the file.
-Install bids (`pip install bids`)
 
-It has four different pipelines (anatomical, diffusion, mcdespot, segmentation).
+It has four different pipelines (anatomical, diffusion, relax, segmentation).
 
 Currently the starting point is nifti files organized according to BIDS.
 
