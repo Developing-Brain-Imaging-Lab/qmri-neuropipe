@@ -17,9 +17,9 @@
     "dwi_data_shelled": true,
     "dwi_denoise_method": "dipy-patch2self",
     "dwi_gibbs_correction_method": "dipy",
-    "outlier_detection": "EDDY-QUAD",
-    "dist_corr": "Registration",
-    "coregister_to_anat": true,
+    "dwi_outlier_detection": "EDDY-QUAD",
+    "dwi_dist_corr": "Registration",
+    "coregister_dwi_to_anat": true,
     
     "dti_fit_method": "dipy-WLS",
     "noddi_fit_method": "NODDI-WATSON",
