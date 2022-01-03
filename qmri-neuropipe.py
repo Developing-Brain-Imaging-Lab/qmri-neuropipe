@@ -2,19 +2,19 @@
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
-from core.pipelines.anatomical import AnatomicalPrepPipeline
-from core.pipelines.diffusion import DiffusionProcessingPipeline
-from core.pipelines.despot import DESPOTProcessingPipeline
-from core.pipelines.segmentation import SegmentationPipeline
+from core.anatomical.anat_proc import AnatomicalPrepPipeline
+from core.dmri.dmri_proc import DiffusionProcessingPipeline
+from core.qmri.despot_proc import DESPOTProcessingPipeline
+from core.segmentation.segment_proc import SegmentationPipeline
 
-#import core.pipelines.diffusion as dwi_pipe
-#from core.pipelines.anatomical import AnatomicalPrepPipeline
-#from core.pipelines.diffusion import DiffusionProcessingPipeline
+
 
 parser = argparse.ArgumentParser(description='Waisman Center Processing for Quantitative MRI Data in BIDS format')
 
 parser.add_argument('--load_json',
-                    type=str, help='Load settings from file in json format. Command line options are overriden by values in file.', default=None)
+                    type=str,
+                    help='Load settings from file in json format. Command line options are overriden by values in file.',
+                    default=None)
 
 parser.add_argument('--anat_preproc_pipeline',
                     type=bool,
@@ -40,6 +40,7 @@ parser.add_argument('--verbose',
                     type=bool,
                     help='Print out information meassages and progress status',
                     default=False)
+
 
 args, unknown = parser.parse_known_args()
 
