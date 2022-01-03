@@ -8,16 +8,24 @@ It has four different pipelines (anatomical, diffusion, mcdespot, segmentation).
 Currently the starting point is nifti files organized according to BIDS.
 
 # Required software (basic installation)
+- Anaconda
 - FSL
 - MRtrix3
-- ANTS
-- ANTSPyNET
-- Anaconda
-- DIPY
-- DMIPY
-- AMICO
 - AFNI
 - HD-BET
+
+# To install and activate `qmri` conda-environment:
+ ```
+ conda env create -f environment.yml
+ conda activate qmri
+ ```
+
+# Python Packages Used
+- ANTS
+- ANTSPyNET
+- DIPY
+- DMIPY
+- DMRI-AMICO
 - TractSeg
 
 # Basic use cases
