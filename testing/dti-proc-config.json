@@ -17,7 +17,7 @@
     "dwi_data_shelled": false,
     "dwi_denoise_method": "mrtrix",
     "dwi_gibbs_correction_method": "mrtrix",
-    "outlier_detection": "EDDY-QUAD",
-    "coregister_to_anat": false,
+    "dwi_outlier_detection": "EDDY-QUAD",
+    "coregister_dwi_to_anat": false,
     "dti_fit_method": "dipy-WLS"
 }
