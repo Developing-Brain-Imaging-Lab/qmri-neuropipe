@@ -6,6 +6,7 @@ from bids.layout import writing, parse_file_entities
 from core.utils.io import Image, DWImage
 import core.utils.denoise as denoise
 import core.utils.tools as img_tools
+import core.utils.biascorrect as biascorr
 
 def denoise_degibbs(img, working_dir, suffix, denoise_method='mrtrix', gibbs_method='mrtrix', mask_img=None, nthreads=1, noise_map=True, verbose=False):
 
@@ -86,8 +87,8 @@ def perform_bias_correction(img, working_dir, suffix, method='ants', mask_img=No
         if verbose:
             print('Performing Bias-Field Correction...')
 
-        biascorr_img = img_tools.biasfield_correction(input_img    = img,
-                                                      output_file  = biascorr_img._get_filename(),
-                                                      mask_img     = mask_img,
-                                                      method       = method)
+        biascorr_img = biascorr.biasfield_correction(input_img    = img,
+                                                     output_file  = biascorr_img._get_filename(),
+                                                     mask_img     = mask_img,
+                                                     method       = method)
     return biascorr_img
