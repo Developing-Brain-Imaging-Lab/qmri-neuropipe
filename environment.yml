@@ -4,16 +4,16 @@ channels:
   - defaults
 dependencies:
   - hdf5=1.10.6
+  - numpy=1.16
   - nibabel=3.2.1
   - python=3.6.13
+  - pathos
+  - numba
   - pip:
       - antspynet==0.1.4
       - conda-env-export==0.4.3
       - dmipy==1.0.5
       - dmri-amico==1.3.1
-      - mkl-fft==1.3.0
-      - mkl-random==1.1.1
-      - mkl-service==2.3.0
       - paramiko==2.9.1
       - pybids==0.14.0
       - pydicom==2.2.2
