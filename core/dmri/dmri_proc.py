@@ -509,127 +509,127 @@ class DiffusionProcessingPipeline:
 
 
 
-#        if args.dwi_cleanup:
-#            if args.verbose:
-#                print('Cleaning up DWI Preprocessing Files')
-#
-#            dirs_to_cleanup = []
-#            dirs_to_cleanup.append('rawdata')
-#            dirs_to_cleanup.append('anatomical-distortion-correction')
-#            dirs_to_cleanup.append('fieldmap-distortion-correction')
-#            dirs_to_cleanup.append('biasfield-correction')
-#            dirs_to_cleanup.append('denoise-degibbs')
-#            dirs_to_cleanup.append('eddy-correction')
-#            dirs_to_cleanup.append('topup')
-#            dirs_to_cleanup.append('coregister-to-anatomy')
-#
-#            files_to_cleanup = []
-#            files_to_cleanup.append(bids_id + '_desc-Acqparams_dwi.txt')
-#            files_to_cleanup.append(bids_id + '_desc-Slspec_dwi.txt')
-#            files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
-#
-#            outlier_files_to_cleanup = []
-#            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bval')
-#            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bvec')
-#            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.nii.gz')
-#            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
-#
-#            for dir in dirs_to_cleanup:
-#                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
-#                    shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
-#
-#            for file in files_to_cleanup:
-#                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
-#                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
-#
-#            for file in outlier_files_to_cleanup:
-#                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
-#                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
-#
-#
-#        ############### PREPROCESSING OF DWI DATA FINISHED ####################
-#
-#        models_dir = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'models/')
-#
-#        ###DTI MODELING ###
-#        if args.dti_fit_method != None:
-#            if not os.path.exists(models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz'):
-#                if args.verbose:
-#                    print('Fitting DTI model with ' + args.dti_fit_method + '...')
-#
-#                dti_model = DTI_Model(dwi_img       = final_dwi,
-#                                      out_base      = models_dir + 'DTI/' + bids_id,
-#                                      fit_type      = args.dti_fit_method,
-#                                      mask          = dwi_mask,
-#                                      bmax          = args.dti_bmax,
-#                                      full_output   = args.dti_full_output)
-#                dti_model.fit()
-#
-#        ####FWE MODELING ###
-#        if args.fwe_fit_method != None:
-#            if not os.path.exists( models_dir + 'FWE-DTI/' + bids_id + '_model-FWE-DTI_parameter-F.nii.gz' ):
-#                if args.verbose:
-#                    print('Fitting Free-Water Elimination DTI Model')
-#
-#                fwedti_model = FWEDTI_Model(dwi_img   = final_dwi,
-#                                            out_base  = models_dir + 'FWE-DTI/' + bids_id,
-#                                            fit_type  = args.fwe_fit_method,
-#                                            mask      = dwi_mask)
-#                fwedti_model.fit()
-#
-#
-#
-#        if args.noddi_fit_method != None:
-#            if not os.path.exists( models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ICVF.nii.gz'):
-#                if args.verbose:
-#                    print('Fitting '+args.noddi_fit_method+' model...')
-#
-#                noddi_model = NODDI_Model(dwi_img               = final_dwi,
-#                                          out_base              = models_dir + args.noddi_fit_method+'/' + bids_id,
-#                                          fit_type              = args.noddi_fit_method,
-#                                          mask                  = dwi_mask,
-#                                          parallel_diffusivity  = args.noddi_dpar,
-#                                          iso_diffusivity       = args.noddi_diso,
-#                                          solver                = args.noddi_solver,
-#                                          nthreads              = args.nthreads,
-#                                          verbose               = args.verbose)
-#                noddi_model.fit()
-#
-#
-#        if args.dki_fit_method != None:
-#            if not os.path.exists( models_dir + 'DKI/' + bids_id + '_model-DKI_parameter-FA.nii.gz' ):
-#                if args.verbose:
-#                    print('Fitting Diffusion Kurtosis Model')
-#
-#                dki_model = DKI_Model(dwi_img      = final_dwi,
-#                                         out_base  = models_dir + 'DKI/' + bids_id,
-#                                         fit_type  = args.dki_fit_method,
-#                                         mask      = dwi_mask)
-#                dki_model.fit()
-#
-#
-#        if args.csd_fod_algo != None:
-#            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ) and not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-MSMT-5tt_parameter-WMfod.nii.gz' ):
-#                if args.verbose:
-#                    print('Fitting Constrained Spherical Deconvolution Model')
-#
-#                csd_model = CSD_Model(dwi_img       = final_dwi,
-#                                      out_base      = models_dir + 'CSD/' + bids_id,
-#                                      response_algo = args.csd_response_func_algo,
-#                                      fod_algo      = args.csd_fod_algo,
-#                                      mask          = dwi_mask,
-#                                      struct_img    = t1w,
-#                                      response      = args.csd_response_function,
-#                                      wm_response   = args.csd_wm_response_function,
-#                                      gm_response   = args.csd_gm_response_function,
-#                                      csf_response  = args.csd_csf_response_function,
-#                                      nthreads      = args.nthreads)
-#                csd_model.fit()
-#
-#
-#
-#
-#
+        if args.dwi_cleanup:
+            if args.verbose:
+                print('Cleaning up DWI Preprocessing Files')
+
+            dirs_to_cleanup = []
+            dirs_to_cleanup.append('rawdata')
+            dirs_to_cleanup.append('anatomical-distortion-correction')
+            dirs_to_cleanup.append('fieldmap-distortion-correction')
+            dirs_to_cleanup.append('biasfield-correction')
+            dirs_to_cleanup.append('denoise-degibbs')
+            dirs_to_cleanup.append('eddy-correction')
+            dirs_to_cleanup.append('topup')
+            dirs_to_cleanup.append('coregister-to-anatomy')
+
+            files_to_cleanup = []
+            files_to_cleanup.append(bids_id + '_desc-Acqparams_dwi.txt')
+            files_to_cleanup.append(bids_id + '_desc-Slspec_dwi.txt')
+            files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
+
+            outlier_files_to_cleanup = []
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bval')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bvec')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.nii.gz')
+            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
+
+            for dir in dirs_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
+                    shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
+
+            for file in files_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
+                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
+
+            for file in outlier_files_to_cleanup:
+                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
+                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
+
+
+        ############### PREPROCESSING OF DWI DATA FINISHED ####################
+
+        models_dir = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'models/')
+
+        ###DTI MODELING ###
+        if args.dti_fit_method != None:
+            if not os.path.exists(models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz'):
+                if args.verbose:
+                    print('Fitting DTI model with ' + args.dti_fit_method + '...')
+
+                dti_model = DTI_Model(dwi_img       = final_dwi,
+                                      out_base      = models_dir + 'DTI/' + bids_id,
+                                      fit_type      = args.dti_fit_method,
+                                      mask          = dwi_mask,
+                                      bmax          = args.dti_bmax,
+                                      full_output   = args.dti_full_output)
+                dti_model.fit()
+
+        ####FWE MODELING ###
+        if args.fwe_fit_method != None:
+            if not os.path.exists( models_dir + 'FWE-DTI/' + bids_id + '_model-FWE-DTI_parameter-F.nii.gz' ):
+                if args.verbose:
+                    print('Fitting Free-Water Elimination DTI Model')
+
+                fwedti_model = FWEDTI_Model(dwi_img   = final_dwi,
+                                            out_base  = models_dir + 'FWE-DTI/' + bids_id,
+                                            fit_type  = args.fwe_fit_method,
+                                            mask      = dwi_mask)
+                fwedti_model.fit()
+
+
+
+        if args.noddi_fit_method != None:
+            if not os.path.exists( models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ICVF.nii.gz'):
+                if args.verbose:
+                    print('Fitting '+args.noddi_fit_method+' model...')
+
+                noddi_model = NODDI_Model(dwi_img               = final_dwi,
+                                          out_base              = models_dir + args.noddi_fit_method+'/' + bids_id,
+                                          fit_type              = args.noddi_fit_method,
+                                          mask                  = dwi_mask,
+                                          parallel_diffusivity  = args.noddi_dpar,
+                                          iso_diffusivity       = args.noddi_diso,
+                                          solver                = args.noddi_solver,
+                                          nthreads              = args.nthreads,
+                                          verbose               = args.verbose)
+                noddi_model.fit()
+
+
+        if args.dki_fit_method != None:
+            if not os.path.exists( models_dir + 'DKI/' + bids_id + '_model-DKI_parameter-FA.nii.gz' ):
+                if args.verbose:
+                    print('Fitting Diffusion Kurtosis Model')
+
+                dki_model = DKI_Model(dwi_img      = final_dwi,
+                                         out_base  = models_dir + 'DKI/' + bids_id,
+                                         fit_type  = args.dki_fit_method,
+                                         mask      = dwi_mask)
+                dki_model.fit()
+
+
+        if args.csd_fod_algo != None:
+            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ) and not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-MSMT-5tt_parameter-WMfod.nii.gz' ):
+                if args.verbose:
+                    print('Fitting Constrained Spherical Deconvolution Model')
+
+                csd_model = CSD_Model(dwi_img       = final_dwi,
+                                      out_base      = models_dir + 'CSD/' + bids_id,
+                                      response_algo = args.csd_response_func_algo,
+                                      fod_algo      = args.csd_fod_algo,
+                                      mask          = dwi_mask,
+                                      struct_img    = t1w,
+                                      response      = args.csd_response_function,
+                                      wm_response   = args.csd_wm_response_function,
+                                      gm_response   = args.csd_gm_response_function,
+                                      csf_response  = args.csd_csf_response_function,
+                                      nthreads      = args.nthreads)
+                csd_model.fit()
+
+
+
+
+
 ## ###GBSS PSEUDO T1w ###
 # if args.setup_gbss:
 #     if not os.path.exists(bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz'):
