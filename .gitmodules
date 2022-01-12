@@ -1,0 +1,3 @@
+[submodule "core/dmri/utils/distortion_correction/Synb0-DISCO"]
+	path = core/dmri/utils/distortion_correction/Synb0-DISCO
+	url = https://github.com/Developing-Brain-Imaging-Lab/Synb0-DISCO.git

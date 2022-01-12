@@ -562,3 +562,35 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
 
     fm_hz_warp = input_fm_base + '.hz.warp.nii.gz'
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
+
+
+def run_synb0_disco(b0_img, t1w_img, t1w_mask, t1w_atlas, t1w_atlas_mask, nthreads=1 ):
+
+    #Processing below is based on SyNb0-DISCO prepare data
+    
+    #Skull-strip the T1image
+    t1w_brain = Image()
+    os.system('fslmaths ' + t1w_img._get_filename() + ' -mas ' + t1w_mask._get_filename() + ' ' + t1w_brain._get_filename())
+    
+    #EPI_REG distorted b0 to t1w
+    epi_reg_out = output_dir + '/epi_reg_d'
+    os.system('epi_reg --epi=' + b0_imgs._get_filename() + ' --t1=' + t1w_img._get_filename + ' --t1brain=' + t1w_brain._get_filename()+ ' --out=' + epi_reg_out  )
+    
+    #CONVERT FSL TO ANTS
+    reg_tools.convert_fsl2ants(mov_img = b0_img._get_filename(),
+                               ref_img = t1w_img._get_filename(),
+                               fsl_mat = epi_reg_out+'.mat',
+                               ants_mat= epi_reg_out + '_ANTS.txt')
+    
+    #REGISTER T1 to Atlas
+    reg_tools.nonlinear_reg(input_img       = t1w_img._get_filename(),
+                            reference_img   = t1w_atlas._get_filename(),
+                            reference_mask  = t1w_atlas_mask._get_filename(),
+                            output_base     = ,
+                            nthreads        = nthreads,
+                            method          = 'ANTS-QUICK',
+                            ants_options    = None)
+                            
+    
+
+
