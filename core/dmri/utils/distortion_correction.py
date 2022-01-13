@@ -638,7 +638,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     t1w_atlas_img  = Image(file = os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz'))
     t1w_atlas_mask = Image(file = os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz'))
     
-    t1w_atlas_img_2_5 = Image(file = os.path.join(os.path.dirnam(__file__), 'Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz'))
+    t1w_atlas_img_2_5 = Image(file = os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz'))
     
     reg_tools.nonlinear_reg(input_img       = t1w_bias,
                             reference_img   = t1w_atlas_img,
