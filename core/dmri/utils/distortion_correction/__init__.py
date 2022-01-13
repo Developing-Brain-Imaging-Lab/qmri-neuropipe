@@ -699,7 +699,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
                               
-    import core.dmri.utils.distortion_correction.Synb0-DISCO.src.inference as infer
+    import importlib
+    infer = importlib.import_module('Synb0-DISCO.src.inference')
     
     NUM_FOLDS=5
     
