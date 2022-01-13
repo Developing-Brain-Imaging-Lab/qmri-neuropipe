@@ -588,7 +588,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     entities['extension'] = '.bvec'
     out_bvec = writing.build_path(entities, filename_patterns)
 
-    output_img = copy.deepcopy(input_dwi)
+    output_img = copy.deepcopy(dwi_img)
     output_img._set_filename(out_file)
     output_img._set_bvecs(out_bvec)
 
