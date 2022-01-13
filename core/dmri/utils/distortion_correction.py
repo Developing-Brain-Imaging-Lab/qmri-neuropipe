@@ -11,7 +11,7 @@ from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
 import core.utils.mask as mask_tools
 import core.utils.biascorrect as biascorr_tools
-import core.utils.dmri.tools as dmri_tools
+import core.dmri.tools as dmri_tools
 import core.registration.registration as reg_tools
 
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
