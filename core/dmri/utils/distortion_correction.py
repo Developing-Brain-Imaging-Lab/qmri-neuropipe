@@ -572,7 +572,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
-    parsed_filename = parse_file_entities(input_dwi._get_filename())
+    parsed_filename = parse_file_entities(dwi_img._get_filename())
 
     entities = {
     'extension': '.nii.gz',
