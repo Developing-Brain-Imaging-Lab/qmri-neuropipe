@@ -22,6 +22,15 @@ def create_composite_transform(reference_img, output_file, transforms):
 
     os.system(cmd)
 
+def create_composite_linear_transform(reference_img, output_file, transforms):
+
+    cmd = 'antsApplyTransforms -d 3 -o Linear[' + output_file + '] -r ' + reference_img._get_filename()
+
+    for xfm in transforms:
+        cmd += ' -t ' + xfm
+
+    os.system(cmd)
+
 def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, method='FSL', flirt_options=None, ants_options=None):
 
     cmd = ''
