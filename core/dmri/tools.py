@@ -15,7 +15,6 @@ def extract_b0s(input_dwi, output_b0, compute_mean=True):
     dwi_data, affine, dwi_img = load_nifti(input_dwi._get_filename(),
                                            return_img=True)
     
-    output_b0 = Image(file = output_b0)
     b0_data = dwi_data[:,:,:,np.asarray(ii).flatten()]
         
     if compute_mean:
