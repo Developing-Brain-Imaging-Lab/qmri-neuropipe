@@ -710,7 +710,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
         
         print(model_path)
         
-        infer.run_inference(t1w_norm_lin_atlas_2_5, b0_lin_atlas_2_5, b0_undistorted_path, model_path)
+        infer.run_inference(t1w_norm_lin_atlas_2_5._get_filename(), b0_lin_atlas_2_5._get_filename(), b0_undistorted_path, model_path)
     
 
     
