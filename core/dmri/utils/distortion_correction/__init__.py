@@ -652,11 +652,9 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                                          output_file    = working_dir + '/t1_nonlin_xfm.nii.gz',
                                          transforms     = [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat'])
     
-    print('Test')
     reg_tools.create_composite_linear_transform(reference_img  = t1w_atlas_img_2_5,
                                                 output_file    = working_dir + '/b0_lin_xfm.txt',
                                                 transforms     = [ants_base + '0GenericAffine.mat', b0_coreg_mat_ants])
-    print('TEST2')
 
     reg_tools.create_composite_transform(reference_img  = t1w_atlas_img_2_5,
                                          output_file    = working_dir + '/b0_nonlin_xfm.nii.gz',
@@ -676,7 +674,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     b0_lin_atlas_2_5 = Image(file = working_dir + 'b0_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = t1w_norm_lin_atlas_2_5._get_filename(),
+                              output_file   = b0_lin_atlas_2_5._get_filename(),
                               matrix        = working_dir + '/b0_lin_xfm.txt',
                               nthreads      = nthreads,
                               method        = 'ANTS',
@@ -686,7 +684,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     t1w_norm_nonlin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = t1w_bias,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = t1w_norm_lin_atlas_2_5._get_filename(),
+                              output_file   = t1w_norm_nonlin_atlas_2_5._get_filename(),
                               matrix        = working_dir + '/t1_nonlin_xfm.nii.gz',
                               nthreads      = nthreads,
                               method        = 'ANTS',
@@ -695,7 +693,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     b0_nonlin_atlas_2_5 = Image(file = working_dir + 'b0_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = t1w_norm_lin_atlas_2_5._get_filename(),
+                              output_file   = b0_nonlin_atlas_2_5._get_filename(),
                               matrix        = working_dir + '/b0_nonlin_xfm.nii.gz',
                               nthreads      = nthreads,
                               method        = 'ANTS',
