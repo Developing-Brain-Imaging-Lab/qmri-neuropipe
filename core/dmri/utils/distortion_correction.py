@@ -619,7 +619,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     b0_coreg_mat_fsl  = working_dir + '/b0_coreg.mat'
     b0_coreg_mat_ants = working_dir + '/b0_coreg.txt'
     reg_tools.linear_reg(input_img      = mean_b0,
-                         reference_img  = t1_brain,
+                         reference_img  = t1w_brain,
                          output_file    = b0_coreg._get_filename(),
                          output_matrix  = b0_coreg_mat_fsl,
                          method         = 'FSL',
@@ -628,7 +628,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
 
     #CONVERT FSL TO ANTS
     reg_tools.convert_fsl2ants(mov_img  = mean_b0,
-                               ref_img  = t1_brain,
+                               ref_img  = t1w_brain,
                                fsl_mat  = b0_coreg_mat_fsl,
                                ants_mat = b0_coreg_mat_ants)
 
