@@ -11,7 +11,7 @@ from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
 
 def apply_mask(input_img, mask_img, output_img):
-    os.system('fslmaths ' + input_img._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + output_img)
+    os.system('fslmaths ' + input_img._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + output_img._get_filename())
 
 def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None, ref_img=None, ref_mask=None, bet_options='', ants_lower_threshold=0.2, antspynet_modality='t1'):
 
