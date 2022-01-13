@@ -700,7 +700,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               ants_options  = '-n BSpline')
                               
     import importlib
-    infer = importlib.import_module('Synb0-DISCO.src.inference')
+    infer = importlib.import_module('.Synb0-DISCO.src.inference')
     
     NUM_FOLDS=5
     
