@@ -699,7 +699,20 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
                               
-                              
+    import core.dmri.utils.distortion_correction.Synb0-DISCO.src.inference as infer
+    
+    NUM_FOLDS=5
+    
+    for i in range(0,NUM_FOLDS):
+        b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
+        model_path = os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth')
+        
+        print(model_path)
+        
+        infer.run_inference(t1w_norm_lin_atlas_2_5, b0_lin_atlas_2_5,b0_undistorted_path
+    
+
+    
     
     
 
