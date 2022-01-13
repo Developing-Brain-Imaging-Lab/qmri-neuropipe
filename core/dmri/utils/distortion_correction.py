@@ -624,7 +624,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                          output_matrix  = b0_coreg_mat_fsl,
                          method         = 'FSL',
                          dof            = 6,
-                         flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                         flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     #CONVERT FSL TO ANTS
     reg_tools.convert_fsl2ants(mov_img  = mean_b0,
