@@ -567,7 +567,7 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, t1w_atlas, t1w_atlas_mask, working_dir, nthreads=1):
+def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
