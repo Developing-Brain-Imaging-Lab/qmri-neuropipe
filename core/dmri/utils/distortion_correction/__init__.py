@@ -711,7 +711,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
         print(model_path)
         
         infer.run_inference(t1w_norm_lin_atlas_2_5._get_filename(), b0_lin_atlas_2_5._get_filename(), b0_undistorted_path, model_path)
-        list_of_b0s.append(b0_undistorted_path)
+        list_of_b0s.append(Image(file = b0_undistorted_path))
 
     #Take average and calculate mean
     merged_b0_u = Image(file = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
@@ -726,11 +726,12 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     os.system('antsApplyTransforms -d 3 -i ' + mean_img._get_filename() + ' -r ' + mean_b0._get_filename() + ' -t ['+b0_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' + working_dir + '/b0_u.nii.gz' )
 
     #Smooth original b0 slightly
-    os.system('fslmaths ' + mean_b0._get_filename() + ' -s 1.15 ' + working_dir + '/b0_d_smooth.nii.gz')
+    b0_d_smooth = Image(file = working_dir + '/b0_d_smooth.nii.gz')
+    os.system('fslmaths ' + mean_b0._get_filename() + ' -s 1.15 ' + b0_d_smooth._get_filename())
     
     #Merge and run topup
     all_b0s = Image(file = working_dir + '/b0s_all.nii.gz')
-    img_tools.merge_images(list_of_images = [working_dir + '/b0_d_smooth.nii.gz', mean_img._get_filename()],
+    img_tools.merge_images(list_of_images = [b0_d_smooth, mean_img],
                            output_file    = all_b0s._get_filename())
                            
  
