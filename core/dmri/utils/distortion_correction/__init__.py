@@ -702,20 +702,55 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     import importlib
     infer = importlib.import_module('core.dmri.utils.distortion_correction.Synb0-DISCO.src.inference')
     
-    NUM_FOLDS=5
-    
+    NUM_FOLDS=6
+    list_of_b0s = []
     for i in range(1,NUM_FOLDS):
         b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
         model_path = glob.glob(os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth'))[0]
         
-        print(model_path)
-        
         infer.run_inference(t1w_norm_lin_atlas_2_5._get_filename(), b0_lin_atlas_2_5._get_filename(), b0_undistorted_path, model_path)
-    
+        list_of_b0s.append(b0_undistorted_path)
 
+    #Take average and calculate mean
+    merged_b0_u = Image(file = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
+    img_tools.merge_images(list_of_b0s, merged_b0_u._get_filename())
     
     
+    mean_img = calculate_mean_img(input_img     = merged_b0_u,
+                                  output_file   = working_dir + '/b0_u_mean.nii.gz')
     
+    
+    #Apply Inverse Transform (Need to write inverse function call
+    os.system('antsApplyTransforms -d 3 -i ' + mean_img._get_filename() + ' -r ' + mean_b0._get_filename() + ' -t ['+b0_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' + working_dir + '/b0_u.nii.gz' )
+
+    #Smooth original b0 slightly
+    os.system('fslmaths ' + mean_b0._get_filename() + ' -s 1.15 ' + working_dir + '/b0_d_smooth.nii.gz')
+    
+    #Merge and run topup
+    all_b0s = Image(file = working_dir + '/b0s_all.nii.gz')
+    img_tools.merge_images(list_of_images = [working_dir + '/b0_d_smooth.nii.gz', mean_img._get_filename()],
+                           output_file    = all_b0s._get_filename())
+                           
+ 
+    #Create acqparams file for topup:
+    acqparams = np.loadtxt(dwi_img._get_acqparams())
+    syn_acqparams = acqparams
+    syn_acqparams[3] = 0
+    
+    disco_acqparams = np.vstack((acqparams, syn_acqparams))
+    disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
+    np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
+
+    topup_command = 'topup --imain='+ all_b0s._get_filename() \
+                  + ' --datain=' + disco_acqparams_path \
+                  + ' --out=' + working_dir + '/topup_' \
+                  + ' --fout=' + working_dir + '/topup_fmap.nii.gz' \
+                  + ' --iout=' + working_dir + '/b0_all_topup.nii.gz' \
+                  + ' --subsamp=1,1,1,1,1,1,1,1,1' \
+                  + ' --miter=10,10,10,10,10,20,20,30,30' \
+                  + ' --lambda=0.00033,0.000067,0.0000067,0.000001,0.00000033,0.000000033,0.0000000033,0.000000000033,0.00000000000067'\
+                  + ' --scale=0'
+
 
 
 
