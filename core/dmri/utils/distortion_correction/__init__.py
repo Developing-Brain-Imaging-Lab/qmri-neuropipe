@@ -718,8 +718,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     img_tools.merge_images(list_of_b0s, merged_b0_u._get_filename())
     
     
-    mean_img = calculate_mean_img(input_img     = merged_b0_u,
-                                  output_file   = working_dir + '/b0_u_mean.nii.gz')
+    mean_img = img_tools.calculate_mean_img(input_img     = merged_b0_u,
+                                            output_file   = working_dir + '/b0_u_mean.nii.gz')
     
     
     #Apply Inverse Transform (Need to write inverse function call
