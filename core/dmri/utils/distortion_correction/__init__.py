@@ -671,7 +671,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
                               
-    b0_lin_atlas_2_5 = Image(file = working_dir + 'b0_lin_atlas_2_5.nii.gz')
+    b0_lin_atlas_2_5 = Image(file = working_dir + '/b0_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
                               output_file   = b0_lin_atlas_2_5._get_filename(),
@@ -690,7 +690,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
                               
-    b0_nonlin_atlas_2_5 = Image(file = working_dir + 'b0_nonlin_atlas_2_5.nii.gz')
+    b0_nonlin_atlas_2_5 = Image(file = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
                               output_file   = b0_nonlin_atlas_2_5._get_filename(),
@@ -702,11 +702,13 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     import importlib
     infer = importlib.import_module('core.dmri.utils.distortion_correction.Synb0-DISCO.src.inference')
     
-    NUM_FOLDS=6
+    NUM_FOLDS=5
     list_of_b0s = []
-    for i in range(1,NUM_FOLDS):
+    for i in range(1,NUM_FOLDS+1):
         b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
         model_path = glob.glob(os.path.join(os.path.dirname(__file__), 'Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth'))[0]
+        
+        print(model_path)
         
         infer.run_inference(t1w_norm_lin_atlas_2_5._get_filename(), b0_lin_atlas_2_5._get_filename(), b0_undistorted_path, model_path)
         list_of_b0s.append(b0_undistorted_path)
@@ -752,5 +754,5 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                   + ' --scale=0'
 
 
-
+    print(topup_command)
 
