@@ -723,7 +723,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     
     
     #Apply Inverse Transform (Need to write inverse function call
-    os.system('antsApplyTransforms -d 3 -i ' + mean_img._get_filename() + ' -r ' + mean_b0._get_filename() + ' -t ['+b0_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' + working_dir + '/b0_u.nii.gz' )
+    b0_undistorted_img = Image(file = working_dir + '/b0_u.nii.gz')
+    os.system('antsApplyTransforms -d 3 -i ' + mean_img._get_filename() + ' -r ' + mean_b0._get_filename() + ' -t ['+b0_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' +  b0_undistorted_img._get_filename())
 
     #Smooth original b0 slightly
     b0_d_smooth = Image(file = working_dir + '/b0_d_smooth.nii.gz')
@@ -731,7 +732,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     
     #Merge and run topup
     all_b0s = Image(file = working_dir + '/b0s_all.nii.gz')
-    img_tools.merge_images(list_of_images = [b0_d_smooth, mean_img],
+    img_tools.merge_images(list_of_images = [b0_d_smooth,  b0_undistorted_img],
                            output_file    = all_b0s._get_filename())
                            
  
