@@ -738,7 +738,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
  
     #Create acqparams file for topup:
     acqparams = np.loadtxt(dwi_img._get_acqparams())
-    syn_acqparams = acqparams
+    syn_acqparams = np.copy(acqparams)
     syn_acqparams[3] = 0
     
     disco_acqparams = np.vstack((acqparams, syn_acqparams))
