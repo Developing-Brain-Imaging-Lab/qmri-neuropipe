@@ -750,11 +750,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                   + ' --out=' + working_dir + '/topup_' \
                   + ' --fout=' + working_dir + '/topup_fmap.nii.gz' \
                   + ' --iout=' + working_dir + '/b0_all_topup.nii.gz' \
-                  + ' --subsamp=1,1,1,1,1,1,1,1,1' \
-                  + ' --miter=10,10,10,10,10,20,20,30,30' \
-                  + ' --lambda=0.00033,0.000067,0.0000067,0.000001,0.00000033,0.000000033,0.0000000033,0.000000000033,0.00000000000067'\
                   + ' --scale=0'
-
-
+                  
     print(topup_command)
+    os.system(topup_command)
 
