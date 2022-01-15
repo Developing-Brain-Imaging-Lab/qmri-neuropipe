@@ -749,7 +749,6 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                   + ' --datain=' + disco_acqparams_path \
                   + ' --config=b02b0.cnf' \
                   + ' --out=' + working_dir + '/topup_' \
-                  + ' --fout=' + working_dir + '/topup_fmap.nii.gz' \
                   + ' --iout=' + working_dir + '/b0_all_topup.nii.gz' \
                   + ' --subsamp=1,1,1,1,1,1,1,1,1'\
                   + ' --miter=10,10,10,10,10,20,20,30,30' \
