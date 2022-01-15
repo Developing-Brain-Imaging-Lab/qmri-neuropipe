@@ -645,7 +645,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                             reference_mask  = t1w_atlas_mask,
                             output_base     = ants_base,
                             nthreads        = nthreads,
-                            method          = 'ANTS',
+                            method          = 'ANTS-QUICK',
                             ants_options    = None)
     
     reg_tools.create_composite_transform(reference_img  = t1w_atlas_img_2_5,
@@ -661,9 +661,15 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                                          transforms     = [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat', b0_coreg_mat_ants])
                             
     
+    t1w_norm = Image(file = working_dir + '/t1w_norm.nii.gz')
+    os.system('ImageMath 3 ' + t1w_norm._get_filename() + ' Normalize ' + t1w_bias._get_filename())
+    os.system('fslmaths ' + t1w_norm._get_filename + ' -mul 255 ' + t1w_norm._get_filename() + ' -odt short' )
+    
+    
+    
     #Apply Linear Transform to T1
     t1w_norm_lin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = t1w_bias,
+    reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
                               output_file   = t1w_norm_lin_atlas_2_5._get_filename(),
                               matrix        = ants_base + '0GenericAffine.mat',
@@ -682,7 +688,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                               
                               
     t1w_norm_nonlin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = t1w_bias,
+    reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
                               output_file   = t1w_norm_nonlin_atlas_2_5._get_filename(),
                               matrix        = working_dir + '/t1_nonlin_xfm.nii.gz',
@@ -750,9 +756,10 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                   + ' --config=b02b0.cnf' \
                   + ' --out=' + working_dir + '/topup_' \
                   + ' --iout=' + working_dir + '/b0_all_topup.nii.gz' \
-                  + ' --subsamp=1,1,1,1,1,1,1,1,1'\
-                  + ' --miter=10,10,10,10,10,20,20,30,30' \
-                  + ' --lambda=0.00033,0.000067,0.0000067,0.000001,0.00000033,0.000000033,0.0000000033,0.000000000033,0.00000000000067' \
+                  + ' --fout=' + working_dir + '/topup_fmap.nii.gz'
+#                  + ' --subsamp=1,1,1,1,1,1,1,1,1'\
+#                  + ' --miter=10,10,10,10,10,20,20,30,30' \
+#                  + ' --lambda=0.00033,0.000067,0.0000067,0.000001,0.00000033,0.000000033,0.0000000033,0.000000000033,0.00000000000067' \
                   + ' --scale=0'
     print(topup_command)
     os.system(topup_command)
