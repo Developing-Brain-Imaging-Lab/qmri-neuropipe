@@ -605,7 +605,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     biascorr_tools.biasfield_correction(input_img   = t1w_img,
                                         output_file = t1w_bias._get_filename(),
                                         method      = 'N4',
-                                        nthreads    = 0,
+                                        nthreads    = nthreads,
                                         iterations  = 5)
     
     #Skull-strip the T1image
@@ -624,7 +624,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                          output_matrix  = b0_coreg_mat_fsl,
                          method         = 'FSL',
                          dof            = 6,
-                         flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                         flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     #CONVERT FSL TO ANTS
     reg_tools.convert_fsl2ants(mov_img  = mean_b0,
@@ -645,7 +645,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
                             reference_mask  = t1w_atlas_mask,
                             output_base     = ants_base,
                             nthreads        = nthreads,
-                            method          = 'ANTS-QUICK',
+                            method          = 'ANTS',
                             ants_options    = None)
     
     reg_tools.create_composite_transform(reference_img  = t1w_atlas_img_2_5,
