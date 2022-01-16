@@ -663,7 +663,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     
     t1w_norm = Image(file = working_dir + '/t1w_norm.nii.gz')
     os.system('ImageMath 3 ' + t1w_norm._get_filename() + ' Normalize ' + t1w_bias._get_filename())
-    os.system('fslmaths ' + t1w_norm._get_filename + ' -mul 255 ' + t1w_norm._get_filename() + ' -odt short' )
+    os.system('fslmaths ' + t1w_norm._get_filename() + ' -mul 255 ' + t1w_norm._get_filename() + ' -odt short' )
     
     
     
