@@ -567,7 +567,9 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
+def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_files=True, verbose=True):
+
+    working_dir = os.path.dirname(topup_base)
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
@@ -708,6 +710,9 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     import importlib
     infer = importlib.import_module('core.dmri.utils.distortion_correction.Synb0-DISCO.src.inference')
 
+    if verbose:
+        print('Creating synthetic undistorted b0 images')
+
     NUM_FOLDS=5
     list_of_b0s = []
     for i in range(1,NUM_FOLDS+1):
@@ -751,15 +756,13 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, working_dir, nthreads=1):
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
+
     topup_command = 'topup --imain='+ all_b0s._get_filename() \
                   + ' --datain=' + disco_acqparams_path \
                   + ' --config=b02b0.cnf' \
-                  + ' --out=' + working_dir + '/topup_' \
-                  + ' --iout=' + working_dir + '/b0_all_topup.nii.gz' \
-                  + ' --fout=' + working_dir + '/topup_fmap.nii.gz'
-                  # + ' --subsamp=1,1,1,1,1,1,1,1,1'\
-                  # + ' --miter=10,10,10,10,10,20,20,30,30' \
-                  # + ' --lambda=0.00033,0.000067,0.0000067,0.000001,0.00000033,0.000000033,0.0000000033,0.000000000033,0.00000000000067' \
-                  # + ' --scale=0'
-    print(topup_command)
+                  + ' --out=' + topup_base \
+                  + ' --fout=' + topup_base + '_fmap.nii.gz'
+
+    if verbose:
+        print(topup_command)
     os.system(topup_command)

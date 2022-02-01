@@ -57,14 +57,14 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
     for i in range(0,len(acqparams_list)):
         with open(acqparams_list[i]) as f:
             dwi_json = json.load(f)
-
-            if(dwi_json["PhaseEncodingDirection"] == 'i'):
+            
+            if(dwi_json["PhaseEncodingDirection"] == 'i' or dwi_json["PhaseEncodingAxis"] == 'i'):
                 acqparams[i] = np.array(['1', '0', '0', str(dwi_json["TotalReadoutTime"])])
-            elif(dwi_json["PhaseEncodingDirection"] == 'i-'):
+            elif(dwi_json["PhaseEncodingDirection"] == 'i-' or dwi_json["PhaseEncodingAxis"] == 'i-'):
                 acqparams[i] = np.array(['-1', '0', '0', str(dwi_json["TotalReadoutTime"])])
-            elif(dwi_json["PhaseEncodingDirection"] == 'j'):
+            elif(dwi_json["PhaseEncodingDirection"] == 'j' or dwi_json["PhaseEncodingAxis"] == 'j'):
                 acqparams[i] = np.array(['0', '1', '0', str(dwi_json["TotalReadoutTime"])])
-            elif(dwi_json["PhaseEncodingDirection"] == 'j-'):
+            elif(dwi_json["PhaseEncodingDirection"] == 'j-' or or dwi_json["PhaseEncodingAxis"] == 'j-'):
                 acqparams[i] = np.array(['0', '-1', '0', str(dwi_json["TotalReadoutTime"])])
 
 

@@ -173,7 +173,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_dist_corr',
                             type=str,
                             help='Distortion Correction Flag',
-                            choices=['Topup', 'Topup-Separate', 'Fieldmap', 'Anatomical-Coregistration'],
+                            choices=['Topup', 'Topup-Separate','Synb0-Disco', 'Fieldmap', 'Anatomical-Coregistration'],
                             default=None)
 
         parser.add_argument('--dwi_distortion_linreg_method',
@@ -393,7 +393,7 @@ class DiffusionProcessingPipeline:
         anat_mask=None
 
         #Setup the Anatomical Imaging Data if needed
-        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat):
+        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.distortion_correction == 'Synb0-Disco'):
             anat_pipeline = AnatomicalPrepPipeline()
             t1w, t2w, anat_mask = anat_pipeline.run()
 
@@ -412,6 +412,7 @@ class DiffusionProcessingPipeline:
                                                              nthreads               = args.nthreads,
                                                              resample_resolution    = args.dwi_resample_resolution,
                                                              remove_last_vol        = args.dwi_remove_last_vol,
+                                                             distortion_correction  = args.dwi_dist_corr,
                                                              topup_config           = args.dwi_topup_config,
                                                              outlier_detection      = args.dwi_outlier_detection,
                                                              check_gradients        = args.dwi_check_gradients,

@@ -97,3 +97,5 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
 
     else:
         return dwi_image
+
+
