@@ -416,6 +416,8 @@ class DiffusionProcessingPipeline:
                                                              topup_config           = args.dwi_topup_config,
                                                              outlier_detection      = args.dwi_outlier_detection,
                                                              check_gradients        = args.dwi_check_gradients,
+                                                             t1w_img                = t1w,
+                                                             t1w_mask               = anat_mask,
                                                              verbose                = args.verbose)
 
             if args.dwi_denoise_degibbs:
