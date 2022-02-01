@@ -107,7 +107,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     return t1w, t2w
 
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1_mask=None, nthreads=1, verbose=False ):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, verbose=False ):
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, bids_dwi_dir,'')
