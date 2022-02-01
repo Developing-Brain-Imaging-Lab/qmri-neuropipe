@@ -64,7 +64,7 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
                 acqparams[i] = np.array(['-1', '0', '0', str(dwi_json["TotalReadoutTime"])])
             elif(dwi_json["PhaseEncodingDirection"] == 'j' or dwi_json["PhaseEncodingAxis"] == 'j'):
                 acqparams[i] = np.array(['0', '1', '0', str(dwi_json["TotalReadoutTime"])])
-            elif(dwi_json["PhaseEncodingDirection"] == 'j-' or or dwi_json["PhaseEncodingAxis"] == 'j-'):
+            elif(dwi_json["PhaseEncodingDirection"] == 'j-' or dwi_json["PhaseEncodingAxis"] == 'j-'):
                 acqparams[i] = np.array(['0', '-1', '0', str(dwi_json["TotalReadoutTime"])])
 
 
