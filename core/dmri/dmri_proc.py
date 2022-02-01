@@ -393,7 +393,7 @@ class DiffusionProcessingPipeline:
         anat_mask=None
 
         #Setup the Anatomical Imaging Data if needed
-        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.distortion_correction == 'Synb0-Disco'):
+        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
             anat_pipeline = AnatomicalPrepPipeline()
             t1w, t2w, anat_mask = anat_pipeline.run()
 
