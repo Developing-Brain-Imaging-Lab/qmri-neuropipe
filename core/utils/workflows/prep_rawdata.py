@@ -6,6 +6,7 @@ import core.utils.tools as img_tools
 import core.utils.mask as mask
 
 import core.dmri.utils.qc as dmri_qc
+import core.dmri.utils.distortion_correction as distcorr
 import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 
@@ -106,7 +107,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     return t1w, t2w
 
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, topup_config=None, outlier_detection=None, nthreads=1, verbose=False ):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1_mask=None, nthreads=1, verbose=False ):
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, bids_dwi_dir,'')
@@ -129,7 +130,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
     run_topup  = False
 
     #Check to see if TOPUP Style data exists and if so, create merged DWI input image
-    if os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz') and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'):
+    if distortion_correction[0:4] == 'Topup' and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz') and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'):
 
         topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
         run_topup  = True
@@ -158,8 +159,6 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
         shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.bval', dwi_img._get_bvals())
         shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.json', dwi_img._get_json())
 
-
-
     #Ensure ISOTROPIC voxels prior to processing
     if verbose:
         print('Ensuring DWIs have isotropic voxels')
@@ -175,7 +174,6 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
         dwi_img = img_tools.remove_end_img(input_img   = dwi_img,
                                            output_file = dwi_img._get_filename())
-
 
     #Check the Image Sizes to Ensure Proper Length:
     if verbose:
@@ -222,6 +220,17 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                        topup_config = topup_config,
                                        dist_corr    = 'Topup',
                                        verbose=verbose)
-
-
+                                       
+                                       
+    if distortion_correction == 'Synb0-Disco':
+    
+        topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+        
+        #Run the Synb0 distortion correction'
+        distcorr.run_synb0_disco(dwi_img    = dwi_img,
+                                 t1w_img    = t1w_img,
+                                 t1w_mask   = t1w_mask,
+                                 topup_base = topup_base,
+                                 nthreads   = 1)
+                                       
     return dwi_img, topup_base

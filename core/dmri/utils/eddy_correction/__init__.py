@@ -20,7 +20,12 @@ def eddy_correct_fsl(input_dwi, output_base):
 
     if os.path.exists(log_file):
         os.remove(log_file)
-
+        
+        
+    #Implementing FSL eddy_correct
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
     os.system('eddy_correct ' + input_dwi._get_filename() + ' ' + dwi_file + ' 0 spline')
     os.system('fdt_rotate_bvecs ' + input_dwi._get_bvecs() + ' ' + bvecs_file + ' ' + log_file)
 
