@@ -223,9 +223,9 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                        
                                        
     if distortion_correction == 'Synb0-Disco':
-        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
-            topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+        topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
         
+        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
             #Run the Synb0 distortion correction'
             distcorr.run_synb0_disco(dwi_img    = dwi_img,
                                      t1w_img    = t1w_img,
