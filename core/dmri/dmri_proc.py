@@ -445,7 +445,7 @@ class DiffusionProcessingPipeline:
                                              fsl_eddy_options           = args.dwi_eddy_options,
                                              verbose                    = args.verbose)
 
-            if args.dwi_outlier_detection != 'Manual':
+            if args.dwi_outlier_detection != None or args.dwi_outlier_detection != 'Manual':
                 dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,
                                                               working_dir       = os.path.join(preproc_dir, 'outlier-removed-images/'),
                                                               method            = args.dwi_outlier_detection,
