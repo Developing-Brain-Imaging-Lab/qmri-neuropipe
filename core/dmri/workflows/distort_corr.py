@@ -56,7 +56,7 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
         'desc': 'DistortionCorrected'
         }
 
-        if distortion_method == 'Registration':
+        if distortion_method == 'Anatomical-Coregistration':
             working_dir += '/anatomical-distortion-correction'
         elif distortion_method == 'Fieldmap':
             working_dir += '/fieldmap-distortion-correction'
@@ -75,7 +75,7 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
         distcorr_img._set_bvecs(distcorr_bvec)
 
         if not distcorr_img.exists():
-            if distortion_method == 'Registration':
+            if distortion_method == 'Anatomical-Coregistration':
                 if verbose:
                     print('Performing Registration-Based Distortion Correction')
 
@@ -97,5 +97,3 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
 
     else:
         return dwi_image
-
-
