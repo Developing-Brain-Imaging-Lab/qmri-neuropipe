@@ -130,7 +130,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
     run_topup  = False
 
     #Check to see if TOPUP Style data exists and if so, create merged DWI input image
-    if distortion_correction[0:4] == 'Topup' and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz') and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'):
+    if distortion_correction[0:5] == 'Topup' and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz') and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'):
 
         topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
         run_topup  = True
@@ -220,11 +220,11 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                        topup_config = topup_config,
                                        dist_corr    = 'Topup',
                                        verbose=verbose)
-                                       
-                                       
+
+
     if distortion_correction == 'Synb0-Disco':
         topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
-        
+
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
             #Run the Synb0 distortion correction'
             distcorr.run_synb0_disco(dwi_img    = dwi_img,
@@ -232,5 +232,5 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                      t1w_mask   = t1w_mask,
                                      topup_base = topup_base,
                                      nthreads   = 1)
-                                           
+
     return dwi_img, topup_base
