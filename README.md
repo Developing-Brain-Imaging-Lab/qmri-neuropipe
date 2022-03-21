@@ -10,7 +10,6 @@ Currently the starting point is nifti files organized according to BIDS.
 - CMake
 - Anaconda
 - FSL
-- MRtrix3
 - AFNI
 - HD-BET
 
@@ -24,6 +23,7 @@ Currently the starting point is nifti files organized according to BIDS.
 # Python Packages Used
 - ANTS
 - ANTSPyNET
+- MRtrix3
 - DIPY
 - DMIPY
 - DMRI-AMICO
