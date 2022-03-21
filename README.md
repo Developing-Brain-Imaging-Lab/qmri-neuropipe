@@ -7,6 +7,7 @@ It has four different pipelines (anatomical, diffusion, relax, segmentation).
 Currently the starting point is nifti files organized according to BIDS.
 
 # Required software (basic installation)
+- CMake
 - Anaconda
 - FSL
 - MRtrix3
