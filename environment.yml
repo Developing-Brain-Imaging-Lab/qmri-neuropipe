@@ -9,6 +9,7 @@ dependencies:
   - python=3.6.13
   - pathos
   - numba
+  - mrtrix3
   - pip:
       - antspynet==0.1.4
       - conda-env-export==0.4.3
