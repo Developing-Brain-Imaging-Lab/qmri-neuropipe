@@ -100,7 +100,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                     t1w_path = writing.build_path(entities, filename_patterns)
                     t1w = Image( t1w_path )
                     print(t1w_path)
-                    os.system('mri_convert --in_type mgz --out_type nii ' + T1_image._get_filename() + ' ' + t1w._get_filename())
+                    os.system('mri_convert --in_type mgz --out_type nii -i ' + T1_image._get_filename() + ' -o ' + t1w._get_filename())
                 else:
                     t1w = T1_image
                 
