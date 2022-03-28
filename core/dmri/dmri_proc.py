@@ -490,7 +490,7 @@ class DiffusionProcessingPipeline:
                     anat_mask   = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/brainmask.mgz')
                     freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
             
-            
+                
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
                                                       coreg_to_anat        = args.coregister_dwi_to_anat,
