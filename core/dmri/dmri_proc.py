@@ -502,7 +502,7 @@ class DiffusionProcessingPipeline:
                                                       nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,
                                                       dof                  = 6,
                                                       freesurfer_subjs_dir = freesurfer_subjs_dir,
-                                                      use_freesurfer,      = args.use_freesurfer,
+                                                      use_freesurfer       = args.use_freesurfer,
                                                       nthreads             = args.nthreads,
                                                       verbose              = args.verbose)
 
