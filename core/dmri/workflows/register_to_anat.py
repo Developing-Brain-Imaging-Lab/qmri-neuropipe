@@ -161,7 +161,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          output_matrix  = itk_transform,
                                          method         = 'BBR',
                                          dof            = dof,
-                                         freesurfer_subjects_dir = freesurfer_subjs_dir)
+                                         freesurfer_subjs_dir = freesurfer_subjs_dir)
                     
 
             elif reg_method == 'nonlinear':
