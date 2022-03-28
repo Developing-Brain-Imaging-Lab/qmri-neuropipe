@@ -155,9 +155,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         subid_patterns   = 'sub-{subject}[_ses-{session}]'
         subid = writing.build_path(entities, subid_patterns)
     
-        os.system('export SUBJECTS_DIR='+freesurfer_subjs_dir)
-        os.system('SUB='+subid)
-        
+        os.environ["SUBJECTS_DIR"] = freesurfer_subjs_dir
         print(freesurfer_subjs_dir)
         
         output_dir = os.path.dirname(output_matrix)
