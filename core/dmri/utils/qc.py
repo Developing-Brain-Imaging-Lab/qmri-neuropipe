@@ -93,6 +93,9 @@ def check_bvals_bvecs(input_dwi, output_base=None):
     bvals,bvecs=read_bvals_bvecs(input_dwi._get_bvals(),input_dwi._get_bvecs())
     numberOfVolumes = dwi_img.header.get_data_shape()[3]
     numberOfSlices  = dwi_img.header.get_data_shape()[2]
+    
+    print(bvals.shape[0])
+    exit()
 
     if bvals.shape[0] != numberOfVolumes:
         indices_to_remove = np.arange(numberOfVolumes, bvals.shape[0])
