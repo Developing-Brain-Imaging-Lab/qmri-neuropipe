@@ -143,6 +143,10 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         
     elif method == 'BBR':
     
+        if type(input_img) is list:
+            input_img       = input_img[0]
+            reference_img   = reference_img[0]
+
         parsed_filename = parse_file_entities(input_img._get_filename())
         entities = {
         'subject': parsed_filename.get('subject'),
