@@ -486,7 +486,7 @@ class DiffusionProcessingPipeline:
             
                 if args.use_freesurfer:
                     #Get the Freesurfer T1w, convert to nifti, and use this image for coregistration to DWI
-                    t1w         = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/T1.mgz')
+                    t1w         = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/orig_nu.mgz')
                     anat_mask   = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/brainmask.mgz')
                     freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
             
