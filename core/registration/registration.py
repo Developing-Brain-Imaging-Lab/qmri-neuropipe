@@ -156,16 +156,17 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         subid = writing.build_path(entities, subid_patterns)
     
         os.environ["SUBJECTS_DIR"] = freesurfer_subjs_dir
-        print(freesurfer_subjs_dir)
-        
         output_dir = os.path.dirname(output_matrix)
+        freesurfer_tmp_dir = output_dir + '/tmp/'
+        if not os.path.exists(freesurfer_tmp_dir):
+            os.makedirs(freesurfer_tmp_dir)
 
         ## run bbregister and output transform in fsl format
         b0toT1mat      = output_dir + '/b0toT1.mat'
         b0toT1lta      = output_dir + '/b0toT1.lta'
-        b0toT1flirtmtx = output_dir+'/b0toT1flirt.mtx'
+        b0toT1flirtmtx = output_dir + '/b0toT1flirt.mtx'
         
-        os.system('bbregister --s '+subid + ' --mov ' + input_img._get_filename() + ' --reg ' + reference_img._get_filename() + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx)
+        os.system('bbregister --s '+subid + ' --mov ' + input_img._get_filename() + ' --reg ' + reference_img._get_filename() + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx + ' --tmp ' + freesurfer_tmp_dir)
 
         convert_fsl2ants(input_img, reference_img, b0toT1flirtmtx, output_matrix)
         
