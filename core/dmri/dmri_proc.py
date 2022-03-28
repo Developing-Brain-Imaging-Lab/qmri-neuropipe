@@ -52,6 +52,11 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--bids_t2w_dir',
                             type=str, help='BIDS T2w RAWDATA Directory Basename',
                             default='anat')
+        
+        parser.add_argument('--use_freesurfer',
+                            type=bool,
+                            help='Use FreeSurfer processed data',
+                            default=False)
 
         parser.add_argument('--load_json',
                             type=str, help='Load settings from file in json format. Command line options are overriden by values in file.',
@@ -393,9 +398,10 @@ class DiffusionProcessingPipeline:
         anat_mask=None
 
         #Setup the Anatomical Imaging Data if needed
-        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
-            anat_pipeline = AnatomicalPrepPipeline()
-            t1w, t2w, anat_mask = anat_pipeline.run()
+        if not args.use_freesurfer:
+            if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
+                anat_pipeline = AnatomicalPrepPipeline()
+                t1w, t2w, anat_mask = anat_pipeline.run()
 
 
         ##################################
@@ -475,18 +481,29 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
-                dwi_img = coreg_proc.register_to_anat(dwi_image           = dwi_img,
-                                                      working_dir         = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
-                                                      coreg_to_anat       = args.coregister_dwi_to_anat,
-                                                      T1_image            = t1w,
-                                                      T2_image            = t2w,
-                                                      anat_mask           = anat_mask,
-                                                      reg_method          = args.coregister_dwi_to_anat_method,
-                                                      linreg_method       = args.coregister_dwi_to_anat_linear_method,
-                                                      nonlinreg_method    = args.coregister_dwi_to_anat_nonlinear_method,
-                                                      dof                 = 6,
-                                                      nthreads            = args.nthreads,
-                                                      verbose             = args.verbose)
+            
+                freesurfer_subjs_dir = None
+            
+                if args.use_freesurfer:
+                    #Get the Freesurfer T1w, convert to nifti, and use this image for coregistration to DWI
+                    t1w         = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/T1.mgz')
+                    anat_mask   = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/brainmask.mgz')
+                    freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
+            
+            
+                dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
+                                                      working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
+                                                      coreg_to_anat        = args.coregister_dwi_to_anat,
+                                                      T1_image             = t1w,
+                                                      T2_image             = t2w,
+                                                      anat_mask            = anat_mask,
+                                                      reg_method           = args.coregister_dwi_to_anat_method,
+                                                      linreg_method        = args.coregister_dwi_to_anat_linear_method,
+                                                      nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,
+                                                      dof                  = 6,
+                                                      freesurfer_subjs_dir = freesurfer_subjs_dir
+                                                      nthreads             = args.nthreads,
+                                                      verbose              = args.verbose)
 
                 if args.verbose:
                     print('Copying Anatomical Mask')
