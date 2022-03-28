@@ -153,7 +153,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         'session': parsed_filename.get('session'),
         }
         subid_patterns   = 'sub-{subject}[_ses-{session}]'
-        subid = writing.build_path(entities, filename_patterns)
+        subid = writing.build_path(entities, subid_patterns)
     
         os.system('export SUBJECTS_DIR='+freesurfer_subjs_dir)
         os.system('SUB='+subid)
