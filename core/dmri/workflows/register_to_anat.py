@@ -74,13 +74,13 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
 
             mask.mask_image(input_img       = mean_dwi,
                             output_mask     = mask_img,
-                            output_img      = dwi_masked._get_filename(),
+                            output_img      = dwi_masked,
                             method          = 'hd-bet',
                             bet_options     = '-f 0.25')
 
             mask.apply_mask(input_img       = mean_b0,
                             mask_img        = mask_img,
-                            output_img      = b0_masked._get_filename())
+                            output_img      = b0_masked)
 
             if T1_image != None:
                 
