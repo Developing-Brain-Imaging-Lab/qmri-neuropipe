@@ -166,7 +166,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         b0toT1lta      = output_dir + '/b0toT1.lta'
         b0toT1flirtmtx = output_dir + '/b0toT1flirt.mtx'
         
-        os.system('bbregister --s '+subid + ' --mov ' + input_img._get_filename() + ' --reg ' + reference_img._get_filename() + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx + ' --tmp ' + freesurfer_tmp_dir)
+        os.system('bbregister --s '+ subid + ' --mov ' + input_img._get_filename() + ' --reg ' + b0toT1mat + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx + ' --tmp ' + freesurfer_tmp_dir)
 
         print(reference_img._get_filename())
         convert_fsl2ants(input_img, reference_img, b0toT1flirtmtx, output_matrix)
