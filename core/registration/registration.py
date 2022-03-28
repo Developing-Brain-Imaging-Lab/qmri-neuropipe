@@ -158,6 +158,8 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         os.system('export SUBJECTS_DIR='+freesurfer_subjs_dir)
         os.system('SUB='+subid)
         
+        print(freesurfer_subjs_dir)
+        
         output_dir = os.path.dirname(output_matrix)
 
         ## run bbregister and output transform in fsl format
