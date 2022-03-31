@@ -120,6 +120,7 @@ class CSD_Model():
                 + ' -mask ' + mask_img._get_filename() \
                 + ' ' + dwi_mif \
                 +  self._inputs['response_func']
+            print(cmd)
             os.system(cmd)
 
             #Now Generage FOD generation
@@ -130,7 +131,7 @@ class CSD_Model():
                 + ' ' + dwi_mif + ' ' \
                 + self._inputs['response_func'] + ' ' \
                 + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz ' \
-
+            print(cmd)
             os.system(cmd)
             
 
