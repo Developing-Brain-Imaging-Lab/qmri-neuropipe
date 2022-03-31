@@ -112,16 +112,15 @@ class CSD_Model():
             #Generage the response functions
             
             if self._inputs['response_func'] == None:
-                
                 self._inputs['response_func'] = self._inputs['out_base'] + '_desc-csd-response_dwi.txt'
             
-                cmd = 'dwi2response' \
-                    + ' ' + self._inputs['response_algo'] \
-                    + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                    + ' -mask ' + mask_img._get_filename() \
-                    + ' ' + dwi_mif \
-                    +  self._inputs['response_func']
-                os.system(cmd)
+            cmd = 'dwi2response' \
+                + ' ' + self._inputs['response_algo'] \
+                + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
+                + ' -mask ' + mask_img._get_filename() \
+                + ' ' + dwi_mif \
+                +  self._inputs['response_func']
+            os.system(cmd)
 
             #Now Generage FOD generation
             cmd = 'dwi2fod' \
@@ -133,6 +132,7 @@ class CSD_Model():
                 + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz ' \
 
             os.system(cmd)
+            
 
 
         os.system('rm -rf ' + output_dir+'/tmp*')

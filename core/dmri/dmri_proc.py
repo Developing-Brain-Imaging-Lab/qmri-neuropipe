@@ -510,7 +510,6 @@ class DiffusionProcessingPipeline:
                     print('Copying Anatomical Mask')
                     
                     if args.use_freesurfer:
-                        print('TESTTEST')
                         os.system('mri_convert --in_type mgz --out_type nii -i ' + anat_mask._get_filename() + ' -o ' + dwi_mask._get_filename())
                         os.system('fslmaths ' + dwi_mask._get_filename() + ' -bin ' + dwi_mask._get_filename())
                     else:
