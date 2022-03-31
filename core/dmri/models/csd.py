@@ -35,27 +35,27 @@ class CSD_Model():
         os.system('mrconvert -quiet -force -fslgrad ' + dwi_img._get_bvecs() + ' ' + dwi_img._get_bvals() + ' ' + dwi_img._get_filename() + ' ' + dwi_mif + ' -nthreads ' + str(self._inputs['nthreads']) + ' --strides 0,0,0,1')
 
         if self._inputs['fod_algo'] == 'msmt_csd':
+            
+            if self._inputs['wm_response_func'] == None or self._inputs['gm_response_func'] == None or self._inputs['csf_response_func'] == None:
+                self._inputs['wm_response_func'] = self._inputs['out_base'] + '_desc-wm-response_dwi.txt'
+                self._inputs['gm_response_func'] = self._inputs['out_base'] + '_desc-gm-response_dwi.txt'
+                self._inputs['csf_response_func'] = self._inputs['out_base'] + '_desc-csf-response_dwi.txt'
+    
+                if self._inputs['response_algo']  == 'msmt_5tt':
+                    struct_img = self._inputs['struct_img']
 
-            if self._inputs['response_algo']  == 'msmt_5tt':
-                struct_img = self._inputs['struct_img']
+                    if struct_img == None:
+                        print('Need to provide structural image with MSMT_5tt')
+                        exit()
+                        
+                    #Run the 5TT masking
+                    cmd = '5ttgen fsl ' \
+                        + '-mask ' + mask_img._get_filename() \
+                        + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
+                        + ' ' + struct_img._get_filename() \
+                        + ' ' + self._inputs['out_base'] + '_desc-5ttgen_mask.nii.gz'
+                    os.system(cmd)
 
-                if struct_img == None:
-                    print('Need to provide structural image with MSMT_5tt')
-                    exit()
-                    
-                #Run the 5TT masking
-                cmd = '5ttgen fsl ' \
-                    + '-mask ' + mask_img._get_filename() \
-                    + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                    + ' ' + struct_img._get_filename() \
-                    + ' ' + self._inputs['out_base'] + '_desc-5ttgen_mask.nii.gz'
-                os.system(cmd)
-
-                if self._inputs['wm_response_func'] == None or self._inputs['gm_response_func'] == None or self._inputs['csf_response_func'] == None:
-                    self._inputs['wm_response_func'] = self._inputs['out_base'] + '_desc-wm-response_dwi.txt'
-                    self._inputs['gm_response_func'] = self._inputs['out_base'] + '_desc-gm-response_dwi.txt'
-                    self._inputs['csf_response_func'] = self._inputs['out_base'] + '_desc-csf-response_dwi.txt'
-                    
                     #Generage the response functions
                     cmd = 'dwi2response msmt_5tt ' \
                         + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
@@ -65,25 +65,19 @@ class CSD_Model():
                         + self._inputs['gm_response_func'] + ' ' \
                         + self._inputs['csf_response_func']
                     os.system(cmd)
-
-            else:
-            
-                if self._inputs['wm_response_func'] == None or self._inputs['gm_response_func'] == None or self._inputs['csf_response_func'] == None:
-                    self._inputs['wm_response_func'] = self._inputs['out_base'] + '_desc-wm-response_dwi.txt'
-                    self._inputs['gm_response_func'] = self._inputs['out_base'] + '_desc-gm-response_dwi.txt'
-                    self._inputs['csf_response_func'] = self._inputs['out_base'] + '_desc-csf-response_dwi.txt'
-                    
+                        
+                else:
                     #Generage the response functions
-                    cmd = 'dwi2response ' + self._inputs['response_algo'] \
+                    cmd = 'dwi2response dhollander ' \
                         + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
                         + ' ' + dwi_mif + ' ' \
+                        + ' -mask ' + mask_img._get_filename() + ' ' \
                         + self._inputs['wm_response_func'] + ' ' \
                         + self._inputs['gm_response_func'] + ' ' \
-                        + self._inputs['csf_response_func'] + ' ' \
-                        + '-mask ' + mask_img._get_filename()
-                    print(cmd)
+                        + self._inputs['csf_response_func']
+                        
                     os.system(cmd)
-
+        
             #Now Generage FOD generation
             parameter_base = self._inputs['out_base']
             if self._inputs['response_algo']  == 'msmt_5tt':
@@ -104,35 +98,13 @@ class CSD_Model():
                 + self._inputs['csf_response_func'] + ' ' \
                 + parameter_base + '_parameter-CSFfod.nii.gz ' \
                 + '-mask ' + mask_img._get_filename()
-                
             print(cmd)
             os.system(cmd)
 
         else:
             #Generage the response functions
-            if self._inputs['response_algo'] == 'dhollander':
-            
-                if self._inputs['wm_response_func'] == None or self._inputs['gm_response_func'] == None or self._inputs['csf_response_func'] == None:
-                    self._inputs['wm_response_func'] = self._inputs['out_base'] + '_desc-wm-response_dwi.txt'
-                    self._inputs['gm_response_func'] = self._inputs['out_base'] + '_desc-gm-response_dwi.txt'
-                    self._inputs['csf_response_func'] = self._inputs['out_base'] + '_desc-csf-response_dwi.txt'
-                    
-                #Generage the response functions
-                cmd = 'dwi2response ' + self._inputs['response_algo'] \
-                    + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                    + ' ' + dwi_mif + ' ' \
-                    + self._inputs['wm_response_func'] + ' ' \
-                    + self._inputs['gm_response_func'] + ' ' \
-                    + self._inputs['csf_response_func'] + ' ' \
-                    + '-mask ' + mask_img._get_filename()
-                    
-                print(cmd)
-                os.system(cmd)
-            
-            
-            else:
-                if self._inputs['response_func'] == None:
-                    self._inputs['response_func'] = self._inputs['out_base'] + '_desc-csd-response_dwi.txt'
+            if self._inputs['response_func'] == None:
+                self._inputs['response_func'] = self._inputs['out_base'] + '_desc-csd-response_dwi.txt'
             
                 cmd = 'dwi2response' \
                     + ' ' + self._inputs['response_algo'] \
@@ -144,18 +116,15 @@ class CSD_Model():
                 print(cmd)
                 os.system(cmd)
 
-                #Now Generage FOD generation
-                cmd = 'dwi2fod' \
-                    + ' ' + self._inputs['fod_algo'] \
-                    + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                    + ' -mask ' + mask_img._get_filename() \
-                    + ' ' + dwi_mif + ' ' \
-                    + self._inputs['response_func'] + ' ' \
-                    + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz'
+            #Now Generage FOD generation
+            cmd = 'dwi2fod csd ' \
+                + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
+                + ' -mask ' + mask_img._get_filename() \
+                + ' ' + dwi_mif + ' ' \
+                + self._inputs['response_func'] + ' ' \
+                + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz'
                 
-                print(cmd)
-                os.system(cmd)
+            print(cmd)
+            os.system(cmd)
             
-
-
         os.system('rm -rf ' + output_dir+'/tmp*')
