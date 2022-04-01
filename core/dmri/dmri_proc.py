@@ -654,17 +654,15 @@ class DiffusionProcessingPipeline:
 
 
 
+          ###GBSS PSEUDO T1w ###
+         if args.setup_gbss:
+             if not os.path.exists(bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz'):
+                 if args.verbose:
+                     print('Creating GBSS Pseudo T1-weighted Image')
 
+                 if os.path.exists(models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz') and os.path.exists(models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz'):
 
-## ###GBSS PSEUDO T1w ###
-# if args.setup_gbss:
-#     if not os.path.exists(bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz'):
-#         if args.verbose:
-#             print('Creating GBSS Pseudo T1-weighted Image')
-#
-#         if os.path.exists(bids_derivative_dwi_dir +'/DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz') and os.path.exists(bids_derivative_dwi_dir +'/NODDI-'+args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz'):
-#
-#             diff_util.create_pseudoT1_img(fa_img        = bids_derivative_dwi_dir +'/DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz',
-#                                           fiso_img      = bids_derivative_dwi_dir +'/NODDI-'+args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz',
-#                                           mask_img      = preprocess_dir + bids_id + '_desc-brain_mask.nii.gz',
-#                                           pseudoT1_img  = bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz')
+                     diff_util.create_pseudoT1_img(fa_img        = models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz',
+                                                   fiso_img      = models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz',
+                                                   mask_img      = dwi_mask,
+                                                   pseudoT1_img  = bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz')
