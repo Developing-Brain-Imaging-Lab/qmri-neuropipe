@@ -455,8 +455,8 @@ def epi_reg_fsl(input_dwi, input_bval, fieldmap, fieldmap_ref, struct_img, struc
 
 def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
-    if not os.path.exists(fieldmap_dir):
-        os.mkdir(fieldmap_dir)
+    if not os.path.exists(working_dir):
+        os.mkdir(working_dir)
 
     fmap_ref_base=''
     if fmap_ref_image._get_filename().endswith('.nii'):
