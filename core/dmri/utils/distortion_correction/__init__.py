@@ -526,8 +526,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     #Now scale the field map and mask
     fmap_rads = Image(file = working_dir + '/fmap_radians.nii.gz')
     os.system('fslmaths ' + fmap_image._get_filename() + ' -mul 6.28 -mas ' + mask_img._get_filename() + ' ' + fmap_rads._get_filename())
-    print('fugue --loadfmap='+fmap_rads._get_filename()+' --despike -smooth 2 --savefmap='+fmap_rads._get_filename())
-    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike -smooth 2 --savefmap='+fmap_rads._get_filename())
+    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike --smooth3=4 --savefmap='+fmap_rads._get_filename())
 
     
     #Warp the reference image
