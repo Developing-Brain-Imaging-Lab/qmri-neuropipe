@@ -396,13 +396,23 @@ class DiffusionProcessingPipeline:
         t1w=None
         t2w=None
         anat_mask=None
+        
+        fmap_image=None
+        fmap_ref_image=None
 
         #Setup the Anatomical Imaging Data if needed
         if not args.use_freesurfer:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
+                
+        if args.dwi_dist_corr == 'Fieldmap':
+            fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz')
+            fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz')
+        
 
+        print(fmap_image._get_filename())
+        print(fmap_ref_image._get_filename())
 
         ##################################
         ### DWI PROCESSING STARTS HERE ###
@@ -457,16 +467,15 @@ class DiffusionProcessingPipeline:
                                                               method            = args.dwi_outlier_detection,
                                                               percent_threshold = args.dwi_outlier_detection_threshold,
                                                               verbose           = args.verbose)
-            
-            if args.dwi_dist_corr == 'Fieldmap':
-                dwi_img = 
-            
+ 
 
-            if args.dwi_dist_corr == 'Anatomical-Coregistration':
+            if args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_dist_corr == 'Fieldmap':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
                                                                      working_dir         = preproc_dir,
                                                                      t1w_image           = t1w,
                                                                      t2w_image           = t2w,
+                                                                     fmap_image          =  ,
+                                                                     fmap_ref_image      = ,
                                                                      distortion_method   = args.dwi_dist_corr,
                                                                      distortion_modality = args.coregister_dwi_to_anat_modality,
                                                                      linreg_method       = args.dwi_distortion_linreg_method,
