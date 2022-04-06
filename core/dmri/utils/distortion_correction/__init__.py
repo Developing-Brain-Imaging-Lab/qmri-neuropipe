@@ -485,14 +485,14 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     entities['extension'] = '.bvec'
     out_bvec = writing.build_path(entities, filename_patterns)
 
-    output_img = copy.deepcopy(input_dwi)
+    output_img = copy.deepcopy(dwi_image)
     output_img._set_filename(out_file)
     output_img._set_bvecs(out_bvec)
         
         
     #Determine the Phase Encode Direction
     #Read the JSON file and get the
-    with open(input_dwi._get_json()) as f:
+    with open(dwi_image._get_json()) as f:
         json_data = json.load(f)
 
     unwarpdir   = json_data["PhaseEncodingDirection"]
@@ -522,7 +522,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     bvals = np.loadtxt(dwi_image._get_bvals())
     ii = np.where(bvals != 0)
 
-    dwi_img = nib.load(input_dwi._get_filename())
+    dwi_img = nib.load(dwi_image._get_filename())
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
