@@ -514,28 +514,23 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         exit()
         
     #Skull-strip the reference
-#    mask_img=Image(file = working_dir + '/mask.nii.gz')
-#    os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
-#    os.system('bet ' + mask_img._get_filename() + ' ' + mask_img._get_filename())
-#    os.system('fslmaths ' + mask_img._get_filename() + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img._get_filename())
-#
-#    fm_ref_mask = Image(file = working_dir + '/fmap_ref_mask.nii.gz')
-#    os.system('fslmaths ' + fmap_ref_image._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + fm_ref_mask._get_filename())
+    mask_img=Image(file = working_dir + '/mask.nii.gz')
+    os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
+    os.system('bet ' + mask_img._get_filename() + ' ' + mask_img._get_filename())
+    os.system('fslmaths ' + mask_img._get_filename() + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img._get_filename())
+
+    fm_ref_mask = Image(file = working_dir + '/fmap_ref_mask.nii.gz')
+    os.system('fslmaths ' + fmap_ref_image._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + fm_ref_mask._get_filename())
 
 
     #Now scale the field map and mask
     fmap_rads = Image(file = working_dir + '/fmap_radians.nii.gz')
-#    os.system('fslmaths ' + fmap_image._get_filename() + ' -mul 6.28 -mas ' + mask_img._get_filename() + ' ' + fmap_rads._get_filename())
     os.system('fslmaths ' + fmap_image._get_filename() + ' -mul 6.28 ' + fmap_rads._get_filename())
-    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike --smooth3=4 --savefmap='+fmap_rads._get_filename())
+    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike --smooth3=2 --savefmap='+fmap_rads._get_filename())
 
-    
     #Warp the reference image
     input_fm_ref_warp = working_dir + '/fmap_warp.nii.gz'
-    #os.system('fugue -i ' + fm_ref_mask._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
-    
-    os.system('fugue -i ' + fmap_ref_image._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
-
+    os.system('fugue -i ' + fm_ref_mask._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
 
     dwi_ref = working_dir + '/dwi_ref.nii.gz'
     bvals = np.loadtxt(dwi_image._get_bvals())
@@ -551,7 +546,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     dwi_mean_img = nib.Nifti1Image(dwi_mean, aff, dwi_img.header)
     nib.save(dwi_mean_img, dwi_ref)
     os.system('N4BiasFieldCorrection -d 3 -i ' + dwi_ref + ' -o ' + dwi_ref)
-    #os.system('bet ' + dwi_ref + ' ' + dwi_ref)
+    os.system('bet ' + dwi_ref + ' ' + dwi_ref)
 
     #Align warped reference to the dwi data
     fm_ref_warp_align = working_dir + '/fmap_warp-aligned.nii.gz'
