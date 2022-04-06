@@ -407,8 +407,8 @@ class DiffusionProcessingPipeline:
                 t1w, t2w, anat_mask = anat_pipeline.run()
                 
         if args.dwi_dist_corr == 'Fieldmap':
-            fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz')
-            fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz')
+            fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
+            fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
         
 
         print(fmap_image._get_filename())
