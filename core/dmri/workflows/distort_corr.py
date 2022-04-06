@@ -93,7 +93,7 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
                 if verbose:
                     print('Performing Fieldmap Based Distortion Correction')
                 
-                distcorr_img = distcorr.fugue_fsl(input_dwi         = dwi_image,
+                distcorr_img = distcorr.fugue_fsl(dwi_image         = dwi_image,
                                                   fmap_image        = fmap_image,
                                                   fmap_ref_image    = fmap_ref_image,
                                                   working_dir       = working_dir)
