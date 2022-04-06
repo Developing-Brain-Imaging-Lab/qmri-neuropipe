@@ -457,7 +457,10 @@ class DiffusionProcessingPipeline:
                                                               method            = args.dwi_outlier_detection,
                                                               percent_threshold = args.dwi_outlier_detection_threshold,
                                                               verbose           = args.verbose)
-
+            
+            if args.dwi_dist_corr == 'Fieldmap':
+                dwi_img = 
+            
 
             if args.dwi_dist_corr == 'Anatomical-Coregistration':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
