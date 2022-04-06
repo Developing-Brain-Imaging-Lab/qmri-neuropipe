@@ -460,15 +460,15 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
     fmap_ref_base=''
     if fmap_ref_image._get_filename().endswith('.nii'):
-        fmap_ref_base = fmap_ref_image._get_filename()[0:len(input_fm_ref)-4]
+        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-4]
     else:
-        fmap_ref_base = fmap_ref_image._get_filename()[0:len(input_fm_ref)-7]
+        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-7]
 
     fmap_base=''
     if fmap_image._get_filename().endswith('.nii'):
-        fmap_base = fmap_image._get_filename()[0:len(input_fm)-4]
+        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-4]
     else:
-        fmap_base = fmap_image._get_filename()[0:len(input_fm)-7]
+        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-7]
         
 
     parsed_filename = parse_file_entities(dwi_image._get_filename())
