@@ -471,7 +471,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         fmap_base = fmap_image._get_filename()[0:len(input_fm)-7]
         
 
-    parsed_filename = parse_file_entities(input_dwi._get_filename())
+    parsed_filename = parse_file_entities(dwi_image._get_filename())
     entities = {
     'extension': '.nii.gz',
     'subject': parsed_filename.get('subject'),
@@ -544,7 +544,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     os.system('flirt -in ' + fmap_rads._get_filename() + ' -ref ' + dwi_ref + ' -applyxfm -init ' + fm_ref_mat + ' -out ' + fm_rads_warp)
 
     #Now, undistort the image
-    os.system('fugue -i ' + input_dwi._get_filename() + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img._get_filename())
+    os.system('fugue -i ' + dwi_image._get_filename() + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img._get_filename())
     
     return output_img
 
