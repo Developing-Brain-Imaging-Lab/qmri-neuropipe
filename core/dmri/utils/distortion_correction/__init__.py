@@ -495,9 +495,24 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     with open(dwi_image._get_json()) as f:
         json_data = json.load(f)
 
-    unwarpdir   = json_data["PhaseEncodingDirection"]
     dwell_time  = json_data["EffectiveEchoSpacing"]
-
+    unwarpdir   = ''
+    if json_data["PhaseEncodingDirection"] == 'i':
+        unwarpdir = 'x'
+    elif json_data["PhaseEncodingDirection"] == 'i-':
+        unwarpdir = 'x-'
+    elif json_data["PhaseEncodingDirection"] == 'j':
+        unwarpdir = 'y'
+    elif json_data["PhaseEncodingDirection"] == 'j-':
+        unwarpdir = 'y-'
+    elif json_data["PhaseEncodingDirection"] == 'k':
+        unwarpdir = 'z'
+    elif json_data["PhaseEncodingDirection"] == 'k-':
+        unwarpdir = 'z-'
+    else:
+        print('Incorrect Phase Encoding Data')
+        exit()
+        
     #Skull-strip the reference
     mask_img=Image(file = working_dir + '/mask.nii.gz')
     os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
