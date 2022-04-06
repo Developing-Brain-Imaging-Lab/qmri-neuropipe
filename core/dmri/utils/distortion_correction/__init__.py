@@ -498,17 +498,17 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     dwell_time  = json_data["EffectiveEchoSpacing"]
     unwarpdir   = ''
     if json_data["PhaseEncodingDirection"] == 'i':
-        unwarpdir = 'x'
-    elif json_data["PhaseEncodingDirection"] == 'i-':
         unwarpdir = 'x-'
+    elif json_data["PhaseEncodingDirection"] == 'i-':
+        unwarpdir = 'x'
     elif json_data["PhaseEncodingDirection"] == 'j':
-        unwarpdir = 'y'
-    elif json_data["PhaseEncodingDirection"] == 'j-':
         unwarpdir = 'y-'
+    elif json_data["PhaseEncodingDirection"] == 'j-':
+        unwarpdir = 'y'
     elif json_data["PhaseEncodingDirection"] == 'k':
-        unwarpdir = 'z'
-    elif json_data["PhaseEncodingDirection"] == 'k-':
         unwarpdir = 'z-'
+    elif json_data["PhaseEncodingDirection"] == 'k-':
+        unwarpdir = 'z'
     else:
         print('Incorrect Phase Encoding Data')
         exit()
@@ -530,8 +530,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
     
     #Warp the reference image
-    input_fm_ref_warp = working_dir + 'fmap_warp.nii.gz'
-    print(unwarpdir)
+    input_fm_ref_warp = working_dir + '/fmap_warp.nii.gz'
     os.system('fugue -i ' + fm_ref_mask._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
 
     dwi_ref = working_dir + '/dwi_ref.nii.gz'
