@@ -140,8 +140,8 @@ class CSD_Model():
             
             cmd = 'mtnormalise ' \
                 + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) + ' ' \
-                + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz'
-                + self._inputs['out_base'] + '_desc-MTNorm_model-CSD_parameter-FOD.nii.gz'
+                + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz ' \
+                + self._inputs['out_base'] + '_desc-MTNorm_model-CSD_parameter-FOD.nii.gz ' \
                 + '-mask ' + mask_img._get_filename()
             os.system(cmd)
             
