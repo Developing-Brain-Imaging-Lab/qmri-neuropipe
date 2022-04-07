@@ -409,10 +409,7 @@ class DiffusionProcessingPipeline:
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
             fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
-        
 
-        print(fmap_image._get_filename())
-        print(fmap_ref_image._get_filename())
 
         ##################################
         ### DWI PROCESSING STARTS HERE ###
