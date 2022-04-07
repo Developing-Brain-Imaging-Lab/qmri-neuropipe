@@ -482,13 +482,10 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
 
     out_file = writing.build_path(entities, filename_patterns)
-    entities['extension'] = '.bvec'
-    out_bvec = writing.build_path(entities, filename_patterns)
-
+    
     output_img = copy.deepcopy(dwi_image)
     output_img._set_filename(out_file)
-    output_img._set_bvecs(out_bvec)
-        
+  
         
     #Determine the Phase Encode Direction
     #Read the JSON file and get the
