@@ -401,7 +401,23 @@ class DiffusionProcessingPipeline:
         fmap_ref_image=None
 
         #Setup the Anatomical Imaging Data if needed
-        if not args.use_freesurfer:
+        if args.use_freesufer:
+            freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
+            
+            if not os.path.exists(bids_derivative_dir+'/anat/')
+                os.makedirs(bids_derivative_dir+'/anat/')
+            
+            t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
+            anat_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
+            
+            freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
+            freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
+            
+            #Convert to NIFTI
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + t1w._get_filename())
+            
+        else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
@@ -490,16 +506,6 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
-            
-                freesurfer_subjs_dir = None
-            
-                if args.use_freesurfer:
-                    #Get the Freesurfer T1w, convert to nifti, and use this image for coregistration to DWI
-                    t1w         = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/orig_nu.mgz')
-                    anat_mask   = Image(file=args.bids_dir + '/derivatives/freesurfer/' + bids_id + '/mri/brainmask.mgz')
-                    freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
-            
-                
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
                                                       coreg_to_anat        = args.coregister_dwi_to_anat,
