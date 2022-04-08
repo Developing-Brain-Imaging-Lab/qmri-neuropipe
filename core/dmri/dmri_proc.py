@@ -401,7 +401,7 @@ class DiffusionProcessingPipeline:
         fmap_ref_image=None
 
         #Setup the Anatomical Imaging Data if needed
-        if args.use_freesufer:
+        if args.use_freesurfer:
             freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
             
             if not os.path.exists(bids_derivative_dir+'/anat/'):
