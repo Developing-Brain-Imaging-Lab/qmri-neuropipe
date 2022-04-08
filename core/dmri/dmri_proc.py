@@ -404,7 +404,7 @@ class DiffusionProcessingPipeline:
         if args.use_freesufer:
             freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
             
-            if not os.path.exists(bids_derivative_dir+'/anat/')
+            if not os.path.exists(bids_derivative_dir+'/anat/'):
                 os.makedirs(bids_derivative_dir+'/anat/')
             
             t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
