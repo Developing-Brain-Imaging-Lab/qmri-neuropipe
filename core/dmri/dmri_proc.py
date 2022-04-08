@@ -580,6 +580,12 @@ class DiffusionProcessingPipeline:
             for file in outlier_files_to_cleanup:
                 if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
                     os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
+                    
+        
+        ##MASK THE PREPROCESSED DWI to save space
+        mask.apply_mask(input_img   = final_dwi,
+                        mask_img    = dwi_mask,
+                        output_img  = final_dwi)
 
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
