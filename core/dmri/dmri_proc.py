@@ -415,7 +415,7 @@ class DiffusionProcessingPipeline:
             
             #Convert to NIFTI
             os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + t1w._get_filename())
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
             
         else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
