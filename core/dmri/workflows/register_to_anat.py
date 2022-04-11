@@ -85,28 +85,8 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
             if T1_image != None:
                 
                 #If Freesurfer, convert to NIFTI
-                t1w=Image();
-                
-                if use_freesurfer:
-                    entities = {
-                        'extension': '.nii.gz',
-                        'subject': parsed_filename.get('subject'),
-                        'session': parsed_filename.get('session'),
-                        'suffix':  'T1w',
-                        'desc': 'CoregisteredToAnatomy'
-                    }
-
-                    filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
-                    t1w_path = writing.build_path(entities, filename_patterns)
-                    t1w = Image( t1w_path )
-                    print(t1w_path)
-                    os.system('mri_convert --in_type mgz --out_type nii -i ' + T1_image._get_filename() + ' -o ' + t1w._get_filename())
-                    
-                    
-                    
-                else:
-                    t1w = T1_image
-                
+                t1w=T1_image;
+            
                 ref_img.append(t1w)
                 mov_img.append(dwi_masked)
                 flirt_options = '-cost normmi '
