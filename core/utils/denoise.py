@@ -33,6 +33,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
                         '-nthreads', str(nthreads),
                         '-quiet',
                         '-force'], stderr=subprocess.STDOUT)
+                        
 
     if method=='dipy':
         img = nib.load(input_img._get_filename())
@@ -43,6 +44,9 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
         corrected_img.set_sform(img.get_sform())
         corrected_img.set_qform(img.get_qform())
         nib.save(corrected_img, output_img._get_filename())
+        
+    #After the gibbs ringing correction, copy the header from the input to ensure proper sizing
+    os.system('fslcpgeom ' + input_img._get_filename() + ' ' + output_img._get_filename() )
 
     return output_img
 

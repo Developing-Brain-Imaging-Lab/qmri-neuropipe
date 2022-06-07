@@ -51,6 +51,7 @@ def denoise_degibbs(img, working_dir, suffix, denoise_method='mrtrix', gibbs_met
 
     degibbs_img = copy.deepcopy(denoised_img)
     degibbs_img._set_filename(writing.build_path(entities, filename_patterns))
+    
     ###GIBBS RINGING CORRECTION ###
     if not degibbs_img.exists():
         if verbose:
