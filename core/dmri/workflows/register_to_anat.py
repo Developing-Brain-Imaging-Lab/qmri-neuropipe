@@ -10,7 +10,7 @@ import core.utils.mask as mask
 from core.dmri.utils.qc import rotate_bvecs
 import core.registration.registration as reg_tools
 
-def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', use_freesurfer=False, freesurfer_subjs_dir=None, nthreads=1, verbose=False):
+def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', use_freesurfer=False, freesurfer_subjs_dir=None, nthreads=1, verbose=False):
 
     if coreg_to_anat:
 
@@ -75,7 +75,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
             mask.mask_image(input_img       = mean_dwi,
                             output_mask     = mask_img,
                             output_img      = dwi_masked,
-                            method          = 'hd-bet',
+                            method          = mask_method,
                             bet_options     = '-f 0.25')
 
             mask.apply_mask(input_img       = mean_b0,

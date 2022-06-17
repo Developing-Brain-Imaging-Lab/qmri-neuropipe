@@ -118,7 +118,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['bet', 'mrtrix', 'ants', 'antspynet'],
+                            choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
         parser.add_argument('--dwi_ants_mask_template',
@@ -513,6 +513,7 @@ class DiffusionProcessingPipeline:
                                                       T1_image             = t1w,
                                                       T2_image             = t2w,
                                                       anat_mask            = anat_mask,
+                                                      mask_method          = args.dwi_mask_method,
                                                       reg_method           = args.coregister_dwi_to_anat_method,
                                                       linreg_method        = args.coregister_dwi_to_anat_linear_method,
                                                       nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,

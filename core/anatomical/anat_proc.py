@@ -110,7 +110,7 @@ class AnatomicalPrepPipeline:
         parser.add_argument('--anat_mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['bet', 'mrtrix', 'ants', 'antspynet'],
+                            choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
         parser.add_argument('--anat_ants_mask_template',
