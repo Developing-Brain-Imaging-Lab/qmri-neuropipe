@@ -401,6 +401,7 @@ class DiffusionProcessingPipeline:
         fmap_ref_image=None
 
         #Setup the Anatomical Imaging Data if needed
+        freesurfer_subjs_dir = None
         if args.use_freesurfer:
             freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
             

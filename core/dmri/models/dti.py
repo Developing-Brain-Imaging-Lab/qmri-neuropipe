@@ -383,8 +383,8 @@ class DTI_Model():
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -fa -out ' + self._outputs['fa'])
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -rd -out ' + self._outputs['rd'])
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -ad -out ' + self._outputs['ad'])
-            os.system('TVtool -in ' + self._outputs['tensor'] + ' -tr -out ' + self._outputs['tr'])
-            os.system('fslmaths ' + self._outputs['tr'] + ' -div 3.00 ' + self._outputs['md'])
+            os.system('TVtool -in ' + self._outputs['tensor'] + ' -tr -out ' + self._full_outputs['tr'])
+            os.system('fslmaths ' + self._full_outputs['tr'] + ' -div 3.00 ' + self._outputs['md'])
 
             #Output the eigenvectors and eigenvalues
             os.system('TVEigenSystem -in ' + self._outputs['tensor'] + ' -type FSL')
