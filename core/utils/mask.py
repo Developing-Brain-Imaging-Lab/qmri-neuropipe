@@ -153,7 +153,7 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         exit(-1)
 
     if output_img != None:
-        apply_mask(input_img, output_mask, output_img._get_filename())
+        apply_mask(input_img, output_mask, output_img)
 
 
     #Clean up Temporary Files

@@ -7,6 +7,7 @@ import ants
 from dipy.io.image import load_nifti, save_nifti
 from dipy.segment.mask import median_otsu
 
+from bids.layout import writing, parse_file_entities
 from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
 
@@ -92,7 +93,7 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
     #elif method == 'FreeSurfer':
 
 
-def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6, nthreads=1, method='FSL', flirt_options=None, ants_options=None):
+def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6, nthreads=1, method='FSL', flirt_options=None, ants_options=None, freesurfer_subjs_dir=None):
 
     cmd = ''
 
@@ -119,6 +120,8 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
             cmd += ' -out ' + output_img._get_filename()
         if flirt_options != None:
             cmd += ' ' + flirt_options
+        
+        os.system(cmd)
 
     elif method == 'ANTS':
 
@@ -139,9 +142,38 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
                     +  ' -f ' + reference_img._get_filename()
 
         cmd += ' ' + ants_options
+        os.system(cmd)
+        
+    elif method == 'BBR':
+    
+        if type(input_img) is list:
+            input_img       = input_img[0]
+            reference_img   = reference_img[0]
 
+        parsed_filename = parse_file_entities(input_img._get_filename())
+        entities = {
+        'subject': parsed_filename.get('subject'),
+        'session': parsed_filename.get('session'),
+        }
+        subid_patterns   = 'sub-{subject}[_ses-{session}]'
+        subid = writing.build_path(entities, subid_patterns)
+    
+        os.environ["SUBJECTS_DIR"] = freesurfer_subjs_dir
+        output_dir = os.path.dirname(output_matrix)
+        freesurfer_tmp_dir = output_dir + '/tmp/'
+        if not os.path.exists(freesurfer_tmp_dir):
+            os.makedirs(freesurfer_tmp_dir)
 
-    os.system(cmd)
+        ## run bbregister and output transform in fsl format
+        b0toT1mat      = output_dir + '/b0toT1.mat'
+        b0toT1lta      = output_dir + '/b0toT1.lta'
+        b0toT1flirtmtx = output_dir + '/b0toT1flirt.mtx'
+        
+        os.system('bbregister --s '+ subid + ' --mov ' + input_img._get_filename() + ' --reg ' + b0toT1mat + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx + ' --tmp ' + freesurfer_tmp_dir)
+
+        convert_fsl2ants(input_img, reference_img, b0toT1flirtmtx, output_matrix)
+        
+        
 
 
 def nonlinear_reg(input_img, reference_img, reference_mask, output_base, nthreads=1, method='ANTS', ants_options=None):

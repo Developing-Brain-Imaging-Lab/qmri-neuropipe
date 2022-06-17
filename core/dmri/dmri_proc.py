@@ -52,6 +52,11 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--bids_t2w_dir',
                             type=str, help='BIDS T2w RAWDATA Directory Basename',
                             default='anat')
+        
+        parser.add_argument('--use_freesurfer',
+                            type=bool,
+                            help='Use FreeSurfer processed data',
+                            default=False)
 
         parser.add_argument('--load_json',
                             type=str, help='Load settings from file in json format. Command line options are overriden by values in file.',
@@ -113,7 +118,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['bet', 'mrtrix', 'ants', 'antspynet'],
+                            choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
         parser.add_argument('--dwi_ants_mask_template',
@@ -391,11 +396,36 @@ class DiffusionProcessingPipeline:
         t1w=None
         t2w=None
         anat_mask=None
+        
+        fmap_image=None
+        fmap_ref_image=None
 
         #Setup the Anatomical Imaging Data if needed
-        if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
-            anat_pipeline = AnatomicalPrepPipeline()
-            t1w, t2w, anat_mask = anat_pipeline.run()
+        freesurfer_subjs_dir = None
+        if args.use_freesurfer:
+            freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
+            
+            if not os.path.exists(bids_derivative_dir+'/anat/'):
+                os.makedirs(bids_derivative_dir+'/anat/')
+            
+            t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
+            anat_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
+            
+            freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
+            freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
+            
+            #Convert to NIFTI
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
+            
+        else:
+            if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
+                anat_pipeline = AnatomicalPrepPipeline()
+                t1w, t2w, anat_mask = anat_pipeline.run()
+                
+        if args.dwi_dist_corr == 'Fieldmap':
+            fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
+            fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
 
 
         ##################################
@@ -451,13 +481,15 @@ class DiffusionProcessingPipeline:
                                                               method            = args.dwi_outlier_detection,
                                                               percent_threshold = args.dwi_outlier_detection_threshold,
                                                               verbose           = args.verbose)
+ 
 
-
-            if args.dwi_dist_corr == 'Anatomical-Coregistration':
+            if args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_dist_corr == 'Fieldmap':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
                                                                      working_dir         = preproc_dir,
                                                                      t1w_image           = t1w,
                                                                      t2w_image           = t2w,
+                                                                     fmap_image          = fmap_image,
+                                                                     fmap_ref_image      = fmap_ref_image,
                                                                      distortion_method   = args.dwi_dist_corr,
                                                                      distortion_modality = args.coregister_dwi_to_anat_modality,
                                                                      linreg_method       = args.dwi_distortion_linreg_method,
@@ -475,22 +507,26 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
-                dwi_img = coreg_proc.register_to_anat(dwi_image           = dwi_img,
-                                                      working_dir         = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
-                                                      coreg_to_anat       = args.coregister_dwi_to_anat,
-                                                      T1_image            = t1w,
-                                                      T2_image            = t2w,
-                                                      anat_mask           = anat_mask,
-                                                      reg_method          = args.coregister_dwi_to_anat_method,
-                                                      linreg_method       = args.coregister_dwi_to_anat_linear_method,
-                                                      nonlinreg_method    = args.coregister_dwi_to_anat_nonlinear_method,
-                                                      dof                 = 6,
-                                                      nthreads            = args.nthreads,
-                                                      verbose             = args.verbose)
+                dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
+                                                      working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
+                                                      coreg_to_anat        = args.coregister_dwi_to_anat,
+                                                      T1_image             = t1w,
+                                                      T2_image             = t2w,
+                                                      anat_mask            = anat_mask,
+                                                      mask_method          = args.dwi_mask_method,
+                                                      reg_method           = args.coregister_dwi_to_anat_method,
+                                                      linreg_method        = args.coregister_dwi_to_anat_linear_method,
+                                                      nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,
+                                                      dof                  = 6,
+                                                      freesurfer_subjs_dir = freesurfer_subjs_dir,
+                                                      use_freesurfer       = args.use_freesurfer,
+                                                      nthreads             = args.nthreads,
+                                                      verbose              = args.verbose)
 
                 if args.verbose:
                     print('Copying Anatomical Mask')
-                    shutil.copy2(anat_mask._get_filename(), dwi_mask._get_filename())
+                    
+                shutil.copy2(anat_mask._get_filename(), dwi_mask._get_filename())
             else:
 
                 if args.verbose:
@@ -548,6 +584,12 @@ class DiffusionProcessingPipeline:
             for file in outlier_files_to_cleanup:
                 if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
                     os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
+                    
+        
+        ##MASK THE PREPROCESSED DWI to save space
+        mask.apply_mask(input_img   = final_dwi,
+                        mask_img    = dwi_mask,
+                        output_img  = final_dwi)
 
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
@@ -631,17 +673,15 @@ class DiffusionProcessingPipeline:
 
 
 
-
-
-## ###GBSS PSEUDO T1w ###
-# if args.setup_gbss:
-#     if not os.path.exists(bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz'):
-#         if args.verbose:
-#             print('Creating GBSS Pseudo T1-weighted Image')
+#          ###GBSS PSEUDO T1w ###
+#         if args.setup_gbss:
+#             if not os.path.exists(bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz'):
+#                 if args.verbose:
+#                     print('Creating GBSS Pseudo T1-weighted Image')
 #
-#         if os.path.exists(bids_derivative_dwi_dir +'/DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz') and os.path.exists(bids_derivative_dwi_dir +'/NODDI-'+args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz'):
+#                 if os.path.exists(models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz') and os.path.exists(models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz'):
 #
-#             diff_util.create_pseudoT1_img(fa_img        = bids_derivative_dwi_dir +'/DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz',
-#                                           fiso_img      = bids_derivative_dwi_dir +'/NODDI-'+args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz',
-#                                           mask_img      = preprocess_dir + bids_id + '_desc-brain_mask.nii.gz',
-#                                           pseudoT1_img  = bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz')
+#                     diff_util.create_pseudoT1_img(fa_img        = models_dir + 'DTI/' + bids_id + '_model-DTI_parameter-FA.nii.gz',
+#                                                   fiso_img      = models_dir + args.noddi_fit_method+'/' + bids_id + '_model-NODDI_parameter-ISO.nii.gz',
+#                                                   mask_img      = dwi_mask,
+#                                                   pseudoT1_img  = bids_derivative_dwi_dir + '/GBSS/' + bids_id + '_desc-GBSS-Pseudo-T1w.nii.gz')

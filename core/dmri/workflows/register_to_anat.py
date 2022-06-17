@@ -10,7 +10,7 @@ import core.utils.mask as mask
 from core.dmri.utils.qc import rotate_bvecs
 import core.registration.registration as reg_tools
 
-def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', nthreads=1, verbose=False):
+def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', use_freesurfer=False, freesurfer_subjs_dir=None, nthreads=1, verbose=False):
 
     if coreg_to_anat:
 
@@ -75,15 +75,19 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
             mask.mask_image(input_img       = mean_dwi,
                             output_mask     = mask_img,
                             output_img      = dwi_masked,
-                            method          = 'hd-bet',
+                            method          = mask_method,
                             bet_options     = '-f 0.25')
 
             mask.apply_mask(input_img       = mean_b0,
                             mask_img        = mask_img,
-                            output_img      = b0_masked._get_filename())
+                            output_img      = b0_masked)
 
             if T1_image != None:
-                ref_img.append(T1_image)
+                
+                #If Freesurfer, convert to NIFTI
+                t1w=T1_image;
+            
+                ref_img.append(t1w)
                 mov_img.append(dwi_masked)
                 flirt_options = '-cost normmi '
 
@@ -133,6 +137,15 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          dof            = dof,
                                          ants_options   = '-x '+ anat_mask._get_filename())
                     os.system('ConvertTransformFile 3 ' +  ants_transform+'0GenericAffine.mat ' +  itk_transform)
+                    
+                elif linreg_method == 'BBR':
+                    reg_tools.linear_reg(input_img      = mov_img,
+                                         reference_img  = ref_img,
+                                         output_matrix  = itk_transform,
+                                         method         = 'BBR',
+                                         dof            = dof,
+                                         freesurfer_subjs_dir = freesurfer_subjs_dir)
+                    
 
             elif reg_method == 'nonlinear':
 

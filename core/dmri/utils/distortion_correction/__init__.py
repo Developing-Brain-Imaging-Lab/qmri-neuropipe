@@ -453,51 +453,87 @@ def epi_reg_fsl(input_dwi, input_bval, fieldmap, fieldmap_ref, struct_img, struc
     os.system('applywarp -i ' + input_dwi + ' -r ' + struct_img_aligned + ' -o ' + output_dwi + ' -w ' + epi_reg_out + '_warp.nii.gz --interp=spline --rel')
     os.system('rm -rf ' + output_dir + '/tmp*')
 
-def fugue_fsl(input_dwi, input_bvals, input_fm, input_fm_ref, output_dwi, fieldmap_dir, unwarpdir, dwellTime, fm_ref_mask_img=''):
+def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
-    if not os.path.exists(fieldmap_dir):
-        os.mkdir(fieldmap_dir)
+    if not os.path.exists(working_dir):
+        os.mkdir(working_dir)
 
-    if input_fm_ref.endswith('.nii'):
-        input_fm_ref_base = input_fm_ref[0:len(input_fm_ref)-4]
+    fmap_ref_base=''
+    if fmap_ref_image._get_filename().endswith('.nii'):
+        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-4]
     else:
-        input_fm_ref_base = input_fm_ref[0:len(input_fm_ref)-7]
+        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-7]
 
-    if input_fm.endswith('.nii'):
-        input_fm_base = input_fm[0:len(input_fm)-4]
+    fmap_base=''
+    if fmap_image._get_filename().endswith('.nii'):
+        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-4]
     else:
-        input_fm_base = input_fm[0:len(input_fm)-7]
+        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-7]
+        
 
+    parsed_filename = parse_file_entities(dwi_image._get_filename())
+    entities = {
+    'extension': '.nii.gz',
+    'subject': parsed_filename.get('subject'),
+    'session': parsed_filename.get('session'),
+    'suffix':  'dwi',
+    'desc': 'DistortionCorrected'
+    }
+    filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+
+    out_file = writing.build_path(entities, filename_patterns)
+    
+    output_img = copy.deepcopy(dwi_image)
+    output_img._set_filename(out_file)
+  
+        
+    #Determine the Phase Encode Direction
+    #Read the JSON file and get the
+    with open(dwi_image._get_json()) as f:
+        json_data = json.load(f)
+
+    dwell_time  = json_data["EffectiveEchoSpacing"]
+    unwarpdir   = ''
+    if json_data["PhaseEncodingDirection"] == 'i':
+        unwarpdir = 'x-'
+    elif json_data["PhaseEncodingDirection"] == 'i-':
+        unwarpdir = 'x'
+    elif json_data["PhaseEncodingDirection"] == 'j':
+        unwarpdir = 'y-'
+    elif json_data["PhaseEncodingDirection"] == 'j-':
+        unwarpdir = 'y'
+    elif json_data["PhaseEncodingDirection"] == 'k':
+        unwarpdir = 'z-'
+    elif json_data["PhaseEncodingDirection"] == 'k-':
+        unwarpdir = 'z'
+    else:
+        print('Incorrect Phase Encoding Data')
+        exit()
+        
     #Skull-strip the reference
-    mask_img=''
-    fm_ref_mask = fieldmap_dir + 'mask.nii.gz'
-    if fm_ref_mask_img != '':
-        mask_img = fm_ref_mask_img
-    else:
-        mask_img = fm_ref_mask
-        os.system('N4BiasFieldCorrection -d 3 -i ' + input_fm_ref + ' -o ' + mask_img)
-        os.system('bet ' + mask_img + ' ' + mask_img)
-        os.system('fslmaths ' + mask_img + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img)
+    mask_img=Image(file = working_dir + '/mask.nii.gz')
+    os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
+    os.system('bet ' + mask_img._get_filename() + ' ' + mask_img._get_filename())
+    os.system('fslmaths ' + mask_img._get_filename() + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img._get_filename())
 
-    os.system('fslmaths ' + input_fm_ref + ' -mas ' + mask_img + ' ' + fm_ref_mask)
+    fm_ref_mask = Image(file = working_dir + '/fmap_ref_mask.nii.gz')
+    os.system('fslmaths ' + fmap_ref_image._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + fm_ref_mask._get_filename())
 
-    fm_rads = fieldmap_dir + 'fmap_Radians.nii.gz'
 
     #Now scale the field map and mask
-    os.system('fslmaths ' + input_fm + ' -mul 6.28 -mas ' + mask_img + ' ' + fm_rads)
-    os.system('fugue --loadfmap='+fm_rads+' --despike -smooth 2 --savefmap='+fm_rads)
-
-    input_fm_ref_warp = fieldmap_dir + 'fmap_warp.nii.gz'
+    fmap_rads = Image(file = working_dir + '/fmap_radians.nii.gz')
+    os.system('fslmaths ' + fmap_image._get_filename() + ' -mul 6.28 ' + fmap_rads._get_filename())
+    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike --smooth3=2 --savefmap='+fmap_rads._get_filename())
 
     #Warp the reference image
-    #os.system('fugue -i ' + fm_ref_mask + ' --unwarpdir='+unwarpdir + ' --dwell='+dwellTime + ' --loadfmap='+fm_rads + ' -w ' + input_fm_ref_warp)
-    os.system('cp -r ' + fm_ref_mask + ' ' + input_fm_ref_warp)
+    input_fm_ref_warp = working_dir + '/fmap_warp.nii.gz'
+    os.system('fugue -i ' + fm_ref_mask._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
 
-    dwi_ref = fieldmap_dir + '/dwi_ref.nii.gz'
-    bvals = np.loadtxt(input_bvals)
+    dwi_ref = working_dir + '/dwi_ref.nii.gz'
+    bvals = np.loadtxt(dwi_image._get_bvals())
     ii = np.where(bvals != 0)
 
-    dwi_img = nib.load(input_dwi)
+    dwi_img = nib.load(dwi_image._get_filename())
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
@@ -510,16 +546,18 @@ def fugue_fsl(input_dwi, input_bvals, input_fm, input_fm_ref, output_dwi, fieldm
     os.system('bet ' + dwi_ref + ' ' + dwi_ref)
 
     #Align warped reference to the dwi data
-    fm_ref_warp_align = fieldmap_dir + 'fmap_warp-aligned.nii.gz'
-    fm_ref_mat = fieldmap_dir + 'fmap2dwi.mat'
+    fm_ref_warp_align = working_dir + '/fmap_warp-aligned.nii.gz'
+    fm_ref_mat = working_dir + '/fmap2dwi.mat'
     os.system('flirt -in ' + input_fm_ref_warp + ' -ref ' + dwi_ref + ' -out ' + fm_ref_warp_align + ' -omat ' + fm_ref_mat + ' -dof 6 -cost normmi')
 
     #Apply this to the field map
-    fm_rads_warp = fieldmap_dir + 'fmap_Radians-warp.nii.gz'
-    os.system('flirt -in ' + fm_rads + ' -ref ' + dwi_ref + ' -applyxfm -init ' + fm_ref_mat + ' -out ' + fm_rads_warp)
+    fm_rads_warp = working_dir + '/fmap_radians-warp.nii.gz'
+    os.system('flirt -in ' + fmap_rads._get_filename() + ' -ref ' + dwi_ref + ' -applyxfm -init ' + fm_ref_mat + ' -out ' + fm_rads_warp)
 
     #Now, undistort the image
-    os.system('fugue -i ' + input_dwi + ' --icorr --unwarpdir='+unwarpdir + ' --dwell='+dwellTime + ' --loadfmap='+fm_rads_warp+' -u ' + output_dwi)
+    os.system('fugue -i ' + dwi_image._get_filename() + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img._get_filename())
+    
+    return output_img
 
 
 def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpdir, field_map_dir):

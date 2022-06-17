@@ -42,7 +42,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
                 print('Incorrect Method')
                 exit()
 
-def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, distortion_modality='t1w', linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
+def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, fmap_image=None, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, distortion_modality='t1w', linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
 
     if distortion_method != None:
 
@@ -90,7 +90,14 @@ def perform_distortion_correction(dwi_image, working_dir, t1w_image=None, t2w_im
                                                             verbose             = verbose)
 
             if distortion_method == 'Fieldmap':
-                print('NEED TO IMPLEMENT THIS')
+                if verbose:
+                    print('Performing Fieldmap Based Distortion Correction')
+                
+                distcorr_img = distcorr.fugue_fsl(dwi_image         = dwi_image,
+                                                  fmap_image        = fmap_image,
+                                                  fmap_ref_image    = fmap_ref_image,
+                                                  working_dir       = working_dir)
+                                    
 
 
         return distcorr_img
