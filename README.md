@@ -15,7 +15,7 @@ Currently the starting point is nifti files organized according to BIDS.
 
 # To install and activate `qmri` conda-environment:
  ```
- git pull https://github.com/Developing-Brain-Imaging-Lab/qmri-neuropipe.git qmri-neuropipe --recurse-submodules
+ git clone https://github.com/Developing-Brain-Imaging-Lab/qmri-neuropipe.git qmri-neuropipe --recurse-submodules
  conda env create -f environment.yml
  conda activate qmri
  ```
