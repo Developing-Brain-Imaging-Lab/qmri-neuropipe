@@ -129,7 +129,7 @@ def check_gradient_directions(input_dwi, nthreads=1):
                     '-export_grad_fsl',tmp_bvecs, tmp_bvals,
                     '-nthreads', str(nthreads), input_dwi._get_filename()], stderr=subprocess.STDOUT)
 
-    bvals,bvecs=read_bvals_bvecs(tmp_bvals,tmp_bvecs)
+    bvals,bvecs=read_bvals_bvecs(input_dwi._get_bvals(),tmp_bvecs)
     np.savetxt(input_dwi._get_bvals(), bvals, fmt='%i', newline=' ')
     np.savetxt(input_dwi._get_bvecs(), np.transpose(bvecs), fmt='%.5f')
 
