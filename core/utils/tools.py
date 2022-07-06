@@ -62,7 +62,7 @@ def resample_image(input_img, output_file, target_resolution, interp=3):
     print(target_resolution.dtype)
 
     cmd = 'mrgrid ' + input_img._get_filename() \
-        + ' regrid -voxel ' + target_resolution[0] + ',' +  target_resolution[1] +','+ target_resolution[2] \
+        + ' regrid -voxel ' + str(target_resolution[0]) + ',' +  str(target_resolution[1]) +','+ str(target_resolution[2]) \
         + ' -interp sinc ' + output_file
 
     print(cmd)
