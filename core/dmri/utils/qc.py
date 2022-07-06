@@ -104,7 +104,7 @@ def check_bvals_bvecs(input_dwi, output_base=None):
         np.savetxt(output_base + '_dwi.bval', bvals, fmt='%i', newline=' ')
         
         input_dwi._set_bvecs(output_base + '_dwi.bvec')
-        np.savetxt(output_base + '_dwi.bvec', np.transpose(bvecs), fmt='%.5f')f
+        np.savetxt(output_base + '_dwi.bvec', np.transpose(bvecs), fmt='%.5f')
         
     else:
         np.savetxt(input_dwi._get_bvals(), bvals, fmt='%i', newline=' ')
