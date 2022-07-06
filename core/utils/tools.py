@@ -56,11 +56,14 @@ def resample_image(input_img, output_file, target_resolution, interp=3):
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
 
+    tmp_img = os.path.dirname(output_file) + '/tmp.nii.gz'
+
     cmd = 'mrgrid ' + input_img._get_filename() \
         + ' regrid -voxel ' + str(target_resolution[0]) + ',' +  str(target_resolution[1]) +','+ str(target_resolution[2]) \
-        + ' -interp sinc ' + output_file + ' -force -quiet'
-
-    os.system(cmd)   
+        + ' -interp sinc ' + tmp_img + ' -force -quiet'
+    
+    os.system(cmd)  
+    os.rename(tmp_img, output_file) 
 
     return output_img 
 
