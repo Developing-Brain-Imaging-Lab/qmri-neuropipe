@@ -59,6 +59,7 @@ def resample_image(input_img, output_file, target_resolution, interp=3):
     output_img._set_filename(output_file)
 
     print(target_resolution)
+    print(target_resolution.dtype)
 
     cmd = 'mrgrid ' + input_img._get_filename() \
         + ' regrid -voxel ' + target_resolution \
@@ -133,14 +134,13 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None):
     img = nib.load(input_img._get_filename())
     voxel_size = img.header.get_zooms()[0:3]
 
-    print(voxel_size)
-
     if not (np.all(np.isclose(voxel_size, voxel_size[0]))):
 
         if not target_resolution:
             target_resolution = np.repeat(max(voxel_size), 3)
 
         return resample_image(input_img, output_file, target_resolution)
+
     elif target_resolution:
         print ('Resampling Image Voxels')
         return resample_image(input_img, output_file, target_resolution)
