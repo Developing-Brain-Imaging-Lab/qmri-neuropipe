@@ -131,7 +131,7 @@ def remove_end_slice(input_img, output_file):
 def check_isotropic_voxels(input_img, output_file, target_resolution=None):
 
     img = nib.load(input_img._get_filename())
-    voxel_size = img.header.get_zooms()[0:2]
+    voxel_size = img.header.get_zooms()[0:3]
 
     print(voxel_size)
 
@@ -141,7 +141,9 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None):
             target_resolution = np.repeat(max(voxel_size), 3)
 
         return resample_image(input_img, output_file, target_resolution)
-
+    elif target_resolution:
+        print ('Resampling Image Voxels')
+        return resample_image(input_img, output_file, target_resolution)
     else:
         return input_img
 
