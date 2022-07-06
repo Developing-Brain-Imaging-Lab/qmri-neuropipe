@@ -52,14 +52,21 @@ def merge_images(list_of_images, output_file):
     #subprocess.run(cmd_, stderr=subprocess.STDOUT)
 
 def resample_image(input_img, output_file, target_resolution, interp=3):
-    resampled_img = nib_proc.resample_to_output(in_img = input_img._get_filename(),
-                                                voxel_sizes = target_resolution,
-                                                order = interp)
+    # resampled_img = nib_proc.resample_to_output(in_img = input_img._get_filename(),
+    #                                             voxel_sizes = target_resolution,
+    #                                             order = interp)
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
-    nib.save(resampled_img, output_img._get_filename())
 
-    return output_img
+    print(target_resolution)
+
+    cmd = 'mrgrid ' + input_img._get_filename() \
+        + ' regrid -voxel ' + target_resolution \
+        + ' -interp sinc ' + output_file
+
+    os.system(cmd)    
+
+    # nib.save(resampled_img, output_img._get_filename())
 
 
 def calculate_mean_img(input_img, output_file):
