@@ -99,17 +99,17 @@ def check_bvals_bvecs(input_dwi, output_base=None):
         bvals = np.delete(bvals, indices_to_remove)
         bvecs = np.delete(bvecs, indices_to_remove, 0)
 
-    if output_base == None:
-        np.savetxt(input_dwi._get_bvals(), bvals, fmt='%i', newline=' ')
-    else:
+    if output_base:
         input_dwi._set_bvals(output_base + '_dwi.bval')
         np.savetxt(output_base + '_dwi.bval', bvals, fmt='%i', newline=' ')
-
-    if output_base == None:
-        np.savetxt(input_dwi._get_bvecs(), np.transpose(bvecs), fmt='%.5f')
-    else:
+        
         input_dwi._set_bvecs(output_base + '_dwi.bvec')
-        np.savetxt(output_base + '_dwi.bvec', np.transpose(bvecs), fmt='%.5f')
+        np.savetxt(output_base + '_dwi.bvec', np.transpose(bvecs), fmt='%.5f')f
+        
+    else:
+        np.savetxt(input_dwi._get_bvals(), bvals, fmt='%i', newline=' ')
+        np.savetxt(input_dwi._get_bvecs(), np.transpose(bvecs), fmt='%.5f')
+
 
 
 def check_gradient_directions(input_dwi, nthreads=1):
