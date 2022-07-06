@@ -126,6 +126,8 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None):
     img = nib.load(input_img._get_filename())
     voxel_size = img.header.get_zooms()[0:2]
 
+    print(voxel_size)
+
     if not (np.all(np.isclose(voxel_size, voxel_size[0]))):
 
         if not target_resolution:
