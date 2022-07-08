@@ -8,7 +8,6 @@ import ants
 
 from core.utils.io import Image, DWImage
 
-
 def binarize(input_img):
     output_img = copy.deepcopy(input_img)
     subprocess.run(['fslmaths', input_img._get_filename(), '-bin', output_img._get_filename()], stderr=subprocess.STDOUT)
@@ -51,7 +50,7 @@ def merge_images(list_of_images, output_file):
     os.system(cmd_)
     #subprocess.run(cmd_, stderr=subprocess.STDOUT)
 
-def resample_image(input_img, output_file, target_resolution, interp=3):
+def resample_image(input_img, output_file, target_resolution):
 
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
