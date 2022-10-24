@@ -69,7 +69,8 @@ class NODDI_Model():
 
             NODDI_mod = MultiCompartmentModel(models=[ball, dispersed_bundle])
             NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
-            NODDI_fit = NODDI_mod.fit(acq_scheme, data, mask=mask_data, number_of_processors=int(self._inputs['nthreads']), solver=self._inputs['solver'])
+            # NODDI_fit = NODDI_mod.fit(acq_scheme, data, mask=mask_data, number_of_processors=int(self._inputs['nthreads']),
+            NODDI_fit = NODDI_mod.fit(acq_scheme, data, mask=mask_data, number_of_processors=8, solver=self._inputs['solver'])
 
             fitted_parameters = NODDI_fit.fitted_parameters
 

@@ -16,6 +16,7 @@ import core.registration.registration as reg_tools
 
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 
+import core.dmri.workflows.eddy_corr as eddy_proc # added 08/14/2022
 
 def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False, verbose=False):
 
@@ -469,7 +470,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-4]
     else:
         fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-7]
-        
+
 
     parsed_filename = parse_file_entities(dwi_image._get_filename())
     entities = {
@@ -482,11 +483,11 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
 
     out_file = writing.build_path(entities, filename_patterns)
-    
+
     output_img = copy.deepcopy(dwi_image)
     output_img._set_filename(out_file)
-  
-        
+
+
     #Determine the Phase Encode Direction
     #Read the JSON file and get the
     with open(dwi_image._get_json()) as f:
@@ -509,7 +510,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     else:
         print('Incorrect Phase Encoding Data')
         exit()
-        
+
     #Skull-strip the reference
     mask_img=Image(file = working_dir + '/mask.nii.gz')
     os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
@@ -556,7 +557,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
     #Now, undistort the image
     os.system('fugue -i ' + dwi_image._get_filename() + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img._get_filename())
-    
+
     return output_img
 
 
@@ -605,7 +606,9 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_files=True, verbose=True):
+# def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_files=True, verbose=True):
+def run_synb0_disco(dwi_img, t1w_img, t1w_mask, gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, topup_base=None, cleanup_files=True, lin_corregistration_method='FSL', freesurfer_subjs_dir=None, verbose=True): #added lin_corregistration_method arg for using BBR with distcorr on 08162022
+# added gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None for ability to run eddy before syn-b0 (not just eddy_correct) on 08172022
 
     working_dir = os.path.dirname(topup_base)
 
@@ -632,21 +635,63 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_
     output_img._set_filename(out_file)
     output_img._set_bvecs(out_bvec)
 
-    #Extract the B0s from the DWI and compute mean
+    # print('Running EDDY-CORRECT')
+    id_patterns = 'sub-{subject}[_ses-{session}]'
+    bids_id             = writing.build_path(entities, id_patterns)
+    # topup_base_eddy_corr = working_dir + '/topup/' + bids_id + '_desc-Topup'                                                       #
+    # eddy_corr_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
+    #                                        working_dir                = working_dir,
+    #                                        topup_base                 = topup_base_eddy_corr,
+    #                                        method                     = 'eddy_correct')
+    # print('Running EDDY')
     mean_b0 = Image(file = working_dir + '/mean_b0.nii.gz')
-    mean_b0 = dmri_tools.extract_b0s(input_dwi      = dwi_img,
-                                     output_b0      = mean_b0,
-                                     compute_mean   = True)
+    # print(working_dir + '/' + bids_id + '_desc-EddyCurrentCorrected_dwi.nii.gz')
+    if not os.path.exists(working_dir + '/' + bids_id + '_desc-EddyCurrentCorrected_dwi.nii.gz'):
+        eddy_corr_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
+                                               working_dir                = working_dir,
+                                               method                     = 'eddy',
+                                               gpu                        = gpu,
+                                               cuda_device                = cuda_device,
+                                               nthreads                   = nthreads,
+                                               data_shelled               = data_shelled,
+                                               repol                      = repol,
+                                               estimate_move_by_suscept   = estimate_move_by_suscept,
+                                               mporder                    = mporder,
+                                               slspec                     = slspec,
+                                               fsl_eddy_options           = fsl_eddy_options,
+                                               verbose                    = verbose)
+
+
+        # #Extract the B0s from the DWI and compute mean
+        # mean_b0 = Image(file = working_dir + '/mean_b0.nii.gz')
+        # mean_b0 = dmri_tools.extract_b0s(input_dwi      = dwi_img,
+        #                                  output_b0      = mean_b0,
+        #                                  compute_mean   = True)
+
+        #Extract the B0s from the DWI and compute mean
+        mean_b0 = dmri_tools.extract_b0s(input_dwi      = eddy_corr_img,
+                                                 output_b0      = mean_b0,
+                                                 compute_mean   = True)
+
+
+
+    # # filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-EddyCurrentCorrected]_{suffix}{extension}' # test using mean of dwi instead of only the b0s 08172022
+    # dwi_data_eddy, affine, dwi_img_eddy = load_nifti(eddy_corr_img._get_filename(), return_img=True) # test using mean of dwi instead of only the b0s 08172022
+    # bvals_foreddy    = np.loadtxt(eddy_corr_img._get_bvals())
+    # jj       = np.where(bvals_foreddy != 0)
+    # mean_dwi_data   = np.mean(dwi_data_eddy[:,:,:,np.asarray(jj).flatten()], 3)  # test using mean of dwi instead of only the b0s 08172022
+    # save_nifti(mean_b0._get_filename(), mean_dwi_data, affine, dwi_img_eddy.header) # test using mean of dwi instead of only the b0s 08172022
 
 
     #Processing below is based on SyNb0-DISCO prepare_input.sh script
     #Bias correct T1w image
     t1w_bias = Image(file = working_dir + '/t1w_biascorr.nii.gz')
-    biascorr_tools.biasfield_correction(input_img   = t1w_img,
-                                        output_file = t1w_bias._get_filename(),
-                                        method      = 'N4',
-                                        nthreads    = nthreads,
-                                        iterations  = 5)
+    if not os.path.exists(working_dir + '/t1w_biascorr.nii.gz'):
+        biascorr_tools.biasfield_correction(input_img   = t1w_img,
+                                            output_file = t1w_bias._get_filename(),
+                                            method      = 'N4',
+                                            nthreads    = nthreads,
+                                            iterations  = 1) # changed to from 5 to 1 (data from FreeSurfer already went through at least 1 round of biasfield correction, done on 08172022)
 
     #Skull-strip the T1image
     t1w_brain = Image(file = working_dir + '/t1w_brain.nii.gz')
@@ -654,23 +699,52 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_
                           mask_img   = t1w_mask,
                           output_img = t1w_brain)
 
-    #Coregister the DWI to the T1w image
+    # #Coregister the DWI to the T1w image
     b0_coreg          = Image(file = working_dir + '/b0_coreg.nii.gz')
     b0_coreg_mat_fsl  = working_dir + '/b0_coreg.mat'
     b0_coreg_mat_ants = working_dir + '/b0_coreg.txt'
-    reg_tools.linear_reg(input_img      = mean_b0,
-                         reference_img  = t1w_brain,
-                         output_file    = b0_coreg._get_filename(),
-                         output_matrix  = b0_coreg_mat_fsl,
-                         method         = 'FSL',
-                         dof            = 6,
-                         flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+    # reg_tools.linear_reg(input_img      = mean_b0,
+    #                      reference_img  = t1w_brain,
+    #                      output_file    = b0_coreg._get_filename(),
+    #                      output_matrix  = b0_coreg_mat_fsl,
+    #                      method         = 'FSL',
+    #                      dof            = 6,
+    #                      flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+    #
+    # #CONVERT FSL TO ANTS
+    # reg_tools.convert_fsl2ants(mov_img  = mean_b0,
+    #                            ref_img  = t1w_brain,
+    #                            fsl_mat  = b0_coreg_mat_fsl,
+    #                            ants_mat = b0_coreg_mat_ants)
 
-    #CONVERT FSL TO ANTS
-    reg_tools.convert_fsl2ants(mov_img  = mean_b0,
-                               ref_img  = t1w_brain,
-                               fsl_mat  = b0_coreg_mat_fsl,
-                               ants_mat = b0_coreg_mat_ants)
+    #Coregister the DWI to the T1w image
+    if lin_corregistration_method == 'FSL':
+        # b0_coreg          = Image(file = working_dir + '/b0_coreg.nii.gz')
+        # b0_coreg_mat_fsl  = working_dir + '/b0_coreg.mat'
+        # b0_coreg_mat_ants = working_dir + '/b0_coreg.txt'
+        if not os.path.exists(working_dir + '/b0_coreg.mat'):
+                    reg_tools.linear_reg(input_img      = mean_b0,
+                                         reference_img  = t1w_brain,
+                                         output_file    = b0_coreg._get_filename(),
+                                         output_matrix  = b0_coreg_mat_fsl,
+                                         method         = 'FSL',
+                                         dof            = 6,
+                                         flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+
+        #CONVERT FSL TO ANTS
+        reg_tools.convert_fsl2ants(mov_img  = mean_b0,
+                                   ref_img  = t1w_brain,
+                                   fsl_mat  = b0_coreg_mat_fsl,
+                                   ants_mat = b0_coreg_mat_ants)
+
+    elif lin_corregistration_method == 'BBR': # added on 08162022
+        if not os.path.exists(working_dir + '/b0_coreg.txt'):
+                    # b0_coreg_mat_ants = working_dir + '/b0_coreg.txt'
+                    reg_tools.linear_reg(input_img      = mean_b0,
+                                         reference_img  = t1w_brain,
+                                         output_matrix  = b0_coreg_mat_ants,
+                                         method         = 'BBR',
+                                         freesurfer_subjs_dir=freesurfer_subjs_dir)
 
 
     #REGISTER T1 to Atlas

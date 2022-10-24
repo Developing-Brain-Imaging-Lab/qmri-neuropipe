@@ -81,7 +81,7 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
         os.system('warpcorrect ' + mrtrix_warp+'[].nii ' +  mrtrix_corr_warp + ' -force -quiet')
 
         warped_img = output_dir + '/img_warped.mif'
-        os.system('mrtransform ' + mrtrix_img + ' -warp ' + mrtrix_corr_warp + ' ' + warped_img + ' -template ' + reference_img._get_filename() + ' -strides ' + reference_img._get_filename() + ' -force -quiet -nthreads ' + str(nthreads) + ' -interp sinc')
+        os.system('mrtransform ' + ' -template ' + reference_img._get_filename() + ' -reorient_fod no ' + ' -strides ' + reference_img._get_filename() + ' -force -quiet -nthreads ' + str(nthreads) + ' -interp sinc' + ' -warp ' + mrtrix_corr_warp + ' ' + mrtrix_img + warped_img)
         os.system('mrconvert -force -quiet ' + warped_img + ' ' + output_file + ' -nthreads ' + str(nthreads))
 
         os.remove(mrtrix_img)
@@ -120,7 +120,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
             cmd += ' -out ' + output_img._get_filename()
         if flirt_options != None:
             cmd += ' ' + flirt_options
-        
+
         os.system(cmd)
 
     elif method == 'ANTS':
@@ -143,9 +143,9 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
 
         cmd += ' ' + ants_options
         os.system(cmd)
-        
+
     elif method == 'BBR':
-    
+
         if type(input_img) is list:
             input_img       = input_img[0]
             reference_img   = reference_img[0]
@@ -157,7 +157,7 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         }
         subid_patterns   = 'sub-{subject}[_ses-{session}]'
         subid = writing.build_path(entities, subid_patterns)
-    
+
         os.environ["SUBJECTS_DIR"] = freesurfer_subjs_dir
         output_dir = os.path.dirname(output_matrix)
         freesurfer_tmp_dir = output_dir + '/tmp/'
@@ -168,12 +168,12 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         b0toT1mat      = output_dir + '/b0toT1.mat'
         b0toT1lta      = output_dir + '/b0toT1.lta'
         b0toT1flirtmtx = output_dir + '/b0toT1flirt.mtx'
-        
+
         os.system('bbregister --s '+ subid + ' --mov ' + input_img._get_filename() + ' --reg ' + b0toT1mat + ' --dti --init-fsl --lta ' + b0toT1lta + ' --fslmat ' + b0toT1flirtmtx + ' --tmp ' + freesurfer_tmp_dir)
 
         convert_fsl2ants(input_img, reference_img, b0toT1flirtmtx, output_matrix)
-        
-        
+
+
 
 
 def nonlinear_reg(input_img, reference_img, reference_mask, output_base, nthreads=1, method='ANTS', ants_options=None):

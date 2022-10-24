@@ -93,7 +93,7 @@ def check_bvals_bvecs(input_dwi, output_base=None):
     bvals,bvecs=read_bvals_bvecs(input_dwi._get_bvals(),input_dwi._get_bvecs())
     numberOfVolumes = dwi_img.header.get_data_shape()[3]
     numberOfSlices  = dwi_img.header.get_data_shape()[2]
-    
+
     if bvals.shape[0] != numberOfVolumes:
         indices_to_remove = np.arange(numberOfVolumes, bvals.shape[0])
         bvals = np.delete(bvals, indices_to_remove)
@@ -166,7 +166,7 @@ def rotate_bvecs(input_img, ref_img, output_bvec, transform, nthreads=1):
     os.system('transformconvert -force -quiet ' + transform + '  itk_import ' + mrtrix_xfm )
 
     warped_img = output_dir + '/warped_img.mif'
-    os.system('mrtransform -force -quiet -linear ' + mrtrix_xfm + ' -template ' + ref_img._get_filename() + ' -strides ' + ref_img._get_filename() + ' ' + tmp_img + ' ' + warped_img)
+    os.system('mrtransform -force -quiet -linear ' + mrtrix_xfm + ' -template ' + ref_img._get_filename() + ' -reorient_fod no ' + ' -strides ' + ref_img._get_filename() + ' ' + tmp_img + ' ' + warped_img)
 
     output_bval = output_dir + '/bval.bval'
     output_img  = output_dir + '/dwi.nii.gz'

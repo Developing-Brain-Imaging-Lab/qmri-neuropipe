@@ -143,6 +143,8 @@ class AnatomicalPrepPipeline:
                 args, unknown = parser.parse_known_args(namespace=t_args)
 
 
+
+
         #Setup the BIDS Directories and Paths
         entities = {
         'extension': '.nii.gz',

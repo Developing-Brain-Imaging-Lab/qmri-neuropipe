@@ -58,12 +58,15 @@ def resample_image(input_img, output_file, target_resolution, interp=3):
     #                                             order = interp)
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
+    tmp_file = output_file.replace("_dwi.nii.gz","_dwi_tmp.nii.gz")
 
     cmd = 'mrgrid ' + input_img._get_filename() \
         + ' regrid -voxel ' + target_resolution \
-        + ' -interp sinc ' + output_file
+        + ' -interp sinc -force ' + tmp_file
 
-    os.system(cmd)    
+    os.system(cmd)
+
+    os.rename(tmp_file, output_file)
 
     # nib.save(resampled_img, output_img._get_filename())
 
@@ -132,7 +135,8 @@ def remove_end_slice(input_img, output_file):
 def check_isotropic_voxels(input_img, output_file, target_resolution=None):
 
     img = nib.load(input_img._get_filename())
-    voxel_size = img.header.get_zooms()[0:2]
+    # voxel_size = img.header.get_zooms()[0:2]
+    voxel_size = img.header.get_zooms()[0:3]
 
     if not (np.all(np.isclose(voxel_size, voxel_size[0]))):
 

@@ -52,7 +52,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--bids_t2w_dir',
                             type=str, help='BIDS T2w RAWDATA Directory Basename',
                             default='anat')
-        
+
         parser.add_argument('--use_freesurfer',
                             type=bool,
                             help='Use FreeSurfer processed data',
@@ -135,7 +135,7 @@ class DiffusionProcessingPipeline:
                             type=str,
                             help='ANTsPyNet modality/network name',
                             default='t1')
-                            
+
         parser.add_argument('--dwi_denoise_degibbs',
                             type=bool,
                             help='Perform Noise and Gibbs Ringing Correction',
@@ -152,7 +152,7 @@ class DiffusionProcessingPipeline:
                             help='Method for Gibbs Ringing Correction',
                             choices=['mrtrix', 'dipy'],
                             default='mrtrix')
-                            
+
         parser.add_argument('--dwi_biasfield_correction',
                             type=bool,
                             help='Perform DWI Bias-Field Correction',
@@ -228,7 +228,7 @@ class DiffusionProcessingPipeline:
                             type = bool,
                             help = 'Coregister Diffusion MRI to Structural MRI',
                             default = False)
-                            
+
         parser.add_argument('--coregister_dwi_to_anat_modality',
                             type=str,
                             help = 'Structural Image Modality to use for coregistration based distortion correction',
@@ -317,22 +317,22 @@ class DiffusionProcessingPipeline:
                             help='Fiber Orientation Dispersion Estimation Algorithm',
                             choices=['csd', 'msmt_csd'],
                             default=None)
-                            
+
         parser.add_argument('--csd_response_function',
                             type=str,
                             help='CSD Response Function file',
                             default=None)
-                    
+
         parser.add_argument('--csd_wm_response_function',
                             type=str,
                             help='CSD White Matter Response Function file',
                             default=None)
-        
+
         parser.add_argument('--csd_gm_response_function',
                             type=str,
                             help='CSD Gray Matter Response Function file',
                             default=None)
-                            
+
         parser.add_argument('--csd_csf_response_function',
                             type=str,
                             help='CSD CSF Response Function file',
@@ -352,9 +352,9 @@ class DiffusionProcessingPipeline:
                             type=bool,
                             help='Print out information meassages and progress status',
                             default=False)
-        
+
         args, unknown = parser.parse_known_args()
-        
+
         if args.load_json:
             with open(args.load_json, 'rt') as f:
                 t_args = argparse.Namespace()
@@ -396,7 +396,7 @@ class DiffusionProcessingPipeline:
         t1w=None
         t2w=None
         anat_mask=None
-        
+
         fmap_image=None
         fmap_ref_image=None
 
@@ -404,25 +404,31 @@ class DiffusionProcessingPipeline:
         freesurfer_subjs_dir = None
         if args.use_freesurfer:
             freesurfer_subjs_dir = args.bids_dir + '/derivatives/freesurfer/'
-            
+
             if not os.path.exists(bids_derivative_dir+'/anat/'):
                 os.makedirs(bids_derivative_dir+'/anat/')
-            
+
             t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
             anat_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
-            
+
             freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
-            freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
-            
+            # freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
+
             #Convert to NIFTI
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
-            
+            # print(bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
+            if not os.path.exists(bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz'):
+                            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
+                            # os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
+
+
+                            mask.mask_image(input_img       = t1w,
+                                            output_mask     = anat_mask,
+                                            method          = 'hd-bet')
         else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
-                
+
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
             fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
@@ -435,11 +441,36 @@ class DiffusionProcessingPipeline:
         if not final_dwi.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
+            # dwi_img, topup_base =  raw_proc.prep_dwi_rawdata(bids_id                = bids_id,
+            #                                                  bids_rawdata_dir       = bids_rawdata_dir,
+            #                                                  bids_derivative_dir    = bids_derivative_dir,
+            #                                                  bids_dwi_dir           = args.bids_dwi_dir,
+            #                                                  bids_dir               = args.bids_dir, #added this for using BBR with distcorr on 08162022
+            #                                                  nthreads               = args.nthreads,
+            #                                                  resample_resolution    = args.dwi_resample_resolution,
+            #                                                  remove_last_vol        = args.dwi_remove_last_vol,
+            #                                                  distortion_correction  = args.dwi_dist_corr,
+            #                                                  topup_config           = args.dwi_topup_config,
+            #                                                  outlier_detection      = args.dwi_outlier_detection,
+            #                                                  check_gradients        = args.dwi_check_gradients,
+            #                                                  t1w_img                = t1w,
+            #                                                  t1w_mask               = anat_mask,
+            #                                                  verbose                = args.verbose)
+
             dwi_img, topup_base =  raw_proc.prep_dwi_rawdata(bids_id                = bids_id,
                                                              bids_rawdata_dir       = bids_rawdata_dir,
                                                              bids_derivative_dir    = bids_derivative_dir,
                                                              bids_dwi_dir           = args.bids_dwi_dir,
-                                                             nthreads               = args.nthreads,
+                                                             bids_dir               = args.bids_dir, #added this for using BBR with distcorr on 08162022
+                                                             nthreads               = args.nthreads, # added for eddy in syn-b0 on 08172022
+                                                             gpu                        = args.gpu, # added for eddy in syn-b0 on 08172022
+                                                             cuda_device                = args.cuda_device, # added for eddy in syn-b0 on 08172022
+                                                             data_shelled               = args.dwi_data_shelled, # added for eddy in syn-b0 on 08172022
+                                                             repol                      = args.repol, # added for eddy in syn-b0 on 08172022
+                                                             estimate_move_by_suscept   = args.estimate_move_by_suscept, # added for eddy in syn-b0 on 08172022
+                                                             mporder                    = args.mporder, # added for eddy in syn-b0 on 08172022
+                                                             slspec                     = args.dwi_slspec, # added for eddy in syn-b0 on 08172022
+                                                             fsl_eddy_options           = args.dwi_eddy_options, # added for eddy in syn-b0 on 08172022
                                                              resample_resolution    = args.dwi_resample_resolution,
                                                              remove_last_vol        = args.dwi_remove_last_vol,
                                                              distortion_correction  = args.dwi_dist_corr,
@@ -481,7 +512,7 @@ class DiffusionProcessingPipeline:
                                                               method            = args.dwi_outlier_detection,
                                                               percent_threshold = args.dwi_outlier_detection_threshold,
                                                               verbose           = args.verbose)
- 
+
 
             if args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_dist_corr == 'Fieldmap':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
@@ -525,7 +556,7 @@ class DiffusionProcessingPipeline:
 
                 if args.verbose:
                     print('Copying Anatomical Mask')
-                    
+
                 shutil.copy2(anat_mask._get_filename(), dwi_mask._get_filename())
             else:
 
@@ -584,8 +615,8 @@ class DiffusionProcessingPipeline:
             for file in outlier_files_to_cleanup:
                 if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
                     os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
-                    
-        
+
+
         ##MASK THE PREPROCESSED DWI to save space
         mask.apply_mask(input_img   = final_dwi,
                         mask_img    = dwi_mask,

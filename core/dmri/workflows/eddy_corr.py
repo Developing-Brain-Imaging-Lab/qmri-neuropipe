@@ -5,7 +5,8 @@ from bids.layout import writing, parse_file_entities
 import core.dmri.utils.eddy_correction as eddycorr
 import core.dmri.utils.qc as dmri_qc
 
-def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, verbose=False):
+# def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, verbose=False):
+def perform_eddy(dwi_image, working_dir, topup_base=None, method='eddy', gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, verbose=False): #added topup_base default to None for running eddy before syn-b0 withouth requiringing this argument on 08172022
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)

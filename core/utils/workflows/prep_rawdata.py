@@ -107,7 +107,10 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     return t1w, t2w
 
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, verbose=False ):
+# def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, verbose=False ):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dir, gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction=None, topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, verbose=False ):
+    # added bids_dir arg for using BBR with distcorr on 08162022
+    # added gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None for ability to run eddy before syn-b0 (not just eddy_correct) on 08172022
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, bids_dwi_dir,'')
@@ -115,6 +118,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
     #Define directories and image paths
     preprocess_dir              = bids_derivative_dwi_dir +'/preprocessed/rawdata/'
+    freesurfer_subjs_dir = bids_dir + '/derivatives/freesurfer/' #added for using BBR with distcorr on 08162022
 
     if not os.path.exists(preprocess_dir):
         os.makedirs(preprocess_dir)
@@ -231,6 +235,16 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                      t1w_img    = t1w_img,
                                      t1w_mask   = t1w_mask,
                                      topup_base = topup_base,
-                                     nthreads   = 1)
+                                     freesurfer_subjs_dir = freesurfer_subjs_dir, #added for using BBR with distcorr on 08162022
+                                     gpu                        = gpu, # added for eddy on 08172022
+                                     cuda_device                = cuda_device, # added for eddy on 08172022
+                                     data_shelled               = data_shelled, # added for eddy on 08172022
+                                     repol                      = repol, # added for eddy on 08172022
+                                     estimate_move_by_suscept   = estimate_move_by_suscept, # added for eddy on 08172022
+                                     mporder                    = mporder, # added for eddy on 08172022
+                                     slspec                     = slspec, # added for eddy on 08172022
+                                     fsl_eddy_options           = fsl_eddy_options, # added for eddy on 08172022
+                                     lin_corregistration_method='BBR', #added for using BBR with distcorr on 08162022
+                                     nthreads   = nthreads)
 
     return dwi_img, topup_base
