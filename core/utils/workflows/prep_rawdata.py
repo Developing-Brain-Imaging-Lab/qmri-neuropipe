@@ -107,7 +107,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     return t1w, t2w
 
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction='None', topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, verbose=False ):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_dir='dwi', check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction='None', topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, cmd_args=None, verbose=False):
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, bids_dwi_dir,'')
@@ -214,24 +214,45 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                                       manual_report_dir = bids_rawdata_dwi_dir,
                                                       verbose           = verbose )
 
-    if run_topup:
-        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
-            distort_proc.perform_topup(dwi_image    = dwi_img,
-                                       topup_base   = topup_base,
-                                       topup_config = topup_config,
-                                       dist_corr    = 'Topup',
-                                       verbose=verbose)
+    if run_topup or distortion_correction == 'Synb0-Disco':
+    
+        #First going to run eddy and motion-correction to ensure images are aligned prior to estimating fields. Data are only used
+        #here and not for subsequent processing
+        eddy_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
+                                          working_dir                = os.path.join(preprocess_dir, 'tmp-eddy-correction/'),
+                                          topup_base                 = None,
+                                          method                     = cmd_args.dwi_eddy_current_correction,
+                                          gpu                        = cmd_args.gpu,
+                                          cuda_device                = cmd_args.cuda_device,
+                                          nthreads                   = cmd_args.nthreads,
+                                          data_shelled               = cmd_args.dwi_data_shelled,
+                                          repol                      = cmd_args.repol,
+                                          estimate_move_by_suscept   = cmd_args.estimate_move_by_suscept,
+                                          mporder                    = cmd_args.mporder,
+                                          slspec                     = cmd_args.dwi_slspec,
+                                          fsl_eddy_options           = cmd_args.dwi_eddy_options,
+                                          verbose                    = cmd_args.verbose)
+        
 
 
-    if distortion_correction == 'Synb0-Disco':
-        topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+        if run_topup:
+            if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
+                distort_proc.perform_topup(dwi_image    = eddy_img,
+                                           topup_base   = topup_base,
+                                           topup_config = topup_config,
+                                           dist_corr    = 'Topup',
+                                           verbose=verbose)
 
-        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
-            #Run the Synb0 distortion correction'
-            distcorr.run_synb0_disco(dwi_img    = dwi_img,
-                                     t1w_img    = t1w_img,
-                                     t1w_mask   = t1w_mask,
-                                     topup_base = topup_base,
-                                     nthreads   = 1)
+
+        if distortion_correction == 'Synb0-Disco':
+            topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+
+            if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
+                #Run the Synb0 distortion correction'
+                distcorr.run_synb0_disco(dwi_img    = eddy_img,
+                                         t1w_img    = t1w_img,
+                                         t1w_mask   = t1w_mask,
+                                         topup_base = topup_base,
+                                         nthreads   = 1)
 
     return dwi_img, topup_base

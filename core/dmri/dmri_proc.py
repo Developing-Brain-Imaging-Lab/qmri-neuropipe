@@ -362,7 +362,6 @@ class DiffusionProcessingPipeline:
                 t_dict.update(json.load(f))
                 args, unknown = parser.parse_known_args(namespace=t_args)
 
-
         #Setup the BIDS Directories and Paths
         entities = {
         'extension': '.nii.gz',
@@ -448,6 +447,7 @@ class DiffusionProcessingPipeline:
                                                              check_gradients        = args.dwi_check_gradients,
                                                              t1w_img                = t1w,
                                                              t1w_mask               = anat_mask,
+                                                             cmd_args               = args,
                                                              verbose                = args.verbose)
 
             if args.dwi_denoise_degibbs:
@@ -475,7 +475,7 @@ class DiffusionProcessingPipeline:
                                              fsl_eddy_options           = args.dwi_eddy_options,
                                              verbose                    = args.verbose)
 
-            if args.dwi_outlier_detection != None or args.dwi_outlier_detection != 'Manual':
+            if args.dwi_outlier_detection != None and args.dwi_outlier_detection != 'Manual':
                 dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,
                                                               working_dir       = os.path.join(preproc_dir, 'outlier-removed-images/'),
                                                               method            = args.dwi_outlier_detection,

@@ -24,3 +24,19 @@ def extract_b0s(input_dwi, output_b0, compute_mean=True):
 
     return output_b0
 
+def extract_dwi(input_dwi, output_dwi, compute_mean=True):
+    bvals   = np.loadtxt(input_dwi._get_bvals())
+    ii      = np.where(bvals != 0)
+    jj      = np.where(bvals == 0)
+    
+    dwi_data, affine, dwi_img = load_nifti(input_dwi._get_filename(),
+                                           return_img=True)
+    
+    dwi_data = dwi_data[:,:,:,np.asarray(ii).flatten()]
+        
+    if compute_mean:
+        save_nifti(output_dwi._get_filename(), np.mean(dwi_data, 3), affine, dwi_img.header)
+    else:
+        save_nifti(output_dwi._get_filename(), dwi_data, affine, dwi_img.header)
+
+    return output_dwi
