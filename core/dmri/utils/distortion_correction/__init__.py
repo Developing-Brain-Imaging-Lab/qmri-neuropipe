@@ -634,13 +634,13 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_
 
     #Extract the B0s from the DWI and compute mean
     mean_dwi = Image(file = working_dir + '/mean_dwi.nii.gz')
-    mean_dwi = dmri_tools.extract_dwi(input_dwi     = dwi_img,
-                                      output_b0      = mean_dwi,
-                                      compute_mean   = True)
+    mean_dwi = dmri_tools.extract_dwis(input_dwi     = dwi_img,
+                                       output_dwi    = mean_dwi,
+                                       compute_mean  = True)
                                      
     mean_b0 = Image(file = working_dir + '/mean_b0.nii.gz')
-    mean_b0 = dmri_tools.extract_dwi(input_dwi     = dwi_img,
-                                     output_dwi     = mean_b0,
+    mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
+                                     output_b0     = mean_b0,
                                      compute_mean  = True)
 
 
