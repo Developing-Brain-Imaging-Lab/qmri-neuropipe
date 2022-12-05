@@ -24,7 +24,7 @@ def extract_b0s(input_dwi, output_b0, compute_mean=True):
 
     return output_b0
 
-def extract_dwi(input_dwi, output_dwi, compute_mean=True):
+def extract_dwis(input_dwi, output_dwi, compute_mean=True):
     bvals   = np.loadtxt(input_dwi._get_bvals())
     ii      = np.where(bvals != 0)
     jj      = np.where(bvals == 0)
