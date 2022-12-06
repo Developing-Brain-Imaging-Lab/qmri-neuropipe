@@ -166,7 +166,7 @@ def rotate_bvecs(input_img, ref_img, output_bvec, transform, nthreads=1):
     os.system('transformconvert -force -quiet ' + transform + '  itk_import ' + mrtrix_xfm )
 
     warped_img = output_dir + '/warped_img.mif'
-    os.system('mrtransform -force -quiet -linear ' + mrtrix_xfm + ' -template ' + ref_img._get_filename() + ' -strides ' + ref_img._get_filename() + ' ' + tmp_img + ' ' + warped_img)
+    os.system('mrtransform -force -reorient_fod no -quiet -linear ' + mrtrix_xfm + ' -template ' + ref_img._get_filename() + ' -strides ' + ref_img._get_filename() + ' ' + tmp_img + ' ' + warped_img)
 
     output_bval = output_dir + '/bval.bval'
     output_img  = output_dir + '/dwi.nii.gz'
