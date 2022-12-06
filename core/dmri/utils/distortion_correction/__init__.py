@@ -868,10 +868,10 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, gpu=False, cuda_device=0, nthrea
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
-
+# changed b02b0.cnf to b02b0_1.cnf to account for odd # of slices
     topup_command = 'topup --imain='+ all_b0s._get_filename() \
                   + ' --datain=' + disco_acqparams_path \
-                  + ' --config=b02b0.cnf' \
+                  + ' --config=b02b0_1.cnf' \
                   + ' --out=' + topup_base \
                   + ' --fout=' + topup_base + '_fmap.nii.gz'
 

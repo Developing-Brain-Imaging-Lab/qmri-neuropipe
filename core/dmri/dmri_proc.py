@@ -414,8 +414,7 @@ class DiffusionProcessingPipeline:
             freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
             # freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
 
-            #Convert to NIFTI
-            # print(bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
+            #Convert to FS T1 to NIFTI and mask with hd-bet
             if not os.path.exists(bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz'):
                             os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
                             # os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
@@ -445,7 +444,6 @@ class DiffusionProcessingPipeline:
             #                                                  bids_rawdata_dir       = bids_rawdata_dir,
             #                                                  bids_derivative_dir    = bids_derivative_dir,
             #                                                  bids_dwi_dir           = args.bids_dwi_dir,
-            #                                                  bids_dir               = args.bids_dir, #added this for using BBR with distcorr on 08162022
             #                                                  nthreads               = args.nthreads,
             #                                                  resample_resolution    = args.dwi_resample_resolution,
             #                                                  remove_last_vol        = args.dwi_remove_last_vol,
