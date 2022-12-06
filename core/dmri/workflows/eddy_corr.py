@@ -75,12 +75,8 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
             if verbose:
                 print('Running Two-stage Eddy/Motion correction')
 
-            print('Running EDDY-CORRECT')
-            eddy_corr_img = eddycorr.eddy_correct_fsl(input_dwi   = dwi_image,
-                                                      output_base = output_base)
-
             print('Running EDDY')
-            eddycorrected_img = eddycorr.eddy_fsl(input_dwi                  = eddy_corr_img,
+            eddy_corr_img = eddycorr.eddy_fsl(input_dwi                      = dwi_image,
                                                   output_base                = output_base,
                                                   topup_base                 = topup_base,
                                                   repol                      = repol,
@@ -91,6 +87,11 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
                                                   fsl_eddy_options           = fsl_eddy_options,
                                                   mporder                    = mporder,
                                                   nthreads                   = nthreads)
+                                                  
+            print('Running EDDY-CORRECT')
+            eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = eddy_corr_img,
+                                                          output_base = output_base)
+
                                                   
 
 
