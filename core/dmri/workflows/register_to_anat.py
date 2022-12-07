@@ -87,7 +87,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
          
             #Compute quick FA map for to be used for registration
             fa_img = Image(file = working_dir + '/tmp_fa.nii.gz')
-            os.system('dwi2tensor -fslgrad ' + + dwi_image._get_bvecs() + ' ' + dwi_image._get_bvals() + ' ' + dwi_image._get_filename() + ' -mask ' + mask_img._get_filename() + ' ' + working_dir+'/tmp_tensor.mif')
+            os.system('dwi2tensor -fslgrad ' + dwi_image._get_bvecs() + ' ' + dwi_image._get_bvals() + ' ' + dwi_image._get_filename() + ' -mask ' + mask_img._get_filename() + ' ' + working_dir+'/tmp_tensor.mif')
             os.system('tensor2metric -fa ' + fa_img._get_filename() + ' ' + working_dir+'/tmp_tensor.mif')
         
 
