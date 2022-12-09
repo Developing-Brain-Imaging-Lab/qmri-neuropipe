@@ -84,7 +84,6 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                             
                             
          
-         
             #Compute quick FA map for to be used for registration
             fa_img = Image(file = working_dir + '/tmp_fa.nii.gz')
             os.system('dwi2tensor -fslgrad ' + dwi_image._get_bvecs() + ' ' + dwi_image._get_bvals() + ' ' + dwi_image._get_filename() + ' -mask ' + mask_img._get_filename() + ' ' + working_dir+'/tmp_tensor.mif')
@@ -105,7 +104,6 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                 os.system('ImageMath 3 ' + T1_laplacian._get_filename() + ' Laplacian ' + T1_image._get_filename())
 
                 ref_img.append(T1_laplacian)
-                #mov_img.append(dwi_laplacian)
                 mov_img.append(dwi_laplacian)
 
 
@@ -114,15 +112,13 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                     #mov_img.append(b0_masked)
                     mov_img.append(fa_img)
 
-                    flirt_options = '-cost normcorr '
+                    flirt_options = '-cost normmi '
 
                     T2_laplacian = Image(file = working_dir + '/T2_laplacian.nii.gz')
                     os.system('ImageMath 3 ' + T2_laplacian._get_filename() + ' Laplacian ' + T2_image._get_filename())
 
                     ref_img.append(T2_laplacian)
-                    #mov_img.append(b0_laplacian)
-                    mov_img.append(fa_img)
-
+                    mov_img.append(b0_laplacian)
 
             else:
                 print('No Anatomical Image!')
