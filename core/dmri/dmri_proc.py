@@ -466,11 +466,12 @@ class DiffusionProcessingPipeline:
 
 
             struct_img = ''
-            if t1w:
-                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
-                print(struct_img._get_filename())
-            elif t2w:
+            if t2w:
                 struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
+                print(struct_img._get_filename())
+
+            elif t1w:
+                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
                 print(struct_img._get_filename())
 
                 
