@@ -474,6 +474,7 @@ class DiffusionProcessingPipeline:
                                              slspec                     = args.dwi_slspec,
                                              fsl_eddy_options           = args.dwi_eddy_options,
                                              verbose                    = args.verbose)
+                                             
 
             if args.dwi_outlier_detection != None and args.dwi_outlier_detection != 'Manual':
                 dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,

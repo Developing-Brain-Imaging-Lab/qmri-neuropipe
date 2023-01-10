@@ -122,3 +122,54 @@ def compute_average_motion(eddy_basename):
             'Average Slice Movement', avg_movement_rms[1],
             'Average Restricted Movement', avg_restricted_movement_rms[0],
             'Average Restricted Slice Movement', avg_restricted_movement_rms[1])
+
+
+def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options=None, struct_img=None, nthreads='1', verbose=False):
+    
+    current_dir = os.getcwd()
+    output_dir = os.path.dirname(output_base)
+
+    proc_dir = output_dir + '/tort_tmp/'
+    os.makedirs(proc_dir)
+    os.chdir(proc_dir)
+    
+    dwi_img_base = input_dwi._get_filename().split('/')[-1]
+    tort_proc_img   = proc_dir + dwi_img_base.split('.')[0]+'_DMC.nii'
+    tort_proc_bmtxt = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bmtxt'
+    tort_proc_bval  = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bvals'
+    tort_proc_bvec  = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bvecs'
+    
+    
+    diffprep_cmd = 'DIFFPREP --dwi ' + input_dwi._get_filename() \
+                 + ' --bvecs ' + input_dwi._get_bvecs() \
+                 + ' --bvals ' + input_dwi._get_bvals() \
+                 + '--phase ' + phase \
+    
+    if struct_img:
+        diffprep_cmd += ' --structural ' + struct_img
+        
+    if tortoise_options:
+        diffprep_cmd += ' ' + tortoise_options
+        
+    if verbose:
+        os.print(diffprep_cmd)
+        
+        
+    os.system('OMP_NUM_THREADS='+nthreads+ ' ' + diffprep_cmd)
+    os.system('TORTOISEBmatrixToFSLBVecs ' + tort_proc_bmtxt)
+    
+    #After DIFF PREP, copy processed data back
+    eddy_output_base = output_base +'_desc-EddyCurrentCorrected_dwi'
+    eddy_output_img  = eddy_output_base + '.nii.gz'
+    eddy_output_bvec = eddy_output_base + '.bvec'
+    
+    os.copy(tort_proc_img, eddy_output_img)
+    os.copy(tort_proc_bvec, eddy_output_bvec)
+    
+    output_img = copy.deepcopy(input_dwi)
+    output_img._set_filename(eddy_output_img)
+    output_img._set_bvecs(eddy_output_bvec)
+
+    #shutil.rmtree(proc_dir)
+    
+    return output_img

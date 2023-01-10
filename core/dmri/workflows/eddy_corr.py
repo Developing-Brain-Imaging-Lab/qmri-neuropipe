@@ -5,7 +5,7 @@ from bids.layout import writing, parse_file_entities
 import core.dmri.utils.eddy_correction as eddycorr
 import core.dmri.utils.qc as dmri_qc
 
-def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, verbose=False):
+def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, cuda_device=0, nthreads=1, data_shelled=True, repol=False, estimate_move_by_suscept=False, mporder=0, slspec=None, fsl_eddy_options=None, tortoise_options=None, struct_img=None, verbose=False):
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
@@ -91,6 +91,18 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
             print('Running EDDY-CORRECT')
             eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = eddy_corr_img,
                                                           output_base = output_base)
+    
+        elif method == 'tortoise-diffprep':
+            if verbose:
+                print('Running Two-stage Eddy/Motion correction')
+
+            print('Running TORTOISE DIFFPREP')
+            eddy_corr_img = eddycorr.diffprep_tortoise(input_dwi                  = dwi_image,
+                                                       output_base                = output_base,
+                                                       tortoise_options           = tortoise_options,
+                                                       struct_img                 = struct_img,
+                                                       nthreads                   = nthreads)
+        
 
                                                   
 
