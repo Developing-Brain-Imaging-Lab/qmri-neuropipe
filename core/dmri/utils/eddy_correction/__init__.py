@@ -165,8 +165,8 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
     eddy_output_img  = eddy_output_base + '.nii.gz'
     eddy_output_bvec = eddy_output_base + '.bvec'
     
-    os.copy(tort_proc_img, eddy_output_img)
-    os.copy(tort_proc_bvec, eddy_output_bvec)
+    shutil.copy(tort_proc_img, eddy_output_img)
+    shutil.copy(tort_proc_bvec, eddy_output_bvec)
     
     output_img = copy.deepcopy(input_dwi)
     output_img._set_filename(eddy_output_img)
