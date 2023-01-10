@@ -467,13 +467,13 @@ class DiffusionProcessingPipeline:
 
             struct_img = ''
             if t2w:
-                struct_img = t2w
+                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
+                print(struct_img._get_filename())
             elif t1w:
-                struct_img = t1w
+                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
+                print(struct_img._get_filename())
                 
         
-            print('Structural Image: ' + struct_img._get_filename())
-                
 
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
                                              working_dir                = os.path.join(preproc_dir, 'eddy-correction/'),
