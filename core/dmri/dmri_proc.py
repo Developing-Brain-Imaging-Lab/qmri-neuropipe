@@ -472,7 +472,7 @@ class DiffusionProcessingPipeline:
                 struct_img = t1w
                 
         
-            print('Structural Image: ' + struct_img)
+            print('Structural Image: ' + struct_img._get_filename())
                 
 
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
