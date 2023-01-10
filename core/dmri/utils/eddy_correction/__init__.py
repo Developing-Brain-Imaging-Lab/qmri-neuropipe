@@ -130,7 +130,9 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
     output_dir = os.path.dirname(output_base)
 
     proc_dir = output_dir + '/tort_tmp/'
-    os.makedirs(proc_dir)
+    
+    if not os.path.exists(proc_dir)
+        os.makedirs(proc_dir)
     os.chdir(proc_dir)
     
     dwi_img_base = input_dwi._get_filename().split('/')[-1]
