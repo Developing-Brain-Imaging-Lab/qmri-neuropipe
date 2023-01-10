@@ -145,7 +145,7 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
     diffprep_cmd = 'DIFFPREP --dwi ' + input_dwi._get_filename() \
                  + ' --bvecs ' + input_dwi._get_bvecs() \
                  + ' --bvals ' + input_dwi._get_bvals() \
-                 + '--phase ' + phase \
+                 + ' --phase ' + phase \
     
     if struct_img:
         diffprep_cmd += ' --structural ' + struct_img
