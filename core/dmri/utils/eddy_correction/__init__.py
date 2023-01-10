@@ -131,7 +131,7 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
 
     proc_dir = output_dir + '/tort_tmp/'
     
-    if not os.path.exists(proc_dir)
+    if not os.path.exists(proc_dir):
         os.makedirs(proc_dir)
     os.chdir(proc_dir)
     
