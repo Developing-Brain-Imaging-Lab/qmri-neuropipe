@@ -423,7 +423,7 @@ class DiffusionProcessingPipeline:
             os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
             
         else:
-            if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco'):
+            if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_eddy_current_correction == 'tortoise-diffprep'):
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
                 
