@@ -155,7 +155,7 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
                  + ' --phase ' + phase \
     
     if struct_img:
-        diffprep_cmd += ' --structural ' + struct_img.split('/')[-1]
+        diffprep_cmd += ' --structural ' + struct_img._get_filename().split('/')[-1]
         
     if tortoise_options:
         diffprep_cmd += ' ' + tortoise_options
