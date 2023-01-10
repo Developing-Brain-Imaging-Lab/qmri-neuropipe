@@ -150,8 +150,8 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
         shutil.copy(struct_img._get_filename(), proc_dir)
     
     diffprep_cmd = 'DIFFPREP --dwi ' + dwi_img_base \
-                 + ' --bvecs ' input_dwi._get_bvecs().split('/')[-1] +  \
-                 + ' --bvals ' input_dwi._get_bvals().split('/')[-1] +  \
+                 + ' --bvecs ' + input_dwi._get_bvecs().split('/')[-1] +  \
+                 + ' --bvals ' + input_dwi._get_bvals().split('/')[-1] +  \
                  + ' --phase ' + phase \
     
     if struct_img:
