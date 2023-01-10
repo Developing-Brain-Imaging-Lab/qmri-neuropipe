@@ -142,13 +142,20 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
     tort_proc_bvec  = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bvecs'
     
     
-    diffprep_cmd = 'DIFFPREP --dwi ' + input_dwi._get_filename() \
-                 + ' --bvecs ' + input_dwi._get_bvecs() \
-                 + ' --bvals ' + input_dwi._get_bvals() \
+    shutil.copy(input_dwi._get_filename(), proc_dir)
+    shutil.copy(input_dwi._get_bvecs(), proc_dir)
+    shutil.copy(input_dwi._get_bvals(), proc_dir)
+    
+    if struct_img:
+        shutil.copy(struct_img._get_filename(), proc_dir)
+    
+    diffprep_cmd = 'DIFFPREP --dwi ' + dwi_img_base \
+                 + ' --bvecs ' + dwi_img_base.split('.')[0]+'.bvec' \
+                 + ' --bvals ' + dwi_img_base.split('.')[0]+'_bval' \
                  + ' --phase ' + phase \
     
     if struct_img:
-        diffprep_cmd += ' --structural ' + struct_img
+        diffprep_cmd += ' --structural ' + struct_img.split('/')[-1]
         
     if tortoise_options:
         diffprep_cmd += ' ' + tortoise_options
