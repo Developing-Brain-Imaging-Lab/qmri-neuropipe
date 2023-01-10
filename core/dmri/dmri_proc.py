@@ -195,13 +195,18 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_eddy_current_correction',
                             type=str,
                             help='Eddy current correction method',
-                            choices=['eddy', 'eddy_correct', 'two-pass'],
+                            choices=['eddy', 'eddy_correct', 'two-pass', 'tortoise-diffprep'],
                             default='eddy')
 
         parser.add_argument('--dwi_eddy_options',
                             type=str,
                             help='Additional eddy current correction options to pass to eddy',
                             default='')
+        
+        parser.add_argument('--dwi_tortoise_diffprep_options',
+                    type=str,
+                    help='Additional eddy current correction options to pass to TORTOISE DIFFPREP',
+                    default='')
 
         parser.add_argument('--dwi_slspec',
                             type=str,
@@ -460,6 +465,16 @@ class DiffusionProcessingPipeline:
                                                    verbose         = args.verbose)
 
 
+            struct_img = ''
+            if t2w:
+                struct_img = t2w
+            elif t1w:
+                struct_img = t1w
+                
+        
+            print('Structural Image: ' + struct_img)
+                
+
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
                                              working_dir                = os.path.join(preproc_dir, 'eddy-correction/'),
                                              topup_base                 = topup_base,
@@ -473,6 +488,8 @@ class DiffusionProcessingPipeline:
                                              mporder                    = args.mporder,
                                              slspec                     = args.dwi_slspec,
                                              fsl_eddy_options           = args.dwi_eddy_options,
+                                             tortoise_options           = args.dwi_tortoise_diffprep_options
+                                             struct_img                 =
                                              verbose                    = args.verbose)
                                              
 
