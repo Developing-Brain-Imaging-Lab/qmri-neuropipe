@@ -488,7 +488,7 @@ class DiffusionProcessingPipeline:
                                              mporder                    = args.mporder,
                                              slspec                     = args.dwi_slspec,
                                              fsl_eddy_options           = args.dwi_eddy_options,
-                                             tortoise_options           = args.dwi_tortoise_diffprep_options
+                                             tortoise_options           = args.dwi_tortoise_diffprep_options,
                                              struct_img                 = struct_img,
                                              verbose                    = args.verbose)
                                              
