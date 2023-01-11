@@ -178,6 +178,9 @@ def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options
     output_img = copy.deepcopy(input_dwi)
     output_img._set_filename(eddy_output_img)
     output_img._set_bvecs(eddy_output_bvec)
+    
+    if struct_img:
+        os.system('mri_convert ' + output_img._get_filename() + ' --reslice_like ' + struct_img._get_filename() + ' ' + output_img._get_filename() )
 
     #shutil.rmtree(proc_dir)
     
