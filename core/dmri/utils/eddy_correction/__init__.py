@@ -124,7 +124,7 @@ def compute_average_motion(eddy_basename):
             'Average Restricted Slice Movement', avg_restricted_movement_rms[1])
 
 
-def diffprep_tortoise(input_dwi, output_base, phase='vertical', tortoise_options=None, struct_img=None, nthreads=1, verbose=False):
+def diffprep_tortoise(input_dwi, output_base, phase='horizontal', tortoise_options=None, struct_img=None, nthreads=1, verbose=False):
     
     current_dir = os.getcwd()
     output_dir = os.path.dirname(output_base)
