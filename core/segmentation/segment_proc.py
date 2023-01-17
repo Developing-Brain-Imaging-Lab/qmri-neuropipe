@@ -144,6 +144,7 @@ class SegmentationPipeline:
 
             if not os.path.exists(final_base + '/' + i + '/' + bids_id + '_desc-'+i+'_Labels.nii.gz'):
                 seg_tools.atlas_segmentation(target_img         = target_img,
+                                             target_mask        = anat_mask,
                                              atlas              = atlas,
                                              label              = label,
                                              output_seg_file    = final_base + '/' + i + '/' + bids_id + '_desc-'+i+'_Labels.nii.gz',

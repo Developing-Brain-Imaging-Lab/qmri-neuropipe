@@ -11,6 +11,7 @@ import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 
 import core.registration.registration as reg_tools
+import core.segmentation.segmentation as seg_tools
 
 
 def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_dir='anat', bids_t2w_dir='anat', t1w_reorient_img=None, t2w_reorient_img=None, t1w_type='t1w', nthreads=1, verbose=False):
@@ -22,21 +23,33 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     bids_t2w_rawdata_dir         = os.path.join(bids_rawdata_dir, bids_t2w_dir,'')
     bids_t2w_derivative_dir      = os.path.join(bids_derivative_dir, bids_t2w_dir,'')
 
-    raw_t1w = Image(file = bids_t1w_rawdata_dir + bids_id + '_T1w.nii.gz',
-                    json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
-
+    #Setup Paths for T1w Images of different types
+    raw_t1w=None
+    t1w=None
     if t1w_type == 'mp2rage':
-        raw_t1w._set_filename(bids_t1w_rawdata_dir + bids_id + '_inv-2_part-mag_MPRAGE.nii.gz')
+        raw_t1w._set_filename(file = bids_t1w_rawdata_dir + bids_id + '_inv-2_part-mag_MP2RAGE.nii.gz',
+                              json = bids_t1w_rawdata_dir + bids_id + '_inv-2_MP2RAGE.json ')
+        t1w = Image(file = bids_t1w_derivative_dir + bids_id + '_inv-2_part-mag_MP2RAGE.nii.gz',
+                    json = bids_t1w_rawdata_dir + bids_id + '_inv-2_part-mag_MP2RAGE.nii.gz')        
+    elif t1w_type == 'mpnrage':
+        raw_t1w._set_filename(file = bids_t1w_rawdata_dir + bids_id + '_rec-MoCo_MPnRAGE.nii.gz',
+                              json = bids_t1w_rawdata_dir + bids_id + '_MPnRAGE.json')
+        t1w = Image(file = bids_t1w_derivative_dir + bids_id + '_rec-MoCo_MPnRAGE.nii.gz',
+                    json = bids_t1w_rawdata_dir + bids_id + '_MPnRAGE.json')
+    else:
+        raw_t1w = Image(file = bids_t1w_rawdata_dir + bids_id + '_T1w.nii.gz',
+                        json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
 
+        t1w = Image(file = bids_t1w_derivative_dir + bids_id + '_T1w.nii.gz',
+            json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
+
+    #Setup Paths for T2w Images
     raw_t2w = Image(file = bids_t2w_rawdata_dir + bids_id + '_T2w.nii.gz',
-                json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
-
-    t1w = Image(file = bids_t1w_derivative_dir + bids_id + '_T1w.nii.gz',
-                json = bids_t1w_rawdata_dir + bids_id + '_T1w.json')
-
+                    json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
     t2w = Image(file = bids_t2w_derivative_dir + bids_id + '_T2w.nii.gz',
                 json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
 
+    #Check if the files exist, and if so, reorient them to standard orientation
     if not raw_t1w.exists() and not raw_t2w.exists():
         print('WARNING: No anatomical images found')
         t1w = None
@@ -64,7 +77,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                                  output_file    = t1w._get_filename(),
                                                  reorient_img   = t1w_reorient_img)
     else:
-
         if not os.path.exists(bids_t1w_derivative_dir):
             os.makedirs(bids_t1w_derivative_dir)
 
@@ -77,7 +89,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             t1w = img_tools.reorient_to_standard(input_img      = raw_t1w,
                                                  output_file    = t1w._get_filename(),
                                                  reorient_img   = t1w_reorient_img)
-
         if not t2w.exists():
             if verbose:
                 print('Reorienting T2w image to standard')
@@ -85,24 +96,45 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                                  output_file    = t2w._get_filename(),
                                                  reorient_img   = t2w_reorient_img)
 
-        #Coregister the two images
+        #If both T1w and T2w images exist, coregister the two images using two-stage flirt and BBR ()
         coreg_t2 = copy.deepcopy(t2w)
         coreg_t2._set_filename(bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz')
 
         if not coreg_t2.exists():
             if verbose:
                 print('Coregistering T1w and T2w images')
+
+            #First, segment T1w image using FSL FAST
+            seg_tools.fsl_fast(input_img    = t1w,
+                               output_dir   = bids_t2w_derivative_dir + '/fast/',
+                               fast_options = '-B -g -t 1 -n 4')
+
+            WM_Seg = Image(bids_t2w_derivative_dir + '/fast/fast_seg_1.nii.gz')
+
             reg_tools.linear_reg(input_img      = t2w,
                                  reference_img  = t1w,
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                 output_file    = coreg_t2._get_filename(),
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  ' -cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+
+            bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
+
+            reg_tools.linear_reg(input_img     = t2w,
+                                reference_img  = t1w,
+                                output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+                                output_file    = coreg_t2._get_filename(),
+                                method         = 'FSL',
+                                dof            = 6,
+                                flirt_options =  bbr_options)
+            
             t2w = coreg_t2
 
     if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
         os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
+
+    if os.path.exists(bids_t2w_derivative_dir + '/fast/'):
+        shutil.rmtree(bids_t2w_derivative_dir + '/fast/')
 
     return t1w, t2w
 
