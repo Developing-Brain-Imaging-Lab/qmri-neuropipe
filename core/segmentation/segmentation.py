@@ -169,5 +169,4 @@ def ants_atropos(input_img, output_dir, brain_mask=None,  atropos_options='-i \'
         brain_mask = Image(file = output_dir +'/brain_mask.nii.gz')
         os.system('fslmaths ' + input_img._get_filename() + ' -thr 10 -bin ' + brain_mask._get_filename())
 
-    print('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' ' + atropos_options + ' -o ' + output_dir + '/atropos_seg.nii.gz')
     os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' ' + atropos_options + ' -o ' + output_dir + '/atropos_seg.nii.gz')

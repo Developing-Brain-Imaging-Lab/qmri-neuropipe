@@ -130,16 +130,16 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                            output_dir   = working_dir + '/atropos/')
                     
                     WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
-                    os.system('fslmaths ' + working_dir + '/atropos/atropos_seg.nii.gz -thr 1.9 -uthr 2.1 -bin ' + WM_Seg._get_filename() )
+                    os.system('fslmaths ' + working_dir + '/atropos/atropos_seg.nii.gz -thr 2.9 -uthr 3.1 -bin ' + WM_Seg._get_filename() )
 
                     reg_tools.linear_reg(input_img      = mov_img,
                                          reference_img  = ref_img,
                                          output_matrix  = fsl_transform,
                                          method         = 'FSL',
                                          dof            = dof,
-                                         flirt_options =  ' -cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180 -usesqform')
+                                         flirt_options =  ' -cost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-                    bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform + ' -usesqform'
+                    bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform
 
                     tmp_coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
                     reg_tools.linear_reg(input_img      = mov_img,
