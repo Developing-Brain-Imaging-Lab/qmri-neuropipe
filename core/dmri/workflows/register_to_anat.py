@@ -78,7 +78,6 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                             mask_img        = mask_img,
                             output_img      = b0_masked)
                             
-
             if T1_image != None:
                 ref_img.append(T1_image)
                 mov_img.append(dwi_masked)
@@ -127,6 +126,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                 elif linreg_method == 'BBR':
                 
                     print('Running ATROPOS')
+                    print(anat_mask)
                     seg_tools.ants_atropos(input_img    = mov_img[0],
                                            brain_mask   = anat_mask,
                                            output_dir   = working_dir + '/atropos/')
