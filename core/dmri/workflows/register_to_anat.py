@@ -127,7 +127,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                 
                     print('Running ATROPOS')
                     print(anat_mask._get_filename())
-                    print(mov_img[0].get_filename())
+                    print(mov_img[0]._get_filename())
                     seg_tools.ants_atropos(input_img    = mov_img[0],
                                            brain_mask   = anat_mask,
                                            output_dir   = working_dir + '/atropos/')
