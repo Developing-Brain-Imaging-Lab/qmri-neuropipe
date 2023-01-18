@@ -125,11 +125,8 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                     
                 elif linreg_method == 'BBR':
                 
-                    print('Running ATROPOS')
-                    print(anat_mask._get_filename())
-                    print(mov_img[0]._get_filename())
                     seg_tools.ants_atropos(input_img    = mov_img[0],
-                                           brain_mask   = anat_mask,
+                                           brain_mask   = mask_img,
                                            output_dir   = working_dir + '/atropos/')
                     
                     WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
@@ -144,11 +141,11 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
 
                     bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform + ' -usesqform'
 
-                    coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
+                    tmp_coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
                     reg_tools.linear_reg(input_img      = mov_img,
                                          reference_img  = ref_img,
                                          output_matrix  = fsl_transform,
-                                         output_file    = coreg_img._get_filename(),
+                                         output_file    = tmp_coreg_img._get_filename(),
                                          method         = 'FSL',
                                          dof            = dof,
                                          flirt_options =  bbr_options)
