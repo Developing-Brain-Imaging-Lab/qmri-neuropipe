@@ -147,7 +147,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          output_matrix  = fsl_transform,
                                          output_file    = tmp_coreg_img._get_filename(),
                                          method         = 'FSL',
-                                         dof            = 12,
+                                         dof            = dof,
                                          flirt_options =  bbr_options)
                     
                     reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
