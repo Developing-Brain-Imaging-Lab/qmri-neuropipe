@@ -125,8 +125,8 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                     
                 elif linreg_method == 'BBR':
                 
-                    seg_tools.ants_atropos(input_img    = mov_img[0],
-                                           brain_mask   = mask_img,
+                    seg_tools.ants_atropos(input_img    = ref_img[0],
+                                           brain_mask   = anat_mask,
                                            output_dir   = working_dir + '/atropos/')
                     
                     WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
