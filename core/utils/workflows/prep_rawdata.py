@@ -248,7 +248,10 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
     if run_topup or distortion_correction == 'Synb0-Disco':
     
+        topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+        
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
+    
             #First going to run eddy and motion-correction to ensure images are aligned prior to estimating fields. Data are only used
             #here and not for subsequent processing
             eddy_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
@@ -269,16 +272,14 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
 
             if run_topup:
-                    distort_proc.perform_topup(dwi_image    = eddy_img,
-                                               topup_base   = topup_base,
-                                               topup_config = topup_config,
-                                               dist_corr    = 'Topup',
-                                               verbose=verbose)
+                distort_proc.perform_topup(dwi_image    = eddy_img,
+                                           topup_base   = topup_base,
+                                           topup_config = topup_config,
+                                           dist_corr    = 'Topup',
+                                           verbose=verbose)
 
 
             if distortion_correction == 'Synb0-Disco':
-                topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
-
                 #Run the Synb0 distortion correction'
                 distcorr.run_synb0_disco(dwi_img    = eddy_img,
                                          t1w_img    = t1w_img,
