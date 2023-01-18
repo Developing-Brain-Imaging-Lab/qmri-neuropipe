@@ -673,6 +673,10 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_
                          dof            = 6,
                          flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
+    
+    #ADD IN BBR Registration to improve overall registration between structural and diffusion
+    
+    
     #CONVERT FSL TO ANTS
     reg_tools.convert_fsl2ants(mov_img  = mean_dwi,
                                ref_img  = t1w_brain,
