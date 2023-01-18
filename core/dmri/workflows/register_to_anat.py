@@ -132,7 +132,6 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                            brain_mask   = anat_mask,
                                            output_dir   = working_dir + '/atropos/')
                     
-
                     WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
                     os.system('fslmaths ' + working_dir + '/atropos/atropos_seg.nii.gz -thr 1.9 -uthr 2.1 -bin ' + WM_Seg._get_filename() )
 
