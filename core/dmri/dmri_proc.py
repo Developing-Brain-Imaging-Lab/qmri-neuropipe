@@ -475,7 +475,6 @@ class DiffusionProcessingPipeline:
                 print(struct_img._get_filename())
 
         
-
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
                                              working_dir                = os.path.join(preproc_dir, 'eddy-correction/'),
                                              topup_base                 = topup_base,

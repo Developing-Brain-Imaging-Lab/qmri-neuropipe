@@ -605,7 +605,7 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_files=True, verbose=True):
+def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.cnf', nthreads=1, cleanup_files=True, verbose=True):
 
     working_dir = os.path.dirname(topup_base)
 
@@ -804,7 +804,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, nthreads=1, cleanup_
 
     topup_command = 'topup --imain='+ all_b0s._get_filename() \
                   + ' --datain=' + disco_acqparams_path \
-                  + ' --config=b02b0.cnf' \
+                  + ' --config=' + topup_config \
                   + ' --out=' + topup_base \
                   + ' --fout=' + topup_base + '_fmap.nii.gz'
 

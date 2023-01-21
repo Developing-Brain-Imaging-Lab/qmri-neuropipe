@@ -281,10 +281,11 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
             if distortion_correction == 'Synb0-Disco':
                 #Run the Synb0 distortion correction'
-                distcorr.run_synb0_disco(dwi_img    = eddy_img,
-                                         t1w_img    = t1w_img,
-                                         t1w_mask   = t1w_mask,
-                                         topup_base = topup_base,
+                distcorr.run_synb0_disco(dwi_img        = eddy_img,
+                                         t1w_img        = t1w_img,
+                                         t1w_mask       = t1w_mask,
+                                         topup_base     = topup_base,
+                                         topup_config   = topup_config,
                                          nthreads   = 1)
 
     return dwi_img, topup_base
