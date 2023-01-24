@@ -803,11 +803,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     print(topup_base)
 
-    topup_command = 'topup --imain='+ all_b0s._get_filename() \
-                  + ' --datain=' + disco_acqparams_path \
-                  + ' --config=' + topup_config \
-                  + ' --out=' + topup_base \
-                  + ' --fout=' + topup_base + '_fmap.nii.gz'
+    topup_command = 'topup --imain='+ all_b0s._get_filename() + ' --datain=' + disco_acqparams_path + ' --config=' + topup_config + ' --out=' + topup_base + ' --fout=' + topup_base + '_fmap.nii.gz'
 
     if verbose:
         print(topup_command)
