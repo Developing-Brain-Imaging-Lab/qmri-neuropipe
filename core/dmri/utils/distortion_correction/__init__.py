@@ -651,7 +651,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                                         output_file = t1w_bias._get_filename(),
                                         method      = 'N4',
                                         nthreads    = nthreads,
-                                        iterations  = 5)
+                                        iterations  = 1)
 
     #Skull-strip the T1image
     t1w_brain = Image(file = working_dir + '/t1w_brain.nii.gz')
@@ -801,6 +801,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
+    print(topup_base)
 
     topup_command = 'topup --imain='+ all_b0s._get_filename() \
                   + ' --datain=' + disco_acqparams_path \
