@@ -146,7 +146,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
     bids_derivative_dwi_dir     = os.path.join(bids_derivative_dir,bids_dwi_dir,'')
 
     #Define directories and image paths
-    preprocess_dir              = bids_derivative_dwi_dir +'/preprocessed/rawdata/'
+    preprocess_dir              = bids_derivative_dwi_dir + '/preprocessed/rawdata/'
 
     if not os.path.exists(preprocess_dir):
         os.makedirs(preprocess_dir)
@@ -158,14 +158,13 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                       acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt',
                       json      = preprocess_dir + bids_id + '_dwi.json')
 
-    topup_base = None
+    topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
     run_topup  = False
 
     #Check to see if TOPUP Style data exists and if so, create merged DWI input image
     if os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz') and os.path.exists(bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'):
 
         if distortion_correction == 'Topup' or distortion_correction == 'Topup-Separate':
-            topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
             run_topup  = True
 
         if not dwi_img.exists():
@@ -247,7 +246,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                                       verbose           = verbose )
 
     if run_topup or distortion_correction == 'Synb0-Disco':
-    
+        
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
     
             #First going to run eddy and motion-correction to ensure images are aligned prior to estimating fields. Data are only used
@@ -267,11 +266,11 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                               fsl_eddy_options           = cmd_args.dwi_eddy_options,
                                               verbose                    = cmd_args.verbose)
         
-
+            topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
 
             if run_topup:
                 distort_proc.perform_topup(dwi_image    = eddy_img,
-                                           topup_base   = preprocess_dir + '/topup/' + bids_id + '_desc-Topup',
+                                           topup_base   = topup_base,
                                            topup_config = topup_config,
                                            dist_corr    = 'Topup',
                                            verbose=verbose)
@@ -282,7 +281,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                 distcorr.run_synb0_disco(dwi_img        = eddy_img,
                                          t1w_img        = t1w_img,
                                          t1w_mask       = t1w_mask,
-                                         topup_base     = preprocess_dir + '/topup/' + bids_id + '_desc-Topup',
+                                         topup_base     = topup_base,
                                          topup_config   = topup_config,
                                          nthreads   = 1)
 
