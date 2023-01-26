@@ -80,16 +80,16 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                             
             if T1_image != None:
                 ref_img.append(T1_image)
-                mov_img.append(mean_b0)
+                mov_img.append(dwi_masked)
                 flirt_options = '-cost normmi '
                 
                 if T2_image != None:
                     ref_img.append(T2_image)
-                    mov_img.append(mean_b0)
+                    mov_img.append(b0_masked)
                 
             elif T2_image != None:
                 ref_img.append(T2_image)
-                mov_img.append(mean_b0)
+                mov_img.append(b0_masked)
                 
                 flirt_options = '-cost normmi '
 
@@ -136,7 +136,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          reference_img  = ref_img,
                                          output_matrix  = fsl_transform,
                                          method         = 'FSL',
-                                         dof            = dof,
+                                         dof            = 6,
                                          flirt_options =  ' -cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
                     bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform
@@ -147,7 +147,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                                          output_matrix  = fsl_transform,
                                          output_file    = tmp_coreg_img._get_filename(),
                                          method         = 'FSL',
-                                         dof            = dof,
+                                         dof            = 6,
                                          flirt_options =  bbr_options)
                     
                     reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
