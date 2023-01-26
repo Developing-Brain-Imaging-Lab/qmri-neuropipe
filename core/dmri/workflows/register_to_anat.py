@@ -125,9 +125,10 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                     
                 elif linreg_method == 'BBR':
                 
-                    seg_tools.ants_atropos(input_img    = ref_img[0],
-                                           brain_mask   = anat_mask,
-                                           output_dir   = working_dir + '/atropos/')
+                    seg_tools.ants_atropos(input_img        = ref_img[0],
+                                           brain_mask       = anat_mask,
+                                           output_dir       = working_dir + '/atropos/',
+                                           atropos_options  = '-i \'KMeans[4]\'')
                     
                     WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
                     os.system('fslmaths ' + working_dir + '/atropos/atropos_seg.nii.gz -thr 2.9 -uthr 3.1 -bin ' + WM_Seg._get_filename() )
