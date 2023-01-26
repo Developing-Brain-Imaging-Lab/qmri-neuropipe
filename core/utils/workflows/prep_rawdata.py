@@ -159,7 +159,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                       acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt',
                       json      = preprocess_dir + bids_id + '_dwi.json')
 
-    topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+    topup_base = None
     run_topup  = False
 
     #Check to see if TOPUP Style data exists and if so, create merged DWI input image
@@ -222,6 +222,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
 
     index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt'
     acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt'
+    
     if not os.path.exists(index) or not os.path.exists(acqparams):
         index, acqparams = dmri_qc.create_index_acqparam_files(input_dwi   = dwi_img,
                                                                output_base = preprocess_dir + bids_id)
@@ -247,6 +248,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                                       verbose           = verbose )
 
     if run_topup or distortion_correction == 'Synb0-Disco':
+        topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
         
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
     
@@ -267,7 +269,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_dwi_di
                                               fsl_eddy_options           = cmd_args.dwi_eddy_options,
                                               verbose                    = cmd_args.verbose)
         
-            topup_base = preprocess_dir + '/topup/' + bids_id + '_desc-Topup'
+            
 
             if run_topup:
                 distort_proc.perform_topup(dwi_image    = eddy_img,
