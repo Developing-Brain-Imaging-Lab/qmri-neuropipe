@@ -80,7 +80,7 @@ def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None
                             
             if T1_image != None:
                 ref_img.append(T1_image)
-                mov_img.append(dwi_masked)
+                mov_img.append(b0_masked)
                 flirt_options = '-cost normmi '
                 
                 if T2_image != None:
