@@ -48,6 +48,10 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                     json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
     t2w = Image(file = bids_t2w_derivative_dir + bids_id + '_T2w.nii.gz',
                 json = bids_t2w_rawdata_dir + bids_id + '_T2w.json')
+                
+                
+    print(t1w._get_filename())
+    print(t2w._get_filename())
 
     #Check if the files exist, and if so, reorient them to standard orientation
     if not raw_t1w.exists() and not raw_t2w.exists():
