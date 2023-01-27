@@ -33,6 +33,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
     #First normalize the image
     os.system('fslmaths ' + t1w._get_filename() + ' -sub ' + t1w_brain._get_filename() + ' ' + output_dir + '/skull.nii.gz')
     os.system('ImageMath 3 ' + output_dir + '/skull.nii.gz Normalize ' + output_dir + '/skull.nii.gz')
+    os.system('fslmaths ' + output_dir + '/skull.nii.gz -mul 1000.0 ' + output_dir + '/skull.nii.gz')
     
     #Now, take the inverse, normalize,
     os.system('ImageMath 3 ' + output_dir + '/t1w_norm.nii.gz Normalize ' + t1w_brain._get_filename())
