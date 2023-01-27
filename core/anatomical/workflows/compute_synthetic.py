@@ -16,8 +16,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
     synthetic_t2w = Image(file = output_dir + '/synT2w.nii.gz')
     
     t1w = Image(file = output_dir + '/t1w.nii.gz')
-    
-    t1w = img_tools.reorient_to_standard(input_img      = raw_t1w,
+    t1w = img_tools.reorient_to_standard(input_img      = input_t1w,
                                          output_file    = t1w._get_filename())
 
     t1w_mask  = Image(file=output_dir + '/t1w_mask.nii.gz')

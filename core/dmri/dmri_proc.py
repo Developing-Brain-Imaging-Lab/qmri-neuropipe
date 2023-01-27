@@ -476,7 +476,7 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Creating Synthetic T2w Image')
                 t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
-                                                              output_dir   = bids_derivative_dir+'/anat/',
+                                                              output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
                                                               cmd_args     = args)
                                                        
                 exit()
