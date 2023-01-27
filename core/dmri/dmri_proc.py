@@ -475,14 +475,11 @@ class DiffusionProcessingPipeline:
                 
                 if args.verbose:
                     print('Creating Synthetic T2w Image')
-                t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
-                                                              output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
-                                                              cmd_args     = args)
-                                                       
-                exit()
+                struct_img = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                                                                     output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
+                                                                     cmd_args     = args)
+                            
                 
-                
-
         
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
                                              working_dir                = os.path.join(preproc_dir, 'eddy-correction/'),
