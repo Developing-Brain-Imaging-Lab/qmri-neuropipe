@@ -27,8 +27,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
                     method               = cmd_args.anat_mask_method,
                     nthreads             = cmd_args.nthreads,
                     ref_img              = cmd_args.anat_ants_mask_template,
-                    ref_mask             = cmd_args.anat_ants_mask_template_mask,
-                    antspynet_modality   = cmd_args.anat_antspynet_modality)
+                    ref_mask             = cmd_args.anat_ants_mask_template_mask)
                     
 
     #First normalize the image
