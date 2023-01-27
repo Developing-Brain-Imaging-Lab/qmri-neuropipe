@@ -471,8 +471,17 @@ class DiffusionProcessingPipeline:
                 print(struct_img._get_filename())
 
             elif t1w:
-                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
-                print(struct_img._get_filename())
+                import core.anatomical.workflows.compute_synthetic as compute_synthetic
+                
+                if verbose:
+                    print('Creating Synthetic T2w Image')
+                t2w = compute_synthetic.compute_synthetic_t2(input_t1w    = t1w,
+                                                             output_dir   = bids_derivative_dir+'/anat/',
+                                                             cmd_args     = args)
+                                                       
+                exit()
+                
+                
 
         
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,

@@ -11,7 +11,7 @@ from core.dmri.utils.qc import rotate_bvecs
 import core.registration.registration as reg_tools
 import core.segmentation.segmentation as seg_tools
 
-def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', use_freesurfer=False, freesurfer_subjs_dir=None, nthreads=1, verbose=False):
+def register_to_anat(dwi_image, working_dir, coreg_to_anat = True, T1_image=None, T2_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', use_freesurfer=False, freesurfer_subjs_dir=None, wmseg_reference=None, wmseg=None, nthreads=1, verbose=False):
 
     if coreg_to_anat:
 
