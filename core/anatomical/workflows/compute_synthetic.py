@@ -45,6 +45,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
     #Now add the skull and recip-T1w_brain image
     os.system('fslmaths ' + output_dir + '/t1w_recip.nii.gz -mul 10000.0 -add ' + output_dir + '/skull.nii.gz ' + synthetic_t2w._get_filename())
     
+    print('Running bias correction')
     synthetic_t2w = biascorr.biasfield_correction(input_img     = synthetic_t2w,
                                                   output_file   = synthetic_t2w._get_filename(),
                                                   method        = 'N4',
