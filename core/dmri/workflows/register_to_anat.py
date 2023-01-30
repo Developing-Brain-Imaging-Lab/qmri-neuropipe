@@ -157,7 +157,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         #Apply the transformation
         reg_tools.apply_transform(input_img     = dwi_image,
                                   reference_img = ref_img[0],
-                                  output_image  = coreg_img,
+                                  output_img    = coreg_img,
                                   matrix        = final_transform,
                                   nthreads      = nthreads,
                                   method        = 'MRTRIX',
