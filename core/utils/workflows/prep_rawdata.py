@@ -106,12 +106,10 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                 print('Coregistering T1w and T2w images')
 
             #First, segment T1w image using FSL FAST
-            seg_tools.fsl_fast(input_img    = t1w,
-                               output_dir   = bids_t2w_derivative_dir + '/fast/',
-                               fast_options = '-B -g -t 1 -n 4')
-
-            WM_Seg = Image(bids_t2w_derivative_dir + '/fast/fast_seg_1.nii.gz')
-
+            wmseg_img = Image(bids_t2w_derivative_dir + '/fast/fast_seg_1.nii.gz')
+            wmseg_img = seg_tools.create_wmseg(input_img    = t1w,
+                                               output_dir   = bids_t2w_derivative_dir + '/wmseg/')
+                                   
             reg_tools.linear_reg(input_img      = t2w,
                                  reference_img  = t1w,
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
@@ -119,7 +117,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  dof            = 6,
                                  flirt_options =  ' -cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-            bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
+            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
 
             reg_tools.linear_reg(input_img     = t2w,
                                 reference_img  = t1w,
@@ -134,8 +132,8 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
     if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
         os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
 
-    if os.path.exists(bids_t2w_derivative_dir + '/fast/'):
-        shutil.rmtree(bids_t2w_derivative_dir + '/fast/')
+    if os.path.exists(bids_t2w_derivative_dir + '/wmseg/'):
+        shutil.rmtree(bids_t2w_derivative_dir + '/wmseg/')
 
     return t1w, t2w
 
