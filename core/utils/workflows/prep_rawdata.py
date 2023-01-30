@@ -134,7 +134,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
 
             reg_tools.linear_reg(input_img      = biascorr_t2w,
                                  reference_img  = biascorr_t1w,
-                                 output_img     = coreg_t2,
+                                 output_file    = coreg_t2._get_filename(),
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
                                  method         = 'FSL',
                                  dof            = 6,
