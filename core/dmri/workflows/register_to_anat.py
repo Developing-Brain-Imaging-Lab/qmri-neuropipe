@@ -96,7 +96,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                              output_matrix  = fsl_transform,
                              method         = 'FSL',
                              dof            = dof,
-                             flirt_options =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -interp sinc')
+                             flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -interp sinc')
 
         if reg_method == 'bbr' or reg_method == 'nonlinear':
             #Create WM segmentation from structural image
