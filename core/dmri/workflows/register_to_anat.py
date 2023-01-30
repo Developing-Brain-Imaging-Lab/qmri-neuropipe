@@ -33,10 +33,13 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
     coreg_file = writing.build_path(entities, filename_patterns)
     entities['extension'] = '.bvec'
     coreg_bvec = writing.build_path(entities, filename_patterns)
+    entities['extension'] = '.bval'
+    coreg_bval = writing.build_path(entities, filename_patterns)
 
     coreg_img = copy.deepcopy(dwi_image)
     coreg_img._set_filename(coreg_file)
     coreg_img._set_bvecs(coreg_bvec)
+    coreg_img._set_bvals(coreg_bval)
 
     if not coreg_img.exists():
         if verbose:
@@ -154,20 +157,20 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         #Apply the transformation
         reg_tools.apply_transform(input_img     = dwi_image,
                                   reference_img = ref_img[0],
-                                  output_file   = coreg_img._get_filename(),
-                                  matrix        = transform,
+                                  output_image  = coreg_img,
+                                  matrix        = final_transform,
                                   nthreads      = nthreads,
                                   method        = 'MRTRIX',
                                   ants_options  = '-e 3 -n BSpline[5]' )
 
-        if verbose:
-            print('Rotating bvecs')
-
-        rotate_bvecs(input_img      = dwi_image,
-                     ref_img        = ref_img[0],
-                     output_bvec    = coreg_img._get_bvecs(),
-                     transform      = itk_transform,
-                     nthreads       = nthreads)
+#        if verbose:
+#            print('Rotating bvecs')
+#
+#        rotate_bvecs(input_img      = dwi_image,
+#                     ref_img        = ref_img[0],
+#                     output_bvec    = coreg_img._get_bvecs(),
+#                     transform      = itk_transform,
+#                     nthreads       = nthreads)
 
 
     return coreg_img

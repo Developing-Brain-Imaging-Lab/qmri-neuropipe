@@ -32,12 +32,9 @@ def create_composite_linear_transform(reference_img, output_file, transforms):
 
     os.system(cmd)
 
-def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, method='FSL', flirt_options=None, ants_options=None):
+def apply_transform(input_img, reference_img, output_img, matrix, nthreads=1, method='FSL', flirt_options=None, ants_options=None):
 
     cmd = ''
-
-    output_img = copy.deepcopy(input_img)
-    output_img._set_filename(output_file)
 
     if method == 'FSL':
         cmd = 'flirt -in ' + input_img._get_filename() \
@@ -65,7 +62,7 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
 
     elif method == 'MRTRIX':
 
-        output_dir = os.path.dirname(output_file)
+        output_dir = os.path.dirname(output_img._get_filename())
 
         mrtrix_img = output_dir + '/img.mif'
         os.system('mrconvert -fslgrad ' + input_img._get_bvecs() + ' ' + input_img._get_bvals() + ' ' + input_img._get_filename() + ' ' + mrtrix_img + ' -force -quiet -nthreads ' + str(nthreads))
@@ -83,9 +80,9 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
         warped_img = output_dir + '/img_warped.mif'
         os.system('mrtransform ' + mrtrix_img + ' -warp ' + mrtrix_corr_warp + ' ' + warped_img + ' -template ' + reference_img._get_filename() + ' -strides ' + reference_img._get_filename() + ' -force -quiet -reorient_fod no -nthreads ' + str(nthreads) + ' -interp sinc')
         
+        os.system('mrconvert -force -quiet ' + warped_img + ' ' + output_img._get_filename() + ' -export_grad_fsl ' + output_img._get_bvecs() + ' ' + output_img._get_bvals() + ' -nthreads ' + str(nthreads))
         
-        os.system('mrconvert -force -quiet ' + warped_img + ' ' + output_file + ' -nthreads ' + str(nthreads))
-
+        
         os.remove(mrtrix_img)
         os.system('rm -rf ' + ident_warp+'*')
         os.system('rm -rf ' + mrtrix_warp+'*')
