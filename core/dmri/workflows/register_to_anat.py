@@ -170,6 +170,3 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
 
 
     return coreg_img
-
-else:
-    return dwi_image

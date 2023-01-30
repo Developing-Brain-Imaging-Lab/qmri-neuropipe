@@ -176,8 +176,6 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
         convert_fsl2ants(input_img, reference_img, b0toT1flirtmtx, output_matrix)
         
         
-
-
 def nonlinear_reg(input_img, reference_img, reference_mask, output_base, nthreads=1, method='ANTS', ants_options=None):
 
     cmd = ''
