@@ -430,6 +430,44 @@ class DiffusionProcessingPipeline:
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
             fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
+            
+            
+            
+            
+        #Check if TORTOISE or coregistration anatomy being performed and ensure image exists
+        #First determine the anatomical image to use
+        
+        anat_image = None
+        if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
+            if args.dwi_eddy_current_correction == 'tortoise-diffprep':
+                if t2w:
+                    anat_image = t2w
+                elif t1w:
+                    #Then create synthetic T2w using T1w
+                    import core.anatomical.workflows.compute_synthetic as compute_synthetic
+                    if args.verbose:
+                        print('Creating Synthetic T2w Image')
+                            
+                    anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                                                                         output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
+                                                                         cmd_args     = args)
+            elif args.coregister_dwi_to_anat_modality == 't1w' and t1w:
+                anat_image = t1w;
+            elif args.coregister_dwi_to_anat_modality == 't2w':
+                    if t2w:
+                        anat_image = t2w
+                    elif t1w:
+                        import core.anatomical.workflows.compute_synthetic as compute_synthetic
+                        if args.verbose:
+                            print('Creating Synthetic T2w Image')
+                            
+                        anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                                                                             output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
+                                                                             cmd_args     = args)
+            else:
+                print('No anatomical image!')
+                exit()
+                    
 
 
         ##################################
@@ -479,7 +517,7 @@ class DiffusionProcessingPipeline:
                                              slspec                     = args.dwi_slspec,
                                              fsl_eddy_options           = args.dwi_eddy_options,
                                              tortoise_options           = args.dwi_tortoise_diffprep_options,
-                                             struct_img                 = struct_img,
+                                             struct_img                 = anat_image,
                                              verbose                    = args.verbose)
                                              
 
@@ -515,28 +553,6 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
-                
-                #First determine the anatomical image to use
-                anat_image = None
-                if args.coregister_dwi_to_anat_modality == 't1w' and t1w:
-                    anat_image = t1w;
-                elif args.coregister_dwi_to_anat_modality == 't2w':
-                    if t2w:
-                        anat_image = t2w
-                    elif t1w:
-                    #Then create synthetic T2w using T1w
-                        import core.anatomical.workflows.compute_synthetic as compute_synthetic
-                        if args.verbose:
-                            print('Creating Synthetic T2w Image')
-                            
-                        anat_img = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
-                                                                           output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
-                                                                           cmd_args     = args)
-                else:
-                    print('No anatomical image')
-                    exit(-1)
-            
-            
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
                                                       anat_image           = anat_image,
