@@ -433,15 +433,15 @@ class DiffusionProcessingPipeline:
             
             
             
-            
         #Check if TORTOISE or coregistration anatomy being performed and ensure image exists
         #First determine the anatomical image to use
-        
         anat_image = None
         if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
             if args.dwi_eddy_current_correction == 'tortoise-diffprep':
-                if t2w:
-                    anat_image = t2w
+                if t2w and t1w:
+                    anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
+                elif t2w:
+                    anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T2w.nii.gz')
                 elif t1w:
                     #Then create synthetic T2w using T1w
                     import core.anatomical.workflows.compute_synthetic as compute_synthetic
@@ -452,10 +452,10 @@ class DiffusionProcessingPipeline:
                                                                          output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
                                                                          cmd_args     = args)
             elif args.coregister_dwi_to_anat_modality == 't1w' and t1w:
-                anat_image = t1w;
+                anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz');
             elif args.coregister_dwi_to_anat_modality == 't2w':
-                    if t2w:
-                        anat_image = t2w
+                    if t1w and t2w:
+                        anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
                     elif t1w:
                         import core.anatomical.workflows.compute_synthetic as compute_synthetic
                         if args.verbose:
@@ -467,6 +467,9 @@ class DiffusionProcessingPipeline:
             else:
                 print('No anatomical image!')
                 exit()
+                
+            
+            print('ANATOMICAL IMAGE:' + anat_image._get_filename())
                     
 
 
