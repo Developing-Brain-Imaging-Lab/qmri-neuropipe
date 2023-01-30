@@ -170,3 +170,20 @@ def ants_atropos(input_img, output_dir, brain_mask=None,  atropos_options='-i \'
         os.system('fslmaths ' + input_img._get_filename() + ' -thr 10 -bin ' + brain_mask._get_filename())
 
     os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' ' + atropos_options + ' -o ' + output_dir + '/atropos_seg.nii.gz')
+
+
+def create_wmseg(input_img, output_dir, brain_mask=None):
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    if not brain_mask:
+        brain_mask = Image(file = output_dir +'/brain_mask.nii.gz')
+        os.system('fslmaths ' + input_img._get_filename() + ' -thr 10 -bin ' + brain_mask._get_filename())
+
+    os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' -i \'KMeans[4]\' -o ' + output_dir + '/atropos_seg.nii.gz')
+    
+    wmseg_img = Image(output_dir + '/wmseg.nii.gz')
+    os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 1.9 -uthr 2.1 -bin ' + wmseg_img._get_filename() )
+    
+    return wmseg_img

@@ -91,27 +91,26 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             
             
         #First, perform linear registration using FSL flirt
+        tmp_coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
         reg_tools.linear_reg(input_img      = mov_img,
                              reference_img  = ref_img,
                              output_matrix  = fsl_transform,
+                             output_file    = tmp_coreg_img._get_filename(),
                              method         = 'FSL',
                              dof            = dof,
                              flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -interp sinc')
 
         if reg_method == 'bbr' or reg_method == 'nonlinear':
             #Create WM segmentation from structural image
-            seg_tools.ants_atropos(input_img        = ref_img[0],
-                                   brain_mask       = anat_mask,
-                                   output_dir       = working_dir + '/atropos/',
-                                   atropos_options  = '-i \'KMeans[4]\'')
+            wmseg_img = seg_tools.create_wmseg(input_img        = ref_img[0],
+                                               brain_mask       = anat_mask,
+                                               output_dir       = working_dir + '/atropos/')
                 
-            WM_Seg = Image(working_dir + '/atropos/atropos_WM.nii.gz')
-            os.system('fslmaths ' + working_dir + '/atropos/atropos_seg.nii.gz -thr 2.9 -uthr 3.1 -bin ' + WM_Seg._get_filename() )
-            
+           
             #Next, re-run flirt, using bbr cost function and WM segmentation
-            bbr_options = ' -cost bbr -wmseg ' + WM_Seg._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform
+            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + fsl_transform
 
-            tmp_coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
+            
             reg_tools.linear_reg(input_img      = mov_img,
                                  reference_img  = ref_img,
                                  output_matrix  = fsl_transform,
@@ -132,6 +131,8 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             
 
         elif reg_method == 'nonlinear':
+        
+            mov_img[0] = tmp_coreg_img
 
             reg_tools.nonlinear_reg(input_img       = mov_img,
                                     reference_img   = ref_img,
