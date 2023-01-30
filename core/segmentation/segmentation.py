@@ -179,8 +179,10 @@ def create_wmseg(input_img, output_dir, brain_mask=None):
     
     if not brain_mask:
         brain_mask = Image(file = output_dir +'/brain_mask.nii.gz')
-        os.system('fslmaths ' + input_img._get_filename() + ' -thr 10 -bin ' + brain_mask._get_filename())
-
+        mask_tools.mask_image(input_img   = input_img,
+                              output_mask = brain_mask,
+                              method='hd-bet')
+                                      
     os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' -i \'KMeans[4]\' -o ' + output_dir + '/atropos_seg.nii.gz')
     
     wmseg_img = Image(output_dir + '/wmseg.nii.gz')
