@@ -463,22 +463,6 @@ class DiffusionProcessingPipeline:
                                                    gibbs_method    = args.dwi_gibbs_correction_method,
                                                    nthreads        = args.nthreads,
                                                    verbose         = args.verbose)
-
-
-            struct_img = ''
-            if t2w:
-                struct_img = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
-                print(struct_img._get_filename())
-
-            elif t1w:
-                import core.anatomical.workflows.compute_synthetic as compute_synthetic
-                
-                if args.verbose:
-                    print('Creating Synthetic T2w Image')
-                struct_img = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
-                                                                     output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
-                                                                     cmd_args     = args)
-                            
                 
         
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
@@ -531,17 +515,37 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
+                
+                #First determine the anatomical image to use
+                anat_image = None
+                if args.coregister_dwi_to_anat_modality == 't1w' and t1w:
+                    anat_image = t1w;
+                elif args.coregister_dwi_to_anat_modality == 't2w':
+                    if t2w:
+                        anat_image = t2w
+                    elif t1w:
+                    #Then create synthetic T2w using T1w
+                        import core.anatomical.workflows.compute_synthetic as compute_synthetic
+                        if args.verbose:
+                            print('Creating Synthetic T2w Image')
+                            
+                        anat_img = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                                                                           output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
+                                                                           cmd_args     = args)
+                else:
+                    print('No anatomical image')
+                    exit(-1)
+            
+            
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
-                                                      coreg_to_anat        = args.coregister_dwi_to_anat,
-                                                      T1_image             = t1w,
-                                                      T2_image             = t2w,
+                                                      anat_image           = anat_image,
                                                       anat_mask            = anat_mask,
                                                       mask_method          = args.dwi_mask_method,
                                                       reg_method           = args.coregister_dwi_to_anat_method,
                                                       linreg_method        = args.coregister_dwi_to_anat_linear_method,
                                                       nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,
-                                                      dof                  = 6,
+                                                      anat_modality        = args.coregister_dwi_to_anat_modality,
                                                       freesurfer_subjs_dir = freesurfer_subjs_dir,
                                                       use_freesurfer       = args.use_freesurfer,
                                                       nthreads             = args.nthreads,

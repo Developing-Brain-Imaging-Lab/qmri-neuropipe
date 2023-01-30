@@ -81,7 +81,9 @@ def apply_transform(input_img, reference_img, output_file, matrix, nthreads=1, m
         os.system('warpcorrect ' + mrtrix_warp+'[].nii ' +  mrtrix_corr_warp + ' -force -quiet')
 
         warped_img = output_dir + '/img_warped.mif'
-        os.system('mrtransform ' + mrtrix_img + ' -warp ' + mrtrix_corr_warp + ' ' + warped_img + ' -template ' + reference_img._get_filename() + ' -strides ' + reference_img._get_filename() + ' -force -quiet -nthreads ' + str(nthreads) + ' -interp sinc')
+        os.system('mrtransform ' + mrtrix_img + ' -warp ' + mrtrix_corr_warp + ' ' + warped_img + ' -template ' + reference_img._get_filename() + ' -strides ' + reference_img._get_filename() + ' -force -quiet -reorient_fod no -nthreads ' + str(nthreads) + ' -interp sinc')
+        
+        
         os.system('mrconvert -force -quiet ' + warped_img + ' ' + output_file + ' -nthreads ' + str(nthreads))
 
         os.remove(mrtrix_img)
