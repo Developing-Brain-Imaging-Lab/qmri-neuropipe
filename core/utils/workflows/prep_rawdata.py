@@ -132,12 +132,12 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
 
             bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
 
-            reg_tools.linear_reg(input_img     = biascorr_t2w,
-                                reference_img  = biascorr_t1w,
-                                output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                method         = 'FSL',
-                                dof            = 6,
-                                flirt_options =  bbr_options)
+            reg_tools.linear_reg(input_img      = biascorr_t2w,
+                                 reference_img  = biascorr_t1w,
+                                 output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+                                 method         = 'FSL',
+                                 dof            = 6,
+                                 flirt_options =  bbr_options)
                                 
             reg_tools.apply_transform(input_img     = t2w,
                                       reference_img = t1w,
@@ -148,6 +148,8 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             
             
             t2w = coreg_t2
+            
+            exit()
 
     if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
         os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
