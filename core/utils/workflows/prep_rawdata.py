@@ -134,11 +134,13 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
 
             reg_tools.linear_reg(input_img      = biascorr_t2w,
                                  reference_img  = biascorr_t1w,
+                                 output_img     = coreg_t2,
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  bbr_options)
-                                
+            
+            tmp_coreg_t2 = Image(file = bids_t2w_derivative_dir +'/tmp_coreg_t2w.nii.gz')
             reg_tools.apply_transform(input_img     = t2w,
                                       reference_img = t1w,
                                       output_img    = coreg_t2,
