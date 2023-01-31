@@ -184,7 +184,7 @@ def create_wmseg(input_img, output_dir, brain_mask=None):
                               method='hd-bet')
                               
     os.system('N4BiasFieldCorrection -d 3 -i ' + input_img._get_filename() + ' -o ' + output_dir +'/bias_corr.nii.gz -x ' + output_dir +'/brain_mask.nii.gz' )
-    os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + output_dir +'/brain_mask.nii.gz -i \'KMeans[3]\' -o ' + output_dir + '/atropos_seg.nii.gz')
+    os.system('Atropos -d 3 -a ' + output_dir +'/bias_corr.nii.gz -x ' + output_dir +'/brain_mask.nii.gz -i \'KMeans[3]\' -o ' + output_dir + '/atropos_seg.nii.gz')
     
     wmseg_img = Image(output_dir + '/wmseg.nii.gz')
     os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 0.9 -uthr 1.1 -bin ' + wmseg_img._get_filename() )
