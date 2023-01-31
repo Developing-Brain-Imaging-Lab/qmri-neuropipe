@@ -153,7 +153,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             
             t2w = coreg_t2
             
-            exit()
 
     if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
         os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
