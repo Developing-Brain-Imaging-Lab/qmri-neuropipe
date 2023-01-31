@@ -118,8 +118,10 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             bias_tools.biasfield_correction(input_img = t2w,
                                             output_file = biascorr_t2w._get_filename(),
                                             iterations=3)
-
-            #First, segment T1w image using FSL FAST
+                                            
+                                        
+            
+            #First, create wm segmentation from T1w image
             wmseg_img = seg_tools.create_wmseg(input_img    = biascorr_t1w,
                                                output_dir   = bids_t1w_derivative_dir + '/wmseg/')
                                    
@@ -130,7 +132,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  dof            = 6,
                                  flirt_options =  '-interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
+            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 10 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
 
             reg_tools.linear_reg(input_img      = biascorr_t2w,
                                  reference_img  = biascorr_t1w,

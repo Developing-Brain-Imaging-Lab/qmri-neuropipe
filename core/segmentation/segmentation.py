@@ -182,10 +182,11 @@ def create_wmseg(input_img, output_dir, brain_mask=None):
         mask_tools.mask_image(input_img   = input_img,
                               output_mask = brain_mask,
                               method='hd-bet')
-                                      
-    os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + brain_mask._get_filename() + ' -i \'KMeans[4]\' -o ' + output_dir + '/atropos_seg.nii.gz')
+                              
+    os.system('N4BiadFieldCorrection -d 3 -i ' + output_dir +'/brain_mask.nii.gz -o ' + output_dir +'/bias_corr.nii.gz -x ' + output_dir +'/brain_mask_mask.nii.gz' )
+    os.system('Atropos -d 3 -a ' + input_img._get_filename() + ' -x ' + output_dir +'/brain_mask_mask.nii.gz -i \'KMeans[3]\' -o ' + output_dir + '/atropos_seg.nii.gz')
     
     wmseg_img = Image(output_dir + '/wmseg.nii.gz')
-    os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 1.9 -uthr 2.1 -bin ' + wmseg_img._get_filename() )
+    os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 0.9 -uthr 1.1 -bin ' + wmseg_img._get_filename() )
     
     return wmseg_img
