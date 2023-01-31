@@ -106,10 +106,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             if verbose:
                 print('Coregistering T1w and T2w images')
                 
-                
-            #First biascorrect the T1w and T2w images (only for registration - not to be used)
-            biascorr_t1w = Image(bids_t1w_derivative_dir + '/tmp_biascorr_t1w.nii.gz')
-            biascorr_t2w = Image(bids_t2w_derivative_dir + '/tmp_biascorr_t2w.nii.gz')
             
             bias_tools.biasfield_correction(input_img = t1w,
                                             output_file = biascorr_t1w._get_filename(),
@@ -154,17 +150,17 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             t2w = coreg_t2
             
 
-    if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
-        os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
+            if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
+                os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
 
-    if os.path.exists(bids_t2w_derivative_dir + '/wmseg/'):
-        shutil.rmtree(bids_t2w_derivative_dir + '/wmseg/')
-        
-    if os.path.exists(biascorr_t1w._get_filename()):
-        os.remove(biascorr_t1w._get_filename())
-        
-    if os.path.exists(biascorr_t2w._get_filename()):
-        os.remove(biascorr_t2w._get_filename())
+            if os.path.exists(bids_t2w_derivative_dir + '/wmseg/'):
+                shutil.rmtree(bids_t2w_derivative_dir + '/wmseg/')
+                
+            if os.path.exists(biascorr_t1w._get_filename()):
+                os.remove(biascorr_t1w._get_filename())
+                
+            if os.path.exists(biascorr_t2w._get_filename()):
+                os.remove(biascorr_t2w._get_filename())
 
     return t1w, t2w
 
