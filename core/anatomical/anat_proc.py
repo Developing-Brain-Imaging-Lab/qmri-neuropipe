@@ -302,9 +302,7 @@ class AnatomicalPrepPipeline:
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  bbr_options)
-                                 
-            exit()
-                                 
+                                     
             
 #            tmp_coreg_t2 = Image(file = bids_t2w_derivative_dir +'/tmp_coreg_t2w.nii.gz')
 #            reg_tools.apply_transform(input_img     = t2w,
