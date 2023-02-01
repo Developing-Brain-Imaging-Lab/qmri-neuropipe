@@ -312,7 +312,6 @@ class AnatomicalPrepPipeline:
 #                                      flirt_options = '-interp sinc')
             
             
-            t2w = coreg_t2
             exit()
             
         
