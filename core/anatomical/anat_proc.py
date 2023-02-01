@@ -281,6 +281,10 @@ class AnatomicalPrepPipeline:
                             
             
             #First, create wm segmentation from T1w image
+            coreg_t2 = copy.deepcopy(biascorr_t2w)
+            coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
+            
+            
             wmseg_img = seg_tools.create_wmseg(input_img    = biascorr_t1w,
                                                output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
                                                brain_mask   = t1w_brain_mask)
