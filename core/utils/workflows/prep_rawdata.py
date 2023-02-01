@@ -98,73 +98,73 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                                  output_file    = t2w._get_filename(),
                                                  reorient_img   = t2w_reorient_img)
 
-        #If both T1w and T2w images exist, coregister the two images using two-stage flirt and BBR ()
-        coreg_t2 = copy.deepcopy(t2w)
-        coreg_t2._set_filename(bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz')
-
-        if not coreg_t2.exists():
-            if verbose:
-                print('Coregistering T1w and T2w images')
-                
-                
-            #First biascorrect the T1w and T2w images (only for registration - not to be used)
-            biascorr_t1w = Image(bids_t1w_derivative_dir + '/tmp_biascorr_t1w.nii.gz')
-            biascorr_t2w = Image(bids_t2w_derivative_dir + '/tmp_biascorr_t2w.nii.gz')
-            
-            bias_tools.biasfield_correction(input_img = t1w,
-                                            output_file = biascorr_t1w._get_filename(),
-                                            iterations=3)
-                                            
-            bias_tools.biasfield_correction(input_img = t2w,
-                                            output_file = biascorr_t2w._get_filename(),
-                                            iterations=3)
-                                            
-                                        
-            
-            #First, create wm segmentation from T1w image
-            wmseg_img = seg_tools.create_wmseg(input_img    = biascorr_t1w,
-                                               output_dir   = bids_t1w_derivative_dir + '/wmseg/')
-                                   
-            reg_tools.linear_reg(input_img      = biascorr_t2w,
-                                 reference_img  = biascorr_t1w,
-                                 output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                 method         = 'FSL',
-                                 dof            = 6,
-                                 flirt_options =  '-interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
-            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 10 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
-
-            reg_tools.linear_reg(input_img      = biascorr_t2w,
-                                 reference_img  = biascorr_t1w,
-                                 output_file    = coreg_t2._get_filename(),
-                                 output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                 method         = 'FSL',
-                                 dof            = 6,
-                                 flirt_options =  bbr_options)
-            
-            tmp_coreg_t2 = Image(file = bids_t2w_derivative_dir +'/tmp_coreg_t2w.nii.gz')
-            reg_tools.apply_transform(input_img     = t2w,
-                                      reference_img = t1w,
-                                      output_img    = tmp_coreg_t2,
-                                      matrix        = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                      method        = 'FSL',
-                                      flirt_options = '-interp sinc')
-            
-            
-            t2w = coreg_t2
-            
-
-            if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
-                os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
-
-            if os.path.exists(bids_t2w_derivative_dir + '/wmseg/'):
-                shutil.rmtree(bids_t2w_derivative_dir + '/wmseg/')
-                
-            if os.path.exists(biascorr_t1w._get_filename()):
-                os.remove(biascorr_t1w._get_filename())
-                
-            if os.path.exists(biascorr_t2w._get_filename()):
-                os.remove(biascorr_t2w._get_filename())
+#        #If both T1w and T2w images exist, coregister the two images using two-stage flirt and BBR ()
+#        coreg_t2 = copy.deepcopy(t2w)
+#        coreg_t2._set_filename(bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz')
+#
+#        if not coreg_t2.exists():
+#            if verbose:
+#                print('Coregistering T1w and T2w images')
+#                
+#                
+#            #First biascorrect the T1w and T2w images (only for registration - not to be used)
+#            biascorr_t1w = Image(bids_t1w_derivative_dir + '/tmp_biascorr_t1w.nii.gz')
+#            biascorr_t2w = Image(bids_t2w_derivative_dir + '/tmp_biascorr_t2w.nii.gz')
+#            
+#            bias_tools.biasfield_correction(input_img = t1w,
+#                                            output_file = biascorr_t1w._get_filename(),
+#                                            iterations=3)
+#                                            
+#            bias_tools.biasfield_correction(input_img = t2w,
+#                                            output_file = biascorr_t2w._get_filename(),
+#                                            iterations=3)
+#                                            
+#                                        
+#            
+#            #First, create wm segmentation from T1w image
+#            wmseg_img = seg_tools.create_wmseg(input_img    = biascorr_t1w,
+#                                               output_dir   = bids_t1w_derivative_dir + '/wmseg/')
+#                                   
+#            reg_tools.linear_reg(input_img      = biascorr_t2w,
+#                                 reference_img  = biascorr_t1w,
+#                                 output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+#                                 method         = 'FSL',
+#                                 dof            = 6,
+#                                 flirt_options =  '-interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+#
+#            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 10 -init ' + bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat'
+#
+#            reg_tools.linear_reg(input_img      = biascorr_t2w,
+#                                 reference_img  = biascorr_t1w,
+#                                 output_file    = coreg_t2._get_filename(),
+#                                 output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+#                                 method         = 'FSL',
+#                                 dof            = 6,
+#                                 flirt_options =  bbr_options)
+#            
+#            tmp_coreg_t2 = Image(file = bids_t2w_derivative_dir +'/tmp_coreg_t2w.nii.gz')
+#            reg_tools.apply_transform(input_img     = t2w,
+#                                      reference_img = t1w,
+#                                      output_img    = tmp_coreg_t2,
+#                                      matrix        = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+#                                      method        = 'FSL',
+#                                      flirt_options = '-interp sinc')
+#            
+#            
+#            t2w = coreg_t2
+#            
+#
+#            if os.path.exists(bids_t1w_derivative_dir + 'tmp_t1.nii.gz'):
+#                os.remove(bids_t1w_derivative_dir + 'tmp_t1.nii.gz')
+#
+#            if os.path.exists(bids_t2w_derivative_dir + '/wmseg/'):
+#                shutil.rmtree(bids_t2w_derivative_dir + '/wmseg/')
+#                
+#            if os.path.exists(biascorr_t1w._get_filename()):
+#                os.remove(biascorr_t1w._get_filename())
+#                
+#            if os.path.exists(biascorr_t2w._get_filename()):
+#                os.remove(biascorr_t2w._get_filename())
 
     return t1w, t2w
 

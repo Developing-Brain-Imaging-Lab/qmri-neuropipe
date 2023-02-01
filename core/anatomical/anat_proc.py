@@ -113,14 +113,24 @@ class AnatomicalPrepPipeline:
                             choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
-        parser.add_argument('--anat_ants_mask_template',
+        parser.add_argument('--anat_t1w_ants_mask_template',
                             type=str,
-                            help='Image to use for registration based skull-stripping',
+                            help='Image to use for registration based skull-stripping for T1w',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
 
-        parser.add_argument('--anat_ants_mask_template_mask',
+        parser.add_argument('--anat_t1w_ants_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping',
+                            default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
+                            
+        parser.add_argument('--anat_t2w_ants_mask_template',
+                            type=str,
+                            help='Image to use for registration based skull-stripping for T2w',
+                            default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
+
+        parser.add_argument('--anat_t2w_ants_mask_template_mask',
+                            type=str,
+                            help='Brain mask to use for registration based skull-stripping for T2w',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
 
         parser.add_argument('--anat_antspynet_modality',
@@ -177,35 +187,40 @@ class AnatomicalPrepPipeline:
 
         #Create Brain Mask
         brain_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-brain_mask.nii.gz'))
-        if (t1w != None) and (t2w != None):
-            if args.anat_antspynet_modality=='infant':
-                args.anat_antspynet_modality = 't1t2infant'
-                input_img = [t1w, t2w]
-            else:
-                input_img = t1w
-        elif t1w != None:
-            input_img = t1w
-            if args.anat_antspynet_modality=='infant':
-                args.anat_antspynet_modality = 't1infant'
-        elif t2w != None:
-            input_img = t2w
-            brain_mask._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-brain_mask.nii.gz'))
-
-            if args.anat_antspynet_modality=='infant':
-                args.anat_antspynet_modality = 't2infant'
-        else:
+        t1w_brain_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-T1w-brain_mask.nii.gz'))
+        t2w_brain_mask = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-T2w-brain_mask.nii.gz'))
+        
+        if t1w == None and t2w == None:
             print('Anatomical Images do not exist!')
             exit()
+        
+        if t1w:
+            if args.anat_antspynet_modality=='infant':
+                args.anat_antspynet_modality = 't1infant'
+            
+            if not os.path.exists(t1w_brain_mask._get_filename()):
+                mask.mask_image(input_img            = t1w,
+                                output_mask          = t1w_brain_mask,
+                                method               = args.anat_mask_method,
+                                nthreads             = args.nthreads,
+                                ref_img              = args.anat_t1w_ants_mask_template,
+                                ref_mask             = args.anat_t1w_ants_mask_template_mask,
+                                antspynet_modality   = args.anat_antspynet_modality)
+                            
+        if t2w:
+            if args.anat_antspynet_modality=='infant':
+                args.anat_antspynet_modality = 't2infant'
+            
+            if not os.path.exists(t2w_brain_mask._get_filename()):
+                mask.mask_image(input_img            = t2w,
+                                output_mask          = t2w_brain_mask,
+                                method               = args.anat_mask_method,
+                                nthreads             = args.nthreads,
+                                ref_img              = args.anat_t2w_ants_mask_template,
+                                ref_mask             = args.anat_t2w_ants_mask_template_mask,
+                                antspynet_modality   = args.anat_antspynet_modality)
 
-        if not os.path.exists(brain_mask._get_filename()):
-            mask.mask_image(input_img            = input_img,
-                            output_mask          = brain_mask,
-                            method               = args.anat_mask_method,
-                            nthreads             = args.nthreads,
-                            ref_img              = args.anat_ants_mask_template,
-                            ref_mask             = args.anat_ants_mask_template_mask,
-                            antspynet_modality   = args.anat_antspynet_modality)
-
+            
         #Denoise and Degibbs raw data
         biascorr_t1w = None
         biascorr_t2w = None
@@ -213,7 +228,7 @@ class AnatomicalPrepPipeline:
             t1w = img_proc.denoise_degibbs(img             = t1w,
                                            working_dir     = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
                                            suffix          = 'T1w',
-                                           mask_img        = brain_mask,
+                                           mask_img        = t1w_brain_mask,
                                            denoise_method  = args.anat_denoise_method,
                                            gibbs_method    = args.anat_gibbs_correction_method,
                                            nthreads        = args.nthreads,
@@ -222,7 +237,7 @@ class AnatomicalPrepPipeline:
             biascorr_t1w = img_proc.perform_bias_correction(img         = t1w,
                                                             working_dir = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
                                                             suffix      = 'T1w',
-                                                            mask_img    = brain_mask,
+                                                            mask_img    = t1w_brain_mask,
                                                             method      = args.anat_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
@@ -231,7 +246,7 @@ class AnatomicalPrepPipeline:
             t2w = img_proc.denoise_degibbs(img             = t2w,
                                            working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
                                            suffix          = 'T2w',
-                                           mask_img        = brain_mask,
+                                           mask_img        = t2w_brain_mask,
                                            denoise_method  = args.anat_denoise_method,
                                            gibbs_method    = args.anat_gibbs_correction_method,
                                            nthreads        = args.nthreads,
@@ -240,11 +255,69 @@ class AnatomicalPrepPipeline:
             biascorr_t2w = img_proc.perform_bias_correction(img         = t2w,
                                                             working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
                                                             suffix      = 'T2w',
-                                                            mask_img    = brain_mask,
+                                                            mask_img    = t2w_brain_mask,
                                                             method      = args.anat_biasfield_correction_method,
                                                             nthreads    = args.nthreads,
                                                             verbose     = args.verbose)
 
+        
+            
+        #Coregister the T1w and T2w if both exist
+        if biascorr_t1w and biascorr_t2w:
+            
+            #First create skull-stripped images based on masks created
+            t1w_masked = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-T1w-brain.nii.gz'))
+            t2w_masked = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-T2w-brain.nii.gz'))
+            
+            mask.apply_mask(input_img   = biascorr_t1w,
+                            mask_img    = t1w_brain_mask,
+                            output_img  = t1w_masked)
+                            
+            mask.apply_mask(input_img   = biascorr_t2w,
+                            mask_img    = t2w_brain_mask,
+                            output_img  = t2w_masked)
+                            
+            
+            #First, create wm segmentation from T1w image
+            wmseg_img = seg_tools.create_wmseg(input_img    = biascorr_t1w,
+                                               output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
+                                               brain_mask   = t1w_brain_mask)
+                                   
+            reg_tools.linear_reg(input_img      = biascorr_t2w,
+                                 reference_img  = biascorr_t1w,
+                                 output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+                                 method         = 'FSL',
+                                 dof            = 6,
+                                 flirt_options =  '-interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+
+            bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 10 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'
+
+            reg_tools.linear_reg(input_img      = biascorr_t2w,
+                                 reference_img  = biascorr_t1w,
+                                 output_file    = coreg_t2._get_filename(),
+                                 output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat',
+                                 method         = 'FSL',
+                                 dof            = 6,
+                                 flirt_options =  bbr_options)
+            
+#            tmp_coreg_t2 = Image(file = bids_t2w_derivative_dir +'/tmp_coreg_t2w.nii.gz')
+#            reg_tools.apply_transform(input_img     = t2w,
+#                                      reference_img = t1w,
+#                                      output_img    = tmp_coreg_t2,
+#                                      matrix        = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+#                                      method        = 'FSL',
+#                                      flirt_options = '-interp sinc')
+            
+            
+            t2w = coreg_t2
+            exit()
+            
+        
+        
+        
+        
+        
+        
         if args.anat_t1w_type == 'mp2rage':
             anat_proc.prepocess_mp2rage(bids_id             = bids_id,
                                         bids_rawdata_dir    = bids_rawdata_dir,
