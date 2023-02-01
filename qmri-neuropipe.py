@@ -59,6 +59,7 @@ if args.load_json:
 ##################################
 
 if args.anat_preproc_pipeline:
+    print('TEST')
     anat_pipeline = AnatomicalPrepPipeline()
     anat_pipeline.run()
 

@@ -267,7 +267,6 @@ class AnatomicalPrepPipeline:
             
         #Coregister the T1w and T2w if both exist
         if biascorr_t1w and biascorr_t2w:
-            
             #First create skull-stripped images based on masks created
             t1w_masked = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-T1w-brain.nii.gz'))
             t2w_masked = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-T2w-brain.nii.gz'))
