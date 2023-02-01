@@ -187,6 +187,6 @@ def create_wmseg(input_img, output_dir, brain_mask=None):
     os.system('Atropos -d 3 -a ' + output_dir +'/bias_corr.nii.gz -x ' + brain_mask._get_filename() + ' -i \'KMeans[3]\' -o ' + output_dir + '/atropos_seg.nii.gz')
     
     wmseg_img = Image(output_dir + '/wmseg.nii.gz')
-    os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 0.9 -uthr 1.1 -bin ' + wmseg_img._get_filename() )
+    os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 2.9 -uthr 3.1 -bin ' + wmseg_img._get_filename() )
     
     return wmseg_img
