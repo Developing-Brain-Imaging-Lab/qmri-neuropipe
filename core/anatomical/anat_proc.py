@@ -304,36 +304,36 @@ class AnatomicalPrepPipeline:
                                  flirt_options =  bbr_options)
                                      
                                      
-        if args.anat_t1w_type == 'mp2rage':
-            anat_proc.prepocess_mp2rage(bids_id             = bids_id,
-                                        bids_rawdata_dir    = bids_rawdata_dir,
-                                        bids_derivative_dir = bids_derivative_dir,
-                                        brain_mask          = brain_mask,
-                                        reorient_img        = args.anat_t1w_reorient_img,
-                                        cleanup_files       = args.anat_cleanup,
-                                        nthreads            = args.nthreads,
-                                        verbose             = args.verbose)
-
-
-        if args.anat_t1w_type == 'mpnrage':
-            anat_proc.prepocess_mpnrage(bids_id             = bids_id,
-                                        bids_rawdata_dir    = bids_rawdata_dir,
-                                        bids_derivative_dir = bids_derivative_dir,
-                                        brain_mask          = brain_mask,
-                                        reorient_img        = args.anat_t1w_reorient_img,
-                                        nthreads            = args.nthreads,
-                                        verbose             = args.verbose)
-
-        if args.anat_cleanup:
-            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz'):
-                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz')
-            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz'):
-                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz')
-
-            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz'):
-                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz')
-            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
-                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
+#        if args.anat_t1w_type == 'mp2rage':
+#            anat_proc.prepocess_mp2rage(bids_id             = bids_id,
+#                                        bids_rawdata_dir    = bids_rawdata_dir,
+#                                        bids_derivative_dir = bids_derivative_dir,
+#                                        brain_mask          = brain_mask,
+#                                        reorient_img        = args.anat_t1w_reorient_img,
+#                                        cleanup_files       = args.anat_cleanup,
+#                                        nthreads            = args.nthreads,
+#                                        verbose             = args.verbose)
+#
+#
+#        if args.anat_t1w_type == 'mpnrage':
+#            anat_proc.prepocess_mpnrage(bids_id             = bids_id,
+#                                        bids_rawdata_dir    = bids_rawdata_dir,
+#                                        bids_derivative_dir = bids_derivative_dir,
+#                                        brain_mask          = brain_mask,
+#                                        reorient_img        = args.anat_t1w_reorient_img,
+#                                        nthreads            = args.nthreads,
+#                                        verbose             = args.verbose)
+#
+#        if args.anat_cleanup:
+#            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz'):
+#                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz')
+#            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz'):
+#                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz')
+#
+#            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz'):
+#                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz')
+#            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
+#                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
 
 
         return biascorr_t1w, biascorr_t2w, brain_mask
