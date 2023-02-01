@@ -9,6 +9,9 @@ import core.utils.workflows.prep_rawdata as raw_proc
 import core.utils.workflows.denoise_degibbs as img_proc
 import core.anatomical.workflows.preprocess as anat_proc
 
+import core.registration.registration as reg_tools
+import core.segmentation.segmentation as seg_tools
+
 
 class AnatomicalPrepPipeline:
 
