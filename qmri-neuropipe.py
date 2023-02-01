@@ -16,7 +16,7 @@ parser.add_argument('--load_json',
                     help='Load settings from file in json format. Command line options are overriden by values in file.',
                     default=None)
 
-parser.add_argument('--anat_preproc_pipeline',
+parser.add_argument('--anat_proc_pipeline',
                     type=bool,
                     help='Preprocess the Anataomical Imaging Data',
                     default=False)
@@ -58,8 +58,7 @@ if args.load_json:
 ##################################
 ##################################
 
-if args.anat_preproc_pipeline:
-    print('TEST')
+if args.anat_proc_pipeline:
     anat_pipeline = AnatomicalPrepPipeline()
     anat_pipeline.run()
 
