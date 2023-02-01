@@ -45,7 +45,6 @@ def apply_transform(input_img, reference_img, output_img, matrix, nthreads=1, me
         if flirt_options != None:
             cmd += ' ' + flirt_options
 
-        print(cmd)
         os.system(cmd)
 
     elif method == 'ANTS':
