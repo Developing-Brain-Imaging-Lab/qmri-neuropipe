@@ -228,16 +228,16 @@ class AnatomicalPrepPipeline:
         biascorr_t1w = None
         biascorr_t2w = None
         if t1w != None:
-            t1w = img_proc.denoise_degibbs(img             = t1w,
-                                           working_dir     = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
-                                           suffix          = 'T1w',
-                                           mask_img        = t1w_brain_mask,
-                                           denoise_method  = args.anat_denoise_method,
-                                           gibbs_method    = args.anat_gibbs_correction_method,
-                                           nthreads        = args.nthreads,
-                                           verbose         = args.verbose)
+            denoise_t1w = img_proc.denoise_degibbs(img             = t1w,
+                                                   working_dir     = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
+                                                   suffix          = 'T1w',
+                                                   mask_img        = t1w_brain_mask,
+                                                   denoise_method  = args.anat_denoise_method,
+                                                   gibbs_method    = args.anat_gibbs_correction_method,
+                                                   nthreads        = args.nthreads,
+                                                   verbose         = args.verbose)
 
-            biascorr_t1w = img_proc.perform_bias_correction(img         = t1w,
+            biascorr_t1w = img_proc.perform_bias_correction(img         = denoise_t1w,
                                                             working_dir = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
                                                             suffix      = 'T1w',
                                                             mask_img    = t1w_brain_mask,
@@ -246,16 +246,16 @@ class AnatomicalPrepPipeline:
                                                             verbose     = args.verbose)
 
         if t2w != None:
-            t2w = img_proc.denoise_degibbs(img             = t2w,
-                                           working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
-                                           suffix          = 'T2w',
-                                           mask_img        = t2w_brain_mask,
-                                           denoise_method  = args.anat_denoise_method,
-                                           gibbs_method    = args.anat_gibbs_correction_method,
-                                           nthreads        = args.nthreads,
-                                           verbose         = args.verbose)
+            denoise_t2w = img_proc.denoise_degibbs(img             = t2w,
+                                                   working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
+                                                   suffix          = 'T2w',
+                                                   mask_img        = t2w_brain_mask,
+                                                   denoise_method  = args.anat_denoise_method,
+                                                   gibbs_method    = args.anat_gibbs_correction_method,
+                                                   nthreads        = args.nthreads,
+                                                   verbose         = args.verbose)
 
-            biascorr_t2w = img_proc.perform_bias_correction(img         = t2w,
+            biascorr_t2w = img_proc.perform_bias_correction(img         = denoise_t2w,
                                                             working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
                                                             suffix      = 'T2w',
                                                             mask_img    = t2w_brain_mask,
@@ -264,7 +264,6 @@ class AnatomicalPrepPipeline:
                                                             verbose     = args.verbose)
 
         
-            
         #Coregister the T1w and T2w if both exist
         if biascorr_t1w and biascorr_t2w:
             #First create skull-stripped images based on masks created
@@ -305,38 +304,71 @@ class AnatomicalPrepPipeline:
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  bbr_options)
-                                     
-                                     
-#        if args.anat_t1w_type == 'mp2rage':
-#            anat_proc.prepocess_mp2rage(bids_id             = bids_id,
-#                                        bids_rawdata_dir    = bids_rawdata_dir,
-#                                        bids_derivative_dir = bids_derivative_dir,
-#                                        brain_mask          = brain_mask,
-#                                        reorient_img        = args.anat_t1w_reorient_img,
-#                                        cleanup_files       = args.anat_cleanup,
-#                                        nthreads            = args.nthreads,
-#                                        verbose             = args.verbose)
-#
-#
-#        if args.anat_t1w_type == 'mpnrage':
-#            anat_proc.prepocess_mpnrage(bids_id             = bids_id,
-#                                        bids_rawdata_dir    = bids_rawdata_dir,
-#                                        bids_derivative_dir = bids_derivative_dir,
-#                                        brain_mask          = brain_mask,
-#                                        reorient_img        = args.anat_t1w_reorient_img,
-#                                        nthreads            = args.nthreads,
-#                                        verbose             = args.verbose)
-#
-#        if args.anat_cleanup:
-#            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz'):
-#                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz')
-#            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz'):
-#                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz')
-#
-#            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz'):
-#                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz')
-#            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
-#                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
+            
+            #Apply registration to T2w
+            reg_tools.apply_transform(input_img     = t2w,
+                                      reference_img = biascorr_t1w
+                                      output_img    = coreg_t2._get_filename(),
+                                      matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+                                      method        = 'FSL',
+                                      flirt_options = '-interp sinc')
+                                      
+            os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
+            
+            denoise_t2w = img_proc.denoise_degibbs(img             = coreg_t2,
+                                                   working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
+                                                   suffix          = 'T2w',
+                                                   mask_img        = brain_mask,
+                                                   denoise_method  = args.anat_denoise_method,
+                                                   gibbs_method    = args.anat_gibbs_correction_method,
+                                                   nthreads        = args.nthreads,
+                                                   verbose         = args.verbose)
+
+            biascorr_t2w = img_proc.perform_bias_correction(img         = denoise_t2w,
+                                                            working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
+                                                            suffix      = 'T2w',
+                                                            mask_img    = brain_mask,
+                                                            method      = args.anat_biasfield_correction_method,
+                                                            nthreads    = args.nthreads,
+                                                            verbose     = args.verbose)
+
+            os.remove(t1w_masked._get_filename())
+            os.remove(t2w_masked._get_filename())
+            os.remove(t2w_brain_mask._get_filename())
+          
+          
+          
+        if args.anat_t1w_type == 'mp2rage':
+            anat_proc.prepocess_mp2rage(bids_id             = bids_id,
+                                        bids_rawdata_dir    = bids_rawdata_dir,
+                                        bids_derivative_dir = bids_derivative_dir,
+                                        brain_mask          = brain_mask,
+                                        reorient_img        = args.anat_t1w_reorient_img,
+                                        cleanup_files       = args.anat_cleanup,
+                                        nthreads            = args.nthreads,
+                                        verbose             = args.verbose)
+
+
+        if args.anat_t1w_type == 'mpnrage':
+            anat_proc.prepocess_mpnrage(bids_id             = bids_id,
+                                        bids_rawdata_dir    = bids_rawdata_dir,
+                                        bids_derivative_dir = bids_derivative_dir,
+                                        brain_mask          = brain_mask,
+                                        reorient_img        = args.anat_t1w_reorient_img,
+                                        nthreads            = args.nthreads,
+                                        verbose             = args.verbose)
+
+
+        if args.anat_cleanup:
+            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-Denoised_T1w.nii.gz')
+            if os.path.exists(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t1w_dir+bids_id+'_desc-GibbsRinging_T1w.nii.gz')
+
+            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-Denoised_T2w.nii.gz')
+            if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
+                os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
 
 
         return biascorr_t1w, biascorr_t2w, brain_mask
