@@ -317,7 +317,7 @@ class AnatomicalPrepPipeline:
                                       method        = 'FSL',
                                       flirt_options = '-interp sinc')
 
-#            os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
+            os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
 #            os.remove(t1w_masked._get_filename())
 #            os.remove(t2w_masked._get_filename())
 #            os.remove(t2w_brain_mask._get_filename())
