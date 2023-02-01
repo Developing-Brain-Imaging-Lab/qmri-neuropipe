@@ -308,7 +308,7 @@ class AnatomicalPrepPipeline:
             #Apply registration to T2w
             reg_tools.apply_transform(input_img     = t2w,
                                       reference_img = biascorr_t1w,
-                                      output_img    = coreg_t2._get_filename(),
+                                      output_img    = coreg_t2,
                                       matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                       method        = 'FSL',
                                       flirt_options = '-interp sinc')
