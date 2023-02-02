@@ -304,11 +304,6 @@ class AnatomicalPrepPipeline:
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  bbr_options)
-
-            
-            print(t2w._get_filename())
-            print(biascorr_t1w._get_filename())
-            print(coreg_t2._get_filename())
             
             #Apply registration to T2w
             reg_tools.apply_transform(input_img     = t2w,
@@ -378,5 +373,9 @@ class AnatomicalPrepPipeline:
             if os.path.exists(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz'):
                 os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
 
+
+        print(biascorr_t1w)
+        print(biascorr_t2w)
+        print(brain_mask)
 
         return biascorr_t1w, biascorr_t2w, brain_mask
