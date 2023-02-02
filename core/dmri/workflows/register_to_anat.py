@@ -7,9 +7,11 @@ from bids.layout import writing, parse_file_entities
 
 from core.utils.io import Image, DWImage
 import core.utils.mask as mask
+import core.utils.biascorrect as bias_tools
 from core.dmri.utils.qc import rotate_bvecs
 import core.registration.registration as reg_tools
 import core.segmentation.segmentation as seg_tools
+
 
 def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', anat_modality='t1w', use_freesurfer=False, freesurfer_subjs_dir=None, wmseg_reference=None, wmseg=None, nthreads=1, verbose=False):
 
@@ -126,7 +128,8 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             #Create WM segmentation from structural image
             wmseg_img = seg_tools.create_wmseg(input_img        = ref_img[0],
                                                brain_mask       = anat_mask,
-                                               output_dir       = working_dir + '/atropos/')
+                                               output_dir       = working_dir + '/atropos/',
+                                               modality         = anat_modality )
                 
            
             #Next, re-run flirt, using bbr cost function and WM segmentation
