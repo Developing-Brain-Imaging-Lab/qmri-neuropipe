@@ -188,7 +188,7 @@ def create_wmseg(input_img, output_dir, brain_mask=None, modality='t1w'):
     
     wmseg_img = Image(output_dir + '/wmseg.nii.gz')
     
-    if modality='t2w':
+    if modality == 't2w':
         os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 0.9 -uthr 1.1 -bin ' + wmseg_img._get_filename() )
     else:
         os.system('fslmaths ' + output_dir + '/atropos_seg.nii.gz -thr 2.9 -uthr 3.1 -bin ' + wmseg_img._get_filename() )
