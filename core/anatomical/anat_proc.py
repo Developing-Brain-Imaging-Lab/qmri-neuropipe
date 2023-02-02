@@ -313,28 +313,19 @@ class AnatomicalPrepPipeline:
             #Apply registration to T2w
             reg_tools.apply_transform(input_img     = t2w,
                                       reference_img = biascorr_t1w,
-                                      output_img    = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-TEST_space-individual-T1w_T2w.nii.gz')),
+                                      output_img    = coreg_t2,
                                       matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                       method        = 'FSL',
                                       flirt_options = '-interp sinc')
-                                      
-            #Apply registration to T2w
-            reg_tools.apply_transform(input_img     = biascorr_t2w,
-                                      reference_img = biascorr_t1w,
-                                      output_img    = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-Bias_space-individual-T1w_T2w.nii.gz')),
-                                      matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
-                                      method        = 'FSL',
-                                      flirt_options = '-interp sinc')
-                                      
-
+                                                                        
             os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
-#            os.remove(t1w_masked._get_filename())
-#            os.remove(t2w_masked._get_filename())
-#            os.remove(t2w_brain_mask._get_filename())
-#
-#            os.remove(biascorr_t2w._get_filename())
-#            os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-Denoised_T2w.nii.gz'))
-#            os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-GibbsRinging_T2w.nii.gz'))
+            os.remove(t1w_masked._get_filename())
+            os.remove(t2w_masked._get_filename())
+            os.remove(t2w_brain_mask._get_filename())
+
+            os.remove(biascorr_t2w._get_filename())
+            os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-Denoised_T2w.nii.gz'))
+            os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-GibbsRinging_T2w.nii.gz'))
 #
 #
 #            denoise_t2w = img_proc.denoise_degibbs(img             = coreg_t2,
