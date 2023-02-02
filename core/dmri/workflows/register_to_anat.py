@@ -80,9 +80,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                         mask_img        = mask_img,
                         output_img      = b0_masked)
                         
-                        
-        ref_img.append(anat_image)
-        
         #If structural T2w available, use it with the b=0
         if anat_modality == 't1w':
             mov_img.append(dwi_masked)
@@ -92,6 +89,28 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             print('Invalid anatomy contrast')
             exit()
             
+    
+        #Mask the Anatomical image and bias-correct
+        anat_masked = Image(file = working_dir + '/anat_masked.nii.gz')
+        
+        if not anat_mask:
+            anat_mask = Image(file = working_dir + '/anat_mask.nii.gz')
+            mask.mask_image(input_img       = anat_image,
+                            output_mask     = anat_mask,
+                            method          = mask_method)
+        
+        mask.apply_mask(input_img       = anat_image,
+                        mask_img        = anat_mask,
+                        output_img      = anat_masked)
+                
+        
+        anat_biascorr = Image(file = working_dir + '/anat_biascorr.nii.gz')
+        bias_tools.biasfield_correction(input_img = anat_masked,
+                                        output_file = anat_biascorr._get_filename(),
+                                        iterations=3)
+    
+        ref_img.append(anat_biascorr)
+    
             
         #First, perform linear registration using FSL flirt
         tmp_coreg_img = Image(file = working_dir + '/dwi_coreg.nii.gz')
