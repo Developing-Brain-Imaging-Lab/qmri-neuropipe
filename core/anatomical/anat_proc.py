@@ -326,28 +326,25 @@ class AnatomicalPrepPipeline:
             os.remove(biascorr_t2w._get_filename())
             os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-Denoised_T2w.nii.gz'))
             os.remove(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-GibbsRinging_T2w.nii.gz'))
-#
-#
-#            denoise_t2w = img_proc.denoise_degibbs(img             = coreg_t2,
-#                                                   working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
-#                                                   suffix          = 'T2w',
-#                                                   mask_img        = brain_mask,
-#                                                   denoise_method  = args.anat_denoise_method,
-#                                                   gibbs_method    = args.anat_gibbs_correction_method,
-#                                                   nthreads        = args.nthreads,
-#                                                   verbose         = args.verbose)
-#
-#            biascorr_t2w = img_proc.perform_bias_correction(img         = denoise_t2w,
-#                                                            working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
-#                                                            suffix      = 'T2w',
-#                                                            mask_img    = brain_mask,
-#                                                            method      = args.anat_biasfield_correction_method,
-#                                                            nthreads    = args.nthreads,
-#                                                            verbose     = args.verbose)
 
 
-          
-          
+            denoise_t2w = img_proc.denoise_degibbs(img             = coreg_t2,
+                                                   working_dir     = os.path.join(bids_derivative_dir, args.bids_t2w_dir,''),
+                                                   suffix          = 'T2w',
+                                                   mask_img        = brain_mask,
+                                                   denoise_method  = args.anat_denoise_method,
+                                                   gibbs_method    = args.anat_gibbs_correction_method,
+                                                   nthreads        = args.nthreads,
+                                                   verbose         = args.verbose)
+
+            biascorr_t2w = img_proc.perform_bias_correction(img         = denoise_t2w,
+                                                            working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
+                                                            suffix      = 'T2w',
+                                                            mask_img    = brain_mask,
+                                                            method      = args.anat_biasfield_correction_method,
+                                                            nthreads    = args.nthreads,
+                                                            verbose     = args.verbose)
+
           
         if args.anat_t1w_type == 'mp2rage':
             anat_proc.prepocess_mp2rage(bids_id             = bids_id,
