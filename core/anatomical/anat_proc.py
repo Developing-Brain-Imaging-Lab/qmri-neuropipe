@@ -297,9 +297,16 @@ class AnatomicalPrepPipeline:
 
             bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 10 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat')
 
+#            reg_tools.linear_reg(input_img      = biascorr_t2w,
+#                                 reference_img  = biascorr_t1w,
+#                                 output_file    = coreg_t2._get_filename(),
+#                                 output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+#                                 method         = 'FSL',
+#                                 dof            = 6,
+#                                 flirt_options =  bbr_options)
+
             reg_tools.linear_reg(input_img      = biascorr_t2w,
                                  reference_img  = biascorr_t1w,
-                                 output_file    = coreg_t2._get_filename(),
                                  output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                  method         = 'FSL',
                                  dof            = 6,
@@ -316,6 +323,15 @@ class AnatomicalPrepPipeline:
                                       matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                       method        = 'FSL',
                                       flirt_options = '-interp sinc')
+                                      
+            #Apply registration to T2w
+            reg_tools.apply_transform(input_img     = biascorr_t2w,
+                                      reference_img = biascorr_t1w,
+                                      output_img    = coreg_t2,
+                                      matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-Bias_space-individual-T1w_T2w.mat'),
+                                      method        = 'FSL',
+                                      flirt_options = '-interp sinc')
+                                      
 
             os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
 #            os.remove(t1w_masked._get_filename())
