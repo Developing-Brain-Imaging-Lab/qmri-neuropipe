@@ -374,8 +374,8 @@ class AnatomicalPrepPipeline:
                 os.remove(bids_derivative_dir+args.bids_t2w_dir+bids_id+'_desc-GibbsRinging_T2w.nii.gz')
 
 
-        print(biascorr_t1w)
-        print(biascorr_t2w)
-        print(brain_mask)
+        print(biascorr_t1w._get_filename())
+        print(biascorr_t2w._get_filename())
+        print(brain_mask._get_filename())
 
         return biascorr_t1w, biascorr_t2w, brain_mask
