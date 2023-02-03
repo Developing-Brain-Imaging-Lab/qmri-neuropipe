@@ -32,11 +32,8 @@ def reorient_to_standard(input_img, output_file, reorient_img=None):
         filename    = os.path.basename(output_file).split("_")
 
         reorient_xfm = os.path.join(output_dir, filename[0]+'_'+filename[1]+'_desc-Reorient2Standard_dwi.xfm')
-
-        if os.path.exists(reorient_xfm):
-            os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -applyxfm -init ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-        else:
-            os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+        
+        os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     return output_img
 
