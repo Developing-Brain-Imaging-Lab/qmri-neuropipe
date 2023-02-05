@@ -256,10 +256,10 @@ class AnatomicalPrepPipeline:
                                                                   cmd_args     = args,
                                                                   t1w_mask     = t1w_brain_mask)
                                                                   
-                wmseg_img = seg_tools.create_wmseg(input_img    = syn_t2w,
+                wmseg_img = seg_tools.create_wmseg(input_img    = t1w,
                                                    output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
                                                    brain_mask   = t1w_brain_mask,
-                                                   modality     = 't2w')
+                                                   modality     = 't1w')
                                        
                                 
                 #First, create wm segmentation from T1w image
@@ -291,10 +291,6 @@ class AnatomicalPrepPipeline:
                                           method        = 'FSL',
                                           flirt_options = '-interp sinc')
                                                                             
-                os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
-                os.remove(t1w_masked._get_filename())
-                os.remove(t2w_masked._get_filename())
-                os.remove(t2w_brain_mask._get_filename())
                 
                 denoise_t1w = img_proc.denoise_degibbs(img             = t1w,
                                                        working_dir     = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
@@ -329,6 +325,11 @@ class AnatomicalPrepPipeline:
                                                                 method      = args.anat_biasfield_correction_method,
                                                                 nthreads    = args.nthreads,
                                                                 verbose     = args.verbose)
+                                                                
+                os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
+                os.remove(t1w_masked._get_filename())
+                os.remove(t2w_masked._get_filename())
+                os.remove(t2w_brain_mask._get_filename())
 
 
             elif t1w:
