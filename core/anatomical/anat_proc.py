@@ -263,7 +263,7 @@ class AnatomicalPrepPipeline:
                                        
                                 
                 #First, create wm segmentation from T1w image
-                coreg_t2 = copy.deepcopy(biascorr_t2w)
+                coreg_t2 = copy.deepcopy(t2w)
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
                 reg_tools.linear_reg(input_img      = t2w,
