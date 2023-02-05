@@ -9,7 +9,7 @@ import core.utils.biascorrect as biascorr
 import core.utils.mask as mask
 
 
-def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
+def compute_synthetic_t2w(input_t1w, output_dir, cmd_args, t1w_mask=None):
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -20,15 +20,22 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args):
     t1w = img_tools.reorient_to_standard(input_img      = input_t1w,
                                          output_file    = t1w._get_filename())
 
-    t1w_mask  = Image(file=output_dir + '/t1w_mask.nii.gz')
+    
     t1w_brain = Image(file=output_dir + '/t1w_brain.nii.gz')
-    mask.mask_image(input_img            = t1w,
-                    output_mask          = t1w_mask,
-                    output_img           = t1w_brain,
-                    method               = cmd_args.anat_mask_method,
-                    nthreads             = cmd_args.nthreads,
-                    ref_img              = cmd_args.anat_ants_mask_template,
-                    ref_mask             = cmd_args.anat_ants_mask_template_mask)
+    if t1w_mask:
+        mask.apply_mask(input_img   = t1w,
+                        mask_img    = t1w_mask,
+                        output_img  = t1w_brain)
+    
+    else:
+        t1w_mask  = Image(file=output_dir + '/t1w_mask.nii.gz')
+        mask.mask_image(input_img            = t1w,
+                        output_mask          = t1w_mask,
+                        output_img           = t1w_brain,
+                        method               = cmd_args.anat_mask_method,
+                        nthreads             = cmd_args.nthreads,
+                        ref_img              = cmd_args.anat_t1w_ants_mask_template,
+                        ref_mask             = cmd_args.anat_t1w_ants_mask_template_mask)
                     
 
     #First normalize the image

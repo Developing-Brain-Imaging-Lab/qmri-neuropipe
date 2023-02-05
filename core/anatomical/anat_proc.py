@@ -253,7 +253,8 @@ class AnatomicalPrepPipeline:
                         
                 syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
                                                                   output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
-                                                                  cmd_args     = args)
+                                                                  cmd_args     = args,
+                                                                  t1w_mask     = t1w_brain_mask)
                                                                   
                 wmseg_img = seg_tools.create_wmseg(input_img    = syn_t2w,
                                                    output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
