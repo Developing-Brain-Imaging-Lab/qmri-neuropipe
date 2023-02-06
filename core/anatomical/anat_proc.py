@@ -272,7 +272,7 @@ class AnatomicalPrepPipeline:
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
                                      dof            = 6,
-                                     flirt_options =  '-cost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     flirt_options =  '-cost normmi -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
                 
                 ants_transform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, 't2w_to_t1w_')
                 reg_tools.nonlinear_reg(input_img       = coreg_t2,
@@ -303,7 +303,7 @@ class AnatomicalPrepPipeline:
                                       reference_img = t1w,
                                       output_img    = coreg_t2,
                                       matrix        = nonlin_tranform,
-                                      nthreads      = nthreads,
+                                      nthreads      = args.nthreads,
                                       method        = 'ANTS',
                                       ants_options  = '-e 3 -n BSpline[5]' )
 
