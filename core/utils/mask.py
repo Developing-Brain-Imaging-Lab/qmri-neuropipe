@@ -38,7 +38,7 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
 
         #print('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
-        os.system('hd-bet -i ' + tmp_img._get_filename() + ' -device cpu -mode fast -tta 0 -o ' + tmp_mask)
+        os.system('hd-bet -i ' + tmp_img._get_filename() + ' -device cpu -mode accurate -tta 0 -o ' + tmp_mask)
         os.rename(tmp_mask+'_mask.nii.gz', output_mask._get_filename())
 
     elif method == 'dipy':
