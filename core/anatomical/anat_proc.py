@@ -293,7 +293,7 @@ class AnatomicalPrepPipeline:
 
             
                 #Create the final transform
-                nonlin_tranform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-NonlinTransform_space-individual-T1w_T2w.nii.gz'))
+                nonlin_tranform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-NonlinTransform_space-individual-T1w_T2w.nii.gz')
                 reg_tools.create_composite_transform(reference_img  = t1w,
                                                      output_file    = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-ITKTransform_space-individual-T1w_T2w.txt')),
                                                      transforms     = [ants_transform + '1Warp.nii.gz', ants_transform+'0GenericAffine.mat', itk_transform])
