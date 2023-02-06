@@ -251,45 +251,81 @@ class AnatomicalPrepPipeline:
                 if args.verbose:
                     print('Creating Synthetic T2w Image')
                         
-                syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
-                                                                  output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
-                                                                  cmd_args     = args,
-                                                                  t1w_mask     = t1w_brain_mask)
-                                                                  
-                wmseg_img = seg_tools.create_wmseg(input_img    = t1w,
-                                                   output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
-                                                   brain_mask   = t1w_brain_mask,
-                                                   modality     = 't1w')
+#                syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
+#                                                                  output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
+#                                                                  cmd_args     = args,
+#                                                                  t1w_mask     = t1w_brain_mask)
+#
+#                wmseg_img = seg_tools.create_wmseg(input_img    = t1w,
+#                                                   output_dir   = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,'wmseg'),
+#                                                   brain_mask   = t1w_brain_mask,
+#                                                   modality     = 't1w')
                                        
                                 
                 #First, create wm segmentation from T1w image
                 coreg_t2 = copy.deepcopy(t2w)
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
-                reg_tools.linear_reg(input_img      = t2w_masked,
-                                     reference_img  = syn_t2w,
+                reg_tools.linear_reg(input_img      = t2w,
+                                     reference_img  = t1w,
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+                                     output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
                                      dof            = 6,
                                      flirt_options =  '-cost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
-                bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -coarsesearch 30 -finesearch 10 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat -interp sinc')
-
-                reg_tools.linear_reg(input_img      = t2w_masked,
-                                     reference_img  = syn_t2w,
-                                     output_file    = coreg_t2._get_filename(),
-                                     output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
-                                     method         = 'FSL',
-                                     dof            = 6,
-                                     flirt_options =  bbr_options)
                 
-                #Apply registration to T2w
-                reg_tools.apply_transform(input_img     = t2w,
-                                          reference_img = syn_t2w,
-                                          output_img    = coreg_t2,
-                                          matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
-                                          method        = 'FSL',
-                                          flirt_options = '-interp sinc')
+                ants_transform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, 't2w_to_t1w_')
+                reg_tools.nonlinear_reg(input_img       = coreg_t2,
+                                        reference_img   = t1w,
+                                        reference_mask  = t1w_brain_mask,
+                                        output_base     = ants_transform,
+                                        nthreads        = args.nthreads,
+                                        method          = 'ANTS',
+                                        ants_options    = '-j 1')
+                                        
+                
+                #Convert to ITK format for warping
+                itk_transform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-ITKTransform_space-individual-T1w_T2w.txt')
+                reg_tools.convert_fsl2ants(mov_img  = t2w,
+                                           ref_img  = t1w,
+                                           fsl_mat  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+                                           ants_mat = itk_transform)
+
+            
+                #Create the final transform
+                nonlin_tranform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-NonlinTransform_space-individual-T1w_T2w.nii.gz'))
+                reg_tools.create_composite_transform(reference_img  = t1w,
+                                                     output_file    = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-ITKTransform_space-individual-T1w_T2w.txt')),
+                                                     transforms     = [ants_transform + '1Warp.nii.gz', ants_transform+'0GenericAffine.mat', itk_transform])
+                                                     
+                                                     
+                reg_tools.apply_transform(input_img = t2w,
+                                      reference_img = t1w,
+                                      output_img    = coreg_t2,
+                                      matrix        = nonlin_tranform,
+                                      nthreads      = nthreads,
+                                      method        = 'ANTS',
+                                      ants_options  = '-e 3 -n BSpline[5]' )
+
+                
+
+#                bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -coarsesearch 30 -finesearch 10 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat -interp sinc')
+#
+#                reg_tools.linear_reg(input_img      = t2w_masked,
+#                                     reference_img  = syn_t2w,
+#                                     output_file    = coreg_t2._get_filename(),
+#                                     output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+#                                     method         = 'FSL',
+#                                     dof            = 6,
+#                                     flirt_options =  bbr_options)
+#
+#                #Apply registration to T2w
+#                reg_tools.apply_transform(input_img     = t2w,
+#                                          reference_img = syn_t2w,
+#                                          output_img    = coreg_t2,
+#                                          matrix        = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
+#                                          method        = 'FSL',
+#                                          flirt_options = '-interp sinc')
                                                                             
                 
                 denoise_t1w = img_proc.denoise_degibbs(img             = t1w,
