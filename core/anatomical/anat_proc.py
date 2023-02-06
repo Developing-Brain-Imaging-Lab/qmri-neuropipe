@@ -271,7 +271,7 @@ class AnatomicalPrepPipeline:
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      method         = 'FSL',
                                      dof            = 6,
-                                     flirt_options =  '-normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     flirt_options =  '-cost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
                 bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -coarsesearch 30 -finesearch 10 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat -interp sinc')
 
