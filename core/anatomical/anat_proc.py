@@ -247,9 +247,9 @@ class AnatomicalPrepPipeline:
                                 output_img  = t2w_masked)
                                 
                                 
-                #Create synthetic T2w from the T1w to try to improve registration
-                if args.verbose:
-                    print('Creating Synthetic T2w Image')
+#                #Create synthetic T2w from the T1w to try to improve registration
+#                if args.verbose:
+#                    print('Creating Synthetic T2w Image')
                         
 #                syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
 #                                                                  output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
@@ -266,8 +266,8 @@ class AnatomicalPrepPipeline:
                 coreg_t2 = copy.deepcopy(t2w)
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
-                reg_tools.linear_reg(input_img      = t2w,
-                                     reference_img  = t1w,
+                reg_tools.linear_reg(input_img      = t2w_masked,
+                                     reference_img  = t1w_masked,
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
@@ -276,7 +276,7 @@ class AnatomicalPrepPipeline:
                 
                 ants_transform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, 't2w_to_t1w_')
                 reg_tools.nonlinear_reg(input_img       = coreg_t2,
-                                        reference_img   = t1w,
+                                        reference_img   = t1w_masked,
                                         reference_mask  = t1w_brain_mask,
                                         output_base     = ants_transform,
                                         nthreads        = args.nthreads,
