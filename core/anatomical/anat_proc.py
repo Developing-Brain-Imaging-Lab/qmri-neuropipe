@@ -285,8 +285,8 @@ class AnatomicalPrepPipeline:
                 coreg_t2 = copy.deepcopy(t2w)
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
-                reg_tools.linear_reg(input_img      = biascorr_t1w,
-                                     reference_img  = biascorr_t2w,
+                reg_tools.linear_reg(input_img      = biascorr_t2w,
+                                     reference_img  = biascorr_t1w,
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
