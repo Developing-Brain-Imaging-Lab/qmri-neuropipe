@@ -246,11 +246,30 @@ class AnatomicalPrepPipeline:
                                 mask_img    = t2w_brain_mask,
                                 output_img  = t2w_masked)
                                 
+                
+                
+                biascorr_t1w = img_proc.perform_bias_correction(img         = t1w_masked,
+                                                                working_dir = os.path.join(bids_derivative_dir,  args.bids_t1w_dir,''),
+                                                                suffix      = 'T1w',
+                                                                mask_img    = t1w_brain_mask,
+                                                                method      = args.anat_biasfield_correction_method,
+                                                                nthreads    = args.nthreads,
+                                                                verbose     = args.verbose)
+                                                                
+                biascorr_t2w = img_proc.perform_bias_correction(img         = t2w_masked,
+                                                                working_dir = os.path.join(bids_derivative_dir,  args.bids_t2w_dir,''),
+                                                                suffix      = 'T2w',
+                                                                mask_img    = t2w_brain_mask,
+                                                                method      = args.anat_biasfield_correction_method,
+                                                                nthreads    = args.nthreads,
+                                                                verbose     = args.verbose)
+                
+                                
                                 
 #                #Create synthetic T2w from the T1w to try to improve registration
 #                if args.verbose:
 #                    print('Creating Synthetic T2w Image')
-                        
+#
 #                syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
 #                                                                  output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
 #                                                                  cmd_args     = args,
@@ -266,8 +285,8 @@ class AnatomicalPrepPipeline:
                 coreg_t2 = copy.deepcopy(t2w)
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
-                reg_tools.linear_reg(input_img      = t2w_masked,
-                                     reference_img  = t1w_masked,
+                reg_tools.linear_reg(input_img      = biascorr_t1w,
+                                     reference_img  = biascorr_t2w,
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
@@ -276,7 +295,7 @@ class AnatomicalPrepPipeline:
                 
                 ants_transform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, 't2w_to_t1w_')
                 reg_tools.nonlinear_reg(input_img       = coreg_t2,
-                                        reference_img   = t1w_masked,
+                                        reference_img   = biascorr_t1w,
                                         reference_mask  = t1w_brain_mask,
                                         output_base     = ants_transform,
                                         nthreads        = args.nthreads,
@@ -295,7 +314,7 @@ class AnatomicalPrepPipeline:
                 #Create the final transform
                 nonlin_tranform=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-NonlinTransform_space-individual-T1w_T2w.nii.gz')
                 reg_tools.create_composite_transform(reference_img  = t1w,
-                                                     output_file    = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-ITKTransform_space-individual-T1w_T2w.txt'),
+                                                     output_file    = nonlin_tranform,
                                                      transforms     = [ants_transform + '1Warp.nii.gz', ants_transform+'0GenericAffine.mat', itk_transform])
                                                      
                                                      
