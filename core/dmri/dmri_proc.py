@@ -592,6 +592,9 @@ class DiffusionProcessingPipeline:
                     print('Creating Preprocessed DWI')
 
                 final_dwi.copy_image(dwi_img, datatype=np.float32)
+                
+                dmri_qc.check_gradient_directions(input_dwi   = final_dwi,
+                                                  nthreads    = nthreads)
 
 
 
