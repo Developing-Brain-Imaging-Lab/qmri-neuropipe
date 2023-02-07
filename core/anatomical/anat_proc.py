@@ -361,10 +361,10 @@ class AnatomicalPrepPipeline:
                                                                 nthreads    = args.nthreads,
                                                                 verbose     = args.verbose)
                                                                 
-#                os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
-#                os.remove(t1w_masked._get_filename())
-#                os.remove(t2w_masked._get_filename())
-#                os.remove(t2w_brain_mask._get_filename())
+                os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
+                os.remove(t1w_masked._get_filename())
+                os.remove(t2w_masked._get_filename())
+                os.remove(t2w_brain_mask._get_filename())
 
 
             elif t1w:
