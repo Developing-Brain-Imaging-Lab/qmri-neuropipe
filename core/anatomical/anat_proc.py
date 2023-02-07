@@ -298,12 +298,12 @@ class AnatomicalPrepPipeline:
                 coreg_t2._set_filename(os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.nii.gz'))
                 
                 reg_tools.linear_reg(input_img      = biascorr_t2w,
-                                     reference_img  = syn_t2w,
+                                     reference_img  = biascorr_t1w,
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
                                      dof            = 12,
-                                     flirt_options =  '-cost normcorr')
+                                     flirt_options =  '-cost normmi')
 
                 bbr_options = ' -cost bbr -wmseg ' + wmseg_img._get_filename() + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 15 -init ' + os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat -interp sinc -searchrx -30 30 -searchry -30 30 -searchrz -30 30')
 
