@@ -309,7 +309,7 @@ class AnatomicalPrepPipeline:
 
 
                 reg_tools.linear_reg(input_img      = biascorr_t2w,
-                                     reference_img  = syn_t2w,
+                                     reference_img  = biascorr_t1w,
                                      output_file    = coreg_t2._get_filename(),
                                      output_matrix  = os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_space-individual-T1w_T2w.mat'),
                                      method         = 'FSL',
