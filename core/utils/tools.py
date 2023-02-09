@@ -25,15 +25,16 @@ def reorient_to_standard(input_img, output_file, reorient_img=None):
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
 
-    subprocess.run(['fslreorient2std',input_img._get_filename(),output_file], stderr=subprocess.STDOUT)
-
     if reorient_img != None:
         output_dir  = os.path.dirname(output_file)
         filename    = os.path.basename(output_file).split("_")
 
         reorient_xfm = os.path.join(output_dir, filename[0]+'_'+filename[1]+'_desc-Reorient2Standard_dwi.xfm')
         
-        os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+        os.system('flirt -in ' + output_file + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180 -cost normcorr -searchcost normcorr')
+        
+    else:
+        subprocess.run(['fslreorient2std',input_img._get_filename(),output_file], stderr=subprocess.STDOUT)
 
     return output_img
 
