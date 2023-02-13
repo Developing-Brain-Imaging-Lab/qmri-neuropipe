@@ -73,9 +73,9 @@ class AnatomicalPrepPipeline:
                             default=0)
 
         parser.add_argument('--anat_cleanup',
-                    type=bool,
-                    help='Cleanup Anatomical Image Files',
-                    default=False)
+                            type=bool,
+                            help='Cleanup Anatomical Image Files',
+                            default=False)
 
         parser.add_argument('--anat_t1w_reorient_img',
                             type=str,
