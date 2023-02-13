@@ -431,7 +431,7 @@ class DiffusionProcessingPipeline:
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
             fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
             
-            
+        print(t1w._get_filename())
         #Check if TORTOISE or coregistration anatomy being performed and ensure image exists
         #First determine the anatomical image to use
         anat_image = None
