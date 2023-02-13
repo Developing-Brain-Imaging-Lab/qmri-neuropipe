@@ -385,6 +385,9 @@ class AnatomicalPrepPipeline:
                                                                 method      = args.anat_biasfield_correction_method,
                                                                 nthreads    = args.nthreads,
                                                                 verbose     = args.verbose)
+                                                                
+                os.rename(t1w_brain_mask._get_filename(), brain_mask._get_filename())
+                
 
             elif t2w:
                 denoise_t2w = img_proc.denoise_degibbs(img             = t2w,
@@ -403,6 +406,8 @@ class AnatomicalPrepPipeline:
                                                                 method      = args.anat_biasfield_correction_method,
                                                                 nthreads    = args.nthreads,
                                                                 verbose     = args.verbose)
+                                                                
+                os.rename(t2w_brain_mask._get_filename(), brain_mask._get_filename())
 
             
 
