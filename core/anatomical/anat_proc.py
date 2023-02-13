@@ -180,8 +180,8 @@ class AnatomicalPrepPipeline:
         if not os.path.exists(bids_derivative_dir):
             os.makedirs(bids_derivative_dir)
             
-        biascorr_t1w = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-BiasFieldCorrected_T1w.nii.gz'))
-        biascorr_t2w = Image(file=os.path.join(bids_derivative_dir, args.bids_t2w_dir, bids_id+'_desc-BiasFieldCorrected_T2w.nii.gz'))
+        biascorr_t1w = None
+        biascorr_t2w = None
         
         
         #Create Brain Mask
@@ -237,9 +237,6 @@ class AnatomicalPrepPipeline:
                                     antspynet_modality   = args.anat_antspynet_modality)
                                     
                                     
-            #If both images exists, coregister and then denoise and run bias correction
-            biascorr_t1w = None
-            biascorr_t2w = None
             if t1w and t2w:
                 #First create skull-stripped images based on masks created
                 t1w_masked = Image(file=os.path.join(bids_derivative_dir, args.bids_t1w_dir, bids_id+'_desc-T1w-brain.nii.gz'))
