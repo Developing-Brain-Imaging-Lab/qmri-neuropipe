@@ -69,10 +69,10 @@ def calculate_mean_img(input_img, output_file):
     img = nib.load(input_img._get_filename())
 
     if len(img.shape) > 3:
-        mean_data = np.mean(img.get_data(), 3)
+        mean_data = np.mean(img.get_fdata(), 3)
 
     else:
-        mean_data = img.get_data()
+        mean_data = img.get_fdata()
 
     mean_img = nib.Nifti1Image(mean_data.astype(np.float32), img.affine, img.header)
 
@@ -84,7 +84,7 @@ def calculate_mean_img(input_img, output_file):
 
 def create_target_img(input_img, output_file, index=0):
     img = nib.load(input_img._get_filename())
-    data = img.get_data()
+    data = img.get_fdata()
     target_img = nib.Nifti1Image(data[:,:,:, index].astype(np.float32), img.affine, img.header)
     target_img.set_sform(img.get_sform())
     target_img.set_qform(img.get_qform())
@@ -98,7 +98,7 @@ def create_target_img(input_img, output_file, index=0):
 def remove_end_img(input_img, output_file):
 
     img = nib.load(input_img._get_filename())
-    data = img.get_data()
+    data = img.get_fdata()
 
     target_img = nib.Nifti1Image(data[:,:,:,0:img.shape[3]-1].astype(np.float32), img.affine, img.header)
     target_img.set_sform(img.get_sform())
@@ -112,7 +112,7 @@ def remove_end_img(input_img, output_file):
 
 def remove_end_slice(input_img, output_file):
     img = nib.load(input_img._get_filename())
-    data = img.get_data()
+    data = img.get_fdata()
 
     target_img = nib.Nifti1Image(data[:,:,0:img.shape[2]-1,:].astype(np.float32), img.affine, img.header)
     target_img.set_sform(img.get_sform())
