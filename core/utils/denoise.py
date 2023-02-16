@@ -37,7 +37,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
 
     if method=='dipy':
         img = nib.load(input_img._get_filename())
-        data = img.get_data()
+        data = img.get_fdata()
         data_corrected = gibbs_removal(data, num_threads=nthreads)
 
         corrected_img = nib.Nifti1Image(data_corrected.astype(np.float32), img.get_affine(), img.header)
@@ -84,8 +84,8 @@ def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output
 
     elif method[0:4]=='dipy':
         img = nib.load(input_img._get_filename())
-        data = img.get_data()
-        mask = nib.load(mask_img._get_filename()).get_data()
+        data = img.get_fdata()
+        mask = nib.load(mask_img._get_filename()).get_fdata()
 
         if method=='dipy-nlmeans':
             sigma = estimate_sigma(data)
