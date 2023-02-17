@@ -33,8 +33,8 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
     bvals_pepolar0, bvecs_pepolar0 = read_bvals_bvecs(DWI_pepolar0._get_bvals(), DWI_pepolar0._get_bvecs())
     bvals_pepolar1, bvecs_pepolar1 = read_bvals_bvecs(DWI_pepolar1._get_bvals(), DWI_pepolar1._get_bvecs())
 
-    nImages_pepolar0 = dwi_pepolar0.header.get_fdata_shape()[3]
-    nImages_pepolar1 = dwi_pepolar1.header.get_fdata_shape()[3]
+    nImages_pepolar0 = dwi_pepolar0.header.get_data_shape()[3]
+    nImages_pepolar1 = dwi_pepolar1.header.get_data_shape()[3]
 
     if bvals_pepolar0.shape[0] != nImages_pepolar0:
         indices_to_remove = np.arange(nImages_pepolar0, bvals_pepolar0.shape[0])
@@ -91,8 +91,8 @@ def check_bvals_bvecs(input_dwi, output_base=None):
 
     dwi_img = nib.load(input_dwi._get_filename())
     bvals,bvecs=read_bvals_bvecs(input_dwi._get_bvals(),input_dwi._get_bvecs())
-    numberOfVolumes = dwi_img.header.get_fdata_shape()[3]
-    numberOfSlices  = dwi_img.header.get_fdata_shape()[2]
+    numberOfVolumes = dwi_img.header.get_data_shape()[3]
+    numberOfSlices  = dwi_img.header.get_data_shape()[2]
     
     if bvals.shape[0] != numberOfVolumes:
         indices_to_remove = np.arange(numberOfVolumes, bvals.shape[0])
@@ -183,7 +183,7 @@ def rotate_bvecs(input_img, ref_img, output_bvec, transform, nthreads=1):
 def create_index_acqparam_files(input_dwi, output_base):
 
     dwi_img = nib.load(input_dwi._get_filename())
-    numberOfVolumes = dwi_img.header.get_fdata_shape()[3]
+    numberOfVolumes = dwi_img.header.get_data_shape()[3]
 
     with open(input_dwi._get_json()) as f:
         dwi_json = json.load(f)
@@ -206,7 +206,7 @@ def create_index_acqparam_files(input_dwi, output_base):
         except: KeyError
 
         try:
-            acqparams = np.array(['1', '0', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_fdata_shape()[1]-1))])
+            acqparams = np.array(['1', '0', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_data_shape()[1]-1))])
         except: KeyError
 
     elif(phase_encode_dir == 'i-'):
@@ -215,7 +215,7 @@ def create_index_acqparam_files(input_dwi, output_base):
         except: KeyError
 
         try:
-            acqparams = np.array(['-1', '0', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_fdata_shape()[1]-1))])
+            acqparams = np.array(['-1', '0', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_data_shape()[1]-1))])
         except: KeyError
 
     elif(phase_encode_dir == 'j'):
@@ -225,7 +225,7 @@ def create_index_acqparam_files(input_dwi, output_base):
         except: KeyError
 
         try:
-            acqparams = np.array(['0', '1', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_fdata_shape()[2]-1))])
+            acqparams = np.array(['0', '1', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_data_shape()[2]-1))])
         except: KeyError
 
     elif(phase_encode_dir == 'j-'):
@@ -234,7 +234,7 @@ def create_index_acqparam_files(input_dwi, output_base):
         except: KeyError
 
         try:
-            acqparams = np.array(['0', '-1', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_fdata_shape()[2]-1))])
+            acqparams = np.array(['0', '-1', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_data_shape()[2]-1))])
         except: KeyError
 
 
