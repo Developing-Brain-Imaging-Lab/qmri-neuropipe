@@ -48,11 +48,11 @@ class NODDI_Model():
 
             #Load the data
             img = nib.load(dwi_img._get_filename())
-            data = img.get_data()
+            data = img.get_fdata()
 
             #Load the mask
             img = nib.funcs.squeeze_image(nib.load(self._inputs['mask']._get_filename()))
-            mask_data = img.get_data()
+            mask_data = img.get_fdata()
 
             ball = gaussian_models.G1Ball() #CSF
             stick = cylinder_models.C1Stick() #Intra-axonal diffusion

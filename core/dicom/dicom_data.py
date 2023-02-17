@@ -19,8 +19,8 @@ def create_index_acqparam_files(dcm_file, output_dwi, output_index, output_acqpa
     pepolar = int(pepolar_flag[len(pepolar_flag)-1])
 
     nii = nib.load(output_dwi)
-    xDim = nii.header.get_data_shape()[0]
-    numImages = nii.header.get_data_shape()[3]
+    xDim = nii.header.get_fdata_shape()[0]
+    numImages = nii.header.get_fdata_shape()[3]
 
     #Only if parallel imaging is turned on...
     acqFourthColumn = float(assetFactor[0])*float(xDim)*(0.001)*float(float(echoSpacing)/1000)

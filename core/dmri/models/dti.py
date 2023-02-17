@@ -94,13 +94,13 @@ class DTI_Model():
             img = nib.load(dwi_img._get_filename())
             axis_orient = nib.aff2axcodes(img.affine)
             ras_img = nib.as_closest_canonical(img)
-            data = ras_img.get_data()
+            data = ras_img.get_fdata()
 
             bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
             bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
-                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask']._get_filename())).get_data()
+                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask']._get_filename())).get_fdata()
 
             if self._inputs['bmax'] != None:
                 jj = np.where(bvals >= self._inputs['bmax'])
@@ -231,7 +231,7 @@ class DTI_Model():
             dirs.append(np.array([[0],[0],[1]]))
 
             tensor_fsl = nib.load(self._outputs['tensor-fsl'])
-            corr_fsl_tensor = np.empty(tensor_fsl.get_data().shape)
+            corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
 
             for i in range(0,len(dirs)):
 
@@ -253,7 +253,7 @@ class DTI_Model():
                 elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
                     tensor_ind = 5
 
-                corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_data()[:,:,:,tensor_ind]
+                corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
 
             save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
 
@@ -263,7 +263,7 @@ class DTI_Model():
             sign_order = np.transpose(targ_ornt[:,1]).astype(int)
 
             fsl_v1 = nib.load(self._outputs['v1'])
-            corr_fsl_v1 = fsl_v1.get_data()[:,:,:,vec_order]
+            corr_fsl_v1 = fsl_v1.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
 
@@ -271,7 +271,7 @@ class DTI_Model():
 
 
             fsl_v2 = nib.load(self._outputs['v2'])
-            corr_fsl_v2 = fsl_v2.get_data()[:,:,:,vec_order]
+            corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
 
@@ -279,7 +279,7 @@ class DTI_Model():
 
 
             fsl_v3 = nib.load(self._outputs['v3'])
-            corr_fsl_v3 = fsl_v3.get_data()[:,:,:,vec_order]
+            corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
 
@@ -291,7 +291,7 @@ class DTI_Model():
 
             if self._inputs['bmax'] != None:
                img = nib.load(dwi_img._get_filename())
-               data = img.get_data()
+               data = img.get_fdata()
                bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
 
                aff = img.get_affine()
@@ -351,7 +351,7 @@ class DTI_Model():
             command = 'modelfit -inputfile ' + camino_dwi + ' -schemefile ' + camino_scheme + ' -bgmask ' + self._inputs['mask']._get_filename() + ' -outputfile ' + camino_tensor
 
             if self._inputs['fit_type'][7:] == 'RESTORE':
-                data = nib.load(dwi_img._get_filename()).get_data()
+                data = nib.load(dwi_img._get_filename()).get_fdata()
                 bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
                 values = np.array(bvals)
                 ii = np.where(values == bvals.min())[0]
@@ -430,7 +430,7 @@ class FWEDTI_Model():
             os.makedirs(output_dir)
 
         img = nib.load(dwi_img._get_filename())
-        data = img.get_data()
+        data = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
         gtab = gradient_table(bvals, bvecs)
 
@@ -441,7 +441,7 @@ class FWEDTI_Model():
         fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
 
         if self._inputs['mask'] != None:
-            mask_data = nib.load(self._inputs['mask']._get_filename()).get_data()
+            mask_data = nib.load(self._inputs['mask']._get_filename()).get_fdata()
             fwidti_fit = fwidtimodel.fit(data, mask_data)
         else:
             fwidti_fit = fwidtimodel.fit(data)

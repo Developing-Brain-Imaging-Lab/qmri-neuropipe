@@ -42,12 +42,12 @@ class DKI_Model():
             os.makedirs(output_dir)
 
         img = nib.load(dwi_img._get_filename())
-        data = img.get_data()
+        data = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
         gtab = gradient_table(bvals, bvecs)
 
         if self._inputs['mask'] != None:
-            mask_data = nib.load(self._inputs['mask']._get_filename()).get_data()
+            mask_data = nib.load(self._inputs['mask']._get_filename()).get_fdata()
 
         values = np.array(bvals)
         ii = np.where(values == bvals.min())[0]

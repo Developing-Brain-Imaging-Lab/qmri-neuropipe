@@ -12,8 +12,8 @@ def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6)
     img2 = nib.load(input_img2)
 
     #First, smooth the data
-    img1_smoothed = gaussian_filter(img1.get_data(), fwhm/2.35)
-    img2_smoothed = gaussian_filter(img2.get_data(), fwhm/2.35)
+    img1_smoothed = gaussian_filter(img1.get_fdata(), fwhm/2.35)
+    img2_smoothed = gaussian_filter(img2.get_fdata(), fwhm/2.35)
 
     r = img2_smoothed / img1_smoothed
     r[r>1] = 1.00
@@ -35,8 +35,8 @@ def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6)
 
 def compute_afi_b1map(input_afi, input_json, output_img, n=5, fwhm=6):
     afi_img = nib.load(input_afi)
-    img1_smoothed = gaussian_filter(afi_img.get_data()[:,:,:,0], fwhm/2.35)
-    img2_smoothed = gaussian_filter(afi_img.get_data()[:,:,:,1], fwhm/2.35)
+    img1_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,0], fwhm/2.35)
+    img2_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,1], fwhm/2.35)
 
     r = img2_smoothed / img1_smoothed
     r[r>1] = 1.00

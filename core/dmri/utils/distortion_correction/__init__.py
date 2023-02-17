@@ -24,7 +24,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
-    dwi_data = dwi_img.get_data()
+    dwi_data = dwi_img.get_fdata()
 
     bvals = np.loadtxt(input_dwi._get_bvals())
     index = np.loadtxt(input_dwi._get_index())
@@ -417,7 +417,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 def epi_reg_fsl(input_dwi, input_bval, fieldmap, fieldmap_ref, struct_img, struct_brain, output_dwi, pedir, dwellTime, fm_ref_brain=''):
 
     dwi_img = nib.load(input_dwi)
-    dwi_data = dwi_img.get_data()
+    dwi_data = dwi_img.get_fdata()
     bvals = np.loadtxt(input_bval)
     ii = np.where(bvals == 0)
 
@@ -537,7 +537,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
-    dwi_data = dwi_img.get_data()
+    dwi_data = dwi_img.get_fdata()
 
     dwi_mean = np.mean(dwi_data, axis=3)
     dwi_mean_img = nib.Nifti1Image(dwi_mean, aff, dwi_img.header)
