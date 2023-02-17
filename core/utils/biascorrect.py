@@ -12,13 +12,14 @@ def biasfield_correction(input_img, output_file, method='N4', mask_img=None, nth
                 + output_img._get_filename() \
                 + ' -force -quiet -nthreads ' + str(nthreads)
 
-        print(command)
+        
         if mask_img != None:
             command += ' -mask ' + mask_img._get_filename()
 
         if input_img._get_bvals() != None and input_img._get_bvecs() != None:
             command += ' -fslgrad ' + input_img._get_bvecs() + ' ' + input_img._get_bvals()
 
+        print(command)
         os.system(command)
 
     elif method=='N4':
