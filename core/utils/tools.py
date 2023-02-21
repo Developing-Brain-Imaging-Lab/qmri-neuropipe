@@ -7,6 +7,8 @@ import nibabel.processing as nib_proc
 import ants
 
 from core.utils.io import Image, DWImage
+import core.registration.registration as reg_tools
+
 
 def binarize(input_img):
     output_img = copy.deepcopy(input_img)
@@ -29,12 +31,19 @@ def reorient_to_standard(input_img, output_file, reorient_img=None):
         output_dir  = os.path.dirname(output_file)
         filename    = os.path.basename(output_file).split("_")
 
-        reorient_xfm = os.path.join(output_dir, filename[0]+'_'+filename[1]+'_desc-Reorient2Standard_dwi.xfm')
+        reorient_xfm = os.path.join(output_dir, filename[0]+'_'+filename[1]+'_desc-Reorient2Standard.mat')
         
-        os.system('flirt -in ' + input_img._get_filename() + ' -ref ' + reorient_img + ' -out ' + output_file + ' -omat ' + reorient_xfm + ' -dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180 -cost normcorr -searchcost normcorr')
+        reg_tools.linear_reg(input_img      = input_img,
+                             reference_img  = reorient_img,
+                             output_matrix  = reorient_xfm,
+                             dof=6,
+                             nthreads=1,
+                             method='FSL')
+                             
+        reg_rools.apply
         
     else:
-        subprocess.run(['fslreorient2std',input_img._get_filename(),output_file], stderr=subprocess.STDOUT)
+        subprocess.run(['fslreorient2std',input_img._get_filename(),output_img._get_filename()], stderr=subprocess.STDOUT)
 
     return output_img
 

@@ -71,6 +71,11 @@ class AnatomicalPrepPipeline:
                             type=int,
                             help='CUDA Device Number',
                             default=0)
+                            
+        parser.add_argument('--infant_mode',
+                    type=bool,
+                    help='Infant Mode for Processing',
+                    default=False)
 
         parser.add_argument('--anat_cleanup',
                             type=bool,
@@ -213,10 +218,17 @@ class AnatomicalPrepPipeline:
             exit()
         
         if t1w:
-            if args.anat_antspynet_modality=='infant':
+            if args.infant_mode:
                 args.anat_antspynet_modality = 't1infant'
-            
+                
+                #Create the synthetic T2w image from the T1w for skull-stripping
+                syn_t2w = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
+                                                                  output_dir   = os.path.join(bids_derivative_dir, args.bids_t1w_dir, 'syntheticT2w'),
+                                                                  cmd_args     = args)
+                
             if not os.path.exists(t1w_brain_mask._get_filename()):
+                
+            
                 mask.mask_image(input_img            = t1w,
                                 output_mask          = t1w_brain_mask,
                                 method               = args.anat_mask_method,
@@ -226,7 +238,7 @@ class AnatomicalPrepPipeline:
                                 antspynet_modality   = args.anat_antspynet_modality)
                             
         if t2w:
-            if args.anat_antspynet_modality=='infant':
+            if args.infant_mode:
                 args.anat_antspynet_modality = 't2infant'
             
             if not os.path.exists(t2w_brain_mask._get_filename()):
