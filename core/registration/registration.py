@@ -42,7 +42,7 @@ def apply_transform(input_img, reference_img, output_img, matrix, nthreads=1, me
               + ' -out ' + output_img._get_filename() \
               + ' -applyxfm -init ' + matrix
 
-        if flirt_options != None:
+        if flirt_options is not None:
             cmd += ' ' + flirt_options
 
         os.system(cmd)
@@ -54,7 +54,7 @@ def apply_transform(input_img, reference_img, output_img, matrix, nthreads=1, me
               + ' -o ' + output_img._get_filename() \
               + ' -t ' + matrix
 
-        if ants_options != None:
+        if ants_options is not None:
             cmd += ' ' + ants_options
 
         os.system(cmd)
@@ -140,7 +140,9 @@ def linear_reg(input_img, reference_img, output_matrix, output_file=None, dof=6,
                 cmd += ' -m ' + input_img._get_filename() \
                     +  ' -f ' + reference_img._get_filename()
 
-        cmd += ' ' + ants_options
+        if ants_options != None:
+            cmd += ' ' + flirt_options
+            
         os.system(cmd)
         
     elif method == 'BBR':

@@ -89,6 +89,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             
         #If both T1w and T2w images exist, coregister the two images using two-stage flirt and BBR ()
         coreg_t2 = Image(file = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz')
+        
         if not coreg_t2.exists():
             if verbose:
                 print('Coregistering T1w and T2w images')
@@ -97,19 +98,46 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
             reg_tools.linear_reg(input_img      = raw_t2w,
                                  reference_img  = raw_t1w,
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
-                                 output_file    = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz',
+                                 output_file    = coreg_t2._get_filename(),
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-            
-            #Finally, reorient these to standard
-            t1w = raw_t1w
-            t2w = coreg_t2
-            
-            
+            if t1w_reorient_img is not None and t2w_reorient_img is not None:
+                reg_tools.linear_reg(input_img      = [raw_t1w,coreg_t2],
+                                     reference_img  = [Image(file=t1w_reorient_img), Image(file=t2w_reorient_img)],
+                                     output_matrix  = bids_t2w_derivative_dir + bids_id + '_',
+                                     method         = 'ANTS',
+                                     dof            = 6)
+                
+                reg_tools.apply_transform(input_img         = raw_t1w,
+                                          reference_img     = Image(file = t1w_reorient_img),
+                                          output_img        = t1w,
+                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
+                                          nthreads=1,
+                                          method='ANTS')
 
-
+                reg_tools.apply_transform(input_img         = coreg_t2,
+                                          reference_img     = Image(file = t2w_reorient_img),
+                                          output_img        = coreg_t2,
+                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
+                                          nthreads=1,
+                                          method='ANTS')
+                                          
+                t2w = coreg_t2
+                os.remove(bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat")
+                os.remove(bids_t2w_derivative_dir + bids_id + "_Warped.nii.gz")
+                os.remove(bids_t2w_derivative_dir + bids_id + "_InverseWarped.nii.gz")
+                                          
+            else:
+                t1w = img_tools.reorient_to_standard(input_img      = raw_t1w,
+                                                     output_file    = t1w._get_filename())
+                                                     
+                t2w = img_tools.reorient_to_standard(input_img      = coreg_t2,
+                                                    output_file     = coreg_t2._get_filename())
+                                                    
+    print(t1w._get_filename())
+    print(t2w._get_filename())
     return t1w, t2w
 
 

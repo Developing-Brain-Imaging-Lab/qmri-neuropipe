@@ -15,18 +15,13 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args, t1w_mask=None):
         os.makedirs(output_dir)
 
     synthetic_t2w = Image(file = output_dir + '/synT2w.nii.gz')
-    
-    t1w = Image(file = output_dir + '/t1w.nii.gz')
-    t1w = img_tools.reorient_to_standard(input_img      = input_t1w,
-                                         output_file    = t1w._get_filename())
-
+    t1w = input_t1w
     
     t1w_brain = Image(file=output_dir + '/t1w_brain.nii.gz')
     if t1w_mask:
         mask.apply_mask(input_img   = t1w,
                         mask_img    = t1w_mask,
                         output_img  = t1w_brain)
-    
     else:
         t1w_mask  = Image(file=output_dir + '/t1w_mask.nii.gz')
         mask.mask_image(input_img            = t1w,
