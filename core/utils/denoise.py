@@ -40,7 +40,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
         data = img.get_fdata()
         data_corrected = gibbs_removal(data, num_threads=nthreads)
 
-        corrected_img = nib.Nifti1Image(data_corrected.astype(np.float32), img.get_affine(), img.header)
+        corrected_img = nib.Nifti1Image(data_corrected.astype(np.float32), img.affine, img.header)
         corrected_img.set_sform(img.get_sform())
         corrected_img.set_qform(img.get_qform())
         nib.save(corrected_img, output_img._get_filename())
@@ -101,7 +101,7 @@ def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output
             bvals, bvecs = read_bvals_bvecs(input_img._get_bvals(), input_img._get_bvecs())
             denoised_arr = patch2self(data, bvals)
 
-        denoised_img = nib.Nifti1Image(denoised_arr.astype(np.float32), img.get_affine(), img.header)
+        denoised_img = nib.Nifti1Image(denoised_arr.astype(np.float32), img.affine, img.header)
         denoised_img.set_sform(img.get_sform())
         denoised_img.set_qform(img.get_qform())
         nib.save(denoised_img, output_img._get_filename())
