@@ -90,11 +90,12 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
         #If both T1w and T2w images exist, coregister the two images using two-stage flirt and BBR ()
         coreg_t2 = Image(file = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.nii.gz')
         
-        if not coreg_t2.exists():
+        if coreg_t2.exists():
+            t2w = coreg_t2
+        else:
             if verbose:
                 print('Coregistering T1w and T2w images')
-                
-                                   
+                                                   
             reg_tools.linear_reg(input_img      = raw_t2w,
                                  reference_img  = raw_t1w,
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
