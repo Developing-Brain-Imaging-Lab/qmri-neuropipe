@@ -103,6 +103,15 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                                                 
+             reg_tools.linear_reg(input_img      = raw_t2w,
+                                  reference_img  = raw_t1w,
+                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
+                                  output_file    = coreg_t2._get_filename(),
+                                  method         = 'FSL',
+                                  dof            = 12,
+                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -10 10 -searchry -10 10 -searchrz -10 10 -init ' +  bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat')
+                
             
             if t1w_reorient_img is not None and t2w_reorient_img is not None:
             
@@ -114,14 +123,12 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                      dof            = 6,
                                      flirt_options =  '-cost normcorr -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
                                                                           
-                reg_tools.linear_reg(input_img      = raw_t1w,
-                                     reference_img  = Image(file=t1w_reorient_img),
-                                     output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-reorientImg_T1w.mat',
-                                     output_file    = t1w._get_filename(),
-                                     method         = 'FSL',
-                                     dof            = 6,
-                                     flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
+                reg_tools.apply_transform(input_img         = raw_t1w,
+                                          reference_img     = Image(file = t1w_reorient_img),
+                                          output_img        = t1w,
+                                          matrix            = bids_t2w_derivative_dir + bids_id + '_space-reorientImg_T2w.mat',
+                                          nthreads=1,
+                                          method='FSL')
 
 
 #                reg_tools.linear_reg(input_img      = [raw_t1w,coreg_t2],
