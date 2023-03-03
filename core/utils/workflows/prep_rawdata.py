@@ -120,7 +120,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                      output_file    = t1w._get_filename(),
                                      method         = 'FSL',
                                      dof            = 6,
-                                     flirt_options =  '-cost normcorr -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
 
 
