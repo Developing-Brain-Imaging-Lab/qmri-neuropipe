@@ -103,7 +103,9 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
+            print(t1w_reorient_img._get_filename())
+            print(t1w_reorient_img._get_filename())
+            
             if t1w_reorient_img is not None and t2w_reorient_img is not None:
                 reg_tools.linear_reg(input_img      = [raw_t1w,coreg_t2],
                                      reference_img  = [Image(file=t1w_reorient_img), Image(file=t2w_reorient_img)],
@@ -126,9 +128,9 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                           method='ANTS')
                                           
                 t2w = coreg_t2
-                os.remove(bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat")
-                os.remove(bids_t2w_derivative_dir + bids_id + "_Warped.nii.gz")
-                os.remove(bids_t2w_derivative_dir + bids_id + "_InverseWarped.nii.gz")
+                #os.remove(bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat")
+                #os.remove(bids_t2w_derivative_dir + bids_id + "_Warped.nii.gz")
+                #os.remove(bids_t2w_derivative_dir + bids_id + "_InverseWarped.nii.gz")
                                           
             else:
                 t1w = img_tools.reorient_to_standard(input_img      = raw_t1w,
