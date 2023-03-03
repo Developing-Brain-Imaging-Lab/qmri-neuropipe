@@ -103,29 +103,47 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-            print(t1w_reorient_img._get_filename())
-            print(t1w_reorient_img._get_filename())
+            print(t1w_reorient_img)
+            print(t1w_reorient_img)
             
             if t1w_reorient_img is not None and t2w_reorient_img is not None:
-                reg_tools.linear_reg(input_img      = [raw_t1w,coreg_t2],
-                                     reference_img  = [Image(file=t1w_reorient_img), Image(file=t2w_reorient_img)],
-                                     output_matrix  = bids_t2w_derivative_dir + bids_id + '_',
-                                     method         = 'ANTS',
-                                     dof            = 6)
-                
+            
+                reg_tools.linear_reg(input_img      = coreg_t2,
+                                     reference_img  = Image(file=t2w_reorient_img),
+                                     output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-reorientImg_T2w.mat',
+                                     output_file    = coreg_t2._get_filename(),
+                                     method         = 'FSL',
+                                     dof            = 6,
+                                     flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                     
+                                     
                 reg_tools.apply_transform(input_img         = raw_t1w,
                                           reference_img     = Image(file = t1w_reorient_img),
                                           output_img        = t1w,
-                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
+                                          matrix            = bids_t2w_derivative_dir + bids_id + '_space-reorientImg_T2w.mat',
                                           nthreads=1,
-                                          method='ANTS')
+                                          method='FSL')
 
-                reg_tools.apply_transform(input_img         = coreg_t2,
-                                          reference_img     = Image(file = t2w_reorient_img),
-                                          output_img        = coreg_t2,
-                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
-                                          nthreads=1,
-                                          method='ANTS')
+
+#                reg_tools.linear_reg(input_img      = [raw_t1w,coreg_t2],
+#                                     reference_img  = [Image(file=t1w_reorient_img), Image(file=t2w_reorient_img)],
+#                                     output_matrix  = bids_t2w_derivative_dir + bids_id + '_',
+#                                     method         = 'ANTS',
+#                                     dof            = 6)
+#
+#                reg_tools.apply_transform(input_img         = raw_t1w,
+#                                          reference_img     = Image(file = t1w_reorient_img),
+#                                          output_img        = t1w,
+#                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
+#                                          nthreads=1,
+#                                          method='ANTS')
+#
+#                reg_tools.apply_transform(input_img         = coreg_t2,
+#                                          reference_img     = Image(file = t2w_reorient_img),
+#                                          output_img        = coreg_t2,
+#                                          matrix            = bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat",
+#                                          nthreads=1,
+#                                          method='ANTS')
                                           
                 t2w = coreg_t2
                 #os.remove(bids_t2w_derivative_dir + bids_id + "_0GenericAffine.mat")
