@@ -109,7 +109,7 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  output_matrix  = bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat',
                                  output_file    = coreg_t2._get_filename(),
                                  method         = 'FSL',
-                                 dof            = 12,
+                                 dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -10 10 -searchry -10 10 -searchrz -10 10 -init ' +  bids_t2w_derivative_dir + bids_id + '_space-individual-T1w_T2w.mat')
                 
             
