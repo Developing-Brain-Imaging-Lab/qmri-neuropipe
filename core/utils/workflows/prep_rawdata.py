@@ -103,8 +103,6 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                  method         = 'FSL',
                                  dof            = 6,
                                  flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-            print(t1w_reorient_img)
-            print(t1w_reorient_img)
             
             if t1w_reorient_img is not None and t2w_reorient_img is not None:
             
@@ -114,8 +112,8 @@ def prep_anat_rawdata(bids_id, bids_rawdata_dir, bids_derivative_dir, bids_t1w_d
                                      output_file    = coreg_t2._get_filename(),
                                      method         = 'FSL',
                                      dof            = 6,
-                                     flirt_options =  '-cost normmi -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-                                     
+                                     flirt_options =  '-cost normcorr -searchcost normcorr -interp sinc -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+                                                                          
                                      
                 reg_tools.apply_transform(input_img         = raw_t1w,
                                           reference_img     = Image(file = t1w_reorient_img),
