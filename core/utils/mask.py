@@ -13,7 +13,10 @@ import core.utils.tools as img_tools
 def apply_mask(input_img, mask_img, output_img):
     os.system('fslmaths ' + input_img._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + output_img._get_filename())
 
-def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None, ref_img=None, ref_mask=None, bet_options='', ants_lower_threshold=0.2, antspynet_modality='t1'):
+def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None, ref_img=None, ref_mask=None, bet_options='', ants_lower_threshold=0.2, antspynet_modality='t1', logfile=None):
+
+    if logfile:
+        sys.stdout = logfile
 
     output_root, img = os.path.split(output_mask._get_filename())
     tmp_img    = Image(file=output_root+'/temp_img.nii.gz')
@@ -24,7 +27,9 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
             input_img = input_img[0]
 
         tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
-        os.system('bet ' + tmp_img._get_filename() + ' ' + output_mask._get_filename() + ' ' + bet_options)
+        CMD = 'bet ' + tmp_img._get_filename() + ' ' + output_mask._get_filename() + ' ' + bet_options
+        subprocess.run([CMD], shell=True, stdout=logfile)
+        
         output_mask = img_tools.binarize(output_mask)
         output_mask = img_tools.fill_holes(output_mask)
 
@@ -38,7 +43,9 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
 
         #print('hd-bet -i ' + tmp_img._get_filename() + ' -o ' + tmp_mask)
-        os.system('hd-bet -i ' + tmp_img._get_filename() + ' -device cpu -mode accurate -tta 0 -o ' + tmp_mask)
+        CMD = 'hd-bet -i ' + tmp_img._get_filename() + ' -device cpu -mode accurate -tta 0 -o ' + tmp_mask
+        subprocess.run([CMD], shell=True, stdout=logfile)
+        
         os.rename(tmp_mask+'_mask.nii.gz', output_mask._get_filename())
 
     elif method == 'dipy':
@@ -61,7 +68,7 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
             input_img = input_img[0]
 
         tmp_img = img_tools.calculate_mean_img(input_img,tmp_img._get_filename())
-        subprocess.run(['3dSkullStrip','-input',tmp_img._get_filename(),'-prefix',output_mask._get_filename()], stderr=subprocess.STDOUT)
+        subprocess.run(['3dSkullStrip','-input',tmp_img._get_filename(),'-prefix',output_mask._get_filename()], stderr=subprocess.STDOUT, stdout=logfile)
         output_mask = img_tools.binarize(output_mask)
 
     elif method == 'mrtrix':
@@ -78,7 +85,7 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
                         input_img._get_bvals(),
                         input_img._get_filename(),
                         output_mask._get_filename(),
-                        '-nthreads',str(nthreads)],stderr=subprocess.STDOUT)
+                        '-nthreads',str(nthreads)],stderr=subprocess.STDOUT, stdout=logfile)
 
     elif method == 'ants':
 
@@ -91,33 +98,24 @@ def mask_image(input_img, output_mask, method='bet', nthreads=1, output_img=None
         if type(input_img) is list:
             input_img = input_img[0]
 
-        ref_img    = Image(file = ref_img)
-        ref_mask   = Image(file = ref_mask)
-
         ants_output = output_root + '/ants_'
+        tmp_img = img_tools.calculate_mean_img(input_img, tmp_img._get_filename())
+        
+        ants_cmd = "antsRegistrationSyN.sh -d 3 -j 1 -y 1 -n " + str(nthreads) \
+                 + " -f " + input_img._get_filename() \
+                 + " -m " + ref_img \
+                 + " -o " + ants_output
 
-        tmp_img = img_tools.calculate_mean_img(input_img,tmp_img._get_filename())
-
-        mov_image       = ants.image_read(tmp_img._get_filename())
-        fixed_image     = ants.image_read(ref_img._get_filename())
-        fixed_mask      = ants.image_read(ref_mask._get_filename())
-
-        mov2fixed = ants.registration(moving            = mov_image,
-                                      fixed                = fixed_image,
-                                      type_of_transform    = 'SyNRA',
-                                      reg_iterations       = [1000,800,500,400,300,250] )
-
-        warped_mask = ants.apply_transforms(fixed           = mov_image,
-                                            moving          = fixed_mask,
-                                            transformlist   = mov2fixed['invtransforms'],
-                                            interpolator    = 'linear',
-                                            whichtoinvert   = [True,False] )
-
-        warped_mask_thresh = ants.threshold_image(warped_mask, ants_lower_threshold, 1, 1, 0)
-        ants.image_write(warped_mask_thresh, output_mask._get_filename())
-
-        #os.rename(ants_output+'BrainExtractionMask.nii.gz', output_mask._get_filename())
-        os.system('rm -rf ' + output_root + '/ants*')
+        subprocess.run([ants_cmd], shell=True, stdout=logfile)
+    
+        #Warp the mask
+        ants_cmd = "antsApplyTransforms -d 3 -n NearestNeighbor" \
+                 + " -i " + ref_mask \
+                 + " -r " + input_img._get_filename() \
+                 + " -o " + output_mask._get_filename()
+        subprocess.run([ants_cmd], shell=True, stdout=logfile)
+        
+        os.system("rm -rf " + output_root + "/ants*")
 
     elif method == 'antspynet':
 

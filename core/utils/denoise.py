@@ -50,7 +50,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
 
     return output_img
 
-def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output_noise=None, nthreads=0):
+def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output_noise=None, noise_model="Rician", nthreads=0):
 
     output_img = copy.deepcopy(input_img)
     output_img._set_filename(output_file)
@@ -105,6 +105,23 @@ def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output
         denoised_img.set_sform(img.get_sform())
         denoised_img.set_qform(img.get_qform())
         nib.save(denoised_img, output_img._get_filename())
+        
+        
+    elif method=="ants":
+        ants_cmd = "DenoiseImage -d 3 -i " + input_img._get_filename() \
+                 + " -n " + noise_model
+                 
+        if mask_img:
+            ants_cmd += " -x " + mask_img._get_filename()
+            
+        if output_noise:
+            ants_cmd += " -o [" + output_img._get_filename() + "," + output_noise + "]"
+        else:
+            ants_cmd += " -o " + output_img._get_filename()
+            
+        os.system(ants_cmd)
+        
+        
 
     else:
         print('Invalid Denoising Method')
