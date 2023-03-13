@@ -444,7 +444,7 @@ class AnatomicalPrepPipeline:
             T1w_brain_mask  = None
         
         
-        if T2w_acpc and not os.path.exists(T2w_bias._get_filename():
+        if T2w_acpc and not os.path.exists(T2w_bias._get_filename()):
             if not os.path.exists(T2w_denoise._get_filename()):
             
                 if args.verbose:
