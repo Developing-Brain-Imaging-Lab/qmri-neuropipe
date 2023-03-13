@@ -243,7 +243,6 @@ class AnatomicalPrepPipeline:
         T2w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
         
     
-        
         if T1w_acpc and not os.path.exists(T1w_bias._get_filename()):
             #Denoise, correct for Gibbs ringing, and BiasField correct
             T1w_robustroi       = Image(file=os.path.join(bids_output_dir, "T1w_robustroi.nii.gz"))
@@ -342,7 +341,7 @@ class AnatomicalPrepPipeline:
         
         
         #Coregister the images if both exist
-        if (T1w_acpc and T2w_acpc) and not os.path.exists(T1w_bias._get_filename()):
+        if (T1w_acpc and T2w_acpc) and (not os.path.exists(T1w_bias._get_filename()) and not os.path.exists(T2w_bias._get_filename())):
             if args.verbose:
                 print("Coregistering T1w and T2w images")
                 print(flush=True)
@@ -505,6 +504,7 @@ class AnatomicalPrepPipeline:
             print("")
         
         
+        print(T1w_bias._get_filename())
         return T1w_bias, T2w_bias, T1w_brain_mask, T2w_brain_mask
             
         

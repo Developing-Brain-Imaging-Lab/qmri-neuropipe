@@ -428,8 +428,7 @@ class DiffusionProcessingPipeline:
                 anat_pipeline = AnatomicalPrepPipeline()
                 print("TEST ANAT PROC")
                 t1w, t2w, t1w_mask, t2w_mask = anat_pipeline.run()
-                print(t1w._get_filename())
-                
+                                
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
             fmap_ref_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
