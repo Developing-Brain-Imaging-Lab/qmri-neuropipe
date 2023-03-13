@@ -460,24 +460,26 @@ class DiffusionProcessingPipeline:
                 anat_image = t1w;
                 anat_mask  = t1w_mask
             elif args.coregister_dwi_to_anat_modality == 't2w':
-                    if t1w and t2w:
-                        anat_image = t2w
-                        anat_mask  = t2w_mask
-                    elif t1w:
-                        import core.anatomical.workflows.compute_synthetic as compute_synthetic
-                        if args.verbose:
-                            print('Creating Synthetic T2w Image')
-                            
-                        anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
-                                                                             output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
-                                                                             cmd_args     = args)
+                print("TEST")
+                if t1w and t2w:
+                    print("TEST2")
+                    anat_image = t2w
+                    anat_mask  = t2w_mask
+                elif t1w:
+                    import core.anatomical.workflows.compute_synthetic as compute_synthetic
+                    if args.verbose:
+                        print('Creating Synthetic T2w Image')
+                        
+                    anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
+                                                                         output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
+                                                                         cmd_args     = args)
                         anat_mask  = t1w_mask
             else:
                 print('No anatomical image!')
                 exit()
                 
             
-            print('ANATOMICAL IMAGE:' + anat_image._get_filename())
+        print('ANATOMICAL IMAGE:' + anat_image._get_filename())
                     
 
 
