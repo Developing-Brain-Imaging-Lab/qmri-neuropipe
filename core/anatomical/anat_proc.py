@@ -194,6 +194,8 @@ class AnatomicalPrepPipeline:
         bids_rawdata_dir    = writing.build_path(entities, rawdata_patterns)
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
         bids_output_dir     = os.path.join(bids_derivative_dir, "anat")
+        
+
             
         if not os.path.exists(bids_output_dir):
             os.makedirs(bids_output_dir)
@@ -229,7 +231,20 @@ class AnatomicalPrepPipeline:
         
         brain_mask     = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.nii.gz"))
         
-        if T1w_acpc:
+        
+        T1w_denoise    = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T1w.nii.gz"))
+        T1w_noise_map  = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T1w.nii.gz"))
+        T1w_gibbs      = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T1w.nii.gz"))
+        T1w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
+        
+        T2w_denoise    = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T2w.nii.gz"))
+        T2w_noise_map  = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T2w.nii.gz"))
+        T2w_gibbs      = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T2w.nii.gz"))
+        T2w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
+        
+    
+        
+        if T1w_acpc and not os.path.exists(T1w_bias._get_filename()):
             #Denoise, correct for Gibbs ringing, and BiasField correct
             T1w_robustroi       = Image(file=os.path.join(bids_output_dir, "T1w_robustroi.nii.gz"))
             T1w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T1w_robustroi_mask.nii.gz"))
@@ -278,7 +293,7 @@ class AnatomicalPrepPipeline:
             T1w_brain_mask  = None
             
             
-        if T2w_acpc:
+        if T2w_acpc not os.path.exists(T2w_bias._get_filename()):
             T2w_robustroi       = Image(file=os.path.join(bids_output_dir, "T2w_robustroi.nii.gz"))
             T2w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T2w_robustroi_mask.nii.gz"))
             T2w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
@@ -327,7 +342,7 @@ class AnatomicalPrepPipeline:
         
         
         #Coregister the images if both exist
-        if T1w_acpc and T2w_acpc:
+        if (T1w_acpc and T2w_acpc) and not os.path.exists(T1w_bias._get_filename()):
             if args.verbose:
                 print("Coregistering T1w and T2w images")
                 print(flush=True)
@@ -378,17 +393,8 @@ class AnatomicalPrepPipeline:
             T1w_brain_mask = brain_mask
             T2w_brain_mask = brain_mask
          
-        T1w_denoise    = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T1w.nii.gz"))
-        T1w_noise_map  = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T1w.nii.gz"))
-        T1w_gibbs      = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T1w.nii.gz"))
-        T1w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
-        
-        T2w_denoise    = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T2w.nii.gz"))
-        T2w_noise_map  = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T2w.nii.gz"))
-        T2w_gibbs      = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T2w.nii.gz"))
-        T2w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
  
-        if T1w_acpc:
+        if T1w_acpc and not os.path.exists(T1w_bias._get_filename()):
             if not os.path.exists(T1w_denoise._get_filename()):
                 if args.verbose:
                     print("Denoising T1w...", flush = True)
@@ -438,7 +444,7 @@ class AnatomicalPrepPipeline:
             T1w_brain_mask  = None
         
         
-        if T2w_acpc:
+        if T2w_acpc and not os.path.exists(T2w_bias._get_filename():
             if not os.path.exists(T2w_denoise._get_filename()):
             
                 if args.verbose:
