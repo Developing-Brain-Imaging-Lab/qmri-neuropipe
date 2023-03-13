@@ -500,7 +500,10 @@ class AnatomicalPrepPipeline:
             T2w_bias        = None
             T2w_brain_mask  = None
         
-
+        
+        if T2w_bias and T1w_bias:
+            T1w_brain_mask = brain_mask
+            T2w_brain_mask = brain_mask
         
         if args.verbose:
             print("Anatomical Processing Successful")
