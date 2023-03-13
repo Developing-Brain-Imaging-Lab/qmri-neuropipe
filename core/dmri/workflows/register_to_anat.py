@@ -124,7 +124,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                              dof            = dof,
                              flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -interp sinc')
 
-        if reg_method == 'bbr' or reg_method == 'nonlinear':
+        if reg_method == 'bbr':
             #Create WM segmentation from structural image
             wmseg_img = seg_tools.create_wmseg(input_img        = ref_img[0],
                                                brain_mask       = anat_mask,
