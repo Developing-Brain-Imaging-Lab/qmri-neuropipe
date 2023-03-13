@@ -426,7 +426,9 @@ class DiffusionProcessingPipeline:
         else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_eddy_current_correction == 'tortoise-diffprep'):
                 anat_pipeline = AnatomicalPrepPipeline()
+                print("TEST ANAT PROC")
                 t1w, t2w, t1w_mask, t2w_mask = anat_pipeline.run()
+                print(t1w._get_filename())
                 
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
