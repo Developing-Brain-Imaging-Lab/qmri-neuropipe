@@ -426,7 +426,6 @@ class DiffusionProcessingPipeline:
         else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_eddy_current_correction == 'tortoise-diffprep'):
                 anat_pipeline = AnatomicalPrepPipeline()
-                print("TEST ANAT PROC")
                 t1w, t2w, t1w_mask, t2w_mask = anat_pipeline.run()
                                 
         if args.dwi_dist_corr == 'Fieldmap':
@@ -461,9 +460,7 @@ class DiffusionProcessingPipeline:
                 anat_image = t1w;
                 anat_mask  = t1w_mask
             elif args.coregister_dwi_to_anat_modality == 't2w':
-                print("TEST")
                 if t1w and t2w:
-                    print("TEST2")
                     anat_image = t2w
                     anat_mask  = t2w_mask
                 elif t1w:
@@ -479,8 +476,6 @@ class DiffusionProcessingPipeline:
                 print('No anatomical image!')
                 exit()
                 
-        print(t1w._get_filename())
-        print(t2w._get_filename())
         print('ANATOMICAL IMAGE:' + anat_image._get_filename())
                     
 

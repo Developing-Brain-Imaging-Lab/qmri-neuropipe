@@ -507,7 +507,6 @@ class AnatomicalPrepPipeline:
             print("")
         
         
-        print(T1w_bias._get_filename())
         return T1w_bias, T2w_bias, T1w_brain_mask, T2w_brain_mask
             
         
