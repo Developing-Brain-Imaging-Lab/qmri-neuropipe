@@ -293,7 +293,7 @@ class AnatomicalPrepPipeline:
             T1w_brain_mask  = None
             
             
-        if T2w_acpc not os.path.exists(T2w_bias._get_filename()):
+        if T2w_acpc and not os.path.exists(T2w_bias._get_filename()):
             T2w_robustroi       = Image(file=os.path.join(bids_output_dir, "T2w_robustroi.nii.gz"))
             T2w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T2w_robustroi_mask.nii.gz"))
             T2w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
