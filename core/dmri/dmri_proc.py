@@ -399,7 +399,8 @@ class DiffusionProcessingPipeline:
 
         t1w=None
         t2w=None
-        anat_mask=None
+        t1w_mask=None
+        t2w_mask=None
         
         fmap_image=None
         fmap_ref_image=None
@@ -413,19 +414,19 @@ class DiffusionProcessingPipeline:
                 os.makedirs(bids_derivative_dir+'/anat/')
             
             t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
-            anat_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
+            t1w_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
             
             freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
             freesurfer_mask = freesurfer_subjs_dir + bids_id + '/mri/brainmask.mgz'
             
             #Convert to NIFTI
             os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w._get_filename())
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask._get_filename())
+            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + t1w_mask._get_filename())
             
         else:
             if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_eddy_current_correction == 'tortoise-diffprep'):
                 anat_pipeline = AnatomicalPrepPipeline()
-                t1w, t2w, anat_mask = anat_pipeline.run()
+                t1w, t2w, t1w_mask, t2w_mask = anat_pipeline.run()
                 
         if args.dwi_dist_corr == 'Fieldmap':
             fmap_image=Image(file = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
@@ -435,34 +436,42 @@ class DiffusionProcessingPipeline:
         #Check if TORTOISE or coregistration anatomy being performed and ensure image exists
         #First determine the anatomical image to use
         anat_image = None
+        anat_mask  = None
         if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
             if args.dwi_eddy_current_correction == 'tortoise-diffprep':
                 if t2w and t1w:
-                    anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
+                    anat_image = t2w
+                    anat_mask  = t2w_mask
                 elif t2w:
-                    anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T2w.nii.gz')
+                    anat_image = t2w
+                    anat_mask  = t2w_mask
                 elif t1w:
                     #Then create synthetic T2w using T1w
                     import core.anatomical.workflows.compute_synthetic as compute_synthetic
                     if args.verbose:
                         print('Creating Synthetic T2w Image')
                             
-                    anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                    anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
                                                                          output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
                                                                          cmd_args     = args)
+                    anat_mask = t1w_mask
+                    
             elif args.coregister_dwi_to_anat_modality == 't1w' and t1w:
-                anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz');
+                anat_image = t1w;
+                anat_mask  = t1w_mask
             elif args.coregister_dwi_to_anat_modality == 't2w':
                     if t1w and t2w:
-                        anat_image = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_space-individual-T1w_T2w.nii.gz')
+                        anat_image = t2w
+                        anat_mask  = t2w_mask
                     elif t1w:
                         import core.anatomical.workflows.compute_synthetic as compute_synthetic
                         if args.verbose:
                             print('Creating Synthetic T2w Image')
                             
-                        anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz'),
+                        anat_image = compute_synthetic.compute_synthetic_t2w(input_t1w    = t1w,
                                                                              output_dir   = os.path.join(preproc_dir, 'synthetic_t2w/'),
                                                                              cmd_args     = args)
+                        anat_mask  = t1w_mask
             else:
                 print('No anatomical image!')
                 exit()
@@ -491,7 +500,7 @@ class DiffusionProcessingPipeline:
                                                              outlier_detection      = args.dwi_outlier_detection,
                                                              check_gradients        = args.dwi_check_gradients,
                                                              t1w_img                = t1w,
-                                                             t1w_mask               = anat_mask,
+                                                             t1w_mask               = t1w_mask,
                                                              cmd_args               = args,
                                                              verbose                = args.verbose)
 
