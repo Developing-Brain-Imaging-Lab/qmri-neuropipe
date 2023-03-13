@@ -478,7 +478,8 @@ class DiffusionProcessingPipeline:
                 print('No anatomical image!')
                 exit()
                 
-            
+        print(t1w._get_filename())
+        print(t2w._get_filename())
         print('ANATOMICAL IMAGE:' + anat_image._get_filename())
                     
 
