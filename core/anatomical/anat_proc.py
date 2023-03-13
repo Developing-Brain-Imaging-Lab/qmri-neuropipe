@@ -243,97 +243,99 @@ class AnatomicalPrepPipeline:
         T2w_bias       = Image(file = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
         
     
-        if T1w_acpc and not os.path.exists(T1w_bias._get_filename()):
-            #Denoise, correct for Gibbs ringing, and BiasField correct
-            T1w_robustroi       = Image(file=os.path.join(bids_output_dir, "T1w_robustroi.nii.gz"))
-            T1w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T1w_robustroi_mask.nii.gz"))
-            T1w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
+        if T1w_acpc:
+            if not os.path.exists(T1w_bias._get_filename()):
+                #Denoise, correct for Gibbs ringing, and BiasField correct
+                T1w_robustroi       = Image(file=os.path.join(bids_output_dir, "T1w_robustroi.nii.gz"))
+                T1w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T1w_robustroi_mask.nii.gz"))
+                T1w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
 
-            CMD = "robustfov -i " + T1w_acpc._get_filename() \
-                  + " -m " + T1w_roi2full_mat \
-                  + " -r " + T1w_robustroi._get_filename() \
-                  + " -b " + str(args.brain_size)
-            subprocess.run([CMD], shell=True, stdout=logfile)
-                  
-            #Now run the mask
-            if not os.path.exists(T1w_brain_mask._get_filename()):
-                if args.verbose:
-                    print("Masking T1w image...", flush=True)
-                mask.mask_image(input_img            = T1w_robustroi,
-                                output_mask          = T1w_robustroi_mask,
-                                method               = args.anat_mask_method,
-                                nthreads             = args.nthreads,
-                                ref_img              = args.anat_t1w_ants_mask_template,
-                                ref_mask             = args.anat_t1w_ants_mask_template_mask,
-                                antspynet_modality   = args.anat_antspynet_modality,
-                                logfile              = logfile)
-                if args.verbose:
-                    print("Successful T1w Masking", flush=True)
-                    print(flush=True)
-                    
-                CMD = "applywarp --rel --interp=nn -i " + T1w_robustroi_mask._get_filename() \
-                          + " -r " + T1w_acpc._get_filename() \
-                          + " --premat=" + T1w_roi2full_mat \
-                          + " -o " + T1w_brain_mask._get_filename()
+                CMD = "robustfov -i " + T1w_acpc._get_filename() \
+                      + " -m " + T1w_roi2full_mat \
+                      + " -r " + T1w_robustroi._get_filename() \
+                      + " -b " + str(args.brain_size)
                 subprocess.run([CMD], shell=True, stdout=logfile)
-                          
-                #Create brain image
-                if args.verbose:
-                    print("Applying mask to T1w image...", flush=True)
-                mask.apply_mask(input_img   = T1w_acpc,
-                                mask_img    = T1w_brain_mask,
-                                output_img  = T1w_brain)
-                if args.verbose:
-                    print("Finished applying mask to T1w image", flush=True)
-                #Clean up the ROBUSTFOV files
+                      
+                #Now run the mask
+                if not os.path.exists(T1w_brain_mask._get_filename()):
+                    if args.verbose:
+                        print("Masking T1w image...", flush=True)
+                    mask.mask_image(input_img            = T1w_robustroi,
+                                    output_mask          = T1w_robustroi_mask,
+                                    method               = args.anat_mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.anat_t1w_ants_mask_template,
+                                    ref_mask             = args.anat_t1w_ants_mask_template_mask,
+                                    antspynet_modality   = args.anat_antspynet_modality,
+                                    logfile              = logfile)
+                    if args.verbose:
+                        print("Successful T1w Masking", flush=True)
+                        print(flush=True)
+                        
+                    CMD = "applywarp --rel --interp=nn -i " + T1w_robustroi_mask._get_filename() \
+                              + " -r " + T1w_acpc._get_filename() \
+                              + " --premat=" + T1w_roi2full_mat \
+                              + " -o " + T1w_brain_mask._get_filename()
+                    subprocess.run([CMD], shell=True, stdout=logfile)
+                              
+                    #Create brain image
+                    if args.verbose:
+                        print("Applying mask to T1w image...", flush=True)
+                    mask.apply_mask(input_img   = T1w_acpc,
+                                    mask_img    = T1w_brain_mask,
+                                    output_img  = T1w_brain)
+                    if args.verbose:
+                        print("Finished applying mask to T1w image", flush=True)
+                    #Clean up the ROBUSTFOV files
                                 
         else:
             T1w_brain       = None
             T1w_brain_mask  = None
             
             
-        if T2w_acpc and not os.path.exists(T2w_bias._get_filename()):
-            T2w_robustroi       = Image(file=os.path.join(bids_output_dir, "T2w_robustroi.nii.gz"))
-            T2w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T2w_robustroi_mask.nii.gz"))
-            T2w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
+        if T2w_acpc:
+            if not os.path.exists(T2w_bias._get_filename()):
+                T2w_robustroi       = Image(file=os.path.join(bids_output_dir, "T2w_robustroi.nii.gz"))
+                T2w_robustroi_mask  = Image(file=os.path.join(bids_output_dir, "T2w_robustroi_mask.nii.gz"))
+                T2w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
 
-            CMD = "robustfov -i " + T2w_acpc._get_filename() \
-                  + " -m " + T2w_roi2full_mat \
-                  + " -r " + T2w_robustroi._get_filename() \
-                  + " -b " + str(args.brain_size)
-            subprocess.run([CMD], shell=True, stdout=logfile)
-                  
-            #Now run the mask
-            if not os.path.exists(T2w_brain_mask._get_filename()):
-                if args.verbose:
-                    print("Masking T2w image...", flush=True)
-                mask.mask_image(input_img            = T2w_robustroi,
-                                output_mask          = T2w_robustroi_mask,
-                                method               = args.anat_mask_method,
-                                nthreads             = args.nthreads,
-                                ref_img              = args.anat_t2w_ants_mask_template,
-                                ref_mask             = args.anat_t2w_ants_mask_template_mask,
-                                antspynet_modality   = args.anat_antspynet_modality,
-                                logfile              = logfile)
-                if args.verbose:
-                    print("Successful T2w Masking", flush=True)
-                    print(flush=True)
-                
-                #Convert back to full ROI
-                CMD = "applywarp --rel --interp=nn -i " + T2w_robustroi_mask._get_filename() \
-                          + " -r " + T2w_acpc._get_filename() \
-                          + " --premat=" + T2w_roi2full_mat \
-                          + " -o " + T2w_brain_mask._get_filename()
+                CMD = "robustfov -i " + T2w_acpc._get_filename() \
+                      + " -m " + T2w_roi2full_mat \
+                      + " -r " + T2w_robustroi._get_filename() \
+                      + " -b " + str(args.brain_size)
                 subprocess.run([CMD], shell=True, stdout=logfile)
-                          
-                #Create brain image
-                if args.verbose:
-                    print("Applying mask to T2w image...", flush=True)
-                mask.apply_mask(input_img   = T2w_acpc,
-                                mask_img    = T2w_brain_mask,
-                                output_img  = T2w_brain)
-                if args.verbose:
-                    print("Finished applying mask to T2w image", flush=True)
+                      
+                #Now run the mask
+                if not os.path.exists(T2w_brain_mask._get_filename()):
+                    if args.verbose:
+                        print("Masking T2w image...", flush=True)
+                    mask.mask_image(input_img            = T2w_robustroi,
+                                    output_mask          = T2w_robustroi_mask,
+                                    method               = args.anat_mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.anat_t2w_ants_mask_template,
+                                    ref_mask             = args.anat_t2w_ants_mask_template_mask,
+                                    antspynet_modality   = args.anat_antspynet_modality,
+                                    logfile              = logfile)
+                    if args.verbose:
+                        print("Successful T2w Masking", flush=True)
+                        print(flush=True)
+                    
+                    #Convert back to full ROI
+                    CMD = "applywarp --rel --interp=nn -i " + T2w_robustroi_mask._get_filename() \
+                              + " -r " + T2w_acpc._get_filename() \
+                              + " --premat=" + T2w_roi2full_mat \
+                              + " -o " + T2w_brain_mask._get_filename()
+                    subprocess.run([CMD], shell=True, stdout=logfile)
+                              
+                    #Create brain image
+                    if args.verbose:
+                        print("Applying mask to T2w image...", flush=True)
+                    mask.apply_mask(input_img   = T2w_acpc,
+                                    mask_img    = T2w_brain_mask,
+                                    output_img  = T2w_brain)
+                    if args.verbose:
+                        print("Finished applying mask to T2w image", flush=True)
                                 
         else:
             T2w_brain       = None
@@ -393,105 +395,106 @@ class AnatomicalPrepPipeline:
             T2w_brain_mask = brain_mask
          
  
-        if T1w_acpc and not os.path.exists(T1w_bias._get_filename()):
-            if not os.path.exists(T1w_denoise._get_filename()):
-                if args.verbose:
-                    print("Denoising T1w...", flush = True)
-                    
-                T1w_denoise = denoise.denoise_image(input_img     = T1w_acpc,
-                                                    output_file   = T1w_denoise._get_filename(),
-                                                    method        = args.anat_denoise_method,
-                                                    output_noise  = T1w_noise_map._get_filename(),
-                                                    nthreads      = args.nthreads)
-                if args.verbose:
-                    print("Denoising Successful", flush = True)
-                    print(flush = True)
-                    
-            if not os.path.exists(T1w_gibbs._get_filename()):
-                if args.verbose:
-                    print("Correcting T1w Gibbs Ringing...", flush = True)
-            
-                T1w_gibbs = denoise.gibbs_ringing_correction(input_img     = T1w_denoise,
-                                                             output_file   = T1w_gibbs._get_filename(),
-                                                             method        = "mrtrix",
-                                                             nthreads      = args.nthreads)
-                if args.verbose:
-                    print("T1w Gibbs Ringing Correction Successful", flush = True)
-                    print(flush = True)
-                    
+        if T1w_acpc:
             if not os.path.exists(T1w_bias._get_filename()):
-                if args.verbose:
-                    print("Correcting T1w Bias Field...", flush = True)
-                    
-                CMD = "N4BiasFieldCorrection -d 3 -i " + T1w_gibbs._get_filename() + " -o " + T1w_bias._get_filename()
-                subprocess.run([CMD], shell=True, stdout=logfile)
-
-                if args.verbose:
-                    print("T1w Bias Field Correction Successful", flush = True)
-
-                if(args.sharpen_images):
+                if not os.path.exists(T1w_denoise._get_filename()):
                     if args.verbose:
-                        print("Sharpening T1w image contrast", flush=True)
-                    CMD = "ImageMath 3 " + T1w_bias._get_filename() + " Sharpen " + T1w_bias._get_filename()
+                        print("Denoising T1w...", flush = True)
+                        
+                    T1w_denoise = denoise.denoise_image(input_img     = T1w_acpc,
+                                                        output_file   = T1w_denoise._get_filename(),
+                                                        method        = args.anat_denoise_method,
+                                                        output_noise  = T1w_noise_map._get_filename(),
+                                                        nthreads      = args.nthreads)
+                    if args.verbose:
+                        print("Denoising Successful", flush = True)
+                        print(flush = True)
+                        
+                if not os.path.exists(T1w_gibbs._get_filename()):
+                    if args.verbose:
+                        print("Correcting T1w Gibbs Ringing...", flush = True)
+                
+                    T1w_gibbs = denoise.gibbs_ringing_correction(input_img     = T1w_denoise,
+                                                                 output_file   = T1w_gibbs._get_filename(),
+                                                                 method        = "mrtrix",
+                                                                 nthreads      = args.nthreads)
+                    if args.verbose:
+                        print("T1w Gibbs Ringing Correction Successful", flush = True)
+                        print(flush = True)
+                        
+                if not os.path.exists(T1w_bias._get_filename()):
+                    if args.verbose:
+                        print("Correcting T1w Bias Field...", flush = True)
+                        
+                    CMD = "N4BiasFieldCorrection -d 3 -i " + T1w_gibbs._get_filename() + " -o " + T1w_bias._get_filename()
                     subprocess.run([CMD], shell=True, stdout=logfile)
-                    
+
                     if args.verbose:
-                        print("T1w Sharpening Successful", flush = True)
-        
+                        print("T1w Bias Field Correction Successful", flush = True)
+
+                    if(args.sharpen_images):
+                        if args.verbose:
+                            print("Sharpening T1w image contrast", flush=True)
+                        CMD = "ImageMath 3 " + T1w_bias._get_filename() + " Sharpen " + T1w_bias._get_filename()
+                        subprocess.run([CMD], shell=True, stdout=logfile)
+                        
+                        if args.verbose:
+                            print("T1w Sharpening Successful", flush = True)
         else:
             T1w_bias        = None
             T1w_brain_mask  = None
         
         
-        if T2w_acpc and not os.path.exists(T2w_bias._get_filename()):
-            if not os.path.exists(T2w_denoise._get_filename()):
-            
-                if args.verbose:
-                    print("Denoising T2w...", flush = True)
-                    
-                T2w_denoise = denoise.denoise_image(input_img     = T2w_acpc,
-                                                    output_file   = T2w_denoise._get_filename(),
-                                                    method        = args.anat_denoise_method,
-                                                    output_noise  = T2w_noise_map._get_filename(),
-                                                    nthreads      = args.nthreads)
-  
-                if args.verbose:
-                    print("Denoising Successful", flush = True)
-                    print(flush = True)
-  
-            if not os.path.exists(T2w_gibbs._get_filename()):
-                if args.verbose:
-                    print("Correcting T2w Gibbs Ringing...", flush = True)
-                    
-                T2w_gibbs = denoise.gibbs_ringing_correction(input_img     = T2w_denoise,
-                                                             output_file   = T2w_gibbs._get_filename(),
-                                                             method        = "mrtrix",
-                                                             nthreads      = args.nthreads)
-                    
-                if args.verbose:
-                    print("T2w Gibbs Ringing Correction Successful", flush = True)
-                    print(flush = True)
-                    
+        if T2w_acpc:
             if not os.path.exists(T2w_bias._get_filename()):
-                if args.verbose:
-                    print("Correcting T2w Bias Field...", flush = True)
-                    
-                CMD = "N4BiasFieldCorrection -d 3 -i " + T2w_gibbs._get_filename() + " -o " + T2w_bias._get_filename()
-                subprocess.run([CMD], shell=True, stdout=logfile)
-
-                if args.verbose:
-                    print("T2w Bias Field Correction Successful", flush = True)
-
-                if(args.sharpen_images):
+                if not os.path.exists(T2w_denoise._get_filename()):
+                
                     if args.verbose:
-                        print("Sharpening T2w image contrast", flush=True)
-                    
-                    CMD = "ImageMath 3 " + T2w_bias._get_filename() + " Sharpen " + T2w_bias._get_filename()
+                        print("Denoising T2w...", flush = True)
+                        
+                    T2w_denoise = denoise.denoise_image(input_img     = T2w_acpc,
+                                                        output_file   = T2w_denoise._get_filename(),
+                                                        method        = args.anat_denoise_method,
+                                                        output_noise  = T2w_noise_map._get_filename(),
+                                                        nthreads      = args.nthreads)
+      
+                    if args.verbose:
+                        print("Denoising Successful", flush = True)
+                        print(flush = True)
+      
+                if not os.path.exists(T2w_gibbs._get_filename()):
+                    if args.verbose:
+                        print("Correcting T2w Gibbs Ringing...", flush = True)
+                        
+                    T2w_gibbs = denoise.gibbs_ringing_correction(input_img     = T2w_denoise,
+                                                                 output_file   = T2w_gibbs._get_filename(),
+                                                                 method        = "mrtrix",
+                                                                 nthreads      = args.nthreads)
+                        
+                    if args.verbose:
+                        print("T2w Gibbs Ringing Correction Successful", flush = True)
+                        print(flush = True)
+                        
+                if not os.path.exists(T2w_bias._get_filename()):
+                    if args.verbose:
+                        print("Correcting T2w Bias Field...", flush = True)
+                        
+                    CMD = "N4BiasFieldCorrection -d 3 -i " + T2w_gibbs._get_filename() + " -o " + T2w_bias._get_filename()
                     subprocess.run([CMD], shell=True, stdout=logfile)
-                    
+
                     if args.verbose:
-                        print("T2w Sharpening Successful", flush = True)
-                        print(flush=True)
+                        print("T2w Bias Field Correction Successful", flush = True)
+
+                    if(args.sharpen_images):
+                        if args.verbose:
+                            print("Sharpening T2w image contrast", flush=True)
+                        
+                        CMD = "ImageMath 3 " + T2w_bias._get_filename() + " Sharpen " + T2w_bias._get_filename()
+                        subprocess.run([CMD], shell=True, stdout=logfile)
+                        
+                        if args.verbose:
+                            print("T2w Sharpening Successful", flush = True)
+                            print(flush=True)
                     
         else:
             T2w_bias        = None
