@@ -319,7 +319,7 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
     dwi_img         = nib.load(input_dwi._get_filename())
     bvals, bvecs    = read_bvals_bvecs(input_dwi._get_bvals(), input_dwi._get_bvecs())
     index           = np.loadtxt(input_dwi._get_index())
-    aff             = dwi_img.get_affine()
+    aff             = dwi_img.affine
     sform           = dwi_img.get_sform()
     qform           = dwi_img.get_qform()
     dwi_data        = dwi_img.get_fdata()
