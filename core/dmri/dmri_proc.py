@@ -460,7 +460,7 @@ class DiffusionProcessingPipeline:
                 anat_image = t1w;
                 anat_mask  = t1w_mask
             elif args.coregister_dwi_to_anat_modality == 't2w':
-                if t1w and t2w:
+                if (t1w and t2w) or t2w:
                     anat_image = t2w
                     anat_mask  = t2w_mask
                 elif t1w:
@@ -475,7 +475,11 @@ class DiffusionProcessingPipeline:
             else:
                 print('No anatomical image!')
                 exit()
-                
+
+        if t1w:
+            print(t1w._get_filename())
+        if t2w:
+            print(t2w._get_filename())  
         print('ANATOMICAL IMAGE:' + anat_image._get_filename())
                     
 
