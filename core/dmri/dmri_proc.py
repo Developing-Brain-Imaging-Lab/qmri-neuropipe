@@ -752,13 +752,7 @@ class DiffusionProcessingPipeline:
                 print("Running Registration to Standard Space")
 
             registration_pipeline = DiffusionNormalizationPipeline()
-            
-            registration_pipeline.run(bids_dir             = args.bids_dir,
-                                      bids_pipeline_name   = args.bids_pipeline_name,
-                                      nthreads             = args.nthreads,
-                                      subject              = args.subject,
-                                      session              = args.session,
-                                      standard_template    = args.dwi_standard_template)
+            registration_pipeline.run()
 
 
 
