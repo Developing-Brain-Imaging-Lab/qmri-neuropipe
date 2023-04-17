@@ -99,7 +99,7 @@ class DiffusionNormalizationPipeline:
                 + " -m " + fa_map \
                 + " -f " + args.standard_template \
                 + " -o " + output_base \
-                + " -n " + args.nthreads \
+                + " -n " + str(args.nthreads) \
                 + " -e 0 -j 1"
             
             os.system(cmd)
