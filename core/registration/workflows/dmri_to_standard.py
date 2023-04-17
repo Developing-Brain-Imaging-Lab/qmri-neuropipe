@@ -95,12 +95,12 @@ class DiffusionNormalizationPipeline:
 
         if os.path.exists(fa_map):
 
-            cmd = 'antsRegistrationSyN.sh -d 3' \
-                + ' -m ' + fa_map \
-                + ' -f ' + args.standard_template \
-                + ' -o ' + output_base \
-                + ' -n ' + args.nthreads \
-                + ' -e 0 -j 1'
+            cmd = "antsRegistrationSyN.sh -d 3" \
+                + " -m " + fa_map \
+                + " -f " + args.standard_template \
+                + " -o " + output_base \
+                + " -n " + args.nthreads \
+                + " -e 0 -j 1"
             
             os.system(cmd)
 
