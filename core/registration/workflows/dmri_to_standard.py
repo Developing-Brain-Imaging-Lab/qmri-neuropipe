@@ -47,7 +47,7 @@ class DiffusionNormalizationPipeline:
                             help='Subject Timepoint',
                             default=None)
         
-        parser.add_argument('--standard_template',
+        parser.add_argument('--dwi_standard_template',
                             type=str,
                             help='Template to use for registration',
                             default=None)
