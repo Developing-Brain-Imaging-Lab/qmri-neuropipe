@@ -95,16 +95,13 @@ class DiffusionNormalizationPipeline:
 
         if os.path.exists(fa_map):
 
-            ants.syn(input_image           = fa_map,
-                    ref_image              = args.standard_template,
-                    output_base            = output_base,
-                    threads                = args.nthreads,
-                    linear_metric          = 'MI',
-                    linear_convergence     = '[ 2500x1000x500x250,1e-9, 6 ]',
-                    nonlinear_metric       = 'CC',
-                    nonlinear_convergence  = '[ 150x90x60x40,1e-8, 4 ]',
-                    winsorize              = '[0.005, 0.995]',
-                    use_histogram          = True,
-                    verbose                = True)
+            cmd = 'antsRegistrationSyN.sh -d 3' \
+                + ' -m ' + fa_map \
+                + ' -f ' + args.standard_template \
+                + ' -o ' + output_base \
+                + ' -n ' + args.nthreads \
+                + ' -e 0 -j 1'
+            
+            os.system(cmd)
 
 
