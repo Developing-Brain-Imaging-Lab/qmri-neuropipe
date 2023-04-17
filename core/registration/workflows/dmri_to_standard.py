@@ -97,7 +97,7 @@ class DiffusionNormalizationPipeline:
 
             cmd = "antsRegistrationSyN.sh -d 3" \
                 + " -m " + fa_map \
-                + " -f " + args.standard_template \
+                + " -f " + args.dwi_standard_template \
                 + " -o " + output_base \
                 + " -n " + str(args.nthreads) \
                 + " -e 0 -j 1"
