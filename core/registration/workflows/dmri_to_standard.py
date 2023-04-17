@@ -27,6 +27,11 @@ class DiffusionNormalizationPipeline:
         parser.add_argument('--bids_pipeline_name',
                     type=str, help='BIDS PIPELINE Name',
                     default='qmri-neuropipe')
+    
+        parser.add_argument('--load_json',
+                        type=str, 
+                        help='Load settings from file in json format. Command line options are overriden by values in file.',
+                        default=None)
         
         parser.add_argument('--nthreads',
                         type=int,
