@@ -23,6 +23,8 @@ from core.dmri.models.dki import DKI_Model
 from core.dmri.models.csd import CSD_Model
 from core.dmri.models.noddi import NODDI_Model
 
+from core.registration.workflows.dmri_to_standard import DiffusionNormalizationPipeline
+
 class DiffusionProcessingPipeline:
 
     def __init__(self, verbose=False):
@@ -347,6 +349,16 @@ class DiffusionProcessingPipeline:
                             type=bool,
                             help='Perform Microscopic Kurtosis modeling',
                             default=False)
+        
+        parser.add_argument('--dwi_to_standard',
+                            type=bool,
+                            help="Perform registration to standard space",
+                            default=False)
+        
+        parser.add_argument('--dwi_standard_template',
+                            type=str,
+                            help="Standard template file",
+                            default=None)
 
         parser.add_argument('--setup_gbss',
                             type=bool,
@@ -732,6 +744,21 @@ class DiffusionProcessingPipeline:
                                       csf_response  = args.csd_csf_response_function,
                                       nthreads      = args.nthreads)
                 csd_model.fit()
+
+
+        if args.dwi_to_standard:
+
+            if args.verbose:
+                print("Running Registration to Standard Space")
+
+            registration_pipeline = DiffusionNormalizationPipeline()
+            
+            registration_pipeline.run(bids_dir             = args.bids_dir,
+                                      bids_pipeline_name   = args.bids_pipeline_name,
+                                      nthreads             = args.nthreads,
+                                      subject              = args.subject,
+                                      session              = args.session,
+                                      standard_template    = args.dwi_standard_template)
 
 
 
