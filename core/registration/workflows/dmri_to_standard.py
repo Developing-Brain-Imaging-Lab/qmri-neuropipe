@@ -78,7 +78,7 @@ class DiffusionNormalizationPipeline:
 
         models_dir          = os.path.join(bids_derivative_dir, "dwi", "models" )
         registration_dir    = os.path.join(bids_derivative_dir, "dwi", 'registration-to-standard/')
-        normalization_dir   = os.path.join(bids_derivative_dir, "dwi", 'normalized-to-standard/')
+        normalization_dir   = os.path.join(bids_derivative_dir, "dwi", 'models-standard/')
 
         if not os.path.exists(registration_dir):
             os.makedirs(registration_dir)
@@ -93,8 +93,7 @@ class DiffusionNormalizationPipeline:
 
         output_base = os.path.join(registration_dir, bids_id+"_desc-RegistrationToStandard_")
 
-        if os.path.exists(fa_map):
-
+        if os.path.exists(fa_map) and not os.path.exists(output_base+"1Warp.nii.gz"):
             cmd = "antsRegistrationSyN.sh -d 3" \
                 + " -m " + fa_map \
                 + " -f " + args.dwi_standard_template \
@@ -104,9 +103,37 @@ class DiffusionNormalizationPipeline:
             
             os.system(cmd)
             
+        #Warp DTI model parameters
+        images_to_warp = []
+        images_to_warp.append("model-DTI_parameter-FA.nii.gz")
+        images_to_warp.append("model-DTI_parameter-MD.nii.gz") 
+        images_to_warp.append("model-DTI_parameter-RD.nii.gz")
+        images_to_warp.append("model-DTI_parameter-AD.nii.gz")
+        images_to_warp.append("model-DTI_parameter-L1.nii.gz")
+        images_to_warp.append("model-DTI_parameter-L2.nii.gz")
+        images_to_warp.append("model-DTI_parameter-L3.nii.gz")
+        images_to_warp.append("model-DTI_parameter-V1.nii.gz")
+        images_to_warp.append("model-DTI_parameter-V2.nii.gz") 
+        images_to_warp.append("model-DTI_parameter-V3.nii.gz")
+        images_to_warp.append("model-DTI_parameter-TENSOR.nii.gz") 
+        images_to_warp.append("model-DTI_parameter-FSL_TENSOR.nii.gz") 
+        images_to_warp.append("model-DTI_parameter-MRTRIX_TENSOR.nii.gz") 
 
-            #Add in the Warp of DTI model parameters
+        norm_dti_dir = os.path.join(normalization_dir, "DTI")
+        if not os.path.exists(norm_dti_dir):
+            os.makedirs(norm_dti_dir)
 
+        for param in images_to_warp:
+            in_img  = os.path.join(dti_dir, bids_id+"_"+param)
+            out_img = os.path.join(norm_dti_dir, bids_id+"_space-Standard_"+param)
+
+            if not os.path.exists(out_img):
+                cmd = "antsApplyTransforms -d 3 -i " in_img \
+                    + ' -o ' + out_img \
+                    + ' -r ' + args.dwi_standard_template \
+                    + ' -t ' +  output_base+"1Warp.nii.gz" \
+                    + ' -t ' + output_base+"0GenericAffine.txt"
+                os.system(cmd)
 
 
             #Add in Warp of other model parameters (if exists)
