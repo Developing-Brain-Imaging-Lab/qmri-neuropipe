@@ -132,10 +132,30 @@ class DiffusionNormalizationPipeline:
                     + ' -o ' + out_img \
                     + ' -r ' + args.dwi_standard_template \
                     + ' -t ' +  output_base+"1Warp.nii.gz" \
-                    + ' -t ' + output_base+"0GenericAffine.txt"
+                    + ' -t ' + output_base+"0GenericAffine.mat"
                 os.system(cmd)
 
 
-            #Add in Warp of other model parameters (if exists)
+        #Add in Warp of other model parameters (if exists)
+        noddi_dir       = os.path.join(models_dir, args.noddi_fit_method)
+        norm_noddi_dir  = os.path.join(normalization_dir, args.noddi_fit_method)
+        if not os.path.exists(norm_noddi_dir):
+            os.makedirs(norm_noddi_dir)
 
+        noddi_to_warp = []
+        noddi_to_warp.append("model-NODDI_parameter-ICVF.nii.gz")
+        noddi_to_warp.append("model-NODDI_parameter-ODI.nii.gz") 
+        noddi_to_warp.append("model-NODDI_parameter-EXVF.nii.gz")
+        noddi_to_warp.append("model-NODDI_parameter-FISO.nii.gz")
 
+        for param in noddi_to_warp:
+            in_img  = os.path.join(noddi_dir, bids_id+"_"+param)
+            out_img = os.path.join(norm_noddi_dir, bids_id+"_space-Standard_"+param)
+
+            if not os.path.exists(out_img):
+                cmd = "antsApplyTransforms -d 3 -i " + in_img \
+                    + ' -o ' + out_img \
+                    + ' -r ' + args.dwi_standard_template \
+                    + ' -t ' +  output_base+"1Warp.nii.gz" \
+                    + ' -t ' + output_base+"0GenericAffine.mat"
+                os.system(cmd)
