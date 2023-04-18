@@ -5,8 +5,8 @@ import nibabel as nib
 import dipy.reconst.dti as dti
 
 from dipy.denoise.noise_estimate import estimate_sigma
-from dipy.core.gradients import gradient_table, reorient_vectors
-from dipy.io.gradients import read_bvals_bvecs
+from dipy.core.gradients import gradient_table
+from dipy.io.gradients import read_bvals_bvecs, reorient_vectors
 from dipy.io.image import load_nifti, save_nifti
 from dipy.reconst.dti import fractional_anisotropy
 from dipy.io.utils import nifti1_symmat
