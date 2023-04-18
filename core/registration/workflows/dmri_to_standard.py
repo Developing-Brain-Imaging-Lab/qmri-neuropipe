@@ -131,7 +131,7 @@ class DiffusionNormalizationPipeline:
                 cmd = "antsApplyTransforms -d 3 -i " + in_img \
                     + ' -o ' + out_img \
                     + ' -r ' + args.dwi_standard_template \
-                    + ' -t ' +  output_base+"1Warp.nii.gz" \
+                    + ' -t ' + output_base+"1Warp.nii.gz" \
                     + ' -t ' + output_base+"0GenericAffine.mat"
                 os.system(cmd)
 
@@ -156,6 +156,6 @@ class DiffusionNormalizationPipeline:
                 cmd = "antsApplyTransforms -d 3 -i " + in_img \
                     + ' -o ' + out_img \
                     + ' -r ' + args.dwi_standard_template \
-                    + ' -t ' +  output_base+"1Warp.nii.gz" \
+                    + ' -t ' + output_base+"1Warp.nii.gz" \
                     + ' -t ' + output_base+"0GenericAffine.mat"
                 os.system(cmd)
