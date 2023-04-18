@@ -128,7 +128,7 @@ class DiffusionNormalizationPipeline:
             out_img = os.path.join(norm_dti_dir, bids_id+"_space-Standard_"+param)
 
             if not os.path.exists(out_img):
-                cmd = "antsApplyTransforms -d 3 -i " in_img \
+                cmd = "antsApplyTransforms -d 3 -i " + in_img \
                     + ' -o ' + out_img \
                     + ' -r ' + args.dwi_standard_template \
                     + ' -t ' +  output_base+"1Warp.nii.gz" \
