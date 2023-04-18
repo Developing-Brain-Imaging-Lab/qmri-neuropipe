@@ -492,8 +492,7 @@ class DiffusionProcessingPipeline:
             print(t1w._get_filename())
         if t2w:
             print(t2w._get_filename())  
-        print('ANATOMICAL IMAGE:' + anat_image._get_filename())
-                    
+    
 
 
         ##################################

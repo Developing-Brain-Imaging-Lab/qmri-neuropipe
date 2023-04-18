@@ -103,5 +103,12 @@ class DiffusionNormalizationPipeline:
                 + " -e 0 -j 1"
             
             os.system(cmd)
+            
+
+            #Add in the Warp of DTI model parameters
+
+
+
+            #Add in Warp of other model parameters (if exists)
 
 
