@@ -727,7 +727,7 @@ class DiffusionProcessingPipeline:
 
 
         if args.csd_fod_algo != None:
-            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ) and not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-MSMT-5tt_parameter-WMfod.nii.gz' ):
+            if not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-CSD_parameter-FOD.nii.gz' ) or not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-MSMT-5tt_parameter-WMfod.nii.gz' ) or not os.path.exists( models_dir + 'CSD/' + bids_id + '_model-DHOLLANDER_parameter-WMfod.nii.gz' ):
                 if args.verbose:
                     print('Fitting Constrained Spherical Deconvolution Model')
 
