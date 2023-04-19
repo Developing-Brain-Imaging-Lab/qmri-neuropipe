@@ -202,11 +202,11 @@ class DiffusionNormalizationPipeline:
                 os.makedirs(norm_fwe_dir)
 
             fwe_to_warp = []
-            fwe_to_warp.append("model-FWE_DTI_parameter-FA.nii.gz")
-            fwe_to_warp.append("model-FWE_DTI_parameter-MD.nii.gz") 
-            fwe_to_warp.append("model-FWE_DTI_parameter-RD.nii.gz")
-            fwe_to_warp.append("model-FWE_DTI_parameter-AD.nii.gz")
-            fwe_to_warp.append("model-FWE_DTI_parameter-F.nii.gz")
+            fwe_to_warp.append("model-FWE-DTI_parameter-FA.nii.gz")
+            fwe_to_warp.append("model-FWE-DTI_parameter-MD.nii.gz") 
+            fwe_to_warp.append("model-FWE-DTI_parameter-RD.nii.gz")
+            fwe_to_warp.append("model-FWE-DTI_parameter-AD.nii.gz")
+            fwe_to_warp.append("model-FWE-DTI_parameter-F.nii.gz")
  
             for param in fwe_to_warp:
                 in_img  = os.path.join(fwe_dir, bids_id+"_"+param)
