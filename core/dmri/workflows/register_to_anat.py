@@ -13,7 +13,7 @@ import core.registration.registration as reg_tools
 import core.segmentation.segmentation as seg_tools
 
 
-def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', anat_modality='t1w', use_freesurfer=False, freesurfer_subjs_dir=None, wmseg_reference=None, wmseg=None, nthreads=1, verbose=False):
+def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, mask_method='hd-bet', reg_method = 'linear', linreg_method='FSL', dof=6, nonlinreg_method='ANTS', anat_modality='t1w', use_freesurfer=False, freesurfer_subjs_dir=None, wmseg_reference=None, wmseg=None, nthreads=1, verbose=False, debug=False):
 
     parsed_filename = parse_file_entities(dwi_image._get_filename())
 
@@ -185,14 +185,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                                   method        = 'MRTRIX',
                                   ants_options  = '-e 3 -n BSpline[5]' )
 
-#        if verbose:
-#            print('Rotating bvecs')
-#
-#        rotate_bvecs(input_img      = dwi_image,
-#                     ref_img        = ref_img[0],
-#                     output_bvec    = coreg_img._get_bvecs(),
-#                     transform      = itk_transform,
-#                     nthreads       = nthreads)
 
 
     return coreg_img

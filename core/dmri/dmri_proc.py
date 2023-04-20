@@ -370,6 +370,12 @@ class DiffusionProcessingPipeline:
                             help='Print out information meassages and progress status',
                             default=False)
         
+        parser.add_argument('--debug',
+                    type=bool,
+                    help='Print out debugging messages',
+                    default=False)
+        
+        
         args, unknown = parser.parse_known_args()
         
         if args.load_json:
@@ -425,7 +431,7 @@ class DiffusionProcessingPipeline:
             if not os.path.exists(bids_derivative_dir+'/anat/'):
                 os.makedirs(bids_derivative_dir+'/anat/')
             
-            t1w         = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
+            t1w        = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_T1w.nii.gz')
             t1w_mask   = Image(file=bids_derivative_dir+'/anat/'+bids_id+'_desc-brain_mask.nii.gz')
             
             freesurfer_t1w  = freesurfer_subjs_dir + bids_id + '/mri/orig_nu.mgz'
@@ -591,7 +597,8 @@ class DiffusionProcessingPipeline:
                                                       freesurfer_subjs_dir = freesurfer_subjs_dir,
                                                       use_freesurfer       = args.use_freesurfer,
                                                       nthreads             = args.nthreads,
-                                                      verbose              = args.verbose)
+                                                      verbose              = args.verbose,
+                                                      debug                = args.debug)
 
                 if args.verbose:
                     print('Copying Anatomical Mask')
@@ -602,7 +609,7 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Creating DWI Brain Mask')
 
-                mask.mask_image(input_img            = dwi_img,
+                mask.mask_image(input_img            = dwi_img, 
                                 output_mask          = dwi_mask,
                                 method               = args.dwi_mask_method,
                                 nthreads             = args.nthreads,
