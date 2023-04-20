@@ -199,14 +199,14 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
                 reg_tools.apply_transform(input_img     = mean_dwi,
                                           reference_img = ref_img[0],
-                                          output_file   = dwi_aligned._get_filename(),
+                                          output_img    = dwi_aligned,
                                           matrix        = rigid_fsl_transform,
                                           method        = 'FSL',
                                           flirt_options = '-interp sinc')
 
                 reg_tools.apply_transform(input_img     = mean_b0,
                                           reference_img = ref_img[0],
-                                          output_file   = b0_aligned._get_filename(),
+                                          output_img    = b0_aligned,
                                           matrix        = rigid_fsl_transform,
                                           method        = 'FSL',
                                           flirt_options = '-interp sinc')
@@ -265,13 +265,13 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
                 reg_tools.apply_transform(input_img     = mean_dwi,
                                           reference_img = ref_img[0],
-                                          output_file   = dwi_aligned._get_filename(),
+                                          output_img    = dwi_aligned,
                                           matrix        = rigid_itk_transform,
                                           method        = 'ANTS')
 
                 reg_tools.apply_transform(input_img     = mean_b0,
                                           reference_img = ref_img[0],
-                                          output_file   = b0_aligned._get_filename(),
+                                          output_img    = b0_aligned,
                                           matrix        = rigid_itk_transform,
                                           method        = 'ANTS')
 
@@ -366,14 +366,14 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
             if T1_image != None:
                 reg_tools.apply_transform(input_img     = T1_image,
                                           reference_img = ref_img[0],
-                                          output_file   = t1_aligned._get_filename(),
+                                          output_img    = t1_aligned,
                                           matrix        = rigid_itk_transform,
                                           method        = 'ANTS')
 
             if T2_image != None:
                 reg_tools.apply_transform(input_img     = T2_image,
                                           reference_img = ref_img[0],
-                                          output_file   = t2_aligned._get_filename(),
+                                          output_img    = t2_aligned,
                                           matrix        = rigid_itk_transform,
                                           method        = 'ANTS')
 
@@ -394,7 +394,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
         reg_tools.apply_transform(input_img     = input_dwi,
                                   reference_img = nonlin_ref_img[0],
-                                  output_file   = output_img._get_filename(),
+                                  output_img    = output_img,
                                   matrix        = transform,
                                   nthreads      = nthreads,
                                   method        = 'ANTS',
@@ -720,7 +720,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     t1w_norm_lin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = t1w_norm_lin_atlas_2_5._get_filename(),
+                              output_img    = t1w_norm_lin_atlas_2_5,
                               matrix        = ants_base + '0GenericAffine.mat',
                               nthreads      = nthreads,
                               method        = 'ANTS',
@@ -729,7 +729,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     b0_lin_atlas_2_5 = Image(file = working_dir + '/b0_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = b0_lin_atlas_2_5._get_filename(),
+                              output_img    = b0_lin_atlas_2_5,
                               matrix        = working_dir + '/dwi_lin_xfm.txt',
                               nthreads      = nthreads,
                               method        = 'ANTS',
@@ -739,7 +739,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     t1w_norm_nonlin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = t1w_norm_nonlin_atlas_2_5._get_filename(),
+                              output_img    = t1w_norm_nonlin_atlas_2_5,
                               matrix        = working_dir + '/t1_nonlin_xfm.nii.gz',
                               nthreads      = nthreads,
                               method        = 'ANTS',
@@ -748,7 +748,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     b0_nonlin_atlas_2_5 = Image(file = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
-                              output_file   = b0_nonlin_atlas_2_5._get_filename(),
+                              output_img    = b0_nonlin_atlas_2_5,
                               matrix        = working_dir + '/dwi_nonlin_xfm.nii.gz',
                               nthreads      = nthreads,
                               method        = 'ANTS',
