@@ -10,7 +10,7 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
-    parsed_filename = parse_file_entities(dwi_image._get_filename())
+    parsed_filename = parse_file_entities(dwi_image.filename)
 
     entities = {
     'extension': '.nii.gz',
@@ -30,17 +30,19 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
     eddy_bvec = writing.build_path(entities, filename_patterns)
 
     eddycorrected_img = copy.deepcopy(dwi_image)
-    eddycorrected_img._set_filename(eddy_file)
-    eddycorrected_img._set_bvecs(eddy_bvec)
+    eddycorrected_img.filename = eddy_file
+    eddycorrected_img.bvecs = eddy_bvec
+
+    print(eddycorrected_img.get_type())
 
     if not eddycorrected_img.exists():
 
         #First, create Index and Acqparams based on DWI and JSON
-        if( ( eddycorrected_img._get_index() == None) or ( eddycorrected_img._get_acqparams() == None ) ):
+        if( ( eddycorrected_img.index == None) or ( eddycorrected_img.acqparams == None ) ):
             dmri_qc.create_index_acqparam_files(input_dwi   = eddycorrected_img,
                                                 output_base = output_base)
 
-        if( eddycorrected_img._get_slspec() == None ):
+        if( eddycorrected_img.slspec == None ):
             if slspec != None:
                 shutil.copy2(slspec, output_base + '_desc-Slspec_dwi.txt')
             else:
@@ -118,7 +120,7 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
 
 def perform_outlier_detection(dwi_image, working_dir, method, percent_threshold=0.1, manual_report_dir=None, verbose=False):
 
-    parsed_filename = parse_file_entities(dwi_image._get_filename())
+    parsed_filename = parse_file_entities(dwi_image.filename)
 
     entities = {
     'extension': '.nii.gz',
@@ -147,10 +149,10 @@ def perform_outlier_detection(dwi_image, working_dir, method, percent_threshold=
     outlier_index = writing.build_path(entities, filename_patterns)
 
     outlier_removed_img = copy.deepcopy(dwi_image)
-    outlier_removed_img._set_filename(outlier_file)
-    outlier_removed_img._set_bvecs(outlier_bvec)
-    outlier_removed_img._set_bvals(outlier_bval)
-    outlier_removed_img._set_index(outlier_index)
+    outlier_removed_img.filename = outlier_file
+    outlier_removed_img.bvecs    = outlier_bvec
+    outlier_removed_img.bvals    = outlier_bval
+    outlier_removed_img.index    = outlier_index
 
     if method != None and not outlier_removed_img.exists():
 

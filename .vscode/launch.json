@@ -1,0 +1,12 @@
+{
+    "configurations": [
+        {
+            "name": "Python: File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "justMyCode": true,
+            "args":["--subject","311140", "--session","01","--load_json","/Users/dcdeaniii/Developer/Testing/bids_dir/code/dwi_proc.json"]   
+        }
+    ]
+}

@@ -1,4 +1,5 @@
-import string, os, sys, subprocess, shutil, time, json, paramiko
+#!/usr/bin/env python
+import os, shutil, subprocess, json, paramiko
 from glob import glob
 
 #Neuroimaging Modules
@@ -8,7 +9,7 @@ import nibabel as nib
 
 def create_index_acqparam_files(dcm_file, output_dwi, output_index, output_acqparams):
 
-    dcmData = dicom.read_file(dcm_file)
+    dcmData = dcm.read_file(dcm_file)
     echoSpacing = dcmData[0x0043, 0x102c].value
     phaseEncodeDir = dcmData[0x0043, 0x108a].value
     assetFactor = dcmData[0x0043, 0x1083].value
@@ -45,184 +46,51 @@ def create_index_acqparam_files(dcm_file, output_dwi, output_index, output_acqpa
     indexFile.close()
     acqFile.close()
 
-
-def dicom_to_nifti_mri_convert(dwi_dcm_dir, output_dwi, output_index='', output_acqparams=''):
-
-    src_dcms = glob(dwi_dcm_dir+'/*')
-    os.system('mri_convert -i ' + src_dcms[0] + ' -o ' + output_dwi)
-
-    if (output_index!='') and (output_acqparams!=''):
-        create_index_acqparam_files(src_dcms[0], output_dwi, output_index, output_acqparams)
-
-def dicom_to_nifti_dcm2nii(dcm_dir, output_img, **keywords):
-
-    index=''
-    acqparams=''
-    params = ''
-    type = ''
-    pe = ''
-
-    if 'params' in keywords:
-        params = keywords['params']
-    if 'type' in keywords:
-        type = keywords['type']
-    if 'pe' in keywords:
-        pe = keywords['pe']
-    if 'index' in keywords:
-        index = keywords['index']
-    if 'acqparams' in keywords:
-        acqparams = keywords['acqparams']
-
-    output_root, img = os.path.split(output_img)
-
-    tmp_dir = output_root+'/tmp/'
-    os.makedirs(tmp_dir)
-
-    filetype = 0
-    raw_data = ''
-
-    for file in os.listdir(dcm_dir):
-        if file.endswith('.tgz'):
-            filetype = 1;
-            raw_data = dcm_dir + '/' + file
-        if file.endswith('.bz2'):
-            filetype = 2;
-            raw_data = dcm_dir + '/' + file
-        if file.endswith('.dcm'):
-            filetype = 3;
-            raw_data = dcm_dir + '/' + file
-
-    if filetype == 1:
-        os.system('tar -xf ' + raw_data + ' -C ' + tmp_dir)
-
-    elif filetype == 2:
-        os.system('ls ' + dcm_dir + '/*.bz2 | xargs -P8 -I{} bash -c "rsync -a {} ' + tmp_dir + '/"')
-        os.system('ls ' + tmp_dir + '/*.bz2 | xargs -P8 -I{} bash -c "bunzip2 {}"')
-
-    elif filetype == 3:
-        os.system('rsync -a ' + dcm_dir + '/*.dcm ' + tmp_dir)
-
-    else:
-        print('Unknown DICOM filetype!')
-        exit(-1);
-
-    dicom_imgs = os.listdir(tmp_dir)
-    tmp_img = tmp_dir + '/' + dicom_imgs[0]
-
-    ds = dcm.read_file(tmp_img)
-    tr = ds.RepetitionTime
-    fa = ds.FlipAngle
-    ti=''
-    n=''
-
-    try:
-        ti = ds.InversionTime
-    except:
-        print('No Inversion Time')
-
-    try:
-        n = ds[0x0043,0x1038].value[3]
-    except:
-        print('No TR Ratio')
-
-    if pe == '':
-        pe = ds.Rows
-
-    #Write out the acquisition params
-    if params != '':
-        f = open(params, 'w')
-        f.write(str(tr)+'\n')
-        if type == 'irspgr':
-            f.write(str(ti)+'\n')
-            f.write(str(fa)+'\n')
-            f.write(str(pe)+'\n')
-        f.close()
-
-    output_filename=''
-    extension = ''
-    if img.endswith('.nii.gz'):
-        output_filename = os.path.splitext(os.path.splitext(img)[0])[0]
-        extension = 'nii.gz'
-    else:
-        output_filename = os.path.splitext(img)[0]
-        extension = os.path.splitext(img)[1]
-
-    os.chdir(tmp_dir)
-    os.system('dcm2nii -g Y -r N *')
-    os.system('mv *.nii.gz ' + output_img)
-    os.system('rm -rf ' + tmp_dir)
-
-    output_img = ''
-    for file in os.listdir(output_root):
-        if(output_filename in file):
-            if('_t' in file):
-                os.rename(output_root+'/'+file, output_root+'/'+output_filename+'.'+extension)
-
-    return tr,fa,pe,ti,n
-
-def dicom_to_nifti_dcm2niix(dcm_dir, output_img, output_json='', **keywords):
+def dicom_to_nifti(dcm_dir, output_img, method="dcm2niix", nthreads=1, **keywords):
 
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    index=''
-    acqparams=''
-    params = ''
-    type = ''
-    pe = ''
+    output_dir = os.path.dirname(output_img)
+    tmp_dir = output_dir+'/tmp/'
 
-    if 'params' in keywords:
-        params = keywords['params']
-    if 'type' in keywords:
-        type = keywords['type']
-    if 'pe' in keywords:
-        pe = keywords['pe']
-    if 'index' in keywords:
-        index = keywords['index']
-    if 'acqparams' in keywords:
-        acqparams = keywords['acqparams']
-
-    output_root, img = os.path.split(output_img)
-    tmp_dir = output_root+'/tmp/'
-    os.system('mkdir ' + tmp_dir)
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
 
     filetype = 0
-    raw_data = ''
+    raw_data = ""
 
     for file in os.listdir(dcm_dir):
         if file.endswith('.tgz'):
             filetype = 1;
-            raw_data = dcm_dir + '/' + file
+            raw_data = os.path.join(dcm_dir, file)
         if file.endswith('.bz2'):
             filetype = 2;
-            raw_data = dcm_dir + '/' + file
+            raw_data = os.path.join(dcm_dir, file)
         if file.endswith('.dcm'):
             filetype = 3;
-            raw_data = dcm_dir + '/' + file
+            raw_data = os.path.join(dcm_dir, file)
 
     if filetype == 1:
         os.system('tar -xf ' + raw_data + ' -C ' + tmp_dir)
-
     elif filetype == 2:
-        os.system('ls ' + dcm_dir + '/*.bz2 | xargs -P8 -I{} bash -c "rsync -a {} ' + tmp_dir + '/"')
-        os.system('ls ' + tmp_dir + '/*.bz2 | xargs -P8 -I{} bash -c "bunzip2 {}"')
-
+        os.system('ls ' + tmp_dir + '/*.bz2 | xargs -P'+nthreads+' -I{} bash -c "bunzip2 {}"')
+        os.system('ls ' + dcm_dir + '/*.bz2 | xargs -P'+nthreads+' -I{} bash -c "rsync -a {} ' + tmp_dir + '/"')
     elif filetype == 3:
         os.system('rsync -a ' + dcm_dir + '/*.dcm ' + tmp_dir)
-
     else:
         print('Unknown DICOM filetype!')
         exit(-1);
 
-    #Use mri_convert to extract the data
     dicom_imgs = os.listdir(tmp_dir)
     tmp_img = tmp_dir + '/' + dicom_imgs[0]
     
     ds = dcm.read_file(tmp_img)
     tr = ds.RepetitionTime
-    fa = ds.FlipAngle
-    ti=''
-    n=''
+    flip = ds.FlipAngle
+    ti=""
+    n=""
+    pe=""
 
     try:
         ti = ds.InversionTime
@@ -234,44 +102,56 @@ def dicom_to_nifti_dcm2niix(dcm_dir, output_img, output_json='', **keywords):
     except:
         print('No TR Ratio')
 
-    if pe == '':
+    if pe == "":
         pe = ds.Rows
 
-    #Write out the acquisition params
-    if params != '':
-        f = open(params, 'w')
-        f.write(str(tr)+'\n')
-        if type == 'irspgr':
-            f.write(str(ti)+'\n')
-            f.write(str(fa)+'\n')
-            f.write(str(pe)+'\n')
-        f.close()
 
     output_filename=''
+    output_basename=''
     extension = ''
-    if img.endswith('.nii.gz'):
-        output_filename = os.path.splitext(os.path.splitext(img)[0])[0]
+    if output_img.endswith('.nii.gz'):
+        output_basename=os.path.splitext(os.path.splitext(os.path.basename(output_img))[0])[0]
+        output_filename = os.path.splitext(os.path.splitext(output_img)[0])[0]
         extension = 'nii.gz'
     else:
-        output_filename = os.path.splitext(img)[0]
-        extension = os.path.splitext(img)[1]
+        output_basename=os.path.splitext(os.path.basename(output_img))[0]
+        output_filename = os.path.splitext(output_img)[0]
+        extension = os.path.splitext(output_img)[1]
 
-    os.system('dcm2niix -b y -m 1 -z y -w 1 -x i -f ' + output_filename + ' -o ' + output_root + ' ' + tmp_dir)
-    os.system('rm -rf ' + tmp_dir)
+    CMD=""
+    if method == "dcm2niix":
+        CMD="dcm2niix -b y -m 1 -z y -w 1 -x i -f " + output_basename + " -o " + output_dir + " " + tmp_dir
+    elif method == "dcm2nii":
+        CMD="dcm2nii -g Y -r N " + tmp_dir+"/*"
+    elif method =="mrtrix":
+        CMD="mrconvert -quiet -force -json_export " + output_filename+".json -export_grad_fsl " + output_filename+".bvecs " + output_filename+".bvals " + tmp_dir + " " + output_filename+".nii.gz" 
+    elif method=="mri-convert":
+        src_dcms = glob(tmp_dir+'/*')
+        CMD="mri_convert -i " + src_dcms[0] + " -o " + output_img
+    else:
+        print("Invalid DICOM conversion method!")
+        exit(-1)
+
+    print(CMD)
+    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     output_img = ''
-    for file in os.listdir(output_root):
+    for file in os.listdir(output_dir):
         if(output_filename in file):
             file_ext = os.path.splitext(file)[1]
             if('_t' in file and file_ext != '.json'):
-                os.rename(output_root+'/'+file, output_root+'/'+output_filename+'.'+extension)
+                os.rename(output_dir+'/'+file, output_dir+'/'+output_filename+'.'+extension)
             if('_t' in file and file_ext == '.json'):
-                os.rename(output_root+'/'+file, output_root+'/'+output_filename+'.json')
+                os.rename(output_dir+'/'+file, output_dir+'/'+output_filename+'.json')
 
+    # if (output_index!=None) and (output_acqparams!=None):
+    #     create_index_acqparam_files(src_dcms[0], output_img, output_index, output_acqparams)
 
-    return tr,fa,pe,ti,n
+    shutil.rmtree(tmp_dir)
 
-def nifti_to_ras(input_img, input_json = '', input_bvals='', input_bvecs=''):
+    return tr,flip,pe,ti,n
+
+def nifti_to_ras(input_img, input_json='', input_bvals='', input_bvecs=''):
 
     if input_json != '':
         #Need to adjust phase encoding direction to match new orientation
@@ -326,3 +206,44 @@ def nifti_to_ras(input_img, input_json = '', input_bvals='', input_bvecs=''):
 
     else:
         os.system('mrconvert -force -quiet -strides -1,2,3,4 ' + input_img + ' ' + input_img)
+
+
+if __name__ == '__main__':
+   
+   import argparse
+   
+   parser = argparse.ArgumentParser(description='QMRI-Neuropipe DICOM To NIFTI Conversion')
+   
+   parser.add_argument('--dcm_dir',
+                    type=str,
+                    help="Input image to be apply gibbs ringing correction",
+                    default=None)
+   
+   parser.add_argument('--out',
+                       type=str,
+                       help="Output image",
+                       default=None)
+   
+   parser.add_argument('--method',
+                       type=str,
+                       help="Tool to use for dicom conversion",
+                       choices=["dcm2niix", "dcm2nii", "mrtrix", "mri-convert"],
+                       default="dcm2niix")
+   
+   parser.add_argument("--nthreads",
+                       type=int,
+                       help="Number of threads",
+                       default=1)
+   
+   parser.add_argument("--debug",
+                       type=bool,
+                       help="Print debugging statements",
+                       default=False)
+   
+   args, unknown = parser.parse_known_args()
+
+   dicom_to_nifti(dcm_dir       = args.dcm_dir, 
+                  output_img    = args.out, 
+                  method        = args.method, 
+                  nthreads      = args.nthreads)
+   

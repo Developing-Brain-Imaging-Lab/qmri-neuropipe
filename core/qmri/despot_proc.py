@@ -4,7 +4,7 @@ import nibabel as nib
 from bids.layout import writing
 from core.utils.io import Image
 
-import core.utils.workflows.prep_rawdata as raw_proc
+import core.anat.workflows.prep_rawdata as raw_proc
 import core.utils.workflows.denoise_degibbs as img_proc
 
 import core.utils.tools as img_tools

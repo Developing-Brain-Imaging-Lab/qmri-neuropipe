@@ -12,7 +12,8 @@ import core.utils.tools as img_tools
 import core.utils.mask as mask_tools
 import core.utils.biascorrect as biascorr_tools
 import core.dmri.tools as dmri_tools
-import core.registration.registration as reg_tools
+from core.registration.linreg import linreg
+from core.registration.apply_transform import apply_transform
 
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 
@@ -98,317 +99,317 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
     output_img._set_filename(out_file)
     output_img._set_bvecs(out_bvec)
 
-    if not output_img.exists():
+    # if not output_img.exists():
 
-        dwi_data, affine, dwi_img = load_nifti(input_dwi._get_filename(), return_img=True)
+    #     dwi_data, affine, dwi_img = load_nifti(input_dwi._get_filename(), return_img=True)
 
-        bvals   = np.loadtxt(input_dwi._get_bvals())
-        ii      = np.where(bvals == 0)
-        jj      = np.where(bvals != 0)
+    #     bvals   = np.loadtxt(input_dwi._get_bvals())
+    #     ii      = np.where(bvals == 0)
+    #     jj      = np.where(bvals != 0)
 
-        mean_b0         = Image(file = working_dir + '/mean_b0.nii.gz')
-        mean_b0_data    = np.mean(dwi_data[:,:,:,np.asarray(ii).flatten()], 3)
-        save_nifti(mean_b0._get_filename(), mean_b0_data, affine, dwi_img.header)
+    #     mean_b0         = Image(file = working_dir + '/mean_b0.nii.gz')
+    #     mean_b0_data    = np.mean(dwi_data[:,:,:,np.asarray(ii).flatten()], 3)
+    #     save_nifti(mean_b0._get_filename(), mean_b0_data, affine, dwi_img.header)
 
-        mean_dwi        = Image(file = working_dir + '/mean_dwi.nii.gz')
-        mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
-        save_nifti(mean_dwi._get_filename(), mean_dwi_data, affine, dwi_img.header)
+    #     mean_dwi        = Image(file = working_dir + '/mean_dwi.nii.gz')
+    #     mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
+    #     save_nifti(mean_dwi._get_filename(), mean_dwi_data, affine, dwi_img.header)
 
-        #Now bias correct the mean B0 and DWI
-        mean_b0     = img_tools.biasfield_correction(input_img   = mean_b0,
-                                                     output_file = mean_b0._get_filename())
+    #     #Now bias correct the mean B0 and DWI
+    #     mean_b0     = img_tools.biasfield_correction(input_img   = mean_b0,
+    #                                                  output_file = mean_b0._get_filename())
 
-        mean_dwi    = img_tools.biasfield_correction(input_img   = mean_dwi,
-                                                     output_file = mean_dwi._get_filename())
+    #     mean_dwi    = img_tools.biasfield_correction(input_img   = mean_dwi,
+    #                                                  output_file = mean_dwi._get_filename())
 
-        #Determine the Phase Encode Direction
-        #Read the JSON file and get the
-        with open(input_dwi._get_json()) as f:
-            json_data = json.load(f)
+    #     #Determine the Phase Encode Direction
+    #     #Read the JSON file and get the
+    #     with open(input_dwi._get_json()) as f:
+    #         json_data = json.load(f)
 
-        dwi_strides = subprocess.check_output(['mrinfo', '-strides',mean_dwi._get_filename()]).decode('utf-8').strip().split(' ')
-        dwi_strides = [abs(int(i)) for i in dwi_strides]
+    #     dwi_strides = subprocess.check_output(['mrinfo', '-strides',mean_dwi._get_filename()]).decode('utf-8').strip().split(' ')
+    #     dwi_strides = [abs(int(i)) for i in dwi_strides]
 
-        ants_phase_encode_dir = ''
-        pe_index = ''
-        if json_data["PhaseEncodingDirection"] == 'i'  or json_data["PhaseEncodingDirection"] == 'i-':
-            pe_index = dwi_strides.index(1)
-        elif json_data["PhaseEncodingDirection"] == 'j'  or json_data["PhaseEncodingDirection"] == 'j-':
-            pe_index = dwi_strides.index(2)
-        elif json_data["PhaseEncodingDirection"] == 'k'  or json_data["PhaseEncodingDirection"] == 'k-':
-            pe_index = dwi_strides.index(3)
-        else:
-            print('Incorrect Phase Encoding Direction - please check JSON file')
-            exit()
+    #     ants_phase_encode_dir = ''
+    #     pe_index = ''
+    #     if json_data["PhaseEncodingDirection"] == 'i'  or json_data["PhaseEncodingDirection"] == 'i-':
+    #         pe_index = dwi_strides.index(1)
+    #     elif json_data["PhaseEncodingDirection"] == 'j'  or json_data["PhaseEncodingDirection"] == 'j-':
+    #         pe_index = dwi_strides.index(2)
+    #     elif json_data["PhaseEncodingDirection"] == 'k'  or json_data["PhaseEncodingDirection"] == 'k-':
+    #         pe_index = dwi_strides.index(3)
+    #     else:
+    #         print('Incorrect Phase Encoding Direction - please check JSON file')
+    #         exit()
 
-        if pe_index == 0:
-            ants_phase_encode_dir='1x0x0'
-        elif pe_index == 1:
-            ants_phase_encode_dir='0x1x0'
-        elif pe_index == 2:
-            ants_phase_encode_dir='0x0x1'
-        else:
-            print('Incorrect Phase Encoding Direction')
-            exit()
+    #     if pe_index == 0:
+    #         ants_phase_encode_dir='1x0x0'
+    #     elif pe_index == 1:
+    #         ants_phase_encode_dir='0x1x0'
+    #     elif pe_index == 2:
+    #         ants_phase_encode_dir='0x0x1'
+    #     else:
+    #         print('Incorrect Phase Encoding Direction')
+    #         exit()
 
-        ref_img                     = []
-        mov_img                     = []
-        nonlin_mov_img              = []
-        nonlin_ref_img              = []
-        rigid_fsl_transform         = working_dir + '/rigid_fsl.mat'
-        rigid_ants_transform        = working_dir + '/rigid_'
-        rigid_itk_transform         = working_dir + '/rigid_0GenericAffine.txt'
-        ants_nonlinear_cmd          = 'antsRegistration -d 3 -o ' + working_dir + '/tmp_ants_nonlinear_'
-        ants_composite_transform    = working_dir + '/ants_composite.nii.gz'
+    #     ref_img                     = []
+    #     mov_img                     = []
+    #     nonlin_mov_img              = []
+    #     nonlin_ref_img              = []
+    #     rigid_fsl_transform         = working_dir + '/rigid_fsl.mat'
+    #     rigid_ants_transform        = working_dir + '/rigid_'
+    #     rigid_itk_transform         = working_dir + '/rigid_0GenericAffine.txt'
+    #     ants_nonlinear_cmd          = 'antsRegistration -d 3 -o ' + working_dir + '/tmp_ants_nonlinear_'
+    #     ants_composite_transform    = working_dir + '/ants_composite.nii.gz'
 
-        #Decide if data is going to be resampled to Anatomical Space
-        if resample_to_anat:
-            dwi_aligned = Image(file = working_dir + '/dwi_aligned.nii.gz')
-            b0_aligned  = Image(file = working_dir + '/b0_aligned.nii.gz')
+    #     #Decide if data is going to be resampled to Anatomical Space
+    #     if resample_to_anat:
+    #         dwi_aligned = Image(file = working_dir + '/dwi_aligned.nii.gz')
+    #         b0_aligned  = Image(file = working_dir + '/b0_aligned.nii.gz')
 
-            if linreg_method == 'FSL':
-                flirt_options=''
+    #         if linreg_method == 'FSL':
+    #             flirt_options=''
 
-                if distortion_modality == 't1w' and T1_image != None:
-                    ref_img.append(T1_image)
-                    mov_img.append(mean_dwi)
-                    nonlin_mov_img.append(dwi_aligned)
-                    nonlin_ref_img.append(T1_image)
-                    out_img = dwi_aligned
-                    flirt_options = '-cost normmi '
+    #             if distortion_modality == 't1w' and T1_image != None:
+    #                 ref_img.append(T1_image)
+    #                 mov_img.append(mean_dwi)
+    #                 nonlin_mov_img.append(dwi_aligned)
+    #                 nonlin_ref_img.append(T1_image)
+    #                 out_img = dwi_aligned
+    #                 flirt_options = '-cost normmi '
 
-                elif distortion_modality == 't2w' and T2_image != None:
-                    ref_img.append(T2_image)
-                    mov_img.append(mean_b0)
-                    nonlin_mov_img.append(b0_aligned)
-                    nonlin_ref_img.append(T2_image)
-                    out_img = b0_aligned
-                    flirt_options = '-cost normcorr '
-                else:
-                    print('No Structural Image provided!')
-                    exit()
-
-
-                reg_tools.linear_reg(input_img      = mov_img,
-                                     reference_img  = ref_img,
-                                     output_file    = output_img._get_filename(),
-                                     output_matrix  = rigid_fsl_transform,
-                                     method         = 'FSL',
-                                     dof            = 6,
-                                     flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
-                reg_tools.apply_transform(input_img     = mean_dwi,
-                                          reference_img = ref_img[0],
-                                          output_img    = dwi_aligned,
-                                          matrix        = rigid_fsl_transform,
-                                          method        = 'FSL',
-                                          flirt_options = '-interp sinc')
-
-                reg_tools.apply_transform(input_img     = mean_b0,
-                                          reference_img = ref_img[0],
-                                          output_img    = b0_aligned,
-                                          matrix        = rigid_fsl_transform,
-                                          method        = 'FSL',
-                                          flirt_options = '-interp sinc')
-
-                reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
-                                           ref_img  = ref_img[0],
-                                           fsl_mat  = rigid_fsl_transform,
-                                           ants_mat = rigid_itk_transform )
-
-            elif linreg_method == 'ANTS':
-
-                if T1_image != None:
-                    ref_img.append(T1_image)
-                    mov_img.append(mean_dwi)
-                    nonlin_mov_img.append(dwi_aligned)
-                    nonlin_ref_img.append(T1_image)
-
-                    #Also use the Laplacian
-                    dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
-                    t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
-                    os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
-                    os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
-
-                    ref_img.append(t1_laplacian)
-                    mov_img.append(dwi_laplacian)
-                    nonlin_mov_img.append(dwi_laplacian)
-                    nonlin_ref_img.append(t1_laplacian)
+    #             elif distortion_modality == 't2w' and T2_image != None:
+    #                 ref_img.append(T2_image)
+    #                 mov_img.append(mean_b0)
+    #                 nonlin_mov_img.append(b0_aligned)
+    #                 nonlin_ref_img.append(T2_image)
+    #                 out_img = b0_aligned
+    #                 flirt_options = '-cost normcorr '
+    #             else:
+    #                 print('No Structural Image provided!')
+    #                 exit()
 
 
-                if T2_image != None:
-                    ref_img.append(T2_image)
-                    mov_img.append(mean_b0)
-                    nonlin_mov_img.append(b0_aligned)
-                    nonlin_ref_img.append(T2_image)
+    #             linreg(input          = mov_img,
+    #                    ref            = ref_img,
+    #                    out            = output_img._get_filename(),
+    #                    out_mat        = rigid_fsl_transform,
+    #                    method         = 'fsl',
+    #                    dof            = 6,
+    #                    flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-                    b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
-                    t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
-                    os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
-                    os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+    #             apply_transform(input_img     = mean_dwi,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = dwi_aligned,
+    #                                       matrix        = rigid_fsl_transform,
+    #                                       method        = 'FSL',
+    #                                       flirt_options = '-interp sinc')
 
-                    ref_img.append(t2_laplacian)
-                    mov_img.append(b0_laplacian)
-                    nonlin_mov_img.append(b0_laplacian)
-                    nonlin_ref_img.append(t2_laplacian)
+    #            apply_transform(input_img     = mean_b0,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = b0_aligned,
+    #                                       matrix        = rigid_fsl_transform,
+    #                                       method        = 'FSL',
+    #                                       flirt_options = '-interp sinc')
 
-                reg_tools.linear_reg(input_img      = mov_img,
-                                     reference_img  = ref_img,
-                                     output_file    = output_img._get_filename(),
-                                     output_matrix  = rigid_ants_transform,
-                                     method         = 'ANTS',
-                                     nthreads       = nthreads,
-                                     dof            = 6,
-                                     ants_options   =  '-j 1')
-                #Convert the ants transform to ITK
-                os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
+    #             convert_fsl2ants(mov_img  = mov_img[0],
+    #                                        ref_img  = ref_img[0],
+    #                                        fsl_mat  = rigid_fsl_transform,
+    #                                        ants_mat = rigid_itk_transform )
 
-                reg_tools.apply_transform(input_img     = mean_dwi,
-                                          reference_img = ref_img[0],
-                                          output_img    = dwi_aligned,
-                                          matrix        = rigid_itk_transform,
-                                          method        = 'ANTS')
+    #         elif linreg_method == 'ANTS':
 
-                reg_tools.apply_transform(input_img     = mean_b0,
-                                          reference_img = ref_img[0],
-                                          output_img    = b0_aligned,
-                                          matrix        = rigid_itk_transform,
-                                          method        = 'ANTS')
+    #             if T1_image != None:
+    #                 ref_img.append(T1_image)
+    #                 mov_img.append(mean_dwi)
+    #                 nonlin_mov_img.append(dwi_aligned)
+    #                 nonlin_ref_img.append(T1_image)
 
-        else:
-            t1_aligned = Image(file = working_dir + '/t1w_aligned.nii.gz')
-            t2_aligned = Image(file = working_dir + '/t2w_aligned.nii.gz')
+    #                 #Also use the Laplacian
+    #                 dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
+    #                 t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
+    #                 os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
+    #                 os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
 
-            if linreg_method == 'FSL':
-
-                flirt_options = ''
-
-                if distortion_modality == 't1w' and T1_image != None:
-                    ref_img.append(mean_dwi)
-                    mov_img.append(T1_image)
-                    nonlin_mov_img.append(mean_dwi)
-                    nonlin_ref_img.append(t1_aligned)
-                    out_img = t1_aligned
-                    flirt_options = '-cost normmi '
-
-                elif distortion_modality == 't2w' and T2_image != None:
-                    ref_img.append(mean_b0)
-                    mov_img.append(T2_image)
-                    nonlin_mov_img.append(mean_b0)
-                    nonlin_ref_img.append(t2_aligned)
-                    out_img = t2_aligned
-                    flirt_options = '-cost normcorr '
-                else:
-                    print('No Structural Image provided!')
-                    exit()
-
-                reg_tools.linear_reg(input_img      = mov_img,
-                                     reference_img  = ref_img,
-                                     output_file    = output_img._get_filename(),
-                                     output_matrix  = rigid_fsl_transform,
-                                     method         = 'FSL',
-                                     dof            = 6,
-                                     flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
-
-                reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
-                                           ref_img  = ref_img[0],
-                                           fsl_mat  = rigid_fsl_transform,
-                                           ants_mat = rigid_itk_transform )
-
-            elif linreg_method == 'ANTS':
-
-                if T1_image != None:
-                    ref_img.append(mean_dwi)
-                    mov_img.append(T1_image)
-                    nonlin_mov_img.append(mean_dwi)
-                    nonlin_ref_img.append(t1_aligned)
-
-                    #Also use the Laplacian
-                    dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
-                    t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
-                    os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
-                    os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
-
-                    mov_img.append(t1_laplacian)
-                    ref_img.append(dwi_laplacian)
-                    nonlin_ref_img.append(dwi_laplacian)
-                    nonlin_mov_img.append(t1_laplacian)
-
-                if T2_image != None:
-                    ref_img.append(mean_b0)
-                    mov_img.append(T2_image)
-                    nonlin_mov_img.append(mean_b0)
-                    nonlin_ref_img.append(t2_aligned)
-
-                    b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
-                    t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
-                    os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
-                    os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
-
-                    mov_img.append(t2_laplacian)
-                    ref_img.append(b0_laplacian)
-                    nonlin_ref_img.append(b0_laplacian)
-                    nonlin_mov_img.append(t2_laplacian)
-
-                reg_tools.linear_reg(input_img      = mov_img,
-                                     reference_img  = ref_img,
-                                     output_file    = output_img._get_filename(),
-                                     output_matrix  = rigid_ants_transform,
-                                     nthreads       = nthreads,
-                                     dof            = 6,
-                                     method         = 'ANTS',
-                                     ants_options   =  '-j 1')
-
-                #Convert the ants transform to ITK
-                os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
+    #                 ref_img.append(t1_laplacian)
+    #                 mov_img.append(dwi_laplacian)
+    #                 nonlin_mov_img.append(dwi_laplacian)
+    #                 nonlin_ref_img.append(t1_laplacian)
 
 
-            if T1_image != None:
-                reg_tools.apply_transform(input_img     = T1_image,
-                                          reference_img = ref_img[0],
-                                          output_img    = t1_aligned,
-                                          matrix        = rigid_itk_transform,
-                                          method        = 'ANTS')
+    #             if T2_image != None:
+    #                 ref_img.append(T2_image)
+    #                 mov_img.append(mean_b0)
+    #                 nonlin_mov_img.append(b0_aligned)
+    #                 nonlin_ref_img.append(T2_image)
 
-            if T2_image != None:
-                reg_tools.apply_transform(input_img     = T2_image,
-                                          reference_img = ref_img[0],
-                                          output_img    = t2_aligned,
-                                          matrix        = rigid_itk_transform,
-                                          method        = 'ANTS')
+    #                 b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
+    #                 t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
+    #                 os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
+    #                 os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+
+    #                 ref_img.append(t2_laplacian)
+    #                 mov_img.append(b0_laplacian)
+    #                 nonlin_mov_img.append(b0_laplacian)
+    #                 nonlin_ref_img.append(t2_laplacian)
+
+    #             reg_tools.linear_reg(input_img      = mov_img,
+    #                                  reference_img  = ref_img,
+    #                                  output_file    = output_img._get_filename(),
+    #                                  output_matrix  = rigid_ants_transform,
+    #                                  method         = 'ANTS',
+    #                                  nthreads       = nthreads,
+    #                                  dof            = 6,
+    #                                  ants_options   =  '-j 1')
+    #             #Convert the ants transform to ITK
+    #             os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
+
+    #             reg_tools.apply_transform(input_img     = mean_dwi,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = dwi_aligned,
+    #                                       matrix        = rigid_itk_transform,
+    #                                       method        = 'ANTS')
+
+    #             reg_tools.apply_transform(input_img     = mean_b0,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = b0_aligned,
+    #                                       matrix        = rigid_itk_transform,
+    #                                       method        = 'ANTS')
+
+    #     else:
+    #         t1_aligned = Image(file = working_dir + '/t1w_aligned.nii.gz')
+    #         t2_aligned = Image(file = working_dir + '/t2w_aligned.nii.gz')
+
+    #         if linreg_method == 'FSL':
+
+    #             flirt_options = ''
+
+    #             if distortion_modality == 't1w' and T1_image != None:
+    #                 ref_img.append(mean_dwi)
+    #                 mov_img.append(T1_image)
+    #                 nonlin_mov_img.append(mean_dwi)
+    #                 nonlin_ref_img.append(t1_aligned)
+    #                 out_img = t1_aligned
+    #                 flirt_options = '-cost normmi '
+
+    #             elif distortion_modality == 't2w' and T2_image != None:
+    #                 ref_img.append(mean_b0)
+    #                 mov_img.append(T2_image)
+    #                 nonlin_mov_img.append(mean_b0)
+    #                 nonlin_ref_img.append(t2_aligned)
+    #                 out_img = t2_aligned
+    #                 flirt_options = '-cost normcorr '
+    #             else:
+    #                 print('No Structural Image provided!')
+    #                 exit()
+
+    #             reg_tools.linear_reg(input_img      = mov_img,
+    #                                  reference_img  = ref_img,
+    #                                  output_file    = output_img._get_filename(),
+    #                                  output_matrix  = rigid_fsl_transform,
+    #                                  method         = 'FSL',
+    #                                  dof            = 6,
+    #                                  flirt_options  =  flirt_options+'-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+
+    #             reg_tools.convert_fsl2ants(mov_img  = mov_img[0],
+    #                                        ref_img  = ref_img[0],
+    #                                        fsl_mat  = rigid_fsl_transform,
+    #                                        ants_mat = rigid_itk_transform )
+
+    #         elif linreg_method == 'ANTS':
+
+    #             if T1_image != None:
+    #                 ref_img.append(mean_dwi)
+    #                 mov_img.append(T1_image)
+    #                 nonlin_mov_img.append(mean_dwi)
+    #                 nonlin_ref_img.append(t1_aligned)
+
+    #                 #Also use the Laplacian
+    #                 dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
+    #                 t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
+    #                 os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
+    #                 os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
+
+    #                 mov_img.append(t1_laplacian)
+    #                 ref_img.append(dwi_laplacian)
+    #                 nonlin_ref_img.append(dwi_laplacian)
+    #                 nonlin_mov_img.append(t1_laplacian)
+
+    #             if T2_image != None:
+    #                 ref_img.append(mean_b0)
+    #                 mov_img.append(T2_image)
+    #                 nonlin_mov_img.append(mean_b0)
+    #                 nonlin_ref_img.append(t2_aligned)
+
+    #                 b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
+    #                 t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
+    #                 os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
+    #                 os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+
+    #                 mov_img.append(t2_laplacian)
+    #                 ref_img.append(b0_laplacian)
+    #                 nonlin_ref_img.append(b0_laplacian)
+    #                 nonlin_mov_img.append(t2_laplacian)
+
+    #             reg_tools.linear_reg(input_img      = mov_img,
+    #                                  reference_img  = ref_img,
+    #                                  output_file    = output_img._get_filename(),
+    #                                  output_matrix  = rigid_ants_transform,
+    #                                  nthreads       = nthreads,
+    #                                  dof            = 6,
+    #                                  method         = 'ANTS',
+    #                                  ants_options   =  '-j 1')
+
+    #             #Convert the ants transform to ITK
+    #             os.system('ConvertTransformFile 3 ' +  rigid_ants_transform+'0GenericAffine.mat ' +  rigid_itk_transform)
 
 
-        reg_tools.nonlinear_phase_encode_restricted_reg(input_img             = nonlin_mov_img,
-                                                        reference_img         = nonlin_ref_img,
-                                                        output_base           = working_dir + '/ants_nonlinear_',
-                                                        ants_phase_encode_dir = ants_phase_encode_dir,
-                                                        nthreads              = nthreads)
+    #         if T1_image != None:
+    #             reg_tools.apply_transform(input_img     = T1_image,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = t1_aligned,
+    #                                       matrix        = rigid_itk_transform,
+    #                                       method        = 'ANTS')
 
-        if resample_to_anat:
-            transform = working_dir + '/ants_nonlinear_composite.nii.gz'
-            reg_tools.create_composite_transform(reference_img  = nonlin_ref_img[0],
-                                                 output_file    = working_dir + '/ants_nonlinear_composite.nii.gz',
-                                                 transforms     = [working_dir + '/ants_nonlinear_0Warp.nii.gz', rigid_itk_transform])
-        else:
-            transform = working_dir + '/ants_nonlinear_0Warp.nii.gz'
-
-        reg_tools.apply_transform(input_img     = input_dwi,
-                                  reference_img = nonlin_ref_img[0],
-                                  output_img    = output_img,
-                                  matrix        = transform,
-                                  nthreads      = nthreads,
-                                  method        = 'ANTS',
-                                  ants_options  = ' -e 3 -n BSpline')
-
-        if verbose:
-            print('Rotating bvecs')
+    #         if T2_image != None:
+    #             reg_tools.apply_transform(input_img     = T2_image,
+    #                                       reference_img = ref_img[0],
+    #                                       output_img    = t2_aligned,
+    #                                       matrix        = rigid_itk_transform,
+    #                                       method        = 'ANTS')
 
 
-        rotate_bvecs(input_img      = input_dwi,
-                     ref_img        = nonlin_ref_img[0],
-                     output_bvec    = output_img._get_bvecs(),
-                     transform      = rigid_itk_transform,
-                     nthreads       = nthreads)
+    #     reg_tools.nonlinear_phase_encode_restricted_reg(input_img             = nonlin_mov_img,
+    #                                                     reference_img         = nonlin_ref_img,
+    #                                                     output_base           = working_dir + '/ants_nonlinear_',
+    #                                                     ants_phase_encode_dir = ants_phase_encode_dir,
+    #                                                     nthreads              = nthreads)
+
+    #     if resample_to_anat:
+    #         transform = working_dir + '/ants_nonlinear_composite.nii.gz'
+    #         reg_tools.create_composite_transform(reference_img  = nonlin_ref_img[0],
+    #                                              output_file    = working_dir + '/ants_nonlinear_composite.nii.gz',
+    #                                              transforms     = [working_dir + '/ants_nonlinear_0Warp.nii.gz', rigid_itk_transform])
+    #     else:
+    #         transform = working_dir + '/ants_nonlinear_0Warp.nii.gz'
+
+    #     reg_tools.apply_transform(input_img     = input_dwi,
+    #                               reference_img = nonlin_ref_img[0],
+    #                               output_img    = output_img,
+    #                               matrix        = transform,
+    #                               nthreads      = nthreads,
+    #                               method        = 'ANTS',
+    #                               ants_options  = ' -e 3 -n BSpline')
+
+    #     if verbose:
+    #         print('Rotating bvecs')
+
+
+    #     rotate_bvecs(input_img      = input_dwi,
+    #                  ref_img        = nonlin_ref_img[0],
+    #                  output_bvec    = output_img._get_bvecs(),
+    #                  transform      = rigid_itk_transform,
+    #                  nthreads       = nthreads)
 
 
     return output_img
@@ -686,9 +687,9 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     #REGISTER T1 to Atlas
     ants_base           = working_dir + '/t1w_to_template_'
-    t1w_atlas_img       = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz'))
-    t1w_atlas_mask      = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz'))
-    t1w_atlas_img_2_5   = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz'))
+    t1w_atlas_img       = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
+    t1w_atlas_mask      = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
+    t1w_atlas_img_2_5   = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
 
     reg_tools.nonlinear_reg(input_img       = t1w_brain,
                             reference_img   = t1w_atlas_img,

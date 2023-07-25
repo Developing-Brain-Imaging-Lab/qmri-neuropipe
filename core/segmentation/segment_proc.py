@@ -3,7 +3,7 @@ import nibabel as nib
 
 from bids.layout import writing
 from core.utils.io import Image, DWImage
-from core.anatomical.anat_proc import AnatomicalPrepPipeline
+from core.anat.anat_proc import AnatomicalPrepPipeline
 
 import core.segmentation.segmentation as seg_tools
 

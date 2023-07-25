@@ -3,9 +3,9 @@ from glob import glob
 
 import nibabel as nib
 from core.utils.io import Image
-import core.registration.registration as reg_tools
+from core.registration.linreg import linreg
 
-def coregister_images(input_img, reference_img, output_img, method='FSL'):
+def coregister_images(input_img, reference_img, output_img, method='fsl'):
 
     data_shape = nib.load(input_img._get_filename()).shape
 
@@ -36,12 +36,13 @@ def coregister_images(input_img, reference_img, output_img, method='FSL'):
         tmp_out_img = tmp_dir + 'coreg_img_'+str(i).zfill(4)
         output_mat = tmp_dir + 'coreg_img_'+str(i).zfill(4)+'.mat'
 
-        reg_tools.linear_reg(input_img     = moving_img,
-                             reference_img = reference_img,
-                             output_matrix = output_mat,
-                             output_file   = tmp_out_img,
-                             dof           = 6,
-                             method        = method)
+        linreg(input   = moving_img,
+               ref     = reference_img,
+               out_mat = output_mat,
+               out     = tmp_out_img,
+               dof     = 6,
+               method  = method)
+               
         fslmerge_cmd += ' ' + tmp_out_img
 
     os.system(fslmerge_cmd)

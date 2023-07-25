@@ -1,133 +1,182 @@
-import string, os, sys, subprocess, shutil, time, copy
-from glob import glob
+#!/usr/bin/env python
+import os, subprocess
 
 import numpy as np
 import nibabel as nib
-import nibabel.processing as nib_proc
 
 from dipy.denoise.nlmeans import nlmeans
 from dipy.denoise.noise_estimate import estimate_sigma
 from dipy.io import read_bvals_bvecs
-from dipy.io.bvectxt import reorient_vectors
 from dipy.core.gradients import gradient_table
 from dipy.denoise.localpca import localpca
 from dipy.denoise.localpca import mppca
 from dipy.denoise.patch2self import patch2self
 from dipy.denoise.pca_noise_estimate import pca_noise_estimate
-from dipy.denoise.gibbs import gibbs_removal
 
 from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
 from core.utils.mask import mask_image
 
 
-def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0):
+def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=None, noise_model="Rician", nthreads=0, debug=False):
 
-    output_img = copy.deepcopy(input_img)
-    output_img._set_filename(output_file)
+    output_img = Image(filename=output_file)
+    output_dir, tmp    = os.path.split(output_img.filename)
 
-    if method=='mrtrix':
-        subprocess.run(['mrdegibbs',
-                        input_img._get_filename(),
-                        output_img._get_filename(),
-                        '-nthreads', str(nthreads),
-                        '-quiet',
-                        '-force'], stderr=subprocess.STDOUT)
-                        
-
-    if method=='dipy':
-        img = nib.load(input_img._get_filename())
-        data = img.get_fdata()
-        data_corrected = gibbs_removal(data, num_threads=nthreads)
-
-        corrected_img = nib.Nifti1Image(data_corrected.astype(np.float32), img.affine, img.header)
-        corrected_img.set_sform(img.get_sform())
-        corrected_img.set_qform(img.get_qform())
-        nib.save(corrected_img, output_img._get_filename())
+    if mask==None:
+        mask = Image(os.path.join(output_dir, 'temp_mask.nii.gz'))
+        img_tools.calculate_mean_img(input_img, mask.filename)
+        mask_image(input_img, mask, algo='bet', bet_options='-f 0.05', nthreads = nthreads)
+    
+    CMD=""
+    if method=="mrtrix":
+        CMD="dwidenoise " + input_img.filename + " " + output_img.filename + " -mask " + mask.filename \
+           +" -nthreads " + str(nthreads) + " -quiet -force"
         
-    #After the gibbs ringing correction, copy the header from the input to ensure proper sizing
-    os.system('fslcpgeom ' + input_img._get_filename() + ' ' + output_img._get_filename() )
+        if noise_map:
+            CMD+=" -noise " + noise_map.filename
 
-    return output_img
+        if debug:
+            print("Denoising image")
+            print(CMD)
+        
+        print(CMD)
+        subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
-def denoise_image(input_img, output_file, method='mrtrix', mask_img=None, output_noise=None, noise_model="Rician", nthreads=0):
+    elif method=="ants":
+        CMD="DenoiseImage -d 3 -i " + input_img.filename + " -n " + noise_model
 
-    output_img = copy.deepcopy(input_img)
-    output_img._set_filename(output_file)
-
-    if mask_img==None:
-        output_root, tmp    = os.path.split(output_file)
-        mask_img            = Image(output_root + '/mask.nii.gz')
-        img_tools.calculate_mean_img(input_img, mask_img._get_filename())
-        #mask_image(input_img, mask_img, method='bet', bet_options='-f 0.05', nthreads = nthreads)
-    else:
-        output_root, tmp = os.path.split(mask_img._get_filename())
-
-    if method=='mrtrix':
-        if output_noise:
-            subprocess.run(['dwidenoise',
-                            input_img._get_filename(),
-                            output_img._get_filename(),
-                            '-mask', mask_img._get_filename(),
-                            '-noise', output_noise,
-                            '-nthreads', str(nthreads),
-                            '-quiet',
-                            '-force'], stderr=subprocess.STDOUT)
+        if mask:
+            CMD += " -x " + mask.filename
+            
+        if noise_map:
+            CMD += " -o [" + output_img.filename + "," + noise_map + "]"
         else:
-            subprocess.run(['dwidenoise',
-                            input_img._get_filename(),
-                            output_img._get_filename(),
-                            '-mask', mask_img._get_filename(),
-                            '-nthreads', str(nthreads),
-                            '-quiet'
-                            '-force'], stderr=subprocess.STDOUT)
+            CMD += " -o " + output_img.filename
+            
+        subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     elif method[0:4]=='dipy':
-        img = nib.load(input_img._get_filename())
+        img = nib.load(input_img.filename)
         data = img.get_fdata()
-        mask = nib.load(mask_img._get_filename()).get_fdata()
+        mask_data = nib.load(mask.filename).get_fdata()
 
         if method=='dipy-nlmeans':
             sigma = estimate_sigma(data)
-            denoised_arr = nlmeans(data,sigma=sigma, mask=mask, rician=True, patch_radius=1, block_radius=1)
+            denoised_arr = nlmeans(data,sigma=sigma, mask=mask_data, rician=True, patch_radius=1, block_radius=1)
         elif method=='dipy-localpca':
-            bvals, bvecs = read_bvals_bvecs(input_img._get_bvals(), input_img._get_bvecs())
+
+            if input_img.get_type() != "DWImage":
+                print("Input needs to be diffusion image to use dipy-localpca")
+                exit(-1)
+
+            bvals, bvecs = read_bvals_bvecs(input_img.bvals, input_img.bvecs)
             gtab = gradient_table(bvals, bvecs)
             sigma = pca_noise_estimate(data, gtab, correct_bias=True, smooth=3)
             denoised_arr = localpca(data, sigma, mask=mask, tau_factor=2.3, patch_radius=2)
         elif method=='dipy-mppca':
             denoised_arr = mppca(data, mask=mask, patch_radius=2)
         elif method=='dipy-patch2self':
-            bvals, bvecs = read_bvals_bvecs(input_img._get_bvals(), input_img._get_bvecs())
+            if input_img.get_type() != "DWImage":
+                print("Input needs to be diffusion image to use dipy-patch2self")
+                exit(-1)
+            bvals, bvecs = read_bvals_bvecs(input_img.bvals, input_img.bvecs)
             denoised_arr = patch2self(data, bvals)
 
         denoised_img = nib.Nifti1Image(denoised_arr.astype(np.float32), img.affine, img.header)
         denoised_img.set_sform(img.get_sform())
         denoised_img.set_qform(img.get_qform())
-        nib.save(denoised_img, output_img._get_filename())
+        nib.save(denoised_img, output_img.filename)
         
-        
-    elif method=="ants":
-        ants_cmd = "DenoiseImage -d 3 -i " + input_img._get_filename() \
-                 + " -n " + noise_model
-                 
-        if mask_img:
-            ants_cmd += " -x " + mask_img._get_filename()
-            
-        if output_noise:
-            ants_cmd += " -o [" + output_img._get_filename() + "," + output_noise + "]"
-        else:
-            ants_cmd += " -o " + output_img._get_filename()
-            
-        os.system(ants_cmd)
-        
-        
-
     else:
         print('Invalid Denoising Method')
-        exit()
+        exit(-1)
 
-    if os.path.exists(output_root + '/mask.nii.gz'):
-        os.remove(output_root + '/mask.nii.gz')
+    if os.path.exists(os.path.join(output_dir, 'temp_mask.nii.gz')):
+        os.remove(os.path.join(output_dir, 'temp_mask.nii.gz'))
 
     return output_img
+
+
+
+if __name__ == '__main__':
+   
+   import argparse
+   
+   parser = argparse.ArgumentParser(description='QMRI-Neuropipe Denoising function')
+   
+   parser.add_argument('--input',
+                       type=str,
+                       help="Input image to be denoise",
+                       default=None)
+   
+   parser.add_argument('--output',
+                       type=str,
+                       help="Denoised output image",
+                       default=None)
+   
+   parser.add_argument('--bvals',
+                       type=str,
+                       help="B-values of DWI input",
+                       default=None)
+   
+   parser.add_argument('--bvecs',
+                       type=str,
+                       help="B-bvectors of DWI input",
+                       default=None)
+   
+   parser.add_argument('--mask',
+                       type=str,
+                       help="Output binary mask",
+                       default=None)
+   
+   parser.add_argument('--noise_map',
+                       type=str,
+                       help="Output noise map",
+                       default=None)
+   
+   parser.add_argument('--noise_model',
+                       type=str,
+                       help="Noise model for denoising",
+                       choices=["Rician", "Gaussian"],
+                       default="Rician")
+   
+   parser.add_argument('--method',
+                       type=str,
+                       help="Denoising algorithm",
+                       choices=["mrtrix", "ants", "dipy-nlmeans", "dipy-localpca", "dipy-mppca", "dipy-patch2self"],
+                       default="bet")
+   
+   parser.add_argument("--nthreads",
+                       type=int,
+                       help="Number of threads",
+                       default=1)
+   
+   parser.add_argument("--debug",
+                       type=bool,
+                       help="Print debugging statements",
+                       default=False)
+   
+   parser.add_argument("--logfile",
+                       type=str,
+                       help="Log file to print statements",
+                       default=None)            
+   
+   args, unknown = parser.parse_known_args()
+
+   if args.bvals and args.bvecs:
+       input_img = DWImage(filename = args.input,
+                           bvals    = args.bvals,
+                           bvecs    = args.bvecs)
+   else:
+       input_img = Image(filename = args.input)
+
+   denoise_image(input_img  = input_img,
+                 output_file= args.output,
+                 method     = args.method,
+                 mask       = Image(filename = args.mask),
+                 noise_map  = args.noise_map, 
+                 noise_model= args.noise_model, 
+                 nthreads   = args.nthreads,
+                 debug      = args.debug)
+   

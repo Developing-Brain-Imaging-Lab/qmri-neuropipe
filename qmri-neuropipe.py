@@ -2,7 +2,7 @@
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
-from core.anatomical.anat_proc import AnatomicalPrepPipeline
+from core.anat.anat_proc import AnatomicalPrepPipeline
 from core.dmri.dmri_proc import DiffusionProcessingPipeline
 from core.qmri.despot_proc import DESPOTProcessingPipeline
 from core.segmentation.segment_proc import SegmentationPipeline
@@ -43,6 +43,7 @@ parser.add_argument('--verbose',
 
 
 args, unknown = parser.parse_known_args()
+
 
 if args.load_json:
     with open(args.load_json, 'rt') as f:

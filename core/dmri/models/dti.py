@@ -5,9 +5,8 @@ import nibabel as nib
 import dipy.reconst.dti as dti
 
 from dipy.denoise.noise_estimate import estimate_sigma
-from dipy.core.gradients import gradient_table
-from dipy.io.gradients import read_bvals_bvecs
-from dipy.io import reorient_vectors
+from dipy.core.gradients import gradient_table, reorient_vectors
+from dipy.io import  read_bvals_bvecs
 from dipy.io.image import load_nifti, save_nifti
 from dipy.reconst.dti import fractional_anisotropy
 from dipy.io.utils import nifti1_symmat
@@ -92,16 +91,16 @@ class DTI_Model():
             os.makedirs(output_dir)
 
         if self._inputs['fit_type'][0:4]=='dipy':
-            img = nib.load(dwi_img._get_filename())
+            img = nib.load(dwi_img.filename)
             axis_orient = nib.aff2axcodes(img.affine)
             ras_img = nib.as_closest_canonical(img)
             data = ras_img.get_fdata()
 
-            bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
+            bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
             bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
-                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask']._get_filename())).get_fdata()
+                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask'].filename)).get_fdata()
 
             if self._inputs['bmax'] != None:
                 jj = np.where(bvals >= self._inputs['bmax'])
@@ -291,9 +290,9 @@ class DTI_Model():
             command = 'dwi2tensor -quiet -nthreads ' + str(self._inputs['nthreads'])
 
             if self._inputs['bmax'] != None:
-               img = nib.load(dwi_img._get_filename())
+               img = nib.load(dwi_img.filename)
                data = img.get_fdata()
-               bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
+               bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
 
                aff = img.get_affine()
                sform = img.get_sform()
@@ -316,12 +315,12 @@ class DTI_Model():
                command += ' -fslgrad ' + output_dir+'/tmp_bvecs.bvec ' + output_dir+'/tmp_bvals.bval ' + output_dir+'/tmp_dwi.nii.gz'
 
             else:
-               command += ' -fslgrad ' + dwi_img._get_bvecs() + ' ' +  dwi_img._get_bvals() + ' ' + dwi_img._get_filename()
+               command += ' -fslgrad ' + dwi_img.bvecs + ' ' +  dwi_img.bvals + ' ' + dwi_img.filename
 
             command += ' ' + self._outputs['tensor-mrtrix']
 
             if self._inputs['mask'] != None:
-               os.system(command+' -mask ' + self._inputs['mask']._get_filename())
+               os.system(command+' -mask ' + self._inputs['mask'].filename)
             else:
                os.system(command)
 
@@ -346,14 +345,14 @@ class DTI_Model():
             camino_dwi = output_dir + '/tmp_dwi.Bfloat'
             camino_scheme = output_dir + '/tmp_dwi.scheme'
             camino_tensor = output_dir + '/tmp_dti.Bfloat'
-            os.system('image2voxel -4dimage ' + dwi_img._get_filename() + ' -outputfile ' + camino_dwi)
-            os.system('fsl2scheme -bvecfile ' + dwi_img._get_bvecs() + ' -bvalfile ' + dwi_img._get_bvals() + ' > ' + camino_scheme)
+            os.system('image2voxel -4dimage ' + dwi_img.filename + ' -outputfile ' + camino_dwi)
+            os.system('fsl2scheme -bvecfile ' + dwi_img.bvecs + ' -bvalfile ' + dwi_img.bvals + ' > ' + camino_scheme)
 
             command = 'modelfit -inputfile ' + camino_dwi + ' -schemefile ' + camino_scheme + ' -bgmask ' + self._inputs['mask']._get_filename() + ' -outputfile ' + camino_tensor
 
             if self._inputs['fit_type'][7:] == 'RESTORE':
-                data = nib.load(dwi_img._get_filename()).get_fdata()
-                bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
+                data = nib.load(dwi_img.filename).get_fdata()
+                bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
                 values = np.array(bvals)
                 ii = np.where(values == bvals.min())[0]
                 sigma = estimate_sigma(data)
@@ -374,10 +373,10 @@ class DTI_Model():
             os.system(command)
 
             #Convert the data back to NIFTI
-            os.system('dt2nii -inputfile ' + camino_tensor + ' -gzip -inputdatatype double -header ' + dwi_img._get_filename() + ' -outputroot ' + output_dir + '/')
+            os.system('dt2nii -inputfile ' + camino_tensor + ' -gzip -inputdatatype double -header ' + dwi_img.filename + ' -outputroot ' + output_dir + '/')
 
             os.system('TVtool -in ' + output_dir + '/dt.nii.gz -scale 1e9 -spd -out ' + self._outputs['tensor'])
-            os.system('TVtool -in ' + self._outputs['tensor'] + ' -mask ' + self._inputs['mask']._get_filename() + ' -out ' + self._outputs['tensor'])
+            os.system('TVtool -in ' + self._outputs['tensor'] + ' -mask ' + self._inputs['mask'].filename + ' -out ' + self._outputs['tensor'])
             os.system('TVFromEigenSystem -basename dti -type FSL -out ' + self._outputs['tensor'])
 
             #Calculate FA, MD, RD, AD
@@ -430,9 +429,9 @@ class FWEDTI_Model():
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        img = nib.load(dwi_img._get_filename())
+        img = nib.load(dwi_img.filename)
         data = img.get_fdata()
-        bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
+        bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
         gtab = gradient_table(bvals, bvecs)
 
         values = np.array(bvals)
@@ -442,7 +441,7 @@ class FWEDTI_Model():
         fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
 
         if self._inputs['mask'] != None:
-            mask_data = nib.load(self._inputs['mask']._get_filename()).get_fdata()
+            mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
             fwidti_fit = fwidtimodel.fit(data, mask_data)
         else:
             fwidti_fit = fwidtimodel.fit(data)

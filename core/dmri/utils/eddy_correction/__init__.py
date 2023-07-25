@@ -26,22 +26,22 @@ def eddy_correct_fsl(input_dwi, output_base):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    os.system('eddy_correct ' + input_dwi._get_filename() + ' ' + dwi_file + ' 0 spline')
-    os.system('fdt_rotate_bvecs ' + input_dwi._get_bvecs() + ' ' + bvecs_file + ' ' + log_file)
+    os.system('eddy_correct ' + input_dwi.filename + ' ' + dwi_file + ' 0 spline')
+    os.system('fdt_rotate_bvecs ' + input_dwi.bvecs + ' ' + bvecs_file + ' ' + log_file)
 
     output_img = copy.deepcopy(input_dwi)
-    output_img._set_filename(output_base+'_desc-EddyCurrentCorrected_dwi.nii.gz')
-    output_img._set_bvecs(output_base+'_desc-EddyCurrentCorrected_dwi.bvec')
+    output_img.filename = output_base+'_desc-EddyCurrentCorrected_dwi.nii.gz'
+    output_img.bvecs    = output_base+'_desc-EddyCurrentCorrected_dwi.bvec'
 
-    os.rename(dwi_file, output_img._get_filename())
-    os.rename(bvecs_file, output_img._get_bvecs())
+    os.rename(dwi_file, output_img.filename)
+    os.rename(bvecs_file, output_img.bvecs)
 
     #Rotate b-vecs after doing the eddy correction
     os.remove(log_file)
 
     return output_img
 
-def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, repol=0, data_shelled=False, mb=None, cuda=False, mporder=0, ol_type='sw', mb_off='1', estimate_move_by_suscept=False, cuda_device=None, nthreads='1', fsl_eddy_options=''):
+def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, repol=0, data_shelled=False, mb=None, cuda=False, mporder=0, ol_type='sw', mb_off='1', estimate_move_by_suscept=False, cuda_device=None, nthreads='1', fsl_eddy_options='', debug=False):
 
     output_dir = os.path.dirname(output_base)
 
@@ -51,12 +51,12 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
     eddy_output_base = output_base +'_desc-EddyCurrentCorrected_dwi'
 
     output_img = copy.deepcopy(input_dwi)
-    output_img._set_filename(eddy_output_base+'.nii.gz')
-    output_img._set_bvecs(eddy_output_base+'.bvec')
+    output_img.filename = eddy_output_base+'.nii.gz'
+    output_img.bvecs    = eddy_output_base+'.bvec'
 
     if mask_img == None:
-        mask_img = Image(file = output_dir + '/mask.nii.gz')
-        mask.mask_image(input_dwi, mask_img, method='bet', bet_options='-f 0.1')
+        mask_img = Image(filename = output_dir + '/mask.nii.gz')
+        mask.mask_image(input_dwi, mask_img, algo='bet', bet_options='-f 0.1')
 
     exe = ''
     if cuda:
@@ -67,13 +67,13 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
     else:
         exe = 'OMP_NUM_THREADS='+str(nthreads)+ ' ' + eddy
 
-    command = exe + ' --imain=' + input_dwi._get_filename() \
-              + ' --mask='  + mask_img._get_filename() \
-              + ' --index=' + input_dwi._get_index() \
-              + ' --acqp='  + input_dwi._get_acqparams() \
-              + ' --bvecs=' + input_dwi._get_bvecs() \
-              + ' --bvals=' + input_dwi._get_bvals() \
-              + ' --slspec=' + input_dwi._get_slspec() \
+    command = exe + ' --imain=' + input_dwi.filename \
+              + ' --mask='  + mask_img.filename \
+              + ' --index=' + input_dwi.index \
+              + ' --acqp='  + input_dwi.acqparams \
+              + ' --bvecs=' + input_dwi.bvecs \
+              + ' --bvals=' + input_dwi.bvals \
+              + ' --slspec=' + input_dwi.slspec \
               + ' --out='   + eddy_output_base \
               + ' --cnr_maps --residuals --ol_type='+ol_type
 
@@ -94,9 +94,12 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
 
     command += ' ' + fsl_eddy_options
 
+    if debug:
+        print(command)
+        
     os.system(command)
     #Rotate b-vecs after doing the eddy correction
-    os.system('mv ' + eddy_output_base +'.eddy_rotated_bvecs ' + output_img._get_bvecs())
+    os.system('mv ' + eddy_output_base +'.eddy_rotated_bvecs ' + output_img.bvecs)
     os.remove(output_dir + '/mask.nii.gz')
 
     return output_img
@@ -135,27 +138,27 @@ def diffprep_tortoise(input_dwi, output_base, phase='horizontal', tortoise_optio
         os.makedirs(proc_dir)
     os.chdir(proc_dir)
     
-    dwi_img_base = input_dwi._get_filename().split('/')[-1]
+    dwi_img_base = input_dwi.filename.split('/')[-1]
     tort_proc_img   = proc_dir + dwi_img_base.split('.')[0]+'_DMC.nii'
     tort_proc_bmtxt = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bmtxt'
     tort_proc_bval  = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bvals'
     tort_proc_bvec  = proc_dir + dwi_img_base.split('.')[0]+'_DMC.bvecs'
     
     
-    shutil.copy(input_dwi._get_filename(), proc_dir)
-    shutil.copy(input_dwi._get_bvecs(), proc_dir)
-    shutil.copy(input_dwi._get_bvals(), proc_dir)
+    shutil.copy(input_dwi.filename, proc_dir)
+    shutil.copy(input_dwi.bvecs, proc_dir)
+    shutil.copy(input_dwi.bvals, proc_dir)
     
     if struct_img:
-        shutil.copy(struct_img._get_filename(), proc_dir)
+        shutil.copy(struct_img.filename, proc_dir)
     
     diffprep_cmd = 'DIFFPREP --dwi ' + dwi_img_base \
-                 + ' --bvecs ' + input_dwi._get_bvecs().split('/')[-1]  \
-                 + ' --bvals ' + input_dwi._get_bvals().split('/')[-1]  \
+                 + ' --bvecs ' + input_dwi.bvecs.split('/')[-1]  \
+                 + ' --bvals ' + input_dwi.bvals.split('/')[-1]  \
                  + ' --phase ' + phase
     
     if struct_img:
-        diffprep_cmd += ' --structural ' + struct_img._get_filename().split('/')[-1]
+        diffprep_cmd += ' --structural ' + struct_img.filename.split('/')[-1]
         
     if tortoise_options:
         diffprep_cmd += ' ' + tortoise_options
@@ -176,11 +179,11 @@ def diffprep_tortoise(input_dwi, output_base, phase='horizontal', tortoise_optio
     shutil.copy(tort_proc_bvec, eddy_output_bvec)
     
     output_img = copy.deepcopy(input_dwi)
-    output_img._set_filename(eddy_output_img)
-    output_img._set_bvecs(eddy_output_bvec)
+    output_img.filename = eddy_output_img
+    output_img.bvec     = eddy_output_bvec
     
     if struct_img:
-        os.system('mri_convert ' + output_img._get_filename() + ' --reslice_like ' + struct_img._get_filename() + ' ' + output_img._get_filename() )
+        os.system('mri_convert ' + output_img.filename + ' --reslice_like ' + struct_img.filename + ' ' + output_img.filename )
 
     #shutil.rmtree(proc_dir)
     
