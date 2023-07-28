@@ -438,8 +438,6 @@ class DiffusionProcessingPipeline:
         fmap_image=None
         fmap_ref_image=None
 
-        print("THIS IS A TEST")
-
         #Setup the Anatomical Imaging Data if needed
         freesurfer_subjs_dir = None
         if args.use_freesurfer:
@@ -531,7 +529,8 @@ class DiffusionProcessingPipeline:
         ##################################
         ### DWI PROCESSING STARTS HERE ###
         ##################################
-
+        print(t1w.filename)
+        exit()
         if not final_dwi.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
