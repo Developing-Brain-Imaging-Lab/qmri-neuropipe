@@ -497,7 +497,7 @@ class DiffusionProcessingPipeline:
                     anat_image = compute_synthetic_t2w(input_t1w    = t1w,
                                                        output_dir   = anat_derivative_dir,
                                                        cmd_args     = args,
-                                                       syn_t2       = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
+                                                       syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
                                                        t1w_mask     = t1w_mask, 
                                                        debug        = args.debug)
                     anat_mask = t1w_mask
