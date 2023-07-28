@@ -438,6 +438,8 @@ class DiffusionProcessingPipeline:
         fmap_image=None
         fmap_ref_image=None
 
+        print("THIS IS A TEST")
+
         #Setup the Anatomical Imaging Data if needed
         freesurfer_subjs_dir = None
         if args.use_freesurfer:
@@ -478,8 +480,6 @@ class DiffusionProcessingPipeline:
         #First determine the anatomical image to use
         anat_image = None
         anat_mask  = None
-
-        print("THIS IS A TEST")
 
         if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
             if args.dwi_eddy_current_correction == 'tortoise-diffprep':
