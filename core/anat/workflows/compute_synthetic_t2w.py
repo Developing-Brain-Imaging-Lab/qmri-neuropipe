@@ -35,8 +35,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args, syn_t2w="synthetic_T2
     #Create a image of the skull
     os.system("fslmaths " + t1w.filename + " -sub "  + t1w_brain.filename + " " + skull_img.filename)
     os.system("ImageMath 3 " + skull_img.filename + " Normalize " + skull_img.filename)
-    os.system("fslmaths " + skull_img.filename + " -mul 500.0 " + skull_img.filename)
-    
+        
     #Norimalize the T1w
     os.system("ImageMath 3 " + t1w_norm.filename + " Normalize " + t1w_brain.filename)
     os.system("fslmaths " + t1w_norm.filename + " -mas " + t1w_mask.filename + " -recip -nan " +  t1w_recip.filename )
@@ -44,7 +43,7 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args, syn_t2w="synthetic_T2
 
     
     #Now add the skull and recip-T1w_brain image
-    os.system("fslmaths " + t1w_recip.filename + " -mul 10000.0 -add " + skull_img.filename + " " + synthetic_t2w.filename)
+    os.system("fslmaths " + t1w_recip.filename + " -add " + skull_img.filename + " " + synthetic_t2w.filename)
     
     
     synthetic_t2w = biascorr.biasfield_correction(input_img     = synthetic_t2w,
