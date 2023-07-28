@@ -33,8 +33,6 @@ def perform_eddy(dwi_image, working_dir, topup_base, method='eddy', gpu=False, c
     eddycorrected_img.filename = eddy_file
     eddycorrected_img.bvecs = eddy_bvec
 
-    print(eddycorrected_img.get_type())
-
     if not eddycorrected_img.exists():
 
         #First, create Index and Acqparams based on DWI and JSON
