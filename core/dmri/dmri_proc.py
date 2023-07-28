@@ -529,8 +529,6 @@ class DiffusionProcessingPipeline:
         ##################################
         ### DWI PROCESSING STARTS HERE ###
         ##################################
-        print(t1w.filename)
-        exit()
         if not final_dwi.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
@@ -609,9 +607,6 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
-
-                print("TESTING")
-                exit()
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
                                                       anat_image           = anat_image,
