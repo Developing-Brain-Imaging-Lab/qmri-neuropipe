@@ -479,6 +479,8 @@ class DiffusionProcessingPipeline:
         anat_image = None
         anat_mask  = None
 
+        print("THIS IS A TEST")
+
         if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
             if args.dwi_eddy_current_correction == 'tortoise-diffprep':
                 if t2w and t1w:
