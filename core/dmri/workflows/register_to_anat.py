@@ -111,7 +111,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                 
         
         anat_biascorr = Image(filename = working_dir + '/anat_biascorr.nii.gz')
-        
         bias_tools.biasfield_correction(input_img = anat_masked,
                                         output_file = anat_biascorr.filename,
                                         method = "ants",
@@ -119,7 +118,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
     
         ref_img.append(anat_biascorr)
     
-            
         #First, perform linear registration using FSL flirt
         tmp_coreg_img = Image(filename = working_dir+'/dwi_coreg.nii.gz')
         linreg(input         = mov_img,
@@ -151,9 +149,9 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                                 
         #Convert to ITK format for warping
         convert_fsl2ants(input    = mov_img[0],
-                         ref      = ref_img[0],
-                         fsl_mat  = fsl_transform,
-                         ants_mat = itk_transform )
+                        ref      = ref_img[0],
+                        fsl_mat  = fsl_transform,
+                        ants_mat = itk_transform )
                                    
         if reg_method == 'linear' or reg_method == 'bbr':
             final_transform = itk_transform
@@ -168,7 +166,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                       method          = 'ants',
                       ants_options    = '-j 1')
 
-        
             #Create the final transform
             create_composite_transform(ref        = ref_img[0],
                                        out        = nonlin_transform,
