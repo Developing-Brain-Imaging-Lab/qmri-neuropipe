@@ -608,6 +608,7 @@ class DiffusionProcessingPipeline:
 
 
             if args.coregister_dwi_to_anat:
+                print(anat_image.filename)
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
                                                       anat_image           = anat_image,
