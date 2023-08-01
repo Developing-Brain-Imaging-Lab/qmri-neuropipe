@@ -3,8 +3,6 @@ import os, subprocess
 
 def create_composite_transform(ref, out, transforms, linear=False, debug=False):
 
-    print(transforms)
-
     CMD=""
     if linear:
         CMD = "antsApplyTransforms -d 3 -o Linear[" + out + ",1] -r " + ref.filename

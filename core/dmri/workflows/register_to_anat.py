@@ -161,13 +161,12 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             nonlinreg(input           = mov_img,
                       ref             = ref_img,
                       mask            = anat_mask,
-                      out_xfm         = ants_transform,
+                      out_xfm         = ants_transform+"dwi2struct.nii.gz",
                       nthreads        = nthreads,
                       method          = 'ants',
                       ants_options    = '-j 1')
 
             #Create the final transform
-            print(ants_transform+"0GenericAffine.mat")
             create_composite_transform(ref        = ref_img[0],
                                        out        = nonlin_transform,
                                        transforms = [ants_transform + "1Warp.nii.gz", ants_transform+"0GenericAffine.mat", itk_transform])

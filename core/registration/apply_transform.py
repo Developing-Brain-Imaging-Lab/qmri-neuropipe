@@ -54,11 +54,11 @@ def apply_transform(input, ref, out, transform, nthreads=1, method="fsl", flirt_
             + " -strides " +  ref.filename + " -force -quiet -reorient_fod no -nthreads " + str(nthreads) + " -interp sinc")
         
         os.system("mrconvert -force -quiet " + warped_img + " " + out.filename + " -export_grad_fsl " + out.bvecs + " " + out.bvals + " -nthreads " + str(nthreads))
+        
         #Clean up files
         if method=="mrtrix":
             os.system('rm -rf ' + ident_warp+'*')
             os.system('rm -rf ' + mrtrix_warp+'*')
-            os.remove(mrtrix_corr_warp)
             os.remove(warped_img)
 
 

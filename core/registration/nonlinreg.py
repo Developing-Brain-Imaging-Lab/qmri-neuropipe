@@ -61,15 +61,15 @@ def nonlinreg(input, ref, mask, out_xfm, out_img=None, nthreads=1, method='ants'
     
     if method == 'ants' or method == 'ants-quick':
 
-        ants_transforms = [out_xfm.split(".")[0] + "_1Warp.nii.gz", out_xfm.split(".")[0] + "_0GenericAffine.mat"]
+        ants_transforms = [out_xfm.split(".")[0] + "1Warp.nii.gz", out_xfm.split(".")[0] + "0GenericAffine.mat"]
 
         ref_img = ref
         if type(ref) is list:
             ref_img = ref[0]
             
         create_composite_transform(ref = ref_img,
-                                out = out_xfm,
-                                transforms = ants_transforms)
+                                   out = out_xfm,
+                                   transforms = ants_transforms)
 
 
 if __name__ == '__main__':
