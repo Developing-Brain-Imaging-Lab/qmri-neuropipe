@@ -37,9 +37,9 @@ def compute_synthetic_t2w(input_t1w, output_dir, cmd_args, syn_t2w="synthetic_T2
     os.system("ImageMath 3 " + t1w_norm.filename + " Normalize " + t1w.filename)
         
     #Norimalize the T1w
-    os.system("fslmaths " + t1w_norm.filename + " -recip -nan -mas " + t1w_mask.filename + " " +  t1w_recip.filename )
-    os.system("ImageMath 3 " + t1w_recip.filename + " Normalize " + t1w_recip.filename)
-    os.system("ImageMath 3 " + skull_img.filename + " Normalize " + skull_img.filename)
+    os.system("fslmaths " + t1w_norm.filename + " -recip -nan -mas " + t1w_mask.filename + " -mul 10000" +  t1w_recip.filename )
+    #os.system("ImageMath 3 " + t1w_recip.filename + " Normalize " + t1w_recip.filename)
+    #os.system("ImageMath 3 " + skull_img.filename + " Normalize " + skull_img.filename)
 
     
     #Now add the skull and recip-T1w_brain image
