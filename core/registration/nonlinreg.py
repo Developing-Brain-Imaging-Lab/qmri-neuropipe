@@ -69,7 +69,7 @@ def nonlinreg(input, ref, mask, out_xfm, out_img=None, nthreads=1, method='ants'
             
         create_composite_transform(ref = ref_img,
                                    out = out_xfm,
-                                   transforms = ants_transforms)
+                                   transforms = ants_transform+"composite.nii.gz")
 
 
 if __name__ == '__main__':
