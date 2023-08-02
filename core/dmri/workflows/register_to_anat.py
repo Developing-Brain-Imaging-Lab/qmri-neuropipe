@@ -161,7 +161,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             nonlinreg(input           = mov_img,
                       ref             = ref_img,
                       mask            = anat_mask,
-                      out_xfm         = ants_transform,
+                      out_xfm_base    = ants_transform,
                       nthreads        = nthreads,
                       method          = 'ants',
                       ants_options    = '-j 1')

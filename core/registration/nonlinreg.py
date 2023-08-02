@@ -5,7 +5,7 @@ from core.utils.io import Image
 
 from core.registration.create_composite_transform import create_composite_transform
       
-def nonlinreg(input, ref, mask, out_xfm, out_img=None, nthreads=1, method='ants', fsl_options=None, ants_options=None):
+def nonlinreg(input, ref, mask, out_xfm=None, out_xfm_base=None, out_img=None, nthreads=1, method='ants', fsl_options=None, ants_options=None):
 
     CMD = ""
 
@@ -19,7 +19,7 @@ def nonlinreg(input, ref, mask, out_xfm, out_img=None, nthreads=1, method='ants'
             CMD = "antsRegistrationSyN.sh"
 
 
-        CMD += " -d 3 -n " + str(nthreads) + " -o " + out_xfm.split(".")[0]
+        CMD += " -d 3 -n " + str(nthreads) + " -o " + out_xfm_base
 
         if type(input) is list:
             for i in range(0,len(input)):
@@ -56,12 +56,12 @@ def nonlinreg(input, ref, mask, out_xfm, out_img=None, nthreads=1, method='ants'
         print("Incorrect nonlinear registration method")
         exit(-1)
 
-    print(CMD)
+    
     subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
     
-    if method == 'ants' or method == 'ants-quick':
+    if (method == 'ants' or method == 'ants-quick') and (out_xfm != None):
 
-        ants_transforms = [out_xfm.split(".")[0] + "1Warp.nii.gz", out_xfm.split(".")[0] + "0GenericAffine.mat"]
+        ants_transforms = [out_xfm_base + "1Warp.nii.gz", out_xfm_base + "0GenericAffine.mat"]
 
         ref_img = ref
         if type(ref) is list:

@@ -20,18 +20,19 @@ def dmri_to_standard(bids_id, dwi_models_dir, dwi_registration_dir, dwi_normaliz
     output_warp = os.path.join(dwi_registration_dir, bids_id+"_desc-RegistrationToStandard_Warp.nii.gz")
 
     if os.path.exists(fa_map.filename) and not os.path.exists(output_warp):
-        nonlinreg(input       = fa_map, 
-                  ref         = template, 
-                  mask        = template_mask,
-                  out_xfm     = output_base,
-                  nthreads    = nthreads,
-                  method      = method,
-                  fsl_options = fslopts,
-                  ants_options= antsopts)
+        nonlinreg(input        = fa_map, 
+                  ref          = template, 
+                  mask         = template_mask,
+                  out_xfm      = output_warp,
+                  out_xfm_base = output_base,
+                  nthreads     = nthreads,
+                  method       = method,
+                  fsl_options  = fslopts,
+                  ants_options = antsopts)
         
-        create_composite_transform(ref        = template,
-                                   out        = output_warp,
-                                   transforms = [output_base + '1Warp.nii.gz', output_base+'0GenericAffine.mat'])
+        # create_composite_transform(ref        = template,
+        #                            out        = output_warp,
+        #                            transforms = [output_base + '1Warp.nii.gz', output_base+'0GenericAffine.mat'])
 
     #Warp DTI model parameters
     scalars_to_warp = []
