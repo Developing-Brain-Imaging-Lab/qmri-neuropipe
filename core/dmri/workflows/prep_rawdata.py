@@ -9,8 +9,9 @@ import core.dmri.utils.qc as dmri_qc
 import core.dmri.utils.distortion_correction as distcorr
 import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
+from core.dmri.workflows.dmri_reorient import dmri_reorient
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients=False, resample_resolution=None, remove_last_vol=False, distortion_correction='None', topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, cmd_args=None, verbose=False):
+def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients=False, reorient_dwi=False, dwi_reorient_template=None, resample_resolution=None, remove_last_vol=False, distortion_correction='None', topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, cmd_args=None, verbose=False):
 
     #Setup raw data paths
     bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, "dwi/")
@@ -87,6 +88,11 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
     if check_gradients:
         dmri_qc.check_gradient_directions(input_dwi   = dwi_img,
                                           nthreads    = nthreads)
+        
+    if reorient_dwi:
+        dmri_reorient(in_dwi  = dwi_img,
+                      out_dwi = dwi_img,
+                      ref_img = dwi_reorient_template)
 
     dwi_img.index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt'
     dwi_img.acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt'

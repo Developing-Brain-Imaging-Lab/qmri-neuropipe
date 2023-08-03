@@ -8,6 +8,7 @@ from core.utils.io import Image, DWImage
 import core.dmri.workflows.prep_rawdata as dmri_rawprep
 import core.utils.workflows.denoise_degibbs as img_proc
 
+import core.dmri.workflows.dmri_reorient as dmri_reorient
 import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 import core.dmri.workflows.register_to_anat as coreg_proc
@@ -118,6 +119,16 @@ class DiffusionProcessingPipeline:
                             type=bool,
                             help='Check DWI Gradient Directions',
                             default=False)
+        
+        parser.add_argument('--dwi_reorient',
+                            type=bool,
+                            help='Reorient the diffusion images',
+                            default=False)
+        
+        parser.add_argument('--dwi_reorient_template',
+                            type=str,
+                            help='Template to use to reorient diffusion images',
+                            default=None)
 
         parser.add_argument('--dwi_mask_method',
                             type=str,
@@ -536,6 +547,8 @@ class DiffusionProcessingPipeline:
                                                                  bids_rawdata_dir       = bids_rawdata_dir,
                                                                  dwi_preproc_dir        = preproc_dir,
                                                                  check_gradients        = args.dwi_check_gradients,
+                                                                 reorient_dwi           = args.dwi_reorient,
+                                                                 dwi_reorient_template  = args.dwi_reorient_template,
                                                                  resample_resolution    = args.dwi_resample_resolution,
                                                                  remove_last_vol        = args.dwi_remove_last_vol,
                                                                  distortion_correction  = args.dwi_dist_corr,
