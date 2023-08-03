@@ -10,6 +10,10 @@ def rotate_bvecs(input_bvecs, output_bvecs, transform, linreg_method):
 
     #Rotate bvecs
     trans   = loadmat(transform)
+
+    print(trans)
+    exit()
+
     matrix  = ''
     if linreg_method == 'FSL':
         matrix = trans['MatrixOffsetTransformBase_double_3_3'][:9].reshape((3,3))
