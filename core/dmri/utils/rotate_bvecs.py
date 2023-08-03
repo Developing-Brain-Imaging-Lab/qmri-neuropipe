@@ -44,8 +44,8 @@ if __name__ == '__main__':
    parser.add_argument('--method',
                        type=str,
                        help="Skull-stripping algorithm",
-                       choices=["bet", "hd-bet", "dipy", "mrtrix", "afni", "ants", "antspynet"],
-                       default="bet")
+                       choices=["FSL", "ANTS"],
+                       default="FSL")
    
    args, unknown = parser.parse_known_args()
 
