@@ -49,6 +49,10 @@ if __name__ == '__main__':
    
    args, unknown = parser.parse_known_args()
 
+   print(args.input)
+   print(args.output)
+   print(args.transform)
+
    rotate_bvecs(input_bvecs   = args.input,
                 output_bvecs  = args.output,
                 transform     = args.transform,
