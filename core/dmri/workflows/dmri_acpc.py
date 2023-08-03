@@ -11,7 +11,7 @@ from core.registration.linreg import linreg
 def dmri_reorient( in_dwi, out_dwi, ref_img):
 
     #First, run eddy-correct to ensure DWIs
-    output_dir  = os.path.dirname(out_dwi)
+    output_dir  = os.path.dirname(out_dwi.filename)
     output_base = output_dir + "/tmp_dwi_eddy"
     
     eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = in_dwi,
