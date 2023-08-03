@@ -37,6 +37,14 @@ def dmri_reorient( in_dwi, out_dwi, ref_img):
 
     #Rotate bvecs
     rotate_fsl_bvecs(eddycorrected_img.bvecs, out_dwi.bvecs, out_mat)
+    
+    
+    
+    os.remove(output_dir+"/mean.nii.gz")
+    os.system(output_dir+"/tmp_dwi_eddy*")
+    os.remove(output_dir+"/tmp_dwi2ref.mat")
+    os.remove(output_dir+"/tmp_dwi_hdr.nii.gz")
+    
 
     
      

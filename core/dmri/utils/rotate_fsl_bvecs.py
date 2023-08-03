@@ -4,9 +4,6 @@ import numpy as np
 
 def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
 
-    print(input_bvecs)
-    print(output_bvecs)
-
     #Rotate bvecs
     trans   = np.loadtxt(transform)
     matrix = trans[:9].reshape((4,4))
@@ -16,7 +13,6 @@ def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
         bvecs = bvecs.T
 
     newbvecs = np.matmul(matrix[0:3,0:3], bvecs )
-    print(newbvecs)
 
     np.savetxt(output_bvecs, newbvecs, fmt='%.5f')
 
