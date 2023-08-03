@@ -30,7 +30,7 @@ def dmri_reorient( in_dwi, out_dwi, ref_img):
     
     mean_corr_header = Image(filename=output_dir+"/tmp_dwi_hdr.nii.gz")
     shutil.copy2(mean_img.filename, mean_corr_header.filename)
-    os.system("fslcpgeom " + ref_img.filename + " " + mean_corr_header.filename)
+    os.system("fslcpgeom " + ref_img.filename + " " + mean_corr_header.filename + " -d")
 
     #Apply transform
     os.system("applywarp -i " + eddycorrected_img.filename + " -r " + mean_corr_header.filename + " -o " + out_dwi.filename + " --premat="+out_mat)
