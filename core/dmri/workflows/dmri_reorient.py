@@ -3,7 +3,7 @@ from core.utils.io import Image, DWImage
 
 import core.dmri.utils.eddy_correction as eddycorr
 import core.utils.tools as img_tools
-from core.dmri.utils.rotate_bvecs import rotate_fsl_bvecs 
+from core.dmri.utils.rotate_fsl_bvecs import rotate_fsl_bvecs 
 
 from core.registration.linreg import linreg
 
