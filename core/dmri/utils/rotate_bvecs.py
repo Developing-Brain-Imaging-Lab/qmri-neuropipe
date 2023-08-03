@@ -9,8 +9,8 @@ def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
 
     #Rotate bvecs
     trans   = np.loadtxt(transform)
-    matrix = trans.reshape((3,3))
-
+    matrix = trans[:9].reshape((3,3))
+    
     bvecs = np.genfromtxt(input_bvecs)
     if bvecs.shape[0] != 3:
         bvecs = bvecs.T
