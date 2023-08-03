@@ -61,6 +61,7 @@ def denoise_degibbs(input_img, working_dir, suffix, denoise_method="mrtrix", gib
     if not degibbs_img.exists():
         if verbose or debug:
             print('Performing Gibbs Ringing Correction...')
+            
         degibbs_img = degibbs.gibbs_ringing_correction(input_img      = denoised_img,
                                                        output_file    = degibbs_img.filename,
                                                        method         = gibbs_method,

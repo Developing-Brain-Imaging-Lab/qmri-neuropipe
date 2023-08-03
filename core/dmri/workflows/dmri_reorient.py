@@ -17,7 +17,6 @@ def dmri_reorient( in_dwi, out_dwi, ref_img):
     eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = in_dwi,
                                                   output_base = output_base)
     
-
     dwi_mean = Image(filename=output_dir+"/mean.nii.gz")                                         
     mean_img =  img_tools.calculate_mean_img(eddycorrected_img, output_file=dwi_mean.filename) 
 
