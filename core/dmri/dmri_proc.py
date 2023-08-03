@@ -548,7 +548,7 @@ class DiffusionProcessingPipeline:
                                                                  dwi_preproc_dir        = preproc_dir,
                                                                  check_gradients        = args.dwi_check_gradients,
                                                                  reorient_dwi           = args.dwi_reorient,
-                                                                 dwi_reorient_template  = args.dwi_reorient_template,
+                                                                 dwi_reorient_template  = Image(filename=args.dwi_reorient_template),
                                                                  resample_resolution    = args.dwi_resample_resolution,
                                                                  remove_last_vol        = args.dwi_remove_last_vol,
                                                                  distortion_correction  = args.dwi_dist_corr,
