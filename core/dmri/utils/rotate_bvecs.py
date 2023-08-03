@@ -5,6 +5,9 @@ from scipy.io import loadmat
 
 def rotate_bvecs(input_bvecs, output_bvecs, transform, linreg_method):
 
+    print(input_bvecs)
+    print(output_bvecs)
+
     #Rotate bvecs
     trans   = loadmat(transform)
     matrix  = ''
@@ -49,9 +52,6 @@ if __name__ == '__main__':
    
    args, unknown = parser.parse_known_args()
 
-   print(args.input)
-   print(args.output)
-   print(args.transform)
 
    rotate_bvecs(input_bvecs   = args.input,
                 output_bvecs  = args.output,
