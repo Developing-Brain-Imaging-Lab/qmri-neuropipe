@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, subprocess
+import os, subprocess, copy
 
 import numpy as np
 import nibabel as nib
@@ -20,8 +20,9 @@ from core.utils.mask import mask_image
 
 def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=None, noise_model="Rician", nthreads=0, debug=False):
 
-    output_img = Image(filename=output_file)
-    output_dir, tmp    = os.path.split(output_img.filename)
+    output_img          = copy.deepcopy(input_img)
+    output_img.filename = output_file
+    output_dir, tmp     = os.path.split(output_img.filename)
 
     if mask==None:
         mask = Image(os.path.join(output_dir, 'temp_mask.nii.gz'))
