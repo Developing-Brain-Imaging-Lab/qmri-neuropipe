@@ -26,7 +26,7 @@ def eddy_correct_fsl(input_dwi, output_base):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    os.system('eddy_correct ' + input_dwi.filename + ' ' + dwi_file + ' 0 spline')
+    os.system('eddy_correct ' + input_dwi.filename + ' ' + dwi_file + ' 0')
     os.system('fdt_rotate_bvecs ' + input_dwi.bvecs + ' ' + bvecs_file + ' ' + log_file)
 
     output_img = copy.deepcopy(input_dwi)
