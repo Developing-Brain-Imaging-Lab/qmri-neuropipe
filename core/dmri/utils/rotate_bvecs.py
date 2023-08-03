@@ -18,7 +18,8 @@ def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
     A = np.vstack([bvecs, np.ones(bvecs.shape[1])])
 
     print(A)
-    
+    print(A.shape)
+
     newbvecs = np.dot(matrix, A )
     newbvecs = np.delete(newbvecs, 3, 0)
 
