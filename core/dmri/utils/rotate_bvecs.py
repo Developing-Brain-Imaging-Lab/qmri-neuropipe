@@ -20,8 +20,10 @@ def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
     print(A)
     print(A.shape)
 
-    newbvecs = np.dot(matrix, A )
+    newbvecs = np.matmul(matrix, A )
     newbvecs = np.delete(newbvecs, 3, 0)
+
+    print(newbvecs)
 
     np.savetxt(output_bvecs, newbvecs, fmt='%.5f')
 
