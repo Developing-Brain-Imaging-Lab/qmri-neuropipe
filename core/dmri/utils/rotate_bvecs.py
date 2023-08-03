@@ -1,24 +1,15 @@
 #!/usr/bin/env python
 
 import numpy as np
-from scipy.io import loadmat
 
-def rotate_bvecs(input_bvecs, output_bvecs, transform, linreg_method):
+def rotate_fsl_bvecs(input_bvecs, output_bvecs, transform):
 
     print(input_bvecs)
     print(output_bvecs)
 
     #Rotate bvecs
-    trans   = loadmat(transform)
-
-    print(trans)
-    exit()
-
-    matrix  = ''
-    if linreg_method == 'FSL':
-        matrix = trans['MatrixOffsetTransformBase_double_3_3'][:9].reshape((3,3))
-    elif linreg_method == 'ANTS':
-        matrix = trans['AffineTransform_double_3_3'][:9].reshape((3,3))
+    trans   = np.loadtxt(transform)
+    matrix = trans.reshape((3,3))
 
     bvecs = np.genfromtxt(input_bvecs)
     if bvecs.shape[0] != 3:
@@ -48,19 +39,13 @@ if __name__ == '__main__':
                        help="Output masked data",
                        default=None)
    
-   parser.add_argument('--method',
-                       type=str,
-                       help="Skull-stripping algorithm",
-                       choices=["FSL", "ANTS"],
-                       default="FSL")
    
    args, unknown = parser.parse_known_args()
 
 
-   rotate_bvecs(input_bvecs   = args.input,
+   rotate_fsl_bvecs(input_bvecs   = args.input,
                 output_bvecs  = args.output,
-                transform     = args.transform,
-                linreg_method = args.method)
+                transform     = args.transform)
 
 
 
