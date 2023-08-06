@@ -9,9 +9,12 @@ from bids.layout import writing, parse_file_entities
 from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
 import core.utils.mask as mask_tools
-import core.utils.biascorrect as biascorr_tools
 import core.dmri.tools as dmri_tools
-from core.registration.linreg import linreg, nonlinreg, convert_fsl2ants, apply_transform, create_composite_transform
+from core.registration.linreg import linreg
+from core.registration.nonlinreg import nonlinreg
+from core.registration.convert_fsl2ants import convert_fsl2ants
+from core.registration.apply_transform import apply_transform
+from core.registration.create_composite_transform import create_composite_transform
 
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 
