@@ -696,7 +696,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     
   
     create_composite_transform(ref        = t1w_atlas_img_2_5,
-                               out        =  working_dir + '/t1_nonlin_xfm.nii.gz'
+                               out        =  working_dir + '/t1_nonlin_xfm.nii.gz',
                                transforms =  [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat'])
 
     create_composite_transform(ref          = t1w_atlas_img_2_5,
