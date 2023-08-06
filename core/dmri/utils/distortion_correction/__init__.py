@@ -11,8 +11,7 @@ import core.utils.tools as img_tools
 import core.utils.mask as mask_tools
 import core.utils.biascorrect as biascorr_tools
 import core.dmri.tools as dmri_tools
-from core.registration.linreg import linreg
-from core.registration.apply_transform import apply_transform
+from core.registration.linreg import linreg, nonlinreg, convert_fsl2ants, apply_transform, create_composite_transform
 
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 
@@ -647,40 +646,37 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     t1w_brain = Image(filename = working_dir + '/t1w_brain.nii.gz')
     
     #Run Skull-strip method here.
-    mask_tools.apply_mask(input_img  = t1w_img,
-                          mask_img   = t1w_mask,
-                          output_img = t1w_brain)
+    mask_tools.apply_mask(input  = t1w_img,
+                          mask   = t1w_mask,
+                          output = t1w_brain)
 
     #Coregister the DWI to the T1w image
     dwi_coreg          = Image(filename = working_dir + '/dwi_coreg.nii.gz')
     dwi_coreg_mat_fsl  = working_dir + '/dwi_coreg.mat'
     dwi_coreg_mat_ants = working_dir + '/dwi_coreg.txt'
-    reg_tools.linear_reg(input_img      = mean_dwi,
-                         reference_img  = t1w_brain,
-                         output_file    = dwi_coreg.filename,
-                         output_matrix  = dwi_coreg_mat_fsl,
-                         method         = 'fsl',
-                         dof            = 6,
-                         flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+    linreg(input          = mean_dwi,
+           ref            = t1w_brain,
+           out            = dwi_coreg.filename,
+           out_mat        = dwi_coreg_mat_fsl,
+           method         = 'fsl',
+           dof            = 6,
+           flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     #ADD IN BBR Registration to improve overall registration between structural and diffusion
     bbr_options = ' -cost bbr -wmseg ' + wmseg_img.filename + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + dwi_coreg_mat_fsl
-    reg_tools.linear_reg(input_img      = mean_dwi,
-                         reference_img  = t1w_brain,
-                         output_file    = dwi_coreg.filename,
-                         output_matrix  = dwi_coreg_mat_fsl,
-                         method         = 'fsl',
-                         dof            = 6,
-                         flirt_options  = bbr_options)
+    linreg(input          = mean_dwi,
+           ref            = t1w_brain,
+           out            = dwi_coreg.filename,
+           out_mat        = dwi_coreg_mat_fsl,
+           method         = 'fsl',
+           dof            = 6,
+           flirt_options  = bbr_options)
 
-
-    
-    
     #CONVERT FSL TO ANTS
-    reg_tools.convert_fsl2ants(mov_img  = mean_dwi,
-                               ref_img  = t1w_brain,
-                               fsl_mat  = dwi_coreg_mat_fsl,
-                               ants_mat = dwi_coreg_mat_ants)
+    convert_fsl2ants(mov_img  = mean_dwi,
+                     ref      = t1w_brain,
+                     fsl_mat  = dwi_coreg_mat_fsl,
+                     ants_mat = dwi_coreg_mat_ants)
 
 
     #REGISTER T1 to Atlas
@@ -689,69 +685,72 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     t1w_atlas_mask      = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
     t1w_atlas_img_2_5   = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
 
-    reg_tools.nonlinear_reg(input_img       = t1w_brain,
-                            reference_img   = t1w_atlas_img,
-                            reference_mask  = t1w_atlas_mask,
-                            output_base     = ants_base,
-                            nthreads        = nthreads,
-                            method          = 'ANTS-QUICK',
-                            ants_options    = None)
+    
+    nonlinreg(input         = t1w_brain,
+              ref           = t1w_atlas_img,
+              mask          = t1w_atlas_mask, 
+              out_xfm_base  = ants_base, 
+              nthreads      = nthreads, 
+              method        = 'ants-quick',  
+              ants_options=None)
+    
+  
+    create_composite_transform(ref        = t1w_atlas_img_2_5,
+                               out        =  working_dir + '/t1_nonlin_xfm.nii.gz'
+                               transforms =  [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat'])
 
-    reg_tools.create_composite_transform(reference_img  = t1w_atlas_img_2_5,
-                                         output_file    = working_dir + '/t1_nonlin_xfm.nii.gz',
-                                         transforms     = [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat'])
+    create_composite_transform(ref          = t1w_atlas_img_2_5,
+                               out          = working_dir + '/dwi_lin_xfm.txt',
+                               transforms   = [ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants],
+                               linear       = True )
 
-    reg_tools.create_composite_linear_transform(reference_img  = t1w_atlas_img_2_5,
-                                                output_file    = working_dir + '/dwi_lin_xfm.txt',
-                                                transforms     = [ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants])
-
-    reg_tools.create_composite_transform(reference_img  = t1w_atlas_img_2_5,
-                                         output_file    = working_dir + '/dwi_nonlin_xfm.nii.gz',
-                                         transforms     = [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants])
+    create_composite_transform(ref        = t1w_atlas_img_2_5,
+                               out        =  working_dir + '/dwi_nonlin_xfm.nii.gz',
+                               transforms =  [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants])
 
 
     t1w_norm = Image(filename = working_dir + '/t1w_norm.nii.gz')
-    os.system('ImageMath 3 ' + t1w_norm.filename + ' Normalize ' + t1w_bias.filename)
+    os.system('ImageMath 3 ' + t1w_norm.filename + ' Normalize ' + t1w_brain.filename)
     os.system('fslmaths ' + t1w_norm.filename + ' -mul 255 ' + t1w_norm.filename + ' -odt short' )
 
 
     #Apply Linear Transform to T1
     t1w_norm_lin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = t1w_norm,
-                              reference_img = t1w_atlas_img_2_5,
-                              output_img    = t1w_norm_lin_atlas_2_5,
-                              matrix        = ants_base + '0GenericAffine.mat',
-                              nthreads      = nthreads,
-                              method        = 'ANTS',
-                              ants_options  = '-n BSpline')
+    apply_transform(input        = t1w_norm,
+                    ref          = t1w_atlas_img_2_5,
+                    out          = t1w_norm_lin_atlas_2_5,
+                    transform    = ants_base + '0GenericAffine.mat',
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
 
     b0_lin_atlas_2_5 = Image(filename = working_dir + '/b0_lin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = mean_b0,
-                              reference_img = t1w_atlas_img_2_5,
-                              output_img    = b0_lin_atlas_2_5,
-                              matrix        = working_dir + '/dwi_lin_xfm.txt',
-                              nthreads      = nthreads,
-                              method        = 'ANTS',
-                              ants_options  = '-n BSpline')
+    apply_transform(input        = mean_b0,
+                    ref          = t1w_atlas_img_2_5,
+                    out          = b0_lin_atlas_2_5,
+                    transform    = working_dir + '/dwi_lin_xfm.txt',
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
 
 
     t1w_norm_nonlin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = t1w_norm,
-                              reference_img = t1w_atlas_img_2_5,
-                              output_img    = t1w_norm_nonlin_atlas_2_5,
-                              matrix        = working_dir + '/t1_nonlin_xfm.nii.gz',
-                              nthreads      = nthreads,
-                              method        = 'ANTS',
-                              ants_options  = '-n BSpline')
+    apply_transform(input        = t1w_norm,
+                    ref          = t1w_atlas_img_2_5,
+                    out          = t1w_norm_nonlin_atlas_2_5,
+                    transform    = working_dir + '/t1_nonlin_xfm.nii.gz',
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
 
     b0_nonlin_atlas_2_5 = Image(filename = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
-    reg_tools.apply_transform(input_img     = mean_b0,
-                              reference_img = t1w_atlas_img_2_5,
-                              output_img    = b0_nonlin_atlas_2_5,
-                              matrix        = working_dir + '/dwi_nonlin_xfm.nii.gz',
-                              nthreads      = nthreads,
-                              method        = 'ANTS',
-                              ants_options  = '-n BSpline')
+    apply_transform(input        = mean_b0,
+                    ref          = t1w_atlas_img_2_5,
+                    out          = b0_nonlin_atlas_2_5,
+                    transform    = working_dir + '/dwi_nonlin_xfm.nii.gz',
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
 
     import importlib
     infer = importlib.import_module('core.external.Synb0-DISCO.src.inference')
