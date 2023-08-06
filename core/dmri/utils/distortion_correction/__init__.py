@@ -652,7 +652,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     mask_tools.apply_mask(input  = t1w_img,
                           mask   = t1w_mask,
                           output = t1w_brain)
-
+ 
     #Coregister the DWI to the T1w image
     dwi_coreg          = Image(filename = working_dir + '/dwi_coreg.nii.gz')
     dwi_coreg_mat_fsl  = working_dir + '/dwi_coreg.mat'
@@ -676,7 +676,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
            flirt_options  = bbr_options)
 
     #CONVERT FSL TO ANTS
-    convert_fsl2ants(mov_img  = mean_dwi,
+    convert_fsl2ants(input    = mean_dwi,
                      ref      = t1w_brain,
                      fsl_mat  = dwi_coreg_mat_fsl,
                      ants_mat = dwi_coreg_mat_ants)
