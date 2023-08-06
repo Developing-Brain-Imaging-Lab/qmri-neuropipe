@@ -26,9 +26,9 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
     qform = dwi_img.get_qform()
     dwi_data = dwi_img.get_fdata()
 
-    bvals = np.loadtxt(input_dwi._get_bvals())
-    index = np.loadtxt(input_dwi._get_index())
-    acqparams = np.loadtxt(input_dwi._get_acqparams())
+    bvals = np.loadtxt(input_dwi.bvals)
+    index = np.loadtxt(input_dwi.index)
+    acqparams = np.loadtxt(input_dwi.acqparams)
     ii = np.where(bvals == 0)
 
     b0_data = dwi_data[:,:,:,np.asarray(ii).flatten()]
@@ -489,7 +489,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         
     #Determine the Phase Encode Direction
     #Read the JSON file and get the
-    with open(dwi_image._get_json()) as f:
+    with open(dwi_image.json) as f:
         json_data = json.load(f)
 
     dwell_time  = json_data["EffectiveEchoSpacing"]
@@ -530,7 +530,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     os.system('fugue -i ' + fm_ref_mask.filename + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads.filename + ' -w ' + input_fm_ref_warp)
 
     dwi_ref = working_dir + '/dwi_ref.nii.gz'
-    bvals = np.loadtxt(dwi_image._get_bvals())
+    bvals = np.loadtxt(dwi_image.bvals)
     ii = np.where(bvals != 0)
 
     dwi_img = nib.load(dwi_image.filename)
@@ -792,7 +792,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
 
     #Create acqparams file for topup:
-    acqparams = np.loadtxt(dwi_img._get_acqparams())
+    acqparams = np.loadtxt(dwi_img.acqparams)
     syn_acqparams = np.copy(acqparams)
     syn_acqparams[3] = 0
 
