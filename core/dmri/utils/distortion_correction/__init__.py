@@ -2,7 +2,6 @@ import string, os, sys, subprocess, json, copy, glob
 
 import numpy as np
 import nibabel as nib
-from dipy.io.image import load_nifti, save_nifti
 from scipy.io import loadmat
 
 from bids.layout import writing, parse_file_entities
@@ -21,7 +20,7 @@ from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False, verbose=False):
 
     #First, find the indices of the B0 images
-    dwi_img = nib.load(input_dwi._get_filename())
+    dwi_img = nib.load(input_dwi.filename)
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
@@ -79,7 +78,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
-    parsed_filename = parse_file_entities(input_dwi._get_filename())
+    parsed_filename = parse_file_entities(input_dwi.filename)
 
     entities = {
     'extension': '.nii.gz',
@@ -101,7 +100,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     # if not output_img.exists():
 
-    #     dwi_data, affine, dwi_img = load_nifti(input_dwi._get_filename(), return_img=True)
+    #     dwi_data, affine, dwi_img = load_nifti(input_dwi.filename, return_img=True)
 
     #     bvals   = np.loadtxt(input_dwi._get_bvals())
     #     ii      = np.where(bvals == 0)
@@ -109,25 +108,25 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #     mean_b0         = Image(file = working_dir + '/mean_b0.nii.gz')
     #     mean_b0_data    = np.mean(dwi_data[:,:,:,np.asarray(ii).flatten()], 3)
-    #     save_nifti(mean_b0._get_filename(), mean_b0_data, affine, dwi_img.header)
+    #     save_nifti(mean_b0.filename, mean_b0_data, affine, dwi_img.header)
 
     #     mean_dwi        = Image(file = working_dir + '/mean_dwi.nii.gz')
     #     mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
-    #     save_nifti(mean_dwi._get_filename(), mean_dwi_data, affine, dwi_img.header)
+    #     save_nifti(mean_dwi.filename, mean_dwi_data, affine, dwi_img.header)
 
     #     #Now bias correct the mean B0 and DWI
     #     mean_b0     = img_tools.biasfield_correction(input_img   = mean_b0,
-    #                                                  output_file = mean_b0._get_filename())
+    #                                                  output_file = mean_b0.filename)
 
     #     mean_dwi    = img_tools.biasfield_correction(input_img   = mean_dwi,
-    #                                                  output_file = mean_dwi._get_filename())
+    #                                                  output_file = mean_dwi.filename)
 
     #     #Determine the Phase Encode Direction
     #     #Read the JSON file and get the
     #     with open(input_dwi._get_json()) as f:
     #         json_data = json.load(f)
 
-    #     dwi_strides = subprocess.check_output(['mrinfo', '-strides',mean_dwi._get_filename()]).decode('utf-8').strip().split(' ')
+    #     dwi_strides = subprocess.check_output(['mrinfo', '-strides',mean_dwi.filename]).decode('utf-8').strip().split(' ')
     #     dwi_strides = [abs(int(i)) for i in dwi_strides]
 
     #     ants_phase_encode_dir = ''
@@ -192,7 +191,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #             linreg(input          = mov_img,
     #                    ref            = ref_img,
-    #                    out            = output_img._get_filename(),
+    #                    out            = output_img.filename,
     #                    out_mat        = rigid_fsl_transform,
     #                    method         = 'fsl',
     #                    dof            = 6,
@@ -228,8 +227,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
     #                 #Also use the Laplacian
     #                 dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
     #                 t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
-    #                 os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
-    #                 os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
+    #                 os.system('ImageMath 3 ' + dwi_laplacian.filename + ' Laplacian ' + mean_dwi.filename)
+    #                 os.system('ImageMath 3 ' + t1_laplacian.filename  + ' Laplacian ' + T1_image.filename)
 
     #                 ref_img.append(t1_laplacian)
     #                 mov_img.append(dwi_laplacian)
@@ -245,8 +244,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #                 b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
     #                 t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
-    #                 os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
-    #                 os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+    #                 os.system('ImageMath 3 ' + b0_laplacian.filename + ' Laplacian ' + mean_b0.filename)
+    #                 os.system('ImageMath 3 ' + t2_laplacian.filename  + ' Laplacian ' + T2_image.filename)
 
     #                 ref_img.append(t2_laplacian)
     #                 mov_img.append(b0_laplacian)
@@ -255,7 +254,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #             reg_tools.linear_reg(input_img      = mov_img,
     #                                  reference_img  = ref_img,
-    #                                  output_file    = output_img._get_filename(),
+    #                                  output_file    = output_img.filename,
     #                                  output_matrix  = rigid_ants_transform,
     #                                  method         = 'ANTS',
     #                                  nthreads       = nthreads,
@@ -305,7 +304,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #             reg_tools.linear_reg(input_img      = mov_img,
     #                                  reference_img  = ref_img,
-    #                                  output_file    = output_img._get_filename(),
+    #                                  output_file    = output_img.filename,
     #                                  output_matrix  = rigid_fsl_transform,
     #                                  method         = 'FSL',
     #                                  dof            = 6,
@@ -327,8 +326,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
     #                 #Also use the Laplacian
     #                 dwi_laplacian = Image(file = working_dir + '/dwi_laplacian.nii.gz')
     #                 t1_laplacian  = Image(file = working_dir + '/t1_laplacian.nii.gz')
-    #                 os.system('ImageMath 3 ' + dwi_laplacian._get_filename() + ' Laplacian ' + mean_dwi._get_filename())
-    #                 os.system('ImageMath 3 ' + t1_laplacian._get_filename()  + ' Laplacian ' + T1_image._get_filename())
+    #                 os.system('ImageMath 3 ' + dwi_laplacian.filename + ' Laplacian ' + mean_dwi.filename)
+    #                 os.system('ImageMath 3 ' + t1_laplacian.filename  + ' Laplacian ' + T1_image.filename)
 
     #                 mov_img.append(t1_laplacian)
     #                 ref_img.append(dwi_laplacian)
@@ -343,8 +342,8 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #                 b0_laplacian = Image(file = working_dir + '/b0_laplacian.nii.gz')
     #                 t2_laplacian  = Image(file = working_dir + '/t2_laplacian.nii.gz')
-    #                 os.system('ImageMath 3 ' + b0_laplacian._get_filename() + ' Laplacian ' + mean_b0._get_filename())
-    #                 os.system('ImageMath 3 ' + t2_laplacian._get_filename()  + ' Laplacian ' + T2_image._get_filename())
+    #                 os.system('ImageMath 3 ' + b0_laplacian.filename + ' Laplacian ' + mean_b0.filename)
+    #                 os.system('ImageMath 3 ' + t2_laplacian.filename  + ' Laplacian ' + T2_image.filename)
 
     #                 mov_img.append(t2_laplacian)
     #                 ref_img.append(b0_laplacian)
@@ -353,7 +352,7 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
 
     #             reg_tools.linear_reg(input_img      = mov_img,
     #                                  reference_img  = ref_img,
-    #                                  output_file    = output_img._get_filename(),
+    #                                  output_file    = output_img.filename,
     #                                  output_matrix  = rigid_ants_transform,
     #                                  nthreads       = nthreads,
     #                                  dof            = 6,
@@ -460,19 +459,19 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         os.mkdir(working_dir)
 
     fmap_ref_base=''
-    if fmap_ref_image._get_filename().endswith('.nii'):
-        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-4]
+    if fmap_ref_image.filename.endswith('.nii'):
+        fmap_ref_base = fmap_ref_image.filename[0:len(fmap_ref_image.filename)-4]
     else:
-        fmap_ref_base = fmap_ref_image._get_filename()[0:len(fmap_ref_image._get_filename())-7]
+        fmap_ref_base = fmap_ref_image.filename[0:len(fmap_ref_image.filename)-7]
 
     fmap_base=''
-    if fmap_image._get_filename().endswith('.nii'):
-        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-4]
+    if fmap_image.filename.endswith('.nii'):
+        fmap_base = fmap_image.filename[0:len(fmap_image.filename)-4]
     else:
-        fmap_base = fmap_image._get_filename()[0:len(fmap_image._get_filename())-7]
+        fmap_base = fmap_image.filename[0:len(fmap_image.filename)-7]
         
 
-    parsed_filename = parse_file_entities(dwi_image._get_filename())
+    parsed_filename = parse_file_entities(dwi_image.filename)
     entities = {
     'extension': '.nii.gz',
     'subject': parsed_filename.get('subject'),
@@ -513,28 +512,28 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         
     #Skull-strip the reference
     mask_img=Image(file = working_dir + '/mask.nii.gz')
-    os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image._get_filename() + ' -o ' + mask_img._get_filename())
-    os.system('bet ' + mask_img._get_filename() + ' ' + mask_img._get_filename())
-    os.system('fslmaths ' + mask_img._get_filename() + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img._get_filename())
+    os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image.filename + ' -o ' + mask_img.filename)
+    os.system('bet ' + mask_img.filename + ' ' + mask_img.filename)
+    os.system('fslmaths ' + mask_img.filename + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img.filename)
 
     fm_ref_mask = Image(file = working_dir + '/fmap_ref_mask.nii.gz')
-    os.system('fslmaths ' + fmap_ref_image._get_filename() + ' -mas ' + mask_img._get_filename() + ' ' + fm_ref_mask._get_filename())
+    os.system('fslmaths ' + fmap_ref_image.filename + ' -mas ' + mask_img.filename + ' ' + fm_ref_mask.filename)
 
 
     #Now scale the field map and mask
     fmap_rads = Image(file = working_dir + '/fmap_radians.nii.gz')
-    os.system('fslmaths ' + fmap_image._get_filename() + ' -mul 6.28 ' + fmap_rads._get_filename())
-    os.system('fugue --loadfmap='+fmap_rads._get_filename()+' --despike --smooth3=2 --savefmap='+fmap_rads._get_filename())
+    os.system('fslmaths ' + fmap_image.filename + ' -mul 6.28 ' + fmap_rads.filename)
+    os.system('fugue --loadfmap='+fmap_rads.filename+' --despike --smooth3=2 --savefmap='+fmap_rads.filename)
 
     #Warp the reference image
     input_fm_ref_warp = working_dir + '/fmap_warp.nii.gz'
-    os.system('fugue -i ' + fm_ref_mask._get_filename() + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads._get_filename() + ' -w ' + input_fm_ref_warp)
+    os.system('fugue -i ' + fm_ref_mask.filename + ' --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fmap_rads.filename + ' -w ' + input_fm_ref_warp)
 
     dwi_ref = working_dir + '/dwi_ref.nii.gz'
     bvals = np.loadtxt(dwi_image._get_bvals())
     ii = np.where(bvals != 0)
 
-    dwi_img = nib.load(dwi_image._get_filename())
+    dwi_img = nib.load(dwi_image.filename)
     aff = dwi_img.get_affine()
     sform = dwi_img.get_sform()
     qform = dwi_img.get_qform()
@@ -553,10 +552,10 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
     #Apply this to the field map
     fm_rads_warp = working_dir + '/fmap_radians-warp.nii.gz'
-    os.system('flirt -in ' + fmap_rads._get_filename() + ' -ref ' + dwi_ref + ' -applyxfm -init ' + fm_ref_mat + ' -out ' + fm_rads_warp)
+    os.system('flirt -in ' + fmap_rads.filename + ' -ref ' + dwi_ref + ' -applyxfm -init ' + fm_ref_mat + ' -out ' + fm_rads_warp)
 
     #Now, undistort the image
-    os.system('fugue -i ' + dwi_image._get_filename() + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img._get_filename())
+    os.system('fugue -i ' + dwi_image.filename + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img.filename)
     
     return output_img
 
@@ -613,7 +612,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
-    parsed_filename = parse_file_entities(dwi_img._get_filename())
+    parsed_filename = parse_file_entities(dwi_img.filename)
 
     entities = {
     'extension': '.nii.gz',
@@ -712,8 +711,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
 
     t1w_norm = Image(file = working_dir + '/t1w_norm.nii.gz')
-    os.system('ImageMath 3 ' + t1w_norm._get_filename() + ' Normalize ' + t1w_bias._get_filename())
-    os.system('fslmaths ' + t1w_norm._get_filename() + ' -mul 255 ' + t1w_norm._get_filename() + ' -odt short' )
+    os.system('ImageMath 3 ' + t1w_norm.filename + ' Normalize ' + t1w_bias.filename)
+    os.system('fslmaths ' + t1w_norm.filename + ' -mul 255 ' + t1w_norm.filename + ' -odt short' )
 
 
     #Apply Linear Transform to T1
@@ -766,12 +765,12 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
         b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
         model_path = glob.glob('../../../../Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth')[0]
 
-        infer.run_inference(t1w_norm_lin_atlas_2_5._get_filename(), b0_lin_atlas_2_5._get_filename(), b0_undistorted_path, model_path)
+        infer.run_inference(t1w_norm_lin_atlas_2_5.filename, b0_lin_atlas_2_5.filename, b0_undistorted_path, model_path)
         list_of_b0s.append(Image(file = b0_undistorted_path))
 
     #Take average and calculate mean
     merged_b0_u = Image(file = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
-    img_tools.merge_images(list_of_b0s, merged_b0_u._get_filename())
+    img_tools.merge_images(list_of_b0s, merged_b0_u.filename)
 
 
     mean_img = img_tools.calculate_mean_img(input_img     = merged_b0_u,
@@ -780,16 +779,16 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     #Apply Inverse Transform (Need to write inverse function call
     b0_undistorted_img = Image(file = working_dir + '/b0_u.nii.gz')
-    os.system('antsApplyTransforms -d 3 -i ' + mean_img._get_filename() + ' -r ' + mean_b0._get_filename() + ' -t ['+dwi_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' +  b0_undistorted_img._get_filename())
+    os.system('antsApplyTransforms -d 3 -i ' + mean_img.filename + ' -r ' + mean_b0.filename + ' -t ['+dwi_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' +  b0_undistorted_img.filename)
 
     #Smooth original b0 slightly
     b0_d_smooth = Image(file = working_dir + '/b0_d_smooth.nii.gz')
-    os.system('fslmaths ' + mean_b0._get_filename() + ' -s 1.15 ' + b0_d_smooth._get_filename())
+    os.system('fslmaths ' + mean_b0.filename + ' -s 1.15 ' + b0_d_smooth.filename)
 
     #Merge and run topup
     all_b0s = Image(file = working_dir + '/b0s_all.nii.gz')
     img_tools.merge_images(list_of_images = [b0_d_smooth,  b0_undistorted_img],
-                           output_file    = all_b0s._get_filename())
+                           output_file    = all_b0s.filename)
 
 
     #Create acqparams file for topup:
@@ -801,7 +800,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
-    topup_command = 'topup --imain='+ all_b0s._get_filename() \
+    topup_command = 'topup --imain='+ all_b0s.filename \
                   + ' --datain=' + disco_acqparams_path \
                   + ' --config=' + topup_config \
                   + ' --out=' + topup_base \
