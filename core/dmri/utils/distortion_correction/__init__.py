@@ -606,7 +606,7 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.cnf', nthreads=1, cleanup_files=True, verbose=True):
+def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.cnf', wmseg_img=None, nthreads=1, cleanup_files=True, verbose=True):
 
     working_dir = os.path.dirname(topup_base)
 
@@ -630,8 +630,8 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     out_bvec = writing.build_path(entities, filename_patterns)
 
     output_img = copy.deepcopy(dwi_img)
-    output_img._set_filename(out_file)
-    output_img._set_bvecs(out_bvec)
+    output_img.filename = out_file
+    output_img.bvecs    = out_bvec
 
     #Extract the B0s from the DWI and compute mean
     mean_dwi = Image(file = working_dir + '/mean_dwi.nii.gz')
@@ -644,21 +644,11 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                                      output_b0     = mean_b0,
                                      compute_mean  = True)
 
-
-    #Processing below is based on SyNb0-DISCO prepare_input.sh script
-    #Bias correct T1w image
-    t1w_bias = Image(file = working_dir + '/t1w_biascorr.nii.gz')
-    biascorr_tools.biasfield_correction(input_img   = t1w_img,
-                                        output_file = t1w_bias._get_filename(),
-                                        method      = 'N4',
-                                        nthreads    = nthreads,
-                                        iterations  = 1)
-
     #Skull-strip the T1image
     t1w_brain = Image(file = working_dir + '/t1w_brain.nii.gz')
     
     #Run Skull-strip method here.
-    mask_tools.apply_mask(input_img  = t1w_bias,
+    mask_tools.apply_mask(input_img  = t1w_img,
                           mask_img   = t1w_mask,
                           output_img = t1w_brain)
 
@@ -668,14 +658,23 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     dwi_coreg_mat_ants = working_dir + '/dwi_coreg.txt'
     reg_tools.linear_reg(input_img      = mean_dwi,
                          reference_img  = t1w_brain,
-                         output_file    = dwi_coreg._get_filename(),
+                         output_file    = dwi_coreg.filename,
                          output_matrix  = dwi_coreg_mat_fsl,
-                         method         = 'FSL',
+                         method         = 'fsl',
                          dof            = 6,
                          flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
-    
     #ADD IN BBR Registration to improve overall registration between structural and diffusion
+    bbr_options = ' -cost bbr -wmseg ' + wmseg_img.filename + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + dwi_coreg_mat_fsl
+    reg_tools.linear_reg(input_img      = mean_dwi,
+                         reference_img  = t1w_brain,
+                         output_file    = dwi_coreg.filename,
+                         output_matrix  = dwi_coreg_mat_fsl,
+                         method         = 'fsl',
+                         dof            = 6,
+                         flirt_options  = bbr_options)
+
+
     
     
     #CONVERT FSL TO ANTS

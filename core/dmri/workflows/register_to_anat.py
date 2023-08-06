@@ -109,7 +109,6 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                         mask        = anat_mask,
                         output      = anat_masked)
                 
-        
         anat_biascorr = Image(filename = working_dir + '/anat_biascorr.nii.gz')
         bias_tools.biasfield_correction(input_img = anat_masked,
                                         output_file = anat_biascorr.filename,
