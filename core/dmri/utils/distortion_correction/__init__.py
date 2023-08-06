@@ -511,17 +511,17 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         exit()
         
     #Skull-strip the reference
-    mask_img=Image(file = working_dir + '/mask.nii.gz')
+    mask_img=Image(filename = working_dir + '/mask.nii.gz')
     os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image.filename + ' -o ' + mask_img.filename)
     os.system('bet ' + mask_img.filename + ' ' + mask_img.filename)
     os.system('fslmaths ' + mask_img.filename + ' -bin -fillh -dilM -dilM -ero -ero -bin ' + mask_img.filename)
 
-    fm_ref_mask = Image(file = working_dir + '/fmap_ref_mask.nii.gz')
+    fm_ref_mask = Image(filename = working_dir + '/fmap_ref_mask.nii.gz')
     os.system('fslmaths ' + fmap_ref_image.filename + ' -mas ' + mask_img.filename + ' ' + fm_ref_mask.filename)
 
 
     #Now scale the field map and mask
-    fmap_rads = Image(file = working_dir + '/fmap_radians.nii.gz')
+    fmap_rads = Image(filename = working_dir + '/fmap_radians.nii.gz')
     os.system('fslmaths ' + fmap_image.filename + ' -mul 6.28 ' + fmap_rads.filename)
     os.system('fugue --loadfmap='+fmap_rads.filename+' --despike --smooth3=2 --savefmap='+fmap_rads.filename)
 
@@ -633,18 +633,18 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     output_img.bvecs    = out_bvec
 
     #Extract the B0s from the DWI and compute mean
-    mean_dwi = Image(file = working_dir + '/mean_dwi.nii.gz')
+    mean_dwi = Image(filename = working_dir + '/mean_dwi.nii.gz')
     mean_dwi = dmri_tools.extract_dwis(input_dwi     = dwi_img,
                                        output_dwi    = mean_dwi,
                                        compute_mean  = True)
                                      
-    mean_b0 = Image(file = working_dir + '/mean_b0.nii.gz')
+    mean_b0 = Image(filename = working_dir + '/mean_b0.nii.gz')
     mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
                                      output_b0     = mean_b0,
                                      compute_mean  = True)
 
     #Skull-strip the T1image
-    t1w_brain = Image(file = working_dir + '/t1w_brain.nii.gz')
+    t1w_brain = Image(filename = working_dir + '/t1w_brain.nii.gz')
     
     #Run Skull-strip method here.
     mask_tools.apply_mask(input_img  = t1w_img,
@@ -652,7 +652,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                           output_img = t1w_brain)
 
     #Coregister the DWI to the T1w image
-    dwi_coreg          = Image(file = working_dir + '/dwi_coreg.nii.gz')
+    dwi_coreg          = Image(filename = working_dir + '/dwi_coreg.nii.gz')
     dwi_coreg_mat_fsl  = working_dir + '/dwi_coreg.mat'
     dwi_coreg_mat_ants = working_dir + '/dwi_coreg.txt'
     reg_tools.linear_reg(input_img      = mean_dwi,
@@ -685,9 +685,9 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     #REGISTER T1 to Atlas
     ants_base           = working_dir + '/t1w_to_template_'
-    t1w_atlas_img       = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
-    t1w_atlas_mask      = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
-    t1w_atlas_img_2_5   = Image(file = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
+    t1w_atlas_img       = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
+    t1w_atlas_mask      = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
+    t1w_atlas_img_2_5   = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
 
     reg_tools.nonlinear_reg(input_img       = t1w_brain,
                             reference_img   = t1w_atlas_img,
@@ -710,13 +710,13 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                                          transforms     = [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants])
 
 
-    t1w_norm = Image(file = working_dir + '/t1w_norm.nii.gz')
+    t1w_norm = Image(filename = working_dir + '/t1w_norm.nii.gz')
     os.system('ImageMath 3 ' + t1w_norm.filename + ' Normalize ' + t1w_bias.filename)
     os.system('fslmaths ' + t1w_norm.filename + ' -mul 255 ' + t1w_norm.filename + ' -odt short' )
 
 
     #Apply Linear Transform to T1
-    t1w_norm_lin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
+    t1w_norm_lin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
                               output_img    = t1w_norm_lin_atlas_2_5,
@@ -725,7 +725,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
 
-    b0_lin_atlas_2_5 = Image(file = working_dir + '/b0_lin_atlas_2_5.nii.gz')
+    b0_lin_atlas_2_5 = Image(filename = working_dir + '/b0_lin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
                               output_img    = b0_lin_atlas_2_5,
@@ -735,7 +735,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                               ants_options  = '-n BSpline')
 
 
-    t1w_norm_nonlin_atlas_2_5 = Image(file = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
+    t1w_norm_nonlin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = t1w_norm,
                               reference_img = t1w_atlas_img_2_5,
                               output_img    = t1w_norm_nonlin_atlas_2_5,
@@ -744,7 +744,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                               method        = 'ANTS',
                               ants_options  = '-n BSpline')
 
-    b0_nonlin_atlas_2_5 = Image(file = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
+    b0_nonlin_atlas_2_5 = Image(filename = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
     reg_tools.apply_transform(input_img     = mean_b0,
                               reference_img = t1w_atlas_img_2_5,
                               output_img    = b0_nonlin_atlas_2_5,
@@ -766,10 +766,10 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
         model_path = glob.glob('../../../../Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth')[0]
 
         infer.run_inference(t1w_norm_lin_atlas_2_5.filename, b0_lin_atlas_2_5.filename, b0_undistorted_path, model_path)
-        list_of_b0s.append(Image(file = b0_undistorted_path))
+        list_of_b0s.append(Image(filename = b0_undistorted_path))
 
     #Take average and calculate mean
-    merged_b0_u = Image(file = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
+    merged_b0_u = Image(filename = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
     img_tools.merge_images(list_of_b0s, merged_b0_u.filename)
 
 
@@ -778,15 +778,15 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
 
     #Apply Inverse Transform (Need to write inverse function call
-    b0_undistorted_img = Image(file = working_dir + '/b0_u.nii.gz')
+    b0_undistorted_img = Image(filename = working_dir + '/b0_u.nii.gz')
     os.system('antsApplyTransforms -d 3 -i ' + mean_img.filename + ' -r ' + mean_b0.filename + ' -t ['+dwi_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' +  b0_undistorted_img.filename)
 
     #Smooth original b0 slightly
-    b0_d_smooth = Image(file = working_dir + '/b0_d_smooth.nii.gz')
+    b0_d_smooth = Image(filename = working_dir + '/b0_d_smooth.nii.gz')
     os.system('fslmaths ' + mean_b0.filename + ' -s 1.15 ' + b0_d_smooth.filename)
 
     #Merge and run topup
-    all_b0s = Image(file = working_dir + '/b0s_all.nii.gz')
+    all_b0s = Image(filename = working_dir + '/b0s_all.nii.gz')
     img_tools.merge_images(list_of_images = [b0_d_smooth,  b0_undistorted_img],
                            output_file    = all_b0s.filename)
 
