@@ -785,7 +785,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     #Take average and calculate mean
     merged_b0_u = Image(filename = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
-    img_tools.merge_images(list_of_b0s, merged_b0_u.filename)
+    img_tools.merge_images(list_of_b0s, merged_b0_u)
 
 
     mean_img = img_tools.calculate_mean_img(input_img     = merged_b0_u,
@@ -803,7 +803,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     #Merge and run topup
     all_b0s = Image(filename = working_dir + '/b0s_all.nii.gz')
     img_tools.merge_images(list_of_images = [b0_d_smooth,  b0_undistorted_img],
-                           output_file    = all_b0s.filename)
+                           output_file    = all_b0s)
 
 
     #Create acqparams file for topup:
