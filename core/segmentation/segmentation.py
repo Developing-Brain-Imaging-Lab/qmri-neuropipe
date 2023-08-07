@@ -201,7 +201,7 @@ def create_wmseg(input_img, output_dir, nthreads=1):
     os.system("fslmaths " + output_seg + " -thr 45.9 -uthr 46.1 -bin " + output_right_cb_wm)
 
     wmseg_img = Image(output_dir + "/wmseg.nii.gz")
-    os.system("fslmaths " + output_left_wm + " -add " + output_left_cb_wm + " " + output_right_wm + " -add " + output_right_cb_wm + " -bin " + wmseg_img.filename)
+    os.system("fslmaths " + output_left_wm + " -add " + output_left_cb_wm + " -add " + output_right_wm + " -add " + output_right_cb_wm + " -bin " + wmseg_img.filename)
         
     
     return wmseg_img
