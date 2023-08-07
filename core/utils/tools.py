@@ -27,7 +27,7 @@ def fill_holes(input_img, debug=False):
         print("Fill holes")
         print(CMD)
 
-    subprocess.run([CMD], stderr=subprocess.STDOUT)
+    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     return output_img
 
@@ -43,7 +43,7 @@ def reorient_to_standard(input_img, output_file, debug=False):
         print("Reorienting to standard")
         print(CMD)
 
-    subprocess.run([CMD], stderr=subprocess.STDOUT)
+    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     return output_img
 
@@ -58,7 +58,7 @@ def merge_images(list_of_images, output_img, debug=False):
         print("Merging images")
         print(CMD)
 
-    subprocess.run([CMD], stderr=subprocess.STDOUT)
+    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
 def resample_image(input_img, output_file, target_resolution, debug=False):
 
@@ -74,7 +74,7 @@ def resample_image(input_img, output_file, target_resolution, debug=False):
         print("Resmapling image to target resolution: " + target_resolution)
         print(CMD)
 
-    subprocess.run([CMD], stderr=subprocess.STDOUT) 
+    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT) 
     
     return output_img 
 
