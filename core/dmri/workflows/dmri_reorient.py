@@ -28,13 +28,9 @@ def dmri_reorient( in_dwi, out_dwi, ref_img):
            ref      = ref_img, 
            out_mat  = out_mat,
            flirt_options = "-dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180")
-    
-    mean_corr_header = Image(filename=output_dir+"/tmp_dwi_hdr.nii.gz")
-    shutil.copy2(dwi_ref.filename, mean_corr_header.filename)
-    os.system("fslcpgeom " + ref_img.filename + " " + mean_corr_header.filename + " -d")
 
     #Apply transform
-    os.system("applywarp -i " + eddycorrected_img.filename + " -r " + mean_corr_header.filename + " -o " + out_dwi.filename + " --premat="+out_mat)
+    os.system("applywarp -i " + eddycorrected_img.filename + " -r " + ref_img.filename + " -o " + out_dwi.filename + " --premat="+out_mat)
 
     #Rotate bvecs
     rotate_fsl_bvecs(eddycorrected_img.bvecs, out_dwi.bvecs, out_mat)
