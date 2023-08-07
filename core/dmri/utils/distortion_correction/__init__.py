@@ -16,6 +16,8 @@ from core.registration.convert_fsl2ants import convert_fsl2ants
 from core.registration.apply_transform import apply_transform
 from core.registration.create_composite_transform import create_composite_transform
 
+from core.segmentation.segmentation import create_wmseg
+
 from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
 
 
@@ -664,6 +666,12 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
            method         = 'fsl',
            dof            = 6,
            flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+    
+    if wmseg_img == None:
+        #Create WMseg
+        wmseg_img = create_wmseg(input_img  = t1w_img,
+                                 output_dir = working_dir+"/wmseg", 
+                                 nthreads   = nthreads)
 
     #ADD IN BBR Registration to improve overall registration between structural and diffusion
     bbr_options = ' -cost bbr -wmseg ' + wmseg_img.filename + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + dwi_coreg_mat_fsl
