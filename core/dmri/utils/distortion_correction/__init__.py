@@ -766,8 +766,10 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
 
+
+
     import importlib
-    infer = importlib.import_module('core.external.Synb0-DISCO.src.inference')
+    infer = importlib.import_module('external.Synb0-DISCO.src.inference')
 
     if verbose:
         print('Creating synthetic undistorted b0 images')
