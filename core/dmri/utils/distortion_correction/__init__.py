@@ -692,12 +692,12 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
 
     #REGISTER T1 to Atlas
     ants_base           = working_dir + '/t1w_to_template_'
-    t1w_atlas_img       = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
+    t1w_atlas_img       = Image(filename = 'external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
 
     print(os.path.abspath(t1w_atlas_img.filename))
 
-    t1w_atlas_mask      = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
-    t1w_atlas_img_2_5   = Image(filename = '../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
+    t1w_atlas_mask      = Image(filename = 'external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
+    t1w_atlas_img_2_5   = Image(filename = 'external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
 
     
     nonlinreg(input         = t1w_brain,
