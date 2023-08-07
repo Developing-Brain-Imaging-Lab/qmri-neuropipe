@@ -88,11 +88,6 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
     if check_gradients:
         dmri_qc.check_gradient_directions(input_dwi   = dwi_img,
                                           nthreads    = nthreads)
-        
-    if reorient_dwi:
-        dmri_reorient(in_dwi  = dwi_img,
-                      out_dwi = dwi_img,
-                      ref_img = dwi_reorient_template)
 
     dwi_img.index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt'
     dwi_img.acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt'
@@ -117,6 +112,11 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
                                                       method            = outlier_detection,
                                                       manual_report_dir = bids_rawdata_dwi_dir,
                                                       verbose           = verbose )
+        
+    if reorient_dwi:
+        dmri_reorient(in_dwi  = dwi_img,
+                      out_dwi = dwi_img,
+                      ref_img = dwi_reorient_template)
 
     if run_topup or distortion_correction == 'Synb0-Disco':
         topup_base = os.path.join(preprocess_dir, "topup", bids_id+"_desc-Topup")
