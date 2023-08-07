@@ -57,6 +57,7 @@ def nonlinreg(input, ref, mask, out_xfm=None, out_xfm_base=None, out_img=None, n
         exit(-1)
 
     
+    print(CMD)
     subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
     
     if (method == 'ants' or method == 'ants-quick') and (out_xfm != None):
