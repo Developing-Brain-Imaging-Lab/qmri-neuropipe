@@ -25,7 +25,7 @@ def dmri_reorient( in_dwi, out_dwi, ref_img):
     linreg(input    = dwi_mean, 
            ref      = ref_img, 
            out_mat  = out_mat,
-           flirt_options = "-searchrx -180 180 -searchry -180 180 -searchrz -180 180")
+           flirt_options = "-dof 6 -searchrx -180 180 -searchry -180 180 -searchrz -180 180")
     
     mean_corr_header = Image(filename=output_dir+"/tmp_dwi_hdr.nii.gz")
     shutil.copy2(mean_img.filename, mean_corr_header.filename)
