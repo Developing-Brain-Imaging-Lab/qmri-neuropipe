@@ -780,7 +780,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
         b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
         model_path = glob.glob(os.path.dirname(__file__)+'/../../../../external/Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth')[0]
 
-        infer.run_inference(t1w_norm_lin_atlas_2_5.filename, b0_lin_atlas_2_5.filename, b0_undistorted_path, model_path)
+        infer.inference(t1w_norm_lin_atlas_2_5.filename, b0_lin_atlas_2_5.filename, b0_undistorted_path, model_path)
         list_of_b0s.append(Image(filename = b0_undistorted_path))
 
     #Take average and calculate mean
