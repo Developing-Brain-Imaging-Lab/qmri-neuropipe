@@ -5,7 +5,7 @@ from core.utils.io import Image
 
 from core.registration.create_composite_transform import create_composite_transform
       
-def nonlinreg(input, ref, mask, out_xfm=None, out_xfm_base=None, out_img=None, nthreads=1, method='ants', fsl_options=None, ants_options=None):
+def nonlinreg(input, ref, mask=None, out_xfm=None, out_xfm_base=None, out_img=None, nthreads=1, method='ants', fsl_options=None, ants_options=None):
 
     CMD = ""
 
@@ -29,7 +29,8 @@ def nonlinreg(input, ref, mask, out_xfm=None, out_xfm_base=None, out_img=None, n
                 CMD += " -m " + input.filename \
                     +  " -f " + ref.filename
 
-        CMD += " -x " + mask.filename
+        if mask != None:
+            CMD += " -x " + mask.filename
 
         if ants_options != None:
             CMD += ' ' + ants_options
@@ -47,8 +48,10 @@ def nonlinreg(input, ref, mask, out_xfm=None, out_xfm_base=None, out_img=None, n
         CMD = "fnirt --ref=" + ref[0].filename \
             + " --in=" + input[0].filename \
             + " --aff=" + flirt_aff \
-            + " --fout=" + out_xfm \
-            + " --refmask=" + mask.filename
+            + " --fout=" + out_xfm
+        
+        if mask !=None:
+            CMD += " --refmask=" + mask.filename
         
         if out_img:
             CMD += " --iout="+out_img[0].filename
@@ -136,6 +139,8 @@ if __name__ == '__main__':
    input_imgs = []
    ref_imgs   = []
    out_imgs   = []
+   mask_img   = None
+
 
    for img in args.input:
        input_imgs.append(Image(filename=img))
@@ -146,12 +151,13 @@ if __name__ == '__main__':
    for img in args.out_img:
        out_imgs.append(Image(filename=img))
 
-   print(args.ref)
-   print(ref_imgs[0].filename)
+   if args.mask != None:
+       mask_img = Image(args.mask) 
+
        
    nonlinreg(input         = input_imgs,
              ref           = ref_imgs,
-             mask          = Image(args.mask), 
+             mask          = mask_img, 
              out_xfm       = args.out_xfm,
              out_img       = out_imgs,
              nthreads      = args.nthreads,
