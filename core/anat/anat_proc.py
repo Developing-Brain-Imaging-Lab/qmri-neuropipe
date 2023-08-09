@@ -331,6 +331,7 @@ class AnatomicalPrepPipeline:
                     #Create brain image
                     if args.verbose:
                         print("Applying mask to T2w image...", flush=True)
+                        
                     mask.apply_mask(input   = T2w_acpc,
                                     mask    = T2w_brain_mask,
                                     output  = T2w_brain)

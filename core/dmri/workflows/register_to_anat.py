@@ -8,6 +8,7 @@ from bids.layout import writing, parse_file_entities
 from core.utils.io import Image, DWImage
 import core.utils.mask as mask
 import core.utils.biascorrect as bias_tools
+from core.utils.denoise import denoise_image
 from core.registration.linreg import linreg
 from core.registration.nonlinreg import nonlinreg
 from core.registration.apply_transform import apply_transform
@@ -59,10 +60,12 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         mean_b0         = Image(filename = working_dir + '/mean_b0.nii.gz')
         mean_b0_data    = np.mean(dwi_data[:,:,:,np.asarray(ii).flatten()], 3)
         save_nifti(mean_b0.filename, mean_b0_data, affine, dwi_img.header)
+        denoise_image(mean_b0, mean_b0.filename, method='ants', nthreads=nthreads)
 
         mean_dwi        = Image(filename = working_dir + '/mean_dwi.nii.gz')
         mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
         save_nifti(mean_dwi.filename, mean_dwi_data, affine, dwi_img.header)
+        denoise_image(mean_dwi, mean_dwi.filename, method='ants', nthreads=nthreads)
 
         ref_img               = []
         mov_img               = []

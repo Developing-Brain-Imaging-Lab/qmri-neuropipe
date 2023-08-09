@@ -1,5 +1,6 @@
 import os,sys, subprocess
 from core.utils.io import Image
+from core.segmentation.segmentation import create_wmseg
 
 def acpc_align(output_dir, id, T1w=None, T2w=None, T1w_template=None, T2w_template=None, BrainSize="150", logfile=None):
 
@@ -207,20 +208,25 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
               + " -searchrx -10 10 -searchry -10 10 -searchrz -10 10 -finesearch 2 -coarsesearch 5"
     subprocess.run([CMD], shell=True, stdout=logfile)
 
-# Commented out, but may consider adding back...
-#   os.system("flirt -in " + InImage_robustfov._get_filename() \
-#          + " -ref " + RefImage_robustfov._get_filename() \
-#          + " -out " + output_dir + "/test.nii.gz" \
-#          + " -omat " + BBRMat \
-#          + " -init " + InitMat \
-#          + " -wmseg " + MaskImage_robustfov._get_filename() \
-#          + " -dof 6 -interp spline" \
-#          + " -searchrx -10 10 -searchry -10 10 -searchrz -10 10" \
-#          + " -cost bbr" \
-#          + " -bbrtype global_abs -bbrslope 0.5 -finesearch 10" \
-#          + " -schedule ${FSLDIR}/etc/flirtsch/bbr.sch")
+    #Create WMseg for BBR
+    WMsegImg = create_wmseg(input_img  = RefImage_robustfov, 
+                            output_dir = output_dir+"/wmseg/", 
+                            nthreads = nthreads)
+    
+    CMD = "flirt -in " + InImage_robustfov.filename \
+            + " -ref " + RefImage_robustfov.filename\
+            + " -out " + output_dir + "/test.nii.gz" \
+            + " -omat " + BBRMat \
+            + " -init " + InitMat \
+            + " -wmseg " + WMsegImg.filename \
+            + " -dof 6 -interp spline" \
+            + " -searchrx -5 5 -searchry -5 5  -searchrz -5 5" \
+            + " -cost bbr" \
+            + " -bbrtype global_abs -bbrslope 0.5 -finesearch 10" \
+            + " -schedule ${FSLDIR}/etc/flirtsch/bbr.sch"
+    subprocess.run([CMD], shell=True, stdout=logfile)
 
-    CMD = "convert_xfm -omat " + FullMat + " -concat " + InitMat + " " + InImage_full2roi_mat
+    CMD = "convert_xfm -omat " + FullMat + " -concat " + BBRMat + " " + InImage_full2roi_mat
     subprocess.run([CMD], shell=True, stdout=logfile)
     
     CMD = "convert_xfm -omat " + FullMat + " -concat " + RefImage_roi2full_mat + " " + FullMat
