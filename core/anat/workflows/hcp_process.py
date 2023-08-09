@@ -142,7 +142,7 @@ def acpc_align(output_dir, id, T1w=None, T2w=None, T1w_template=None, T2w_templa
     return T1w_acpc_aligned, T2w_acpc_aligned
 
 
-def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="150", logfile=None):
+def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="150", logfile=None, nthreads=1):
 
     if logfile:
         sys.stdout = logfile
@@ -211,7 +211,7 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
     #Create WMseg for BBR
     WMsegImg = create_wmseg(input_img  = RefImage_robustfov, 
                             output_dir = output_dir+"/wmseg/", 
-                            nthreads = nthreads)
+                            nthreads   = nthreads)
     
     CMD = "flirt -in " + InImage_robustfov.filename \
             + " -ref " + RefImage_robustfov.filename\

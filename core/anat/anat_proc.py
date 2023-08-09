@@ -331,7 +331,7 @@ class AnatomicalPrepPipeline:
                     #Create brain image
                     if args.verbose:
                         print("Applying mask to T2w image...", flush=True)
-                        
+
                     mask.apply_mask(input   = T2w_acpc,
                                     mask    = T2w_brain_mask,
                                     output  = T2w_brain)
@@ -355,6 +355,7 @@ class AnatomicalPrepPipeline:
                                                          T2w               = T2w_acpc,
                                                          infant_mode       = args.infant_mode,
                                                          brain_size        = args.brain_size,
+                                                         nthreads          = args.nthreads,
                                                          logfile           = logfile)
             if args.verbose:
                 print("Finished coregistering T1w and T2w images")
