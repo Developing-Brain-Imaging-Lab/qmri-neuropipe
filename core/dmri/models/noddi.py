@@ -41,17 +41,17 @@ class NODDI_Model():
             from dipy.io.image import load_nifti, save_nifti
 
             #Setup the acquisition scheme
-            bvals, bvecs = read_bvals_bvecs(dwi_img._get_bvals(), dwi_img._get_bvecs())
+            bvals, bvecs = read_bvals_bvecs(dwi_img.bvecs, dwi_img.bvals)
             bvals_SI = bvals*1e6
             acq_scheme = acquisition_scheme_from_bvalues(bvals_SI, bvecs)
             acq_scheme.print_acquisition_info
 
             #Load the data
-            img = nib.load(dwi_img._get_filename())
+            img = nib.load(dwi_img.filename)
             data = img.get_fdata()
 
             #Load the mask
-            img = nib.funcs.squeeze_image(nib.load(self._inputs['mask']._get_filename()))
+            img = nib.funcs.squeeze_image(nib.load(self._inputs['mask'].filename))
             mask_data = img.get_fdata()
 
             ball = gaussian_models.G1Ball() #CSF
@@ -108,10 +108,10 @@ class NODDI_Model():
             amico_bvec = output_dir + '/NODDI_protocol.bvecs'
             amico_scheme = output_dir + '/NODDI_protocol.scheme'
             amico_mask = output_dir + '/roi_mask.nii.gz'
-            shutil.copy2(dwi_img._get_filename(), amico_dwi)
-            shutil.copy2(dwi_img._get_bvals(), amico_bval)
-            shutil.copy2(dwi_img._get_bvecs(), amico_bvec)
-            shutil.copy2(self._inputs['mask']._get_filename(), amico_mask)
+            shutil.copy2(dwi_img.filename, amico_dwi)
+            shutil.copy2(dwi_img.bvals, amico_bval)
+            shutil.copy2(dwi_img.bvecs, amico_bvec)
+            shutil.copy2(self._inputs['mask'].filename, amico_mask)
 
             amico.util.fsl2scheme(amico_bval, amico_bvec)
             ae.load_data(dwi_filename = 'NODDI_data.nii.gz', scheme_filename = 'NODDI_protocol.scheme', mask_filename = 'roi_mask.nii.gz', b0_thr = 0)

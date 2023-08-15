@@ -32,7 +32,7 @@ class CSD_Model():
             os.makedirs(output_dir)
 
         dwi_mif = output_dir + '/tmp_dwi.mif'
-        os.system('mrconvert -quiet -force -fslgrad ' + dwi_img._get_bvecs() + ' ' + dwi_img._get_bvals() + ' ' + dwi_img._get_filename() + ' ' + dwi_mif + ' -nthreads ' + str(self._inputs['nthreads']) + ' --strides 0,0,0,1')
+        os.system('mrconvert -quiet -force -fslgrad ' + dwi_img.bvecs + ' ' + dwi_img.bvals + ' ' + dwi_img.filename + ' ' + dwi_mif + ' -nthreads ' + str(self._inputs['nthreads']) + ' --strides 0,0,0,1')
 
         if self._inputs['fod_algo'] == 'msmt_csd':
             
@@ -50,9 +50,9 @@ class CSD_Model():
                         
                     #Run the 5TT masking
                     cmd = '5ttgen fsl ' \
-                        + '-mask ' + mask_img._get_filename() \
+                        + '-mask ' + mask_img.filename \
                         + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                        + ' ' + struct_img._get_filename() \
+                        + ' ' + struct_img.filename \
                         + ' ' + self._inputs['out_base'] + '_desc-5ttgen_mask.nii.gz'
                     os.system(cmd)
 
@@ -71,7 +71,7 @@ class CSD_Model():
                     cmd = 'dwi2response dhollander ' \
                         + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
                         + ' ' + dwi_mif + ' ' \
-                        + ' -mask ' + mask_img._get_filename() + ' ' \
+                        + ' -mask ' + mask_img.filename + ' ' \
                         + self._inputs['wm_response_func'] + ' ' \
                         + self._inputs['gm_response_func'] + ' ' \
                         + self._inputs['csf_response_func']
@@ -97,7 +97,7 @@ class CSD_Model():
                 + parameter_base + '_parameter-GMfod.nii.gz ' \
                 + self._inputs['csf_response_func'] + ' ' \
                 + parameter_base + '_parameter-CSFfod.nii.gz ' \
-                + '-mask ' + mask_img._get_filename()
+                + '-mask ' + mask_img.filename
             os.system(cmd)
             
             cmd = 'mtnormalise ' \
@@ -108,7 +108,7 @@ class CSD_Model():
                 + parameter_base + '_desc-MTNorm_parameter-GMfod.nii.gz ' \
                 + parameter_base + '_parameter-CSFfod.nii.gz ' \
                 + parameter_base + '_desc-MTNorm_parameter-CSFfod.nii.gz ' \
-                + '-mask ' + mask_img._get_filename()
+                + '-mask ' + mask_img.filename
             os.system(cmd)
             
             
@@ -120,7 +120,7 @@ class CSD_Model():
                 cmd = 'dwi2response' \
                     + ' ' + self._inputs['response_algo'] \
                     + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                    + ' -mask ' + mask_img._get_filename() \
+                    + ' -mask ' + mask_img.filename \
                     + ' ' + dwi_mif + ' ' \
                     +  self._inputs['response_func']
                 
@@ -130,7 +130,7 @@ class CSD_Model():
             #Now Generage FOD generation
             cmd = 'dwi2fod csd ' \
                 + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) \
-                + ' -mask ' + mask_img._get_filename() \
+                + ' -mask ' + mask_img.filename \
                 + ' ' + dwi_mif + ' ' \
                 + self._inputs['response_func'] + ' ' \
                 + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz'
@@ -142,7 +142,7 @@ class CSD_Model():
                 + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) + ' ' \
                 + self._inputs['out_base'] + '_model-CSD_parameter-FOD.nii.gz ' \
                 + self._inputs['out_base'] + '_desc-MTNorm_model-CSD_parameter-FOD.nii.gz ' \
-                + '-mask ' + mask_img._get_filename()
+                + '-mask ' + mask_img.filename
             os.system(cmd)
             
         os.system('rm -rf ' + output_dir+'/tmp*')
