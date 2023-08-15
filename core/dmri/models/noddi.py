@@ -41,7 +41,7 @@ class NODDI_Model():
             from dipy.io.image import load_nifti, save_nifti
 
             #Setup the acquisition scheme
-            bvals, bvecs = read_bvals_bvecs(dwi_img.bvecs, dwi_img.bvals)
+            bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
             bvals_SI = bvals*1e6
             acq_scheme = acquisition_scheme_from_bvalues(bvals_SI, bvecs)
             acq_scheme.print_acquisition_info
