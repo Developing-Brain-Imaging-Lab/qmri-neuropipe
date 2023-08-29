@@ -47,12 +47,12 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
         bvecs_pepolar1 = np.delete(bvecs_pepolar1, indices_to_remove, 0)
 
     #Read in the DWI ACQPARAMS FILE, DETERMINE WHICH IMAGES CORRESPOND TO UP AND DOWN, AND MERGE INTO SEPARATE FILES
-    img_tools.merge_images([DWI_pepolar0, DWI_pepolar1], DWI_out.filename)
+    img_tools.merge_images([DWI_pepolar0, DWI_pepolar1], DWI_out)
     bvals = np.concatenate((bvals_pepolar0, bvals_pepolar1), axis=0)
     bvecs = np.concatenate((bvecs_pepolar0, bvecs_pepolar1), axis=0)
 
     acqparams = np.empty([2,4])
-    acqparams_list = [DWI_pepolar0._get_json(), DWI_pepolar1._get_json()]
+    acqparams_list = [DWI_pepolar0.json, DWI_pepolar1.json]
 
     for i in range(0,len(acqparams_list)):
         with open(acqparams_list[i]) as f:
