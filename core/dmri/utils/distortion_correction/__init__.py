@@ -25,9 +25,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
     #First, find the indices of the B0 images
     dwi_img = nib.load(input_dwi.filename)
-    aff = dwi_img.get_affine()
-    sform = dwi_img.get_sform()
-    qform = dwi_img.get_qform()
+    aff = dwi_img.affine
     dwi_data = dwi_img.get_fdata()
 
     bvals = np.loadtxt(input_dwi.bvals)
@@ -47,7 +45,6 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
         tmp_data = b0_data[:,:,:,np.asarray(tmp_indices).flatten()]
         topup_data[:,:,:,i] = np.mean(tmp_data, axis=3)
 
-    topup_indices   = b0_indices[jj].astype(int)
     topup_acqparams = b0_acqparams[jj]
 
 
@@ -73,7 +70,6 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
 
     os.system(topup_command)
-
     os.remove(output_dir + '/tmp.acqparams.txt')
     os.remove(output_dir + '/tmp.B0.nii.gz')
 
