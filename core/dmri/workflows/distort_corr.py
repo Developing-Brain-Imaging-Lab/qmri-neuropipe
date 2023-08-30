@@ -8,7 +8,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
     if dist_corr == 'Topup' or dist_corr == 'Topup-Separated':
 
         working_dir     = os.path.dirname(topup_base)
-        parsed_filename = parse_file_entities(dwi_image._get_filename())
+        parsed_filename = parse_file_entities(dwi_image.filename)
 
         if not os.path.exists(working_dir):
             os.makedirs(working_dir)
@@ -46,7 +46,7 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
 
     if distortion_method != None:
 
-        parsed_filename = parse_file_entities(dwi_image._get_filename())
+        parsed_filename = parse_file_entities(dwi_image.filename)
 
         entities = {
         'extension': '.nii.gz',
