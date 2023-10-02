@@ -70,7 +70,7 @@ if args.dwi_bvecs != None:
     shutil.copy2(args.dwi_bvecs, bids_dwi_bvecs)
 
 #Check to make sure the Numebr of Bvals/Bvecs match acquired data
-dmri_qc.check_bvals_bvecs(DWImage(file = bids_dwi, bvals=bids_dwi_bvals, bvecs=bids_dwi_bvecs))
+dmri_qc.check_bvals_bvecs(DWImage(filename=bids_dwi, bvals=bids_dwi_bvals, bvecs=bids_dwi_bvecs))
 
 ###CONVERT THE REVERSE PHASE ENCODE DATA ###
 if args.dwi_pepolar1_dcm_dir != None:
