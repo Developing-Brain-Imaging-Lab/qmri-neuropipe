@@ -81,6 +81,11 @@ parser.add_argument('--workbook_file',
                     type=str,
                     help='Load settings from file in json format. Command line options are overriden by values in file.',
                     default=None)
+                    
+parser.add_argument('--verbose',
+                    type=bool,
+                    help='Print out commands',
+                    default=False)
 
 args, unknown = parser.parse_known_args()
 
@@ -118,5 +123,7 @@ for i in range(0, len(dwi_database)):
 
     print('Working on Subject: ' + str(dwi_database[i].id).zfill(3))
     print()
-    print(convert_raw_script)
-    #os.system(convert_raw_script)
+    
+    if args.verbose:
+        print(convert_raw_script)
+    os.system(convert_raw_script)
