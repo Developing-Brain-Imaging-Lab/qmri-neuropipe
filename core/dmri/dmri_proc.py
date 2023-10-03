@@ -52,6 +52,10 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--bids_t2w_dir',
                             type=str, help='BIDS T2w RAWDATA Directory Basename',
                             default='anat')
+                            
+        parser.add_argument('--bids_dwi_dir',
+                            type=str, help='BIDS DWI RAWDATA Directory Basename',
+                            default='dwi')
         
         parser.add_argument('--use_freesurfer',
                             type=bool,
