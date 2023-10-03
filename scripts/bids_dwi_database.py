@@ -102,7 +102,7 @@ dwi_database = create_database(args.workbook_file)
 
 for i in range(0, len(dwi_database)):
 
-    convert_raw_script = 'python convert_dwi_rawdata.py '
+    convert_raw_script = 'python ' + os.path.dirname(os.path.realpath(__file__))+'/convert_dwi_rawdata.py '
     convert_raw_script += ' --subject=' + str(dwi_database[i].id).zfill(3)
     convert_raw_script += ' --bids_dir=' + args.bids_dir
     
