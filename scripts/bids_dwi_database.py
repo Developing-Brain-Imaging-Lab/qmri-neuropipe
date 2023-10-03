@@ -102,7 +102,7 @@ for i in range(0, len(dwi_database)):
     convert_raw_script += ' --bids_dir=' + args.bids_dir
     
     if args.session:
-        convert_raw_script += ' --sesssion=' + str(args.session.zfill(2))
+        convert_raw_script += ' --session=' + str(args.session).zfill(2)
         
 
     if not pandas.isna(dwi_database[i].pepolar0_dcm_dir):
