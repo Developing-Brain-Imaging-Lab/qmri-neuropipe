@@ -71,7 +71,11 @@ parser.add_argument('--dwi_pepolar1_bvecs',
                     type=str,
                     help='Load settings from file in json format. Command line options are overriden by values in file.',
                     default=None)
-                    
+
+parser.add_argument('--session',
+                    type=str,
+                    help='Session number to use for data (Optional)',
+                    default=None)
                     
 parser.add_argument('--workbook_file',
                     type=str,
@@ -91,15 +95,15 @@ if args.load_json:
 dwi_database = create_database(args.workbook_file)
 
 
-#for i in range(0, len(dwi_database)):
-
-for i in range(1, 2):
+for i in range(0, len(dwi_database)):
 
     convert_raw_script = 'python convert_dwi_rawdata.py '
     convert_raw_script += ' --subject=' + str(dwi_database[i].id).zfill(3)
     convert_raw_script += ' --bids_dir=' + args.bids_dir
     
-    
+    if args.session:
+        convert_raw_script += ' --sesssion=' + str(args.session.zfill(2))
+        
 
     if not pandas.isna(dwi_database[i].pepolar0_dcm_dir):
         convert_raw_script += ' --dwi_dcm_dir='+str(dwi_database[i].pepolar0_dcm_dir)
