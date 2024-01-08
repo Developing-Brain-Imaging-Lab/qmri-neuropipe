@@ -630,12 +630,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     output_img.filename = out_file
     output_img.bvecs    = out_bvec
 
-    #Extract the B0s from the DWI and compute mean
-    mean_dwi = Image(filename = working_dir + '/mean_dwi.nii.gz')
-    mean_dwi = dmri_tools.extract_dwis(input_dwi     = dwi_img,
-                                       output_dwi    = mean_dwi,
-                                       compute_mean  = True)
-                                     
+    #Extract the B0s from the DWI and compute mean                                     
     mean_b0 = Image(filename = working_dir + '/mean_b0.nii.gz')
     mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
                                      output_b0     = mean_b0,
@@ -715,7 +710,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                     ants_options = "-n BSpline")
 
     #WARP T1w TO MNI
-    apply_transform(input        = T1w_norm,
+    apply_transform(input        = t1w_img,
                     ref          = mni_atlas_img,
                     out          = T1w_in_mni,
                     transform    = T1w_2_mni_antsmat,
