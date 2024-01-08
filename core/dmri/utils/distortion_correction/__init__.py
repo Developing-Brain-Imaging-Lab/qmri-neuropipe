@@ -738,7 +738,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     if verbose:
         print('Creating synthetic undistorted b0 images')
     SyNb0       = Synb0(verbose)
-    rev_b0_data = SyNb0.predict(b0_in_mni, T1w_in_mni)
+    rev_b0_data = SyNb0.predict(nib.load(b0_in_mni.filename), nib.load(T1w_in_mni.filename))
 
     rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
     dtype      = nib.load(mean_b0).get_data_dtype()
