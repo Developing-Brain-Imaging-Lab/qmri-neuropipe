@@ -649,25 +649,14 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                           mask_img = T1w_brain, 
                           algo     = mask_method)
     
-    #Skull strip DWI
-    dwi_mask  = Image(filename = os.path.join(working_dir, "dwi_mask.nii.gz"))
-    dwi_brain = Image(filename = os.path.join(working_dir, "dwi_brain.nii.gz"))
-    mask_tools.mask_image(input    = mean_dwi, 
-                          mask     = dwi_mask,
-                          mask_img = dwi_brain, 
-                          algo     = mask_method)
-    
     if wmseg_img == None:
         #Create WMseg
         wmseg_img = create_wmseg(input_img  = t1w_img,
                                  output_dir = os.path.join(working_dir), 
                                  nthreads   = nthreads)
     #Normalize the T1w image
-    T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
     T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
-    os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + " " + T1w_wm.filename)
-    os.system("fslmaths " + t1w_img.filename + " -div " + T1w_wm.filename + " -mul 110 " + T1w_norm.filename)
-
+    os.system("fslmaths " + t1w_img.filename + " -div " + wmseg_img.filename + " -mul 110 " + T1w_norm.filename)
 
     #Coregister the T1w to the DWI image
     T1w_2_dwi         = Image(filename = os.path.join(working_dir, "T1w_toDWI.nii.gz"))
@@ -675,16 +664,16 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     T1w_2_dwi_antsmat = os.path.join(working_dir, "T1w_2_dwi.txt")
 
     linreg(input          = T1w_brain,
-           ref            = dwi_brain,
+           ref            = mean_b0,
            out            = T1w_2_dwi,
            out_mat        = T1w_2_dwi_fslmat,
            method         = 'fsl',
-           dof            = 12,
+           dof            = 6,
            flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     #CONVERT FSL TO ANTS
     convert_fsl2ants(input    = T1w_brain,
-                     ref      = dwi_brain,
+                     ref      = mean_b0,
                      fsl_mat  = T1w_2_dwi_fslmat,
                      ants_mat = T1w_2_dwi_antsmat)
 
