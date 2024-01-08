@@ -1,13 +1,13 @@
 import os, subprocess
 
 
-def create_composite_transform(ref, out, transforms, linear=False, debug=False):
+def create_composite_transform(ref, out, transforms, linear=False, inverse=0, debug=False):
 
     CMD=""
     if linear:
-        CMD = "antsApplyTransforms -d 3 -o Linear[" + out + ",1] -r " + ref.filename
+        CMD = "antsApplyTransforms -d 3 -o Linear[" + out + ","+str(inverse)+"] -r " + ref.filename
     else:
-        CMD = "antsApplyTransforms -d 3 -o [" + out + ",1] -r " + ref.filename
+        CMD = "antsApplyTransforms -d 3 -o [" + out + ","+str(inverse)+"] -r " + ref.filename
 
     for xfm in transforms:
         CMD += " -t " + xfm

@@ -696,10 +696,11 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     T1w_in_mni        = Image(filename = os.path.join(working_dir, "T1w_in_mni.nii.gz"))
     T1w_2_mni_antsmat = os.path.join(working_dir, "T1w_2_mni.txt")
 
-    create_composite_transform(ref = mni_atlas_img,
-                               out = T1w_2_mni_antsmat,
+    create_composite_transform(ref        = mni_atlas_img,
+                               out        = T1w_2_mni_antsmat,
                                transforms = [dwi_2_mni_antsmat, T1w_2_dwi_antsmat], 
-                               linear = True)
+                               linear     = True,
+                               inverse    = 0)
     #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
                     ref          = mni_atlas_img,
