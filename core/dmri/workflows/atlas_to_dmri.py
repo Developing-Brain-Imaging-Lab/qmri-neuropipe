@@ -4,7 +4,7 @@ from core.registration.nonlinreg import nonlinreg
 from core.registration.apply_transform import apply_transform
 from core.registration.create_composite_transform import create_composite_transform
 
-def dmri_to_standard(bids_id, dwi_models_dir, dwi_registration_dir, dwi_normalized_dir, template, template_mask, method="ants", nthreads=1, fslopts=None, antsopts=None  ):
+def atlas_to_dmri(bids_id, registration_dir, template, method="ants", nthreads=1, fslopts=None, antsopts=None ):
      
     if not os.path.exists(dwi_registration_dir):
         os.makedirs(dwi_registration_dir)
@@ -12,47 +12,15 @@ def dmri_to_standard(bids_id, dwi_models_dir, dwi_registration_dir, dwi_normaliz
     if not os.path.exists(dwi_normalized_dir):
         os.makedirs(dwi_normalized_dir)
 
-
-    #Use ANTS to do the registration
-    dti_dir     = os.path.join(dwi_models_dir, "DTI")
-    fa_map      = Image(filename=os.path.join(dti_dir, bids_id+"_model-DTI_parameter-FA.nii.gz"))
     output_base = os.path.join(dwi_registration_dir, bids_id+"_desc-RegistrationToStandard_")
     output_warp = os.path.join(dwi_registration_dir, bids_id+"_desc-RegistrationToStandard_Warp.nii.gz")
 
-    if os.path.exists(fa_map.filename) and not os.path.exists(output_warp):
-        nonlinreg(input        = fa_map, 
-                  ref          = template, 
-                  mask         = template_mask,
-                  out_xfm      = output_warp,
-                  out_xfm_base = output_base,
-                  nthreads     = nthreads,
-                  method       = method,
-                  fsl_options  = fslopts,
-                  ants_options = antsopts)
+
         
         # create_composite_transform(ref        = template,
         #                            out        = output_warp,
         #                            transforms = [output_base + '1Warp.nii.gz', output_base+'0GenericAffine.mat'])
-
-    #Warp DTI model parameters
-    scalars_to_warp = []
-    scalars_to_warp.append("model-DTI_parameter-FA.nii.gz")
-    scalars_to_warp.append("model-DTI_parameter-MD.nii.gz") 
-    scalars_to_warp.append("model-DTI_parameter-RD.nii.gz")
-    scalars_to_warp.append("model-DTI_parameter-AD.nii.gz")
-    scalars_to_warp.append("model-DTI_parameter-L1.nii.gz")
-    scalars_to_warp.append("model-DTI_parameter-L2.nii.gz")
-    scalars_to_warp.append("model-DTI_parameter-L3.nii.gz")
-
-    vectors_to_warp = []
-    vectors_to_warp.append("model-DTI_parameter-V1.nii.gz")
-    vectors_to_warp.append("model-DTI_parameter-V2.nii.gz") 
-    vectors_to_warp.append("model-DTI_parameter-V3.nii.gz")
-
-    tensors_to_warp = []
-    tensors_to_warp.append("model-DTI_parameter-TENSOR.nii.gz") 
-    tensors_to_warp.append("model-DTI_parameter-FSL_TENSOR.nii.gz") 
-    tensors_to_warp.append("model-DTI_parameter-MRTRIX_TENSOR.nii.gz") 
+ 
 
     norm_dti_dir = os.path.join(dwi_normalized_dir, "DTI")
 
@@ -184,75 +152,94 @@ def dmri_to_standard(bids_id, dwi_models_dir, dwi_registration_dir, dwi_normaliz
         
 
 
+if __name__ == '__main__':
+   
+    import argparse
+
+    parser = argparse.ArgumentParser(description='QMRI-Neuropipe Linear Registration Tool')
 
 
+    parser = argparse.ArgumentParser()
 
-    # def __init__(self, verbose=False):
-    #     if verbose:
-    #         print('qmri-neuropipe Diffusion Normalization Pipeline')
+    parser.add_argument('--bids_dir',
+                        type=str,
+                        help='BIDS Data Directory')
+                        
+    parser.add_argument('--bids_pipeline_name',
+                        type=str,
+                        help='Name of deriviatives pipeline',
+                        default="qmri-neuropipe")
 
-    # def run(self):
+    parser.add_argument('--load_json',
+                        type=str,
+                        help='Load settings from file in json format. Command line options are overriden by values in file.',
+                        default=None)
 
-    #     parser = argparse.ArgumentParser()
+    parser.add_argument('--nthreads',
+                        type=int,
+                        help='Number of Threads',
+                        default=1)
 
-    #     parser.add_argument('--bids_dir',
-    #                         type=str,
-    #                         help='BIDS Data Directory')
-        
-    #     parser.add_argument('--bids_pipeline_name',
-    #                 type=str, help='BIDS PIPELINE Name',
-    #                 default='qmri-neuropipe')
+    parser.add_argument('--subject',
+                         type=str,
+                         help='Subject ID')
+
+    parser.add_argument('--session',
+                         type=str,
+                         help='Subject Timepoint',
+                         default=None)
+                         
+    parser.add_argument('--modality',
+                         type=str,
+                         help='Imaging modality',
+                         default=None)
+                         
+    parser.add_argument('--atlases',
+                         type=str,
+                         help='Template to use for registration',
+                         default=None)
+
+    args, unknown = parser.parse_known_args()
+
+    if args.load_json:
+        with open(args.load_json, 'rt') as f:
+            t_args = argparse.Namespace()
+            t_dict = vars(t_args)
+            t_dict.update(json.load(f))
+            args, unknown = parser.parse_known_args(namespace=t_args)
+
+    id_patterns = 'sub-{subject}[_ses-{session}]'
+    derivative_patterns = args.bids_dir + '/derivatives/' + args.bids_pipeline_name + '/sub-{subject}[/ses-{session}]/'
+
+    bids_id             = writing.build_path(entities, id_patterns)
+    bids_derivative_dir = writing.build_path(entities, derivative_patterns)
     
-    #     parser.add_argument('--load_json',
-    #                     type=str, 
-    #                     help='Load settings from file in json format. Command line options are overriden by values in file.',
-    #                     default=None)
-        
-    #     parser.add_argument('--nthreads',
-    #                     type=int,
-    #                     help='Number of Threads',
-    #                     default=1)
-        
-    #     parser.add_argument('--subject',
-    #                         type=str,
-    #                         help='Subject ID')
-
-    #     parser.add_argument('--session',
-    #                         type=str,
-    #                         help='Subject Timepoint',
-    #                         default=None)
-        
-    #     parser.add_argument('--dwi_standard_template',
-    #                         type=str,
-    #                         help='Template to use for registration',
-    #                         default=None)
+    registration_dir    = os.path.join(bids_derivative_dir, args.modality, 'registration-to-standard/')
     
-    #     args, unknown = parser.parse_known_args()
+    #Loop accross the atlases that we want to compute
+    atlases = ["JHU", "Harvard-Oxford"]
+    
+    for atlas in atlases:
+        atlas_dir = os.path.join(bids_derivative_dir, args.modality, 'atlases/', atlas)
         
-    #     if args.load_json:
-    #         with open(args.load_json, 'rt') as f:
-    #             t_args = argparse.Namespace()
-    #             t_dict = vars(t_args)
-    #             t_dict.update(json.load(f))
-    #             args, unknown = parser.parse_known_args(namespace=t_args)
+        if not os.path.exists(atlas_dir):
+            os.makedirs(atlas_dir)
+    
+        atlas_to_dmri(bids_id,
+                      dwi_models_dir,
+                      dwi_registration_dir,
+                      dwi_normalized_dir,
+                      template,
+                      template_mask,
+                      method="ants",
+                      nthreads=1,
+                      fslopts=None,
+                      antsopts=None  )
+    
+    
+    
 
-    #     #Setup the BIDS Directories and Paths
-    #     entities = {
-    #     'extension': '.nii.gz',
-    #     'subject': args.subject,
-    #     'session': args.session,
-    #     'modality': 'dwi',
-    #     'suffix': 'dwi'
-    #     }
+    
+     
+     
 
-    #     id_patterns = 'sub-{subject}[_ses-{session}]'
-    #     derivative_patterns = args.bids_dir + '/derivatives/' + args.bids_pipeline_name + '/sub-{subject}[/ses-{session}]/'
-
-    #     bids_id             = writing.build_path(entities, id_patterns)
-    #     bids_derivative_dir = writing.build_path(entities, derivative_patterns)
-
-    #     models_dir          = os.path.join(bids_derivative_dir, "dwi", "models" )
-    #     registration_dir    = os.path.join(bids_derivative_dir, "dwi", 'registration-to-standard/')
-    #     normalization_dir   = os.path.join(bids_derivative_dir, "dwi", 'models-standard/')
-
-    #     i

@@ -1,10 +1,10 @@
-import string, os, sys, subprocess, json, copy, glob
+import os, json, copy, glob
 
 import numpy as np
 import nibabel as nib
-from scipy.io import loadmat
 
 from bids.layout import writing, parse_file_entities
+from dipy.nn.synb0 import Synb0
 
 from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
@@ -18,31 +18,29 @@ from core.registration.create_composite_transform import create_composite_transf
 
 from core.segmentation.segmentation import create_wmseg
 
-from core.dmri.utils.qc import rotate_bvecs, check_gradient_directions
-
 
 def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False, verbose=False):
 
     #First, find the indices of the B0 images
-    dwi_img = nib.load(input_dwi.filename)
-    aff = dwi_img.affine
-    dwi_data = dwi_img.get_fdata()
+    dwi_img   = nib.load(input_dwi.filename)
+    aff       = dwi_img.affine
+    dwi_data  = dwi_img.get_fdata()
 
-    bvals = np.loadtxt(input_dwi.bvals)
-    index = np.loadtxt(input_dwi.index)
+    bvals     = np.loadtxt(input_dwi.bvals)
+    index     = np.loadtxt(input_dwi.index)
     acqparams = np.loadtxt(input_dwi.acqparams)
-    ii = np.where(bvals == 0)
+    ii        = np.where(bvals == 0)
 
-    b0_data = dwi_data[:,:,:,np.asarray(ii).flatten()]
-    b0_indices = index[ii].astype(int)
-    b0_acqparams=acqparams[b0_indices-1]
+    b0_data      = dwi_data[:,:,:,np.asarray(ii).flatten()]
+    b0_indices   = index[ii].astype(int)
+    b0_acqparams = acqparams[b0_indices-1]
 
-    indices,jj = np.unique(b0_indices, return_index=True)
+    indices,jj   = np.unique(b0_indices, return_index=True)
+    topup_data   = np.zeros([b0_data.shape[0], b0_data.shape[1], b0_data.shape[2], len(indices)])
 
-    topup_data = np.zeros([b0_data.shape[0], b0_data.shape[1], b0_data.shape[2], len(indices)])
     for i in range(0,len(indices)):
-        tmp_indices = np.where(b0_indices == indices[i])
-        tmp_data = b0_data[:,:,:,np.asarray(tmp_indices).flatten()]
+        tmp_indices         = np.where(b0_indices == indices[i])
+        tmp_data            = b0_data[:,:,:,np.asarray(tmp_indices).flatten()]
         topup_data[:,:,:,i] = np.mean(tmp_data, axis=3)
 
     topup_acqparams = b0_acqparams[jj]
@@ -58,7 +56,7 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
     topup_command = 'topup --imain='+ tmp_b0 \
                   + ' --datain=' + tmp_acqparams \
-                  +' --out=' + output_topup_base
+                  + ' --out=' + output_topup_base
 
     if config_file != None:
         topup_command += ' --config='+config_file
@@ -88,15 +86,15 @@ def registration_method(input_dwi, working_dir, T1_image=None, T2_image=None, li
     'desc': 'DistortionCorrected'
     }
 
-    filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+    filename_patterns  = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
 
     out_file = writing.build_path(entities, filename_patterns)
     entities['extension'] = '.bvec'
     out_bvec = writing.build_path(entities, filename_patterns)
 
     output_img = copy.deepcopy(input_dwi)
-    output_img._set_filename(out_file)
-    output_img._set_bvecs(out_bvec)
+    output_img.filename = out_file
+    output_img.bvecs    = out_bvec
 
     # if not output_img.exists():
 
@@ -605,7 +603,7 @@ def prep_external_fieldmap(input_dwi, input_fm, input_fm_ref, dwellTime, unwarpd
     os.system('fslmaths ' + fm_rads_warp + ' -mul 0.1592 ' + fm_hz_warp)
 
 
-def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.cnf', wmseg_img=None, nthreads=1, cleanup_files=True, verbose=True):
+def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", topup_config='b02b0.cnf', wmseg_img=None, nthreads=1, cleanup_files=True, verbose=True):
 
     working_dir = os.path.dirname(topup_base)
 
@@ -643,162 +641,121 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
                                      output_b0     = mean_b0,
                                      compute_mean  = True)
 
-    #Skull-strip the T1image
-    t1w_brain = Image(filename = working_dir + '/t1w_brain.nii.gz')
+    #Skull strip T1w
+    T1w_mask  = Image(filename = os.path.join(working_dir, "T1w_mask.nii.gz"))
+    T1w_brain = Image(filename = os.path.join(working_dir, "T1w_brain.nii.gz"))
+    mask_tools.mask_image(input    = t1w_img, 
+                          mask     = T1w_mask,
+                          mask_img = T1w_brain, 
+                          algo     = mask_method)
     
-    #Run Skull-strip method here.
-    mask_tools.apply_mask(input  = t1w_img,
-                          mask   = t1w_mask,
-                          output = t1w_brain)
- 
-    #Coregister the DWI to the T1w image
-    dwi_coreg          = Image(filename = working_dir + '/dwi_coreg.nii.gz')
-    dwi_coreg_mat_fsl  = working_dir + '/dwi_coreg.mat'
-    dwi_coreg_mat_ants = working_dir + '/dwi_coreg.txt'
-    linreg(input          = mean_dwi,
-           ref            = t1w_brain,
-           out            = dwi_coreg,
-           out_mat        = dwi_coreg_mat_fsl,
-           method         = 'fsl',
-           dof            = 6,
-           flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+    #Skull strip DWI
+    dwi_mask  = Image(filename = os.path.join(working_dir, "dwi_mask.nii.gz"))
+    dwi_brain = Image(filename = os.path.join(working_dir, "dwi_brain.nii.gz"))
+    mask_tools.mask_image(input    = mean_dwi, 
+                          mask     = dwi_mask,
+                          mask_img = dwi_brain, 
+                          algo     = mask_method)
     
     if wmseg_img == None:
         #Create WMseg
         wmseg_img = create_wmseg(input_img  = t1w_img,
-                                 output_dir = working_dir+"/wmseg", 
+                                 output_dir = os.path.join(working_dir), 
                                  nthreads   = nthreads)
+    #Normalize the T1w image
+    T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
+    T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
+    os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + " " + T1w_wm.filename)
+    os.system("fslmaths " + t1w_img.filename + " -div " + T1w_wm.filename + " -mul 110 " + T1w_norm.filename)
 
-    #ADD IN BBR Registration to improve overall registration between structural and diffusion
-    bbr_options = ' -cost bbr -wmseg ' + wmseg_img.filename + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' + dwi_coreg_mat_fsl
-    linreg(input          = mean_dwi,
-           ref            = t1w_brain,
-           out            = dwi_coreg,
-           out_mat        = dwi_coreg_mat_fsl,
+
+    #Coregister the T1w to the DWI image
+    T1w_2_dwi         = Image(filename = os.path.join(working_dir, "T1w_toDWI.nii.gz"))
+    T1w_2_dwi_fslmat  = os.path.join(working_dir, "T1w_2_dwi.mat")
+    T1w_2_dwi_antsmat = os.path.join(working_dir, "T1w_2_dwi.txt")
+
+    linreg(input          = T1w_brain,
+           ref            = dwi_brain,
+           out            = T1w_2_dwi,
+           out_mat        = T1w_2_dwi_fslmat,
            method         = 'fsl',
-           dof            = 6,
-           flirt_options  = bbr_options)
+           dof            = 12,
+           flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
     #CONVERT FSL TO ANTS
-    convert_fsl2ants(input    = mean_dwi,
-                     ref      = t1w_brain,
-                     fsl_mat  = dwi_coreg_mat_fsl,
-                     ants_mat = dwi_coreg_mat_ants)
-
+    convert_fsl2ants(input    = T1w_brain,
+                     ref      = dwi_brain,
+                     fsl_mat  = T1w_2_dwi_fslmat,
+                     ants_mat = T1w_2_dwi_antsmat)
 
     #REGISTER T1 to Atlas
-    ants_base           = working_dir + '/t1w_to_template_'
-    t1w_atlas_img       = Image(filename = os.path.dirname(__file__)+'/../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c.nii.gz')
+    mni_atlas_img       = Image(filename = os.path.join(os.path.dirname(__file__), "data", "mni_icbm152_t1_tal_nlin_asym_09c_mask_2_5.nii.gz"))
+    T1w_mni             = Image(filename = os.path.join(working_dir, "T1w_mni.nii.gz"))
+    dwi_2_mni_fslmat    = os.path.join(working_dir, "dwi_2_mni.mat")
+    dwi_2_mni_antsmat   = os.path.join(working_dir, "dwi_2_mni.txt")
 
-    print(os.path.abspath(t1w_atlas_img.filename))
-
-    t1w_atlas_mask      = Image(filename = os.path.dirname(__file__)+'/../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_mask_1mm.nii.gz')
-    t1w_atlas_img_2_5   = Image(filename = os.path.dirname(__file__)+'/../../../../external/Synb0-DISCO/atlases/mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz')
-
+    linreg(input          = T1w_2_dwi,
+           ref            = mni_atlas_img,
+           out            = T1w_mni,
+           out_mat        = dwi_2_mni_fslmat,
+           method         = 'fsl',
+           dof            = 12,
+           flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
     
-    nonlinreg(input         = t1w_brain,
-              ref           = t1w_atlas_img,
-              mask          = t1w_atlas_mask, 
-              out_xfm_base  = ants_base, 
-              nthreads      = nthreads, 
-              method        = 'ants-quick',  
-              ants_options=None)
-    
-  
-    create_composite_transform(ref        = t1w_atlas_img_2_5,
-                               out        =  working_dir + '/t1_nonlin_xfm.nii.gz',
-                               transforms =  [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat'])
-
-    create_composite_transform(ref          = t1w_atlas_img_2_5,
-                               out          = working_dir + '/dwi_lin_xfm.txt',
-                               transforms   = [ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants],
-                               linear       = True )
-
-    create_composite_transform(ref        = t1w_atlas_img_2_5,
-                               out        =  working_dir + '/dwi_nonlin_xfm.nii.gz',
-                               transforms =  [ants_base + '1Warp.nii.gz', ants_base + '0GenericAffine.mat', dwi_coreg_mat_ants])
+    convert_fsl2ants(input    = T1w_2_dwi,
+                     ref      = mni_atlas_img,
+                     fsl_mat  = dwi_2_mni_fslmat,
+                     ants_mat = dwi_2_mni_antsmat)
 
 
-    t1w_norm = Image(filename = working_dir + '/t1w_norm.nii.gz')
-    os.system('ImageMath 3 ' + t1w_norm.filename + ' Normalize ' + t1w_brain.filename)
-    os.system('fslmaths ' + t1w_norm.filename + ' -mul 255 ' + t1w_norm.filename + ' -odt short' )
+    b0_in_mni         = Image(filename = os.path.join(working_dir, "b0_in_mni.nii.gz"))
+    T1w_in_mni        = Image(filename = os.path.join(working_dir, "T1w_in_mni.nii.gz"))
+    T1w_2_mni_antsmat = os.path.join(working_dir, "T1w_2_mni.txt")
 
-
-    #Apply Linear Transform to T1
-    t1w_norm_lin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_lin_atlas_2_5.nii.gz')
-    apply_transform(input        = t1w_norm,
-                    ref          = t1w_atlas_img_2_5,
-                    out          = t1w_norm_lin_atlas_2_5,
-                    transform    = ants_base + '0GenericAffine.mat',
-                    method       = "ants",
-                    nthreads     = nthreads,
-                    ants_options = "-n BSpline")
-
-    b0_lin_atlas_2_5 = Image(filename = working_dir + '/b0_lin_atlas_2_5.nii.gz')
+    create_composite_transform(ref = mni_atlas_img,
+                               out = T1w_2_mni_antsmat,
+                               transforms = [dwi_2_mni_antsmat, T1w_2_dwi_antsmat], 
+                               linear = True)
+    #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
-                    ref          = t1w_atlas_img_2_5,
-                    out          = b0_lin_atlas_2_5,
-                    transform    = working_dir + '/dwi_lin_xfm.txt',
+                    ref          = mni_atlas_img,
+                    out          = b0_in_mni,
+                    transform    = dwi_2_mni_antsmat,
                     method       = "ants",
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
 
-
-    t1w_norm_nonlin_atlas_2_5 = Image(filename = working_dir + '/t1w_norm_nonlin_atlas_2_5.nii.gz')
-    apply_transform(input        = t1w_norm,
-                    ref          = t1w_atlas_img_2_5,
-                    out          = t1w_norm_nonlin_atlas_2_5,
-                    transform    = working_dir + '/t1_nonlin_xfm.nii.gz',
+    #WARP T1w TO MNI
+    apply_transform(input        = T1w_norm,
+                    ref          = mni_atlas_img,
+                    out          = T1w_in_mni,
+                    transform    = T1w_2_mni_antsmat,
                     method       = "ants",
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
-
-    b0_nonlin_atlas_2_5 = Image(filename = working_dir + '/b0_nonlin_atlas_2_5.nii.gz')
-    apply_transform(input        = mean_b0,
-                    ref          = t1w_atlas_img_2_5,
-                    out          = b0_nonlin_atlas_2_5,
-                    transform    = working_dir + '/dwi_nonlin_xfm.nii.gz',
-                    method       = "ants",
-                    nthreads     = nthreads,
-                    ants_options = "-n BSpline")
-
-
-
-    import importlib
-    infer = importlib.import_module('external.Synb0-DISCO.src.inference')
-
+        
+    #USE Synb0 to predict the reverse encoded image
     if verbose:
         print('Creating synthetic undistorted b0 images')
+    SyNb0       = Synb0(verbose)
+    rev_b0_data = SyNb0.predict(b0_in_mni, T1w_in_mni)
 
-    NUM_FOLDS=5
-    list_of_b0s = []
-    for i in range(1,NUM_FOLDS+1):
-        b0_undistorted_path = working_dir +'/b0_u_lin_atlas_2_5_FOLD_'+str(i)+'.nii.gz'
-        model_path = glob.glob(os.path.dirname(__file__)+'/../../../../external/Synb0-DISCO/src/train_lin/num_fold_'+str(i)+'_total_folds_'+str(NUM_FOLDS)+'_seed_1_num_epochs_100_lr_0.0001_betas_(0.9, 0.999)_weight_decay_1e-05_num_epoch_*.pth')[0]
+    rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
+    dtype      = nib.load(mean_b0).get_data_dtype()
+    nib.save(nib.Nifti1Image(rev_b0_data.astype(dtype), mean_b0.affine), rev_b0_mni.filename)
+    
+    #Inverse warp the image
+    rev_b0 = Image(filename = os.path.join(working_dir, "b0_u.nii.gz"))
+    os.system('antsApplyTransforms -d 3 -i ' + rev_b0_mni.filename + ' -r ' + mean_b0.filename + ' -t ['+dwi_2_mni_antsmat+',1] -o ' +  rev_b0.filename)
 
-        infer.run_inference(t1w_norm_lin_atlas_2_5.filename, b0_lin_atlas_2_5.filename, b0_undistorted_path, model_path)
-        list_of_b0s.append(Image(filename = b0_undistorted_path))
-
-    #Take average and calculate mean
-    merged_b0_u = Image(filename = working_dir + '/b0_u_lin_atlas_2_5_merged.nii.gz')
-    img_tools.merge_images(list_of_b0s, merged_b0_u)
-
-
-    mean_img = img_tools.calculate_mean_img(input_img     = merged_b0_u,
-                                            output_file   = working_dir + '/b0_u_mean.nii.gz')
-
-
-    #Apply Inverse Transform (Need to write inverse function call
-    b0_undistorted_img = Image(filename = working_dir + '/b0_u.nii.gz')
-    os.system('antsApplyTransforms -d 3 -i ' + mean_img.filename + ' -r ' + mean_b0.filename + ' -t ['+dwi_coreg_mat_ants+',1] -t ['+ants_base + '0GenericAffine.mat,1] -o ' +  b0_undistorted_img.filename)
-
+    
     #Smooth original b0 slightly
-    b0_d_smooth = Image(filename = working_dir + '/b0_d_smooth.nii.gz')
-    os.system('fslmaths ' + mean_b0.filename + ' -s 1.15 ' + b0_d_smooth.filename)
+    b0_d = Image(filename = os.path.join(working_dir, "b0_d.nii.gz"))
+    os.system('fslmaths ' + mean_b0.filename + ' -s 1.15 ' + b0_d.filename)
 
     #Merge and run topup
-    all_b0s = Image(filename = working_dir + '/b0s_all.nii.gz')
-    img_tools.merge_images(list_of_images = [b0_d_smooth,  b0_undistorted_img],
+    all_b0s = Image(filename = os.path.join(working_dir, "b0s_all.nii.gz"))
+    img_tools.merge_images(list_of_images = [b0_d,  rev_b0],
                            output_img    = all_b0s)
 
 
@@ -811,6 +768,7 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
+    #Run TOPUP
     topup_command = 'topup --imain='+ all_b0s.filename \
                   + ' --datain=' + disco_acqparams_path \
                   + ' --config=' + topup_config \
@@ -821,3 +779,6 @@ def run_synb0_disco(dwi_img, t1w_img, t1w_mask, topup_base, topup_config='b02b0.
         print(topup_command)
         
     os.system(topup_command)
+
+    if cleanup_files:
+        print("Cleanup all temporary files that were created")

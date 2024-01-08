@@ -22,6 +22,22 @@ class Image:
                 return False
         except AttributeError:
             return False
+    
+    def copy_image(self, img2copy, datatype=False):
+        
+        if img2copy.json != None:
+            if self.json != None:
+                self.json = self.filename.replace('.nii.gz', '.json')
+            
+            shutil.copy2(img2copy.json, self.json)
+       
+        if datatype != False:
+            out_img = nib.load(img2copy.filename)
+            out_img.set_data_dtype(datatype)
+            out_img.to_filename(self.filename)
+        else:
+            shutil.copy2(img2copy.filename, self.filename)
+
         
     def get_type(self):
         return "Image"

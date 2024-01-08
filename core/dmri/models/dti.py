@@ -4,6 +4,9 @@ import numpy as np
 import nibabel as nib
 import dipy.reconst.dti as dti
 
+from bids.layout import writing
+import core.utils.create_dataset_json as create_dataset_json
+
 from dipy.denoise.noise_estimate import estimate_sigma
 from dipy.core.gradients import gradient_table, reorient_vectors
 from dipy.io import  read_bvals_bvecs
@@ -46,46 +49,83 @@ from core.utils.io import Image, DWImage
 #    os.system('rm -rf ' + tmp_dir)
 
 class DTI_Model():
-    def __init__(self, dwi_img, out_base, fit_type='dipy-WLS', mask=None, bmax=None, full_output=False, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, bmax=None, full_output=False, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
-        self._inputs['out_base']    = out_base
+        self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
         self._inputs['bmax']        = bmax
         self._inputs['nthreads']    = nthreads
         self._inputs['full_output'] = full_output
-
+        
+        dti_entities = {}
+        dti_entities['subject'] = sub_info['subject']
+        dti_entities['session'] = sub_info['session']
+        dti_entities['model']   = "DTI"
+        
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        
+        map_pattern = os.path.join(out_dir, "sub-{subject}[_ses-{session}][_model-{model}]_param-{map}.nii.gz")   
+            
         self._outputs = {}
-        self._outputs['fa']               = out_base + '_model-DTI_parameter-FA.nii.gz'
-        self._outputs['md']               = out_base + '_model-DTI_parameter-MD.nii.gz'
-        self._outputs['rd']               = out_base + '_model-DTI_parameter-RD.nii.gz'
-        self._outputs['ad']               = out_base + '_model-DTI_parameter-AD.nii.gz'
-        self._outputs['tensor-fsl']       = out_base + '_model-DTI_parameter-FSL_TENSOR.nii.gz'
-        self._outputs['tensor-mrtrix']    = out_base + '_model-DTI_parameter-MRTRIX_TENSOR.nii.gz'
-        self._outputs['l1']               = out_base + '_model-DTI_parameter-L1.nii.gz'
-        self._outputs['l2']               = out_base + '_model-DTI_parameter-L2.nii.gz'
-        self._outputs['l3']               = out_base + '_model-DTI_parameter-L3.nii.gz'
-        self._outputs['tensor']           = out_base + '_model-DTI_parameter-TENSOR.nii.gz'
-        self._outputs['v1']               = out_base + '_model-DTI_parameter-V1.nii.gz'
-        self._outputs['v2']               = out_base + '_model-DTI_parameter-V2.nii.gz'
-        self._outputs['v3']               = out_base + '_model-DTI_parameter-V3.nii.gz'
+        
+        dti_entities['map']               = "FA"
+        self._outputs['fa']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "MD"
+        self._outputs['md']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "RD"
+        self._outputs['rd']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "AD"
+        self._outputs['ad']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "FSL_TENSOR"
+        self._outputs['tensor-fsl']       = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "MRTRIX_TENSOR"
+        self._outputs['tensor-mrtrix']    = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L1" 
+        self._outputs['l1']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L2"
+        self._outputs['l2']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L3"
+        self._outputs['l3']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "ITK_TENSOR"
+        self._outputs['tensor']           = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "V1"
+        self._outputs['v1']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "V2"
+        self._outputs['v2']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "V3"
+        self._outputs['v3']               = writing.build_path(dti_entities, map_pattern)
 
-        self._full_outputs = {}
-        self._full_outputs['ga']          = out_base + '_model-DTI_parameter-GA.nii.gz'
-        self._full_outputs['cfa']         = out_base + '_model-DTI_parameter-COLOR_FA.nii.gz'
-        self._full_outputs['tr']          = out_base + '_model-DTI_parameter-TRACE.nii.gz'
-        self._full_outputs['pl']          = out_base + '_model-DTI_parameter-PLANARITY.nii.gz'
-        self._full_outputs['sp']          = out_base + '_model-DTI_parameter-SPHERICITY.nii.gz'
-        self._full_outputs['mo']          = out_base + '_model-DTI_parameter-MODE.nii.gz'
-        self._full_outputs['res']         = out_base + '_model-DTI_parameter-RESIDUALS.nii.gz'
-
-
-
+        dti_entities['map']               = 'GA'
+        self._outputs['ga']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'COLOR_FA'
+        self._outputs['cfa']              = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'TRACE'
+        self._outputs['tr']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'PLANARITY'
+        self._outputs['pl']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'SPHERICITY'
+        self._outputs['sp']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'MODE'
+        self._outputs['mo']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = 'RESIDUALS'
+        self._outputs['res']              = writing.build_path(dti_entities, map_pattern)
+        
+        
+    def create_param_json(self, map):
+        create_dataset_json.create_bids_sidecar_json(image = map, 
+                                                     data = {"RawSources": [self._inputs['dwi_img'].filename, 
+                                                                            self._inputs['dwi_img'].bvals,
+                                                                            self._inputs['dwi_img'].bvecs],
+                                                             "Estimation Algorithm": self._inputs['fit_type'],
+                                                             "Estimation Software": "qmri-neuropipe"})
+    
     def fit(self):
 
         dwi_img = self._inputs['dwi_img']
-        output_dir = os.path.dirname(self._inputs['out_base'])
+        output_dir = os.path.dirname(self._inputs['out_dir'])
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -137,27 +177,28 @@ class DTI_Model():
             evecs = dti_fit.evecs.astype(np.float32)
             evals = dti_fit.evals.astype(np.float32)
 
-            tensor_img = nifti1_symmat(tensor, ras_img.affine, ras_img.header)
-            tensor_img.header.set_intent = 'NIFTI_INTENT_SYMMATRIX'
-            tensor_img.to_filename(self._outputs['tensor'])
+            if self._inputs['full_output']:
+                tensor_img = nifti1_symmat(tensor, ras_img.affine, ras_img.header)
+                tensor_img.header.set_intent = 'NIFTI_INTENT_SYMMATRIX'
+                tensor_img.to_filename(self._outputs['tensor'])
 
-            tensor_fsl          = np.empty(tensor.shape)
-            tensor_fsl[:,:,:,0] = tensor[:,:,:,0]
-            tensor_fsl[:,:,:,1] = tensor[:,:,:,1]
-            tensor_fsl[:,:,:,2] = tensor[:,:,:,3]
-            tensor_fsl[:,:,:,3] = tensor[:,:,:,2]
-            tensor_fsl[:,:,:,4] = tensor[:,:,:,4]
-            tensor_fsl[:,:,:,5] = tensor[:,:,:,5]
-            save_nifti(self._outputs['tensor-fsl'], tensor_fsl, ras_img.affine, ras_img.header)
+                tensor_fsl          = np.empty(tensor.shape)
+                tensor_fsl[:,:,:,0] = tensor[:,:,:,0]
+                tensor_fsl[:,:,:,1] = tensor[:,:,:,1]
+                tensor_fsl[:,:,:,2] = tensor[:,:,:,3]
+                tensor_fsl[:,:,:,3] = tensor[:,:,:,2]
+                tensor_fsl[:,:,:,4] = tensor[:,:,:,4]
+                tensor_fsl[:,:,:,5] = tensor[:,:,:,5]
+                save_nifti(self._outputs['tensor-fsl'], tensor_fsl, ras_img.affine, ras_img.header)
 
-            tensor_mrtrix           = np.empty(tensor.shape)
-            tensor_mrtrix[:,:,:,0]  = tensor[:,:,:,0]
-            tensor_mrtrix[:,:,:,1]  = tensor[:,:,:,2]
-            tensor_mrtrix[:,:,:,2]  = tensor[:,:,:,5]
-            tensor_mrtrix[:,:,:,3]  = tensor[:,:,:,1]
-            tensor_mrtrix[:,:,:,4]  = tensor[:,:,:,3]
-            tensor_mrtrix[:,:,:,5]  = tensor[:,:,:,4]
-            save_nifti(self._outputs['tensor-mrtrix'], tensor_mrtrix, ras_img.affine, ras_img.header)
+                tensor_mrtrix           = np.empty(tensor.shape)
+                tensor_mrtrix[:,:,:,0]  = tensor[:,:,:,0]
+                tensor_mrtrix[:,:,:,1]  = tensor[:,:,:,2]
+                tensor_mrtrix[:,:,:,2]  = tensor[:,:,:,5]
+                tensor_mrtrix[:,:,:,3]  = tensor[:,:,:,1]
+                tensor_mrtrix[:,:,:,4]  = tensor[:,:,:,3]
+                tensor_mrtrix[:,:,:,5]  = tensor[:,:,:,4]
+                save_nifti(self._outputs['tensor-mrtrix'], tensor_mrtrix, ras_img.affine, ras_img.header)
 
             fa              = dti_fit.fa
             md              = dti_fit.md
@@ -194,6 +235,17 @@ class DTI_Model():
             save_nifti(self._outputs['md'], md, ras_img.affine, ras_img.header)
             save_nifti(self._outputs['rd'], rd, ras_img.affine, ras_img.header)
             save_nifti(self._outputs['ad'], ad, ras_img.affine, ras_img.header)
+            
+            self.create_param_json(Image(self._outputs['fa']))
+            self.create_param_json(Image(self._outputs['md']))
+            self.create_param_json(Image(self._outputs['rd']))
+            self.create_param_json(Image(self._outputs['ad']))
+            self.create_param_json(Image(self._outputs['v1']))
+            self.create_param_json(Image(self._outputs['v2']))
+            self.create_param_json(Image(self._outputs['v3']))
+            self.create_param_json(Image(self._outputs['l1']))
+            self.create_param_json(Image(self._outputs['l2']))
+            self.create_param_json(Image(self._outputs['l3']))
 
             if self._inputs['full_output']:
                 save_nifti(self._full_outputs['ga'], ga, ras_img.affine, ras_img.header)
@@ -210,16 +262,13 @@ class DTI_Model():
             affine_xfm  = nib.orientations.inv_ornt_aff(transform, ras_img.shape)
             trans_mat = affine_xfm[0:3,0:3]
 
-            for key in self._outputs:
-                orig_img    = nib.load(self._outputs[key])
-                reoriented  = orig_img.as_reoriented(transform)
-                reoriented.to_filename(self._outputs[key])
-
-            if self._inputs['full_output']:
-                for key in self._full_outputs:
-                    orig_img    = nib.load(self._full_outputs[key])
+            for key in self._outputs:                
+                if os.path.exists(self._outputs[key]):
+                    orig_img    = nib.load(self._outputs[key])
                     reoriented  = orig_img.as_reoriented(transform)
-                    reoriented.to_filename(self._full_outputs[key])
+                    reoriented.to_filename(self._outputs[key])
+
+
 
             #Correct FSL tensor for orientation
             dirs = []
@@ -230,32 +279,33 @@ class DTI_Model():
             dirs.append(np.array([[0],[1],[1]]))
             dirs.append(np.array([[0],[0],[1]]))
 
-            tensor_fsl = nib.load(self._outputs['tensor-fsl'])
-            corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
+            if os.path.exists(self._outputs['tensor-fsl']):
+                tensor_fsl = nib.load(self._outputs['tensor-fsl'])
+                corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
 
-            for i in range(0,len(dirs)):
+                for i in range(0,len(dirs)):
 
-                rot_dir = np.matmul(trans_mat, dirs[i])
-                sign = 1.0
-                if np.sum(rot_dir) == 0.0:
-                    sign = -1.0
+                    rot_dir = np.matmul(trans_mat, dirs[i])
+                    sign = 1.0
+                    if np.sum(rot_dir) == 0.0:
+                        sign = -1.0
 
-                if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
-                    tensor_ind = 0
-                elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
-                    tensor_ind = 1
-                elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
-                    tensor_ind = 2
-                elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
-                    tensor_ind = 3
-                elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
-                    tensor_ind = 4
-                elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
-                    tensor_ind = 5
+                    if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
+                        tensor_ind = 0
+                    elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
+                        tensor_ind = 1
+                    elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
+                        tensor_ind = 2
+                    elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
+                        tensor_ind = 3
+                    elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
+                        tensor_ind = 4
+                    elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
+                        tensor_ind = 5
 
-                corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
+                    corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
 
-            save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
+                save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
 
             #Now correct the eigenvectors
             #Determine the order to rearrange
@@ -403,28 +453,43 @@ class DTI_Model():
             os.system('rm -rf ' + output_dir + '/exitcode.nii.gz')
 
 class FWEDTI_Model():
-    def __init__(self, dwi_img, out_base, fit_type='WLS', mask=None, bmax=None, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
-        self._inputs['out_base']    = out_base
+        self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
         self._inputs['nthreads']    = nthreads
-
+   
+        dti_entities = {}
+        dti_entities['subject'] = sub_info['subject']
+        dti_entities['session'] = sub_info['session']
+        dti_entities['model']   = "FWE-DTI"
+        
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+        
+        map_pattern = os.path.join(out_dir, "sub-{subject}[_ses-{session}][_model-{model}]_param-{map}.nii.gz")   
+            
         self._outputs = {}
-        self._outputs['fa']               = out_base + '_model-FWE-DTI_parameter-FA.nii.gz'
-        self._outputs['md']               = out_base + '_model-FWE-DTI_parameter-MD.nii.gz'
-        self._outputs['rd']               = out_base + '_model-FWE-DTI_parameter-RD.nii.gz'
-        self._outputs['ad']               = out_base + '_model-FWE-DTI_parameter-AD.nii.gz'
-        self._outputs['f']                = out_base + '_model-FWE-DTI_parameter-F.nii.gz'
-
+        
+        dti_entities['map']               = "FA"
+        self._outputs['fa']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "MD"
+        self._outputs['md']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "RD"
+        self._outputs['rd']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "AD"
+        self._outputs['ad']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "F"
+        self._outputs['f']                = writing.build_path(dti_entities, map_pattern)
 
     def fit(self):
 
         import dipy.reconst.fwdti as fwdti
 
         dwi_img = self._inputs['dwi_img']
-        output_dir = os.path.dirname(self._inputs['out_base'])
+        output_dir = self._inputs['out_dir']
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -436,8 +501,7 @@ class FWEDTI_Model():
 
         values = np.array(bvals)
         ii = np.where(values == bvals.min())[0]
-        b0_average = np.mean(data[:,:,:,ii], axis=3)
-
+    
         fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
 
         if self._inputs['mask'] != None:

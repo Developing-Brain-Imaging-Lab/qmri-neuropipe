@@ -209,24 +209,24 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
     subprocess.run([CMD], shell=True, stdout=logfile)
 
     #Create WMseg for BBR
-    WMsegImg = create_wmseg(input_img  = RefImage_robustfov, 
-                            output_dir = output_dir+"/wmseg/", 
-                            nthreads   = nthreads)
+    # WMsegImg = create_wmseg(input_img  = RefImage_robustfov, 
+    #                         output_dir = output_dir+"/wmseg/", 
+    #                         nthreads   = nthreads)
     
-    CMD = "flirt -in " + InImage_robustfov.filename \
-            + " -ref " + RefImage_robustfov.filename\
-            + " -out " + output_dir + "/test.nii.gz" \
-            + " -omat " + BBRMat \
-            + " -init " + InitMat \
-            + " -wmseg " + WMsegImg.filename \
-            + " -dof 6 -interp spline" \
-            + " -searchrx -5 5 -searchry -5 5  -searchrz -5 5" \
-            + " -cost bbr" \
-            + " -bbrtype global_abs -bbrslope 0.5 -finesearch 10" \
-            + " -schedule ${FSLDIR}/etc/flirtsch/bbr.sch"
-    subprocess.run([CMD], shell=True, stdout=logfile)
+    # CMD = "flirt -in " + InImage_robustfov.filename \
+    #         + " -ref " + RefImage_robustfov.filename\
+    #         + " -out " + output_dir + "/test.nii.gz" \
+    #         + " -omat " + BBRMat \
+    #         + " -init " + InitMat \
+    #         + " -wmseg " + WMsegImg.filename \
+    #         + " -dof 6 -interp spline" \
+    #         + " -searchrx -5 5 -searchry -5 5  -searchrz -5 5" \
+    #         + " -cost bbr" \
+    #         + " -bbrtype global_abs -bbrslope 0.5 -finesearch 10" \
+    #         + " -schedule ${FSLDIR}/etc/flirtsch/bbr.sch"
+    # subprocess.run([CMD], shell=True, stdout=logfile)
 
-    CMD = "convert_xfm -omat " + FullMat + " -concat " + BBRMat + " " + InImage_full2roi_mat
+    CMD = "convert_xfm -omat " + FullMat + " -concat " + InitMat + " " + InImage_full2roi_mat
     subprocess.run([CMD], shell=True, stdout=logfile)
     
     CMD = "convert_xfm -omat " + FullMat + " -concat " + RefImage_roi2full_mat + " " + FullMat
@@ -253,6 +253,11 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
         os.remove(RefImage_roi2full_mat)
     if os.path.exists(RefImage_full2roi_mat):
         os.remove(RefImage_full2roi_mat)
+        
+    if os.path.exists(InitMat):
+        os.remove(InitMat)
+    if os.path.exists(FullMat):
+        os.remove(FullMat)
 
 
     

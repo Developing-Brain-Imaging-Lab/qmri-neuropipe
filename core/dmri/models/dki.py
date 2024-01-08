@@ -8,43 +8,61 @@ from dipy.core.gradients import gradient_table
 from dipy.io import read_bvals_bvecs
 import dipy.reconst.dki as dki
 import scipy.ndimage.filters as filters
+from bids.layout import writing
 
 class DKI_Model():
-    def __init__(self, dwi_img, out_base, fit_type='dipy-WLS', mask=None, include_micro_fit=False, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, include_micro_fit=False, fwhm=2, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
-        self._inputs['out_base']    = out_base
+        self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
         self._inputs['micro']       = include_micro_fit
+        self._inputs['fwhm']        = fwhm  
         self._inputs['nthreads']    = nthreads
-
-        self._outputs = {}
-        self._outputs['fa']               = out_base + '_model-DKI_parameter-FA.nii.gz'
-        self._outputs['md']               = out_base + '_model-DKI_parameter-MD.nii.gz'
-        self._outputs['rd']               = out_base + '_model-DKI_parameter-RD.nii.gz'
-        self._outputs['ad']               = out_base + '_model-DKI_parameter-AD.nii.gz'
-        self._outputs['mk']               = out_base + '_model-DKI_parameter-MK.nii.gz'
-        self._outputs['rk']               = out_base + '_model-DKI_parameter-RK.nii.gz'
-        self._outputs['ak']               = out_base + '_model-DKI_parameter-AK.nii.gz'
-        self._outputs['mkt']              = out_base + '_model-DKI_parameter-MKT.nii.gz'
-        self._outputs['kfa']              = out_base + '_model-DKI_parameter-KFA.nii.gz'
-        self._outputs['awf']              = out_base + '_model-DKI_parameter-AWF.nii.gz'
-        self._outputs['tort']             = out_base + '_model-DKI_parameter-TORTUSITY.nii.gz'
-
-
+             
+        map_entities = {}
+        map_entities['subject'] = sub_info['subject']
+        map_entities['session'] = sub_info['session']
+        map_entities['model']   = "DKI"
+        
+        map_pattern = os.path.join(out_dir, "sub-{subject}[_ses-{session}][_model-{model}]_param-{map}.nii.gz")         
+        map_entities['map']               = "FA"
+        self._outputs['fa']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "MD"
+        self._outputs['md']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "RD"
+        self._outputs['rd']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "AD"
+        self._outputs['ad']               = writing.build_path(map_entities, map_pattern)
+        
+        map_entities['map']               = "MK"
+        self._outputs['mk']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "RL"
+        self._outputs['rk']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "AK"
+        self._outputs['ak']               = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "MKT"
+        self._outputs['mkt']              = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "kFA"
+        self._outputs['kfa']              = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "AWF"
+        self._outputs['awf']              = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "TORTUSITY"
+        self._outputs['tort']              = writing.build_path(map_entities, map_pattern)
+        
     def fit(self):
 
         dwi_img = self._inputs['dwi_img']
-        output_dir = os.path.dirname(self._inputs['out_base'])
+        output_dir = self._inputs['out_dir']
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        img = nib.load(dwi_img.filename)
-        data = img.get_fdata()
+        img          = nib.load(dwi_img.filename)
+        data         = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-        gtab = gradient_table(bvals, bvecs)
+        gtab         = gradient_table(bvals, bvecs)
 
         if self._inputs['mask'] != None:
             mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
@@ -54,8 +72,7 @@ class DKI_Model():
         b0_average = np.mean(data[:,:,:,ii], axis=3)
 
         #Recommended to smooth data prior to fitting:
-        fwhm = 2.00
-        gauss_std = fwhm / np.sqrt(8 * np.log(2))  # converting fwhm to Gaussian std
+        gauss_std = self._inputs['fwhm'] / np.sqrt(8 * np.log(2))  # converting fwhm to Gaussian std
         data_smooth = np.zeros(data.shape)
         for v in range(data.shape[-1]):
             data_smooth[..., v] = filters.gaussian_filter(data[..., v], sigma=gauss_std)

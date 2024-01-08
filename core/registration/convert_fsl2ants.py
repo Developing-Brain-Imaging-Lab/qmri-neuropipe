@@ -45,8 +45,8 @@ if __name__ == '__main__':
    
    args, unknown = parser.parse_known_args()
    
-   convert_fsl2ants(input   = args.input,
-                    ref     = args.ref,
+   convert_fsl2ants(input   = Image(filename=args.input),
+                    ref     = Image(filename=args.ref),
                     fsl_mat = args.fsl_mat,
                     ants_mat= args.out,
                     debug   = args.debug)

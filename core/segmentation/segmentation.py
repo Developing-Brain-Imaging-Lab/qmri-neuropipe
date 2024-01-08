@@ -187,20 +187,20 @@ def create_wmseg(input_img, output_dir, nthreads=1):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    output_seg = output_dir + "/seg.nii.gz"
+    output_seg = os.path.join(output_dir, "seg.nii.gz")
     os.system("mri_synthseg --i " + input_img.filename + " --o " + output_seg + " --robust --cpu --threads " + str(nthreads))
 
-    output_left_wm      = output_dir + "/left_wm.nii.gz"
-    output_left_cb_wm   = output_dir + "/left_cb_wm.nii.gz"
-    output_right_wm     = output_dir + "/right_wm.nii.gz"
-    output_right_cb_wm  = output_dir + "/right_cb_wm.nii.gz"
+    output_left_wm      = os.path.join(output_dir, "left_wm.nii.gz")
+    output_left_cb_wm   = os.path.join(output_dir, "left_cb_wm.nii.gz")
+    output_right_wm     = os.path.join(output_dir, "right_wm.nii.gz")
+    output_right_cb_wm  = os.path.join(output_dir, "right_cb_wm.nii.gz")
 
     os.system("fslmaths " + output_seg + " -thr 1.9 -uthr 2.1 -bin " + output_left_wm)
     os.system("fslmaths " + output_seg + " -thr 6.9 -uthr 7.1 -bin " + output_left_cb_wm)
     os.system("fslmaths " + output_seg + " -thr 40.9 -uthr 41.1 -bin " + output_right_wm)
     os.system("fslmaths " + output_seg + " -thr 45.9 -uthr 46.1 -bin " + output_right_cb_wm)
 
-    wmseg_img = Image(output_dir + "/wmseg.nii.gz")
+    wmseg_img = Image(os.path.join(output_dir, "wmseg.nii.gz"))
     os.system("fslmaths " + output_left_wm + " -add " + output_left_cb_wm + " -add " + output_right_wm + " -add " + output_right_cb_wm + " -bin " + wmseg_img.filename)
         
     

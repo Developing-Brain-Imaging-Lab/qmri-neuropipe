@@ -1,14 +1,15 @@
-import os,sys, json, argparse, subprocess
+import os, sys, shutil, copy, json, argparse, subprocess
 
 from bids.layout import writing
 from core.utils.io import Image
 import core.utils.mask as mask
+import core.utils.denoise as denoise
+import core.utils.gibbs_correction as degibbs
+import core.utils.biascorrect as biascorrect
+import core.utils.create_dataset_json as create_dataset_json
 
 import core.anat.workflows.prep_rawdata as raw_proc
 import core.anat.workflows.hcp_process as hcp
-import core.utils.denoise as denoise
-import core.utils.gibbs_correction as degibbs
-
 
 
 class AnatomicalPrepPipeline:
@@ -22,8 +23,9 @@ class AnatomicalPrepPipeline:
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--load_json',
-                    type=str, help='Load settings from file in json format. Command line options are overriden by values in file.', default=None)
-
+                            type=str, 
+                            help='Load settings from file in json format. Command line options are overriden by values in file.', 
+                            default=None)
 
         parser.add_argument('--bids_dir',
                             type=str,
@@ -31,15 +33,11 @@ class AnatomicalPrepPipeline:
 
         parser.add_argument('--bids_rawdata_dir',
                             type=str, help='BIDS RAWDATA Directory',
-                            default='rawdata')
-
-        parser.add_argument('--bids_t1w_dir',
-                            type=str, help='BIDS T1w RAWDATA Directory Basename',
-                            default='anat')
-
-        parser.add_argument('--bids_t2w_dir',
-                            type=str, help='BIDS T2w RAWDATA Directory Basename',
-                            default='anat')
+                            default='rawdata') 
+    
+        parser.add_argument('--pipeline_name',
+                            type=str, help='Pipeline Derivative Directory',
+                            default='qmri-neuropipe-preproc')
 
         parser.add_argument('--subject',
                             type=str,
@@ -49,10 +47,6 @@ class AnatomicalPrepPipeline:
                             type=str,
                             help='Subject Timepoint',
                             default=None)
-
-        parser.add_argument('--bids_pipeline_name',
-                            type=str, help='BIDS PIPELINE Name',
-                            default='qmri-neuropipe')
 
         parser.add_argument('--nthreads',
                             type=int,
@@ -68,6 +62,16 @@ class AnatomicalPrepPipeline:
                             type=int,
                             help='CUDA Device Number',
                             default=0)
+        
+        parser.add_argument('--cleanup',
+                            type=bool,
+                            help='Cleanup Anatomical Image Files',
+                            default=False)
+        
+        parser.add_argument('--is_mpnrage',
+                            type=bool,
+                            help='Is MPnRAGE Data',
+                            default=False)
                             
         parser.add_argument('--infant_mode',
                             type=bool,
@@ -78,88 +82,88 @@ class AnatomicalPrepPipeline:
                             type=str,
                             help='Estimate of Brain size (used for robustfov)',
                             default="150")
+        
+        parser.add_argument('--t1w_type',
+                            type=str,
+                            help='Type of T1w Acquisition',
+                            choices = ['t1w', 'mp2rage', 'mpnrage'],
+                            default='t1w')
                             
         parser.add_argument('--sharpen_images',
                             type=bool,
                             help='Sharpen anatomical images using Laplacian sharpening filter',
                             default=False)
                     
-        parser.add_argument('--anat_cleanup',
+        parser.add_argument('--do_hcp_preproc',
                             type=bool,
-                            help='Cleanup Anatomical Image Files',
+                            help='Run HCP Preprocessing Steps',
                             default=False)
 
-        parser.add_argument('--anat_t1w_reorient_img',
+        parser.add_argument('--t1w_acpc_img',
                             type=str,
                             help='Image to use to reorient/correct header direction for T1w images',
                             default=None)
 
-        parser.add_argument('--anat_t2w_reorient_img',
+        parser.add_argument('--t2w_acpc_img',
                             type=str,
                             help='Image to use to reorient/correct header direction for T2w images',
                             default=None)
 
-        parser.add_argument('--anat_t1w_type',
-                            type=str,
-                            help='Type of T1w Acquisition',
-                            choices = ['t1w', 'mp2rage', 'mpnrage'],
-                            default='t1w')
-
-        parser.add_argument('--anat_denoise_method',
+        parser.add_argument('--denoise_method',
                             type=str,
                             help='Method for Denoising Anatomical Images',
                             choices=["ants", "dipy-nlmeans"],
                             default="ants")
 
-        parser.add_argument('--anat_gibbs_correction_method',
+        parser.add_argument('--gibbs_correction_method',
                             type=str,
                             help='Method for Gibbs Ringing Correction',
                             choices=['mrtrix', 'dipy'],
                             default='mrtrix')
 
-        parser.add_argument('--anat_biasfield_correction_method',
+        parser.add_argument('--biasfield_correction_method',
                             type=str,
                             help='Method for Gibbs Ringing Correction',
                             choices=['mrtrix-ants', 'mrtrix-fsl', 'ants', 'fsl'],
                             default='ants')
 
-        parser.add_argument('--anat_mask_method',
+        parser.add_argument('--mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
                             choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
-        parser.add_argument('--anat_t1w_ants_mask_template',
+        parser.add_argument('--t1w_mask_template',
                             type=str,
                             help='Image to use for registration based skull-stripping for T1w',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
 
-        parser.add_argument('--anat_t1w_ants_mask_template_mask',
+        parser.add_argument('--t1w_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
                             
-        parser.add_argument('--anat_t2w_ants_mask_template',
+        parser.add_argument('--t2w_mask_template',
                             type=str,
                             help='Image to use for registration based skull-stripping for T2w',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
 
-        parser.add_argument('--anat_t2w_ants_mask_template_mask',
+        parser.add_argument('--t2w_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping for T2w',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
         
-        parser.add_argument('--anat_mpnrage_derivatives_dir',
+        parser.add_argument('--mpnrage_derivatives_dir',
                             type=str,
                             help='Derivatives directory for MPnRAGE Processed data',
                             default=None)
                             
-        parser.add_argument('--anat_wmseg',
+        parser.add_argument('--wmseg',
                             type=str,
                             help='White matter segmentation file to use for BBR coregistration',
                             default=None)
 
-        parser.add_argument('--anat_antspynet_modality',
+        parser.add_argument('--antspynet_modality',
                             type=str,
                             help='ANTsPyNet modality/network name',
                             choices=['t1', 't2'],
@@ -169,7 +173,7 @@ class AnatomicalPrepPipeline:
                             type=bool,
                             help='Print out information meassages and progress status',
                             default=False)
-
+        
         args, unknown = parser.parse_known_args()
 
         if args.load_json:
@@ -185,333 +189,444 @@ class AnatomicalPrepPipeline:
             'subject': args.subject,
             'session': args.session,
         }
-
-        id_patterns = "sub-{subject}[_ses-{session}]"
-        rawdata_patterns = args.bids_dir + "/" + args.bids_rawdata_dir + "/sub-{subject}[/ses-{session}]/"
-        derivative_patterns = args.bids_dir + "/derivatives/" + args.bids_pipeline_name + "/sub-{subject}[/ses-{session}]/"
-
+        
+                             
+        id_patterns         = "sub-{subject}[_ses-{session}]"
+        rawdata_patterns    = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
+        derivative_patterns = os.path.join(args.bids_dir, "derivatives", args.pipeline_name),
+        output_patterns     = os.path.join(args.bids_dir, "derivatives", args.pipeline_name, "sub-{subject}[/ses-{session}]", "anat",)
+        mpnrage_patterns    = os.path.join(args.bids_dir, "derivatives", args.mpnrage_derivatives_dir, "sub-{subject}[/ses-{session}]", "anat",)
+        
         bids_id             = writing.build_path(entities, id_patterns)
         bids_rawdata_dir    = writing.build_path(entities, rawdata_patterns)
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
-        bids_output_dir     = os.path.join(bids_derivative_dir, "anat")
-                    
+        bids_output_dir     = writing.build_path(entities, output_patterns)
+        
+        Image_pattern  = os.path.join(bids_output_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_rec-{rec}][_desc-{desc}]_{modality}.nii.gz")
+                
         if not os.path.exists(bids_output_dir):
             os.makedirs(bids_output_dir)
-            
-        logfile     = open(os.path.join(bids_output_dir, "QMRI-NeuroPipe_AnatomicalProcessing_Log.txt"), 'w')
-        sys.stdout  = logfile
         
-        T1w, T2w = raw_proc.prep_anat_rawdata(bids_id                   = bids_id,
-                                              bids_rawdata_dir          = bids_rawdata_dir,
-                                              bids_t1w_dir              = args.bids_t1w_dir,
-                                              bids_t2w_dir              = args.bids_t2w_dir,
-                                              t1w_type                  = args.anat_t1w_type,
-                                              mpnrage_derivatives_dir   = args.anat_mpnrage_derivatives_dir,
+        #Create dataset_description.json
+        if not os.path.exists(os.path.join(bids_derivative_dir, "dataset_description.json")):
+            create_dataset_json.create_preproc_bids_dataset_description_json(path          = bids_derivative_dir,
+                                                                             bids_pipeline =  args.pipeline_name)
+
+        logfile     = open(os.path.join(bids_derivative_dir, "QMRI-NeuroPipe_AnatomicalProcessing_Log.txt"), 'w')
+        #sys.stdout  = logfile
+        
+           
+        
+        T1w, T2w = raw_proc.prep_anat_rawdata(id                        = bids_id,
+                                              rawdata_dir               = bids_rawdata_dir,
+                                              t1w_type                  = args.t1w_type,
+                                              mpnrage_derivatives_dir   = writing.build_path(entities, mpnrage_patterns),
                                               verbose                   = args.verbose)
-        if args.verbose:
-            print("#######################################", flush=True)
-            print("Running Anatomical Preparation Pipeline", flush=True)
-            print(flush=True)
-
-        #First, run ACPC Alignment (using the provided templates), brain extraction, and T1w-T2w coregistration (if both exists)
-        T1w_acpc, T2w_acpc = hcp.acpc_align(output_dir      = bids_output_dir,
-                                            id              = bids_id,
-                                            T1w             = T1w,
-                                            T2w             = T2w,
-                                            T1w_template    = Image(filename = args.anat_t1w_reorient_img),
-                                            T2w_template    = Image(filename = args.anat_t2w_reorient_img),
-                                            BrainSize       = args.brain_size,
-                                            logfile         = logfile)
+              
         
-        T1w_brain      = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain_T1w.nii.gz"))
-        T1w_brain_mask = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask_T1w.nii.gz"))
-        T2w_brain      = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain_T2w.nii.gz"))
-        T2w_brain_mask = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask_T2w.nii.gz"))
-        
-        brain_mask     = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.nii.gz"))
-        
-        
-        T1w_denoise    = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T1w.nii.gz"))
-        T1w_noise_map  = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T1w.nii.gz"))
-        T1w_gibbs      = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T1w.nii.gz"))
-        T1w_bias       = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
-        
-        T2w_denoise    = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-Denoised_T2w.nii.gz"))
-        T2w_noise_map  = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-NoiseMap_T2w.nii.gz"))
-        T2w_gibbs      = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-GibbsRingingCorrected_T2w.nii.gz"))
-        T2w_bias       = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
-        
-    
-        if T1w_acpc:
-            if not os.path.exists(T1w_bias.filename):
-                #Denoise, correct for Gibbs ringing, and BiasField correct
-                T1w_robustroi       = Image(filename=os.path.join(bids_output_dir, "T1w_robustroi.nii.gz"))
-                T1w_robustroi_mask  = Image(filename=os.path.join(bids_output_dir, "T1w_robustroi_mask.nii.gz"))
-                T1w_roi2full_mat    = os.path.join(bids_output_dir,"skullstrip_roi2full.mat")
-
-                CMD = "robustfov -i " + T1w_acpc.filename \
-                      + " -m " + T1w_roi2full_mat \
-                      + " -r " + T1w_robustroi.filename \
-                      + " -b " + str(args.brain_size)
-                subprocess.run([CMD], shell=True, stdout=logfile)
-                      
-                #Now run the mask
-                if not os.path.exists(T1w_brain_mask.filename):
-                    if args.verbose:
-                        print("Masking T1w image...", flush=True)
-                    mask.mask_image(input                = T1w_robustroi,
-                                    mask                 = T1w_robustroi_mask,
-                                    algo                 = args.anat_mask_method,
-                                    nthreads             = args.nthreads,
-                                    ref_img              = args.anat_t1w_ants_mask_template,
-                                    ref_mask             = args.anat_t1w_ants_mask_template_mask,
-                                    antspynet_modality   = args.anat_antspynet_modality,
-                                    logfile              = logfile)
-                    if args.verbose:
-                        print("Successful T1w Masking", flush=True)
-                        print(flush=True)
-                        
-                    CMD = "applywarp --rel --interp=nn -i " + T1w_robustroi_mask.filename \
-                              + " -r " + T1w_acpc.filename \
-                              + " --premat=" + T1w_roi2full_mat \
-                              + " -o " + T1w_brain_mask.filename
-                    subprocess.run([CMD], shell=True, stdout=logfile)
-                              
-                    #Create brain image
-                    if args.verbose:
-                        print("Applying mask to T1w image...", flush=True)
-                    mask.apply_mask(input   = T1w_acpc,
-                                    mask    = T1w_brain_mask,
-                                    output  = T1w_brain)
-                    if args.verbose:
-                        print("Finished applying mask to T1w image", flush=True)
-                    #Clean up the ROBUSTFOV files
-                                
-        else:
-            T1w_brain       = None
-            T1w_brain_mask  = None
-            
-            
-        if T2w_acpc:
-            if not os.path.exists(T2w_bias.filename):
-                T2w_robustroi       = Image(filename=os.path.join(bids_output_dir, "T2w_robustroi.nii.gz"))
-                T2w_robustroi_mask  = Image(filename=os.path.join(bids_output_dir, "T2w_robustroi_mask.nii.gz"))
-                T2w_roi2full_mat    = os.path.join(bids_output_dir, "skullstrip_roi2full.mat")
-
-                CMD = "robustfov -i " + T2w_acpc.filename \
-                      + " -m " + T2w_roi2full_mat \
-                      + " -r " + T2w_robustroi.filename \
-                      + " -b " + str(args.brain_size)
-                subprocess.run([CMD], shell=True, stdout=logfile)
-                      
-                #Now run the mask
-                if not os.path.exists(T2w_brain_mask.filename):
-                    if args.verbose:
-                        print("Masking T2w image...", flush=True)
-                        
-                    mask.mask_image(input                = T2w_robustroi,
-                                    mask                 = T2w_robustroi_mask,
-                                    algo                 = args.anat_mask_method,
-                                    nthreads             = args.nthreads,
-                                    ref_img              = args.anat_t2w_ants_mask_template,
-                                    ref_mask             = args.anat_t2w_ants_mask_template_mask,
-                                    antspynet_modality   = args.anat_antspynet_modality,
-                                    logfile              = logfile)
-                    if args.verbose:
-                        print("Successful T2w Masking", flush=True)
-                        print(flush=True)
-                    
-                    #Convert back to full ROI
-                    CMD = "applywarp --rel --interp=nn -i " + T2w_robustroi_mask.filename \
-                              + " -r " + T2w_acpc.filename \
-                              + " --premat=" + T2w_roi2full_mat \
-                              + " -o " + T2w_brain_mask.filename
-                    subprocess.run([CMD], shell=True, stdout=logfile)
-                              
-                    #Create brain image
-                    if args.verbose:
-                        print("Applying mask to T2w image...", flush=True)
-
-                    mask.apply_mask(input   = T2w_acpc,
-                                    mask    = T2w_brain_mask,
-                                    output  = T2w_brain)
-                    if args.verbose:
-                        print("Finished applying mask to T2w image", flush=True)
-                                
-        else:
-            T2w_brain       = None
-            T2w_brain_mask  = None
-        
-        
-        #Coregister the images if both exist
-        if (T1w_acpc and T2w_acpc) and (not os.path.exists(T1w_bias.filename) and not os.path.exists(T2w_bias.filename)):
-            if args.verbose:
-                print("Coregistering T1w and T2w images")
-                print(flush=True)
-            
-            T1w_coreg, T2w_coreg = hcp.coregister_images(output_dir        = bids_output_dir,
-                                                         id                = bids_id,
-                                                         T1w               = T1w_acpc,
-                                                         T2w               = T2w_acpc,
-                                                         infant_mode       = args.infant_mode,
-                                                         brain_size        = args.brain_size,
-                                                         nthreads          = args.nthreads,
-                                                         logfile           = logfile)
-            if args.verbose:
-                print("Finished coregistering T1w and T2w images")
-                print(flush=True)
                 
-            #Update the mask
-            img_to_mask = T1w_coreg
-            ref_img     = args.anat_t1w_ants_mask_template
-            ref_mask    = args.anat_t1w_ants_mask_template_mask
+        T1w_preproc_ent = entities.copy()
+        T1w_preproc_ent['modality'] = 'T1w'
+        T1w_preproc_ent['desc']     = 'preproc'
             
-            if args.infant_mode:
-                args.anat_antspynet_modality = "t2infant"
-                img_to_mask = T2w_coreg
-                ref_img     = args.anat_t2w_ants_mask_template
-                ref_mask    = args.anat_t2w_ants_mask_template_mask
+        if args.t1w_type == 'mpnrage' or args.t1w_type == 'MPnRAGE':
+            T1w_preproc_ent['acq'] = 'MPnRAGE'
+        if args.t1w_type == 'mp2rage' or args.t1w_type == 'MP2RAGE':
+            T1w_preproc_ent['acq'] = 'MP2RAGE'
+        
+        T1w_preproc = Image(filename = writing.build_path(T1w_preproc_ent, Image_pattern),
+                            json     = writing.build_path(T1w_preproc_ent, Image_pattern.replace(".nii.gz", ".json")))    
+        
+        
+        T2w_preproc_ent = entities.copy()
+        T2w_preproc_ent['modality'] = 'T2w'
+        T2w_preproc_ent['desc']     = 'preproc'
+                
+        T2w_preproc = Image(filename = writing.build_path(T2w_preproc_ent, Image_pattern),
+                            json     = writing.build_path(T2w_preproc_ent, Image_pattern.replace(".nii.gz", ".json")))  
+        
+        brain_mask = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.nii.gz"),
+                           json     = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.json"))
+        
+        if (T1w and not T1w_preproc.exists()) or (T2w and not T2w_preproc.exists()):
+          
+            if args.verbose:
+                print("#######################################", flush=True)
+                print("Running Anatomical Preparation Pipeline", flush=True)
+                print(flush=True)
+                    
+            if args.do_hcp_preproc:
+                #Run ACPC Alignment (using the provided templates), brain extraction, and T1w-T2w coregistration (if both exists)
+                T1w, T2w = hcp.acpc_align(output_dir      = bids_output_dir,
+                                        id              = bids_id,
+                                        T1w             = T1w,
+                                        T2w             = T2w,
+                                        T1w_template    = Image(filename = args.t1w_acpc_img),
+                                        T2w_template    = Image(filename = args.t2w_acpc_img),
+                                        BrainSize       = args.brain_size,
+                                        logfile         = logfile)
             
-            if not os.path.exists(brain_mask.filename):
+
+            if T1w:
+                img_ent                 = entities.copy()
+                img_ent['modality']     = 'T1w'
+                img_ent['desc']         = 'brain'
+                
+                if args.t1w_type == 'mpnrage' or args.t1w_type == 'MPnRAGE':
+                    img_ent['acq'] = 'MPnRAGE'
+                if args.t1w_type == 'mp2rage' or args.t1w_type == 'MP2RAGE':
+                    img_ent['acq'] = 'MP2RAGE'
+                
+                mask_ent            = img_ent.copy()
+                denoise_ent         = img_ent.copy()
+                noisemap_ent        = img_ent.copy()
+                gibbs_ent           = img_ent.copy()
+                bias_ent            = img_ent.copy()
+                
+                mask_ent['desc']    = 'brain-mask'
+                denoise_ent['desc'] = 'Denoised'
+                noisemap_ent['desc']= 'NoiseMap'
+                gibbs_ent['desc']   = 'GibbsRingingCorrected'
+                bias_ent['desc']    = 'BiasFieldCorrected'
+                            
+                brain_img       = Image(filename = writing.build_path(img_ent, Image_pattern))    
+                brain_mask      = Image(filename = writing.build_path(mask_ent, Image_pattern))
+                denoise_img     = Image(filename = writing.build_path(denoise_ent, Image_pattern))
+                noisemap        = Image(filename = writing.build_path(noisemap_ent, Image_pattern))
+                gibbs_img       = Image(filename = writing.build_path(gibbs_ent, Image_pattern))
+                bias_img        = Image(filename = writing.build_path(bias_ent, Image_pattern))
+                
+                print("Working on " + img_ent['modality'] + " image", flush=True)
+                
+                #First, create T1w brain mask
+                if not os.path.exists(brain_mask.filename):
+                    if args.verbose:
+                        print("\tMasking image...", flush=True)
+                        
+                    mask.mask_image(input                = T1w,
+                                    mask                 = brain_mask,
+                                    algo                 = args.mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.t1w_mask_template,
+                                    ref_mask             = args.t1w_mask_template_mask,
+                                    antspynet_modality   = args.antspynet_modality,
+                                    logfile              = logfile)
+                    
+                if not os.path.exists(bias_img.filename):
+                    if not os.path.exists(denoise_img.filename):
+                        if args.verbose:
+                            print("\tDenoising image...", flush = True)
+                            
+                        denoise_img = denoise.denoise_image(input_img     = T1w,
+                                                            output_file   = denoise_img.filename,
+                                                            method        = args.denoise_method,
+                                                            noise_map     = noisemap.filename,
+                                                            nthreads      = args.nthreads)
+                        if args.verbose:
+                            print("\tDenoising Successful", flush = True)
+                            print(flush = True)
+                            
+                    if not os.path.exists(gibbs_img.filename):
+                        if args.verbose:
+                            print("\tCorrecting Gibbs Ringing...", flush = True)
+                    
+                        gibbs_img = degibbs.gibbs_ringing_correction(input_img    = denoise_img,
+                                                                    output_file  = gibbs_img.filename,
+                                                                    method       = args.gibbs_correction_method,
+                                                                    nthreads     = args.nthreads)
+                        if args.verbose:
+                            print("\tGibbs Ringing Correction Successful", flush = True)
+                            print(flush = True)
+                            
+                    if not os.path.exists(bias_img.filename):
+                        if args.verbose:
+                            print("\tCorrecting Bias Field...", flush = True)
+                            
+                        bias = biascorrect.biasfield_correction(input_img   = gibbs_img,
+                                                                output_file = bias_img.filename, 
+                                                                method      = "ants", 
+                                                                mask_img    = brain_mask, 
+                                                                nthreads    = args.nthreads, 
+                                                                iterations  = 1)
+                        if args.verbose:
+                            print("\tBias Field Correction Successful", flush = True)
+
+                        if(args.sharpen_images):
+                            if args.verbose:
+                                print("\tSharpening image contrast", flush=True)
+                            CMD = "ImageMath 3 " + bias_img.filename + " Sharpen " + bias_img.filename
+                            subprocess.run([CMD], shell=True, stdout=logfile)
+                            
+                            if args.verbose:
+                                print("\tSharpening Successful", flush = True)
+                                
+                T1w_proc       = bias_img
+                T1w_proc_mask  = brain_mask
+                
+                if args.cleanup:
+                    if os.path.exists(denoise_img.filename):
+                        os.remove(denoise_img.filename)
+                    if os.path.exists(gibbs_img.filename):
+                        os.remove(gibbs_img.filename)
+                    if os.path.exists(noisemap.filename):
+                        os.remove(noisemap.filename)
+                    
+            else:
+                T1w_proc       = None
+                T1w_proc_mask  = None
+            
+            if T2w:
+                img_ent                 = entities.copy()
+                img_ent['modality']     = 'T2w'
+                img_ent['desc']         = 'brain'
+                            
+                mask_ent            = img_ent.copy()
+                denoise_ent         = img_ent.copy()
+                noisemap_ent        = img_ent.copy()
+                gibbs_ent           = img_ent.copy()
+                bias_ent            = img_ent.copy()
+                
+                mask_ent['desc']    = 'brain-mask'
+                denoise_ent['desc'] = 'Denoised'
+                noisemap_ent['desc']= 'NoiseMap'
+                gibbs_ent['desc']   = 'GibbsRingingCorrected'
+                bias_ent['desc']    = 'BiasFieldCorrected'
+                            
+                brain_img       = Image(filename = writing.build_path(img_ent, Image_pattern))    
+                brain_mask      = Image(filename = writing.build_path(mask_ent, Image_pattern))
+                denoise_img     = Image(filename = writing.build_path(denoise_ent, Image_pattern))
+                noisemap        = Image(filename = writing.build_path(noisemap_ent, Image_pattern))
+                gibbs_img       = Image(filename = writing.build_path(gibbs_ent, Image_pattern))
+                bias_img        = Image(filename = writing.build_path(bias_ent, Image_pattern))
+                
+                print("Working on " + img_ent['modality'] + " image", flush=True)
+                
+                #First, create T2w brain mask
+                if not os.path.exists(brain_mask.filename):
+                    if args.verbose:
+                        print("\tMasking image...", flush=True)
+                        
+                    mask.mask_image(input                = T2w,
+                                    mask                 = brain_mask,
+                                    algo                 = args.mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.t1w_mask_template,
+                                    ref_mask             = args.t1w_mask_template_mask,
+                                    antspynet_modality   = args.antspynet_modality,
+                                    logfile              = logfile)
+                    
+                if not os.path.exists(bias_img.filename):
+                    if not os.path.exists(denoise_img.filename):
+                        if args.verbose:
+                            print("\tDenoising image...", flush = True)
+                            
+                        denoise_img = denoise.denoise_image(input_img     = T2w,
+                                                            output_file   = denoise_img.filename,
+                                                            method        = args.denoise_method,
+                                                            noise_map     = noisemap.filename,
+                                                            nthreads      = args.nthreads)
+                        if args.verbose:
+                            print("\tDenoising Successful", flush = True)
+                            print(flush = True)
+                            
+                    if not os.path.exists(gibbs_img.filename):
+                        if args.verbose:
+                            print("\tCorrecting Gibbs Ringing...", flush = True)
+                    
+                        gibbs_img = degibbs.gibbs_ringing_correction(input_img    = denoise_img,
+                                                                    output_file  = gibbs_img.filename,
+                                                                    method       = args.gibbs_correction_method,
+                                                                    nthreads     = args.nthreads)
+                        if args.verbose:
+                            print("\tGibbs Ringing Correction Successful", flush = True)
+                            print(flush = True)
+                            
+                    if not os.path.exists(bias_img.filename):
+                        if args.verbose:
+                            print("\tCorrecting Bias Field...", flush = True)
+                            
+                        bias = biascorrect.biasfield_correction(input_img   = gibbs_img,
+                                                                output_file = bias_img.filename, 
+                                                                method      = "ants", 
+                                                                mask_img    = brain_mask, 
+                                                                nthreads    = args.nthreads, 
+                                                                iterations  = 1)
+                        if args.verbose:
+                            print("\tBias Field Correction Successful", flush = True)
+
+                        if(args.sharpen_images):
+                            if args.verbose:
+                                print("\tSharpening image contrast", flush=True)
+                            CMD = "ImageMath 3 " + bias_img.filename + " Sharpen " + bias_img.filename
+                            subprocess.run([CMD], shell=True, stdout=logfile)
+                            
+                            if args.verbose:
+                                print("\tSharpening Successful", flush = True)
+                                
+                T2w_proc       = bias_img
+                T2w_proc_mask  = brain_mask
+                
+                if args.cleanup:
+                    if os.path.exists(denoise_img.filename):
+                        os.remove(denoise_img.filename)
+                    if os.path.exists(gibbs_img.filename):
+                        os.remove(gibbs_img.filename)
+                    if os.path.exists(noisemap.filename):
+                        os.remove(noisemap.filename)
+                
+            else:
+                T2w_proc       = None
+                T2w_proc_mask  = None            
+            
+            
+            #Coregister the images if both exist
+            if T1w_proc and T2w_proc:
                 if args.verbose:
-                    print("Updating Brain Mask", flush=True)
-                mask.mask_image(input                = img_to_mask,
-                                mask                 = brain_mask,
-                                algo                 = args.anat_mask_method,
-                                nthreads             = args.nthreads,
-                                ref_img              = ref_img,
-                                ref_mask             = ref_mask,
-                                antspynet_modality   = args.anat_antspynet_modality,
-                                logfile              = logfile)
-                if args.verbose:
-                    print("Finished updating the brain mask", flush=True)
+                    print("\tCoregistering T1w and T2w images")
                     print(flush=True)
-
-            T1w_acpc = T1w_coreg
-            T2w_acpc = T2w_coreg
-            T1w_brain_mask = brain_mask
-            T2w_brain_mask = brain_mask
-         
- 
-        if T1w_acpc:
-            if not os.path.exists(T1w_bias.filename):
-                if not os.path.exists(T1w_denoise.filename):
-                    if args.verbose:
-                        print("Denoising T1w...", flush = True)
-                        
-                    T1w_denoise = denoise.denoise_image(input_img     = T1w_acpc,
-                                                        output_file   = T1w_denoise.filename,
-                                                        method        = args.anat_denoise_method,
-                                                        noise_map     = T1w_noise_map.filename,
-                                                        nthreads      = args.nthreads)
-                    if args.verbose:
-                        print("Denoising Successful", flush = True)
-                        print(flush = True)
-                        
-                if not os.path.exists(T1w_gibbs.filename):
-                    if args.verbose:
-                        print("Correcting T1w Gibbs Ringing...", flush = True)
                 
-                    T1w_gibbs = degibbs.gibbs_ringing_correction(input_img     = T1w_denoise,
-                                                                 output_file   = T1w_gibbs.filename,
-                                                                 method        = "mrtrix",
-                                                                 nthreads      = args.nthreads)
-                    if args.verbose:
-                        print("T1w Gibbs Ringing Correction Successful", flush = True)
-                        print(flush = True)
-                        
-                if not os.path.exists(T1w_bias.filename):
-                    if args.verbose:
-                        print("Correcting T1w Bias Field...", flush = True)
-                        
-                    CMD = "N4BiasFieldCorrection -d 3 -i " + T1w_gibbs.filename + " -o " + T1w_bias.filename
-                    subprocess.run([CMD], shell=True, stdout=logfile)
-
-                    if args.verbose:
-                        print("T1w Bias Field Correction Successful", flush = True)
-
-                    if(args.sharpen_images):
-                        if args.verbose:
-                            print("Sharpening T1w image contrast", flush=True)
-                        CMD = "ImageMath 3 " + T1w_bias.filename + " Sharpen " + T1w_bias.filename
-                        subprocess.run([CMD], shell=True, stdout=logfile)
-                        
-                        if args.verbose:
-                            print("T1w Sharpening Successful", flush = True)
-        else:
-            T1w_bias        = None
-            T1w_brain_mask  = None
-        
-        
-        if T2w_acpc:
-            if not os.path.exists(T2w_bias.filename):
-                if not os.path.exists(T2w_denoise.filename):
-                
-                    if args.verbose:
-                        print("Denoising T2w...", flush = True)
-                        
-                    T2w_denoise = denoise.denoise_image(input_img     = T2w_acpc,
-                                                        output_file   = T2w_denoise.filename,
-                                                        method        = args.anat_denoise_method,
-                                                        noise_map     = T2w_noise_map.filename,
-                                                        nthreads      = args.nthreads)
-      
-                    if args.verbose:
-                        print("Denoising Successful", flush = True)
-                        print(flush = True)
-      
-                if not os.path.exists(T2w_gibbs.filename):
-                    if args.verbose:
-                        print("Correcting T2w Gibbs Ringing...", flush = True)
-                        
-                    T2w_gibbs = degibbs.gibbs_ringing_correction(input_img     = T2w_denoise,
-                                                                 output_file   = T2w_gibbs.filename,
-                                                                 method        = "mrtrix",
-                                                                 nthreads      = args.nthreads)
-                        
-                    if args.verbose:
-                        print("T2w Gibbs Ringing Correction Successful", flush = True)
-                        print(flush = True)
-                        
-                if not os.path.exists(T2w_bias.filename):
-                    if args.verbose:
-                        print("Correcting T2w Bias Field...", flush = True)
-                        
-                    CMD = "N4BiasFieldCorrection -d 3 -i " + T2w_gibbs.filename + " -o " + T2w_bias.filename
-                    subprocess.run([CMD], shell=True, stdout=logfile)
-
-                    if args.verbose:
-                        print("T2w Bias Field Correction Successful", flush = True)
-
-                    if(args.sharpen_images):
-                        if args.verbose:
-                            print("Sharpening T2w image contrast", flush=True)
-                        
-                        CMD = "ImageMath 3 " + T2w_bias.filename + " Sharpen " + T2w_bias.filename
-                        subprocess.run([CMD], shell=True, stdout=logfile)
-                        
-                        if args.verbose:
-                            print("T2w Sharpening Successful", flush = True)
-                            print(flush=True)
+                T1w_coreg, T2w_coreg = hcp.coregister_images(output_dir        = bids_output_dir,
+                                                            id                = bids_id,
+                                                            T1w               = T1w_proc,
+                                                            T2w               = T2w_proc,
+                                                            infant_mode       = args.infant_mode,
+                                                            brain_size        = args.brain_size,
+                                                            nthreads          = args.nthreads,
+                                                            logfile           = logfile)
+                if args.verbose:
+                    print("Finished coregistering T1w and T2w images")
+                    print(flush=True)
                     
-        else:
-            T2w_bias        = None
-            T2w_brain_mask  = None
+                #Update the mask
+                img_to_mask = T1w_coreg
+                ref_img     = args.t1w_mask_template
+                ref_mask    = args.t1w_mask_template_mask
+                
+                if args.infant_mode:
+                    args.antspynet_modality = "t2infant"
+                    img_to_mask = T2w_coreg
+                    ref_img     = args.t2w_mask_template
+                    ref_mask    = args.t2w_mask_template_mask
+                
+                brain_mask = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.nii.gz"),
+                                json     = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.json"))
+                
+                create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
+                                                            data = {"Description": "Brain Mask",
+                                                                    "Sources": img_to_mask.filename,
+                                                                    "SkullStripped": True,
+                                                                    "SkllStrippingMethod": args.mask_method})
+                if not os.path.exists(brain_mask.filename):
+                    if args.verbose:
+                        print("Updating Brain Mask", flush=True)
+                
+                    mask.mask_image(input                = img_to_mask,
+                                    mask                 = brain_mask,
+                                    algo                 = args.mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = ref_img,
+                                    ref_mask             = ref_mask,
+                                    antspynet_modality   = args.antspynet_modality,
+                                    logfile              = logfile)
+                    if args.verbose:
+                        print("Finished updating the brain mask", flush=True)
+                        print(flush=True)
+
+                T1w_proc      = T1w_coreg
+                T2w_proc      = T2w_coreg
+            
+            
+            
+            if T1w_proc:
+                
+                create_dataset_json.create_bids_sidecar_json(image = T1w_preproc, 
+                                                        data = {"Modality": "T1w",
+                                                                "Description": "Preprocessed T1w Image",
+                                                                "Sources": T1w.filename,
+                                                                "SkullStripped": True,
+                                                                "SkullStrippingMethod": args.mask_method,
+                                                                "Denoised": True,
+                                                                "DenoisingMethod": args.denoise_method,
+                                                                "GibbsCorrected": True,
+                                                                "GibbsCorrectionMethod": args.gibbs_correction_method,
+                                                                "BiasCorrected": True,
+                                                                "BiasCorrectionMethod": args.biasfield_correction_method,
+                                                                "Sharpened": args.sharpen_images})
+                T1w_preproc.copy_image(T1w_proc, datatype="float32")
+                
+            
+            if T2w_proc:
+               
+                create_dataset_json.create_bids_sidecar_json(image = T2w_preproc, 
+                                                        data = {"Modality": "T2w",
+                                                                "Description": "Preprocessed T2w Image",
+                                                                "Sources": T2w.filename,
+                                                                "SkullStripped": True,
+                                                                "SkullStrippingMethod": args.mask_method,
+                                                                "Denoised": True,
+                                                                "DenoisingMethod": args.denoise_method,
+                                                                "GibbsCorrected": True,
+                                                                "GibbsCorrectionMethod": args.gibbs_correction_method,
+                                                                "BiasCorrected": True,
+                                                                "BiasCorrectionMethod": args.biasfield_correction_method,
+                                                                "Sharpened": args.sharpen_images})
+                
+                T2w_preproc.copy_image(T2w_proc, datatype="float32")
+                
+            
+            if not brain_mask.exists():   
+                if T1w_proc and not T2w_proc:  
+                    create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
+                                                                data = {"Description": "Brain Mask",
+                                                                        "Sources": T1w.filename,
+                                                                        "SkullStripped": True,
+                                                                        "SkllStrippingMethod": args.mask_method})
+                    
+                    brain_mask.copy_image(T1w_proc_mask, datatype="uint8")
+                    
+                elif not T1w_proc and T2w_proc:
+                    create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
+                                                                data = {"Description": "Brain Mask",
+                                                                        "Sources": T2w.filename,
+                                                                        "SkullStripped": True,
+                                                                        "SkllStrippingMethod": args.mask_method})
+                    
+                    brain_mask.copy_image(T2w_proc_mask, datatype="uint8")
         
+            #Cleanup the files  
+            if args.cleanup:
+                if args.verbose:
+                    print("Cleaning up files", flush=True)
+                    
+                if T1w_proc_mask:
+                    os.remove(T1w_proc_mask.filename)
+                if T2w_proc_mask:
+                    os.remove(T2w_proc_mask.filename)
+                if T1w_proc:
+                    os.remove(T1w_proc.filename)
+                if T2w_proc:
+                    os.remove(T2w_proc.filename)
+                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz")):
+                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
+                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz")):
+                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
+    
+                if args.verbose:
+                    print("Finished cleaning up files", flush=True)
+                    print(flush=True)
+            
+                
+            if args.verbose:
+                print("Anatomical Processing Successful")
+                print("")
         
-        if T2w_bias and T1w_bias:
-            T1w_brain_mask = brain_mask
-            T2w_brain_mask = brain_mask
-        
-        if args.verbose:
-            print("Anatomical Processing Successful")
-            print("")
-        
-        
-        return T1w_bias, T2w_bias, T1w_brain_mask, T2w_brain_mask
+                
+        return T1w_preproc, T2w_preproc, brain_mask
             
         
-        
+if __name__ == "__main__":
+    anatproc = AnatomicalPrepPipeline()
+    anatproc.run()
         
         
         

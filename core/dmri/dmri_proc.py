@@ -13,12 +13,14 @@ import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 import core.dmri.workflows.register_to_anat as coreg_proc
 
+
 from core.anat.anat_proc import AnatomicalPrepPipeline
 
 import core.dmri.utils.qc as dmri_qc
 import core.utils.tools as img_tools
 import core.utils.mask as mask
 import core.utils.denoise as denoise
+import core.utils.create_dataset_json as create_dataset_json
 
 from core.dmri.models.dti import DTI_Model, FWEDTI_Model
 from core.dmri.models.dki import DKI_Model
@@ -44,18 +46,6 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--bids_rawdata_dir',
                             type=str, help='BIDS RAWDATA Directory',
                             default='rawdata')
-
-        parser.add_argument('--bids_t1w_dir',
-                            type=str, help='BIDS T1w RAWDATA Directory Basename',
-                            default='anat')
-
-        parser.add_argument('--bids_t2w_dir',
-                            type=str, help='BIDS T2w RAWDATA Directory Basename',
-                            default='anat')
-                            
-        parser.add_argument('--bids_dwi_dir',
-                            type=str, help='BIDS DWI RAWDATA Directory Basename',
-                            default='dwi')
         
         parser.add_argument('--use_freesurfer',
                             type=bool,
@@ -80,9 +70,13 @@ class DiffusionProcessingPipeline:
                             help='Subject Timepoint',
                             default=None)
 
-        parser.add_argument('--bids_pipeline_name',
+        parser.add_argument('--preproc_derivative_dir',
+                            type=str, help='Preprocessing Derivative Output',
+                            default='dmri-neuropipe-preproc')
+        
+        parser.add_argument('--models_derivative_dir',
                             type=str, help='BIDS PIPELINE Name',
-                            default='wbic_dmri_pipeline')
+                            default='dmri-neuropipe-models')
 
         parser.add_argument('--nthreads',
                             type=int,
@@ -342,26 +336,6 @@ class DiffusionProcessingPipeline:
                             choices=['csd', 'msmt_csd'],
                             default=None)
                             
-        parser.add_argument('--csd_response_function',
-                            type=str,
-                            help='CSD Response Function file',
-                            default=None)
-                    
-        parser.add_argument('--csd_wm_response_function',
-                            type=str,
-                            help='CSD White Matter Response Function file',
-                            default=None)
-        
-        parser.add_argument('--csd_gm_response_function',
-                            type=str,
-                            help='CSD Gray Matter Response Function file',
-                            default=None)
-                            
-        parser.add_argument('--csd_csf_response_function',
-                            type=str,
-                            help='CSD CSF Response Function file',
-                            default=None)
-
         parser.add_argument('--micro_dki',
                             type=bool,
                             help='Perform Microscopic Kurtosis modeling',
@@ -417,139 +391,147 @@ class DiffusionProcessingPipeline:
         entities = {
         'extension': '.nii.gz',
         'subject': args.subject,
-        'session': args.session,
-        'modality': 'dwi',
-        'suffix': 'dwi'
+        'session': args.session
         }
-
-        id_patterns         = 'sub-{subject}[_ses-{session}]'
-        rawdata_patterns    = os.path.join(args.bids_dir, args.bids_rawdata_dir,'sub-{subject}[/ses-{session}]/')
-        derivative_patterns = os.path.join(args.bids_dir,'derivatives', args.bids_pipeline_name, 'sub-{subject}[/ses-{session}]/')
-
-        bids_id             = writing.build_path(entities, id_patterns)
-        bids_rawdata_dir    = writing.build_path(entities, rawdata_patterns)
-        bids_derivative_dir = writing.build_path(entities, derivative_patterns)
-
-        anat_derivative_dir = os.path.join(bids_derivative_dir, "anat/")
-        dwi_derivative_dir  = os.path.join(bids_derivative_dir, "dwi/")
-        preproc_dir         = os.path.join(dwi_derivative_dir, 'preprocessed/')
-
+             
+        id_patterns          = "sub-{subject}[_ses-{session}]"
+        rawdata_patterns     = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
+        derivative_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
+        output_patterns = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",)
+        
+        id              = writing.build_path(entities, id_patterns)
+        rawdata_dir     = writing.build_path(entities, rawdata_patterns)
+        derivative_dir  = writing.build_path(entities, derivative_patterns)
+        output_dir      = writing.build_path(entities, output_patterns)
+        
+        anat_preproc_dir = os.path.join(output_dir, "anat/")
+        dmri_preproc_dir = os.path.join(output_dir, "dwi/")
+        
+        dmri_img_pattern = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_rec-{rec}][_desc-{desc}]_{modality}.nii.gz")
+        txt_pattern      = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_rec-{rec}][_desc-{desc}]_{modality}.txt")
+        
+        dmri_ent = entities.copy()
+        dmri_ent['modality'] = 'dwi'
+        dmri_ent['desc'] = 'preproc'
+        
+        acqp_ent   = dmri_ent.copy()
+        index_ent  = dmri_ent.copy()
+        slspec_ent = dmri_ent.copy()
+        acqp_ent['desc']   = 'preproc-acqparams'
+        index_ent['desc']  = 'preproc-index'
+        slspec_ent['desc'] = 'preproc-slspec'
+            
         #Final processed DWI dataset
-        final_base  = os.path.join(preproc_dir, bids_id+'_desc-preproc')
-        final_dwi   = DWImage(filename    = final_base + '_dwi.nii.gz',
-                              bvecs       = final_base + '_dwi.bvec',
-                              bvals       = final_base + '_dwi.bval',
-                              acqparams   = final_base + '-Acqparams_dwi.txt',
-                              index       = final_base + '-Index_dwi.txt',
-                              slspec      = final_base + '-Slspec_dwi.txt')
+        dmri_preproc = DWImage(filename    = writing.build_path(dmri_ent, dmri_img_pattern),
+                               bvecs       = writing.build_path(dmri_ent, dmri_img_pattern.replace('.nii.gz', '.bvec')),
+                               bvals       = writing.build_path(dmri_ent, dmri_img_pattern.replace('.nii.gz', '.bval')),
+                               acqparams   = writing.build_path(acqp_ent, txt_pattern),
+                               index       = writing.build_path(index_ent, txt_pattern),
+                               slspec      = writing.build_path(slspec_ent, txt_pattern),
+                               json        = writing.build_path(dmri_ent, dmri_img_pattern.replace('.nii.gz', '.json')))
 
-        dwi_mask    = Image(filename = os.path.join(preproc_dir, bids_id+'_desc-brain_mask.nii.gz'))
+        dmri_mask    = Image(filename = os.path.join(dmri_preproc_dir, id+'_desc-brain_mask.nii.gz'),
+                             json     = os.path.join(dmri_preproc_dir, id+'_desc-brain_mask.json'))
 
         t1w=None
         t2w=None
-        t1w_mask=None
-        t2w_mask=None
+        brain_mask=None
+        
+        anat_img  = None
+        anat_mask = None
         
         fmap_image=None
         fmap_ref_image=None
-
-        #Setup the Anatomical Imaging Data if needed
-        freesurfer_subjs_dir = None
-        if args.use_freesurfer:
-
-            if args.freesurfer_subjects_dir:
-                freesurfer_subjs_dir = args.freesurfer_subjects_dir
-            elif os.path.exists(args.bids_dir + '/derivatives/freesurfer'):
-                freesurfer_subjs_dir = os.path.join(args.bids_dir,'derivatives/freesurfer/')
-            else:
-                print("Freesurfer Directory doesn't exist or was not specified")
-                exit(-1)
-            
-            if not os.path.exists(anat_derivative_dir):
-                os.makedirs(anat_derivative_dir)
-            
-            t1w        = Image(filename=os.path.join(anat_derivative_dir, bids_id+'_T1w.nii.gz'))
-            t1w_mask   = Image(filename=os.path.join(anat_derivative_dir, bids_id+'_desc-brain_mask.nii.gz'))
-            
-            freesurfer_t1w  = os.path.join(freesurfer_subjs_dir, bids_id, "mri", "orig_nu.mgz")
-            freesurfer_mask = os.path.join(freesurfer_subjs_dir, bids_id, "mri", "brainmask.mgz")
-            
-            #Convert to NIFTI
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + t1w.filename)
-            os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + t1w_mask.filename)
-            
-        else:
-            if (args.dwi_dist_corr == 'Anatomical-Coregistration' or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_eddy_current_correction == 'tortoise-diffprep'):
-
-                anat_pipeline = AnatomicalPrepPipeline()
-                t1w, t2w, t1w_mask, t2w_mask = anat_pipeline.run()
-                                
+        
+        #Setup anatomical imaging data if its neded first
+        #
+        #OPTIONS:
+        #   1. Use FreeSurfer processed data
+        #   2. Use Anatomical Preprocessing Pipeline Output
+        #
+        #
+        
         if args.dwi_dist_corr == 'Fieldmap':
-            fmap_image      = Image(filename = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_fieldmap.nii.gz'))
-            fmap_ref_image  = Image(filename = os.path.join(bids_rawdata_dir, 'fmap-dwi', bids_id+'_magnitude.nii.gz'))
+            fmap_image      = Image(filename = os.path.join(rawdata_dir, 'fmap-dwi', id+'_fieldmap.nii.gz'))
+            fmap_ref_image  = Image(filename = os.path.join(rawdata_dir, 'fmap-dwi', id+'_magnitude.nii.gz'))
+        
+        
+        freesurfer_subjs_dir = None
+        if args.use_freesurfer or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_eddy_current_correction == 'tortoise-diffprep':
             
-
-        #Check if TORTOISE or coregistration anatomy being performed and ensure image exists
-        #First determine the anatomical image to use
-        anat_image = None
-        anat_mask  = None
-
-        if args.dwi_eddy_current_correction == 'tortoise-diffprep' or args.coregister_dwi_to_anat:
-            if args.dwi_eddy_current_correction == 'tortoise-diffprep':
-                if t2w and t1w:
-                    anat_image = t2w
-                    anat_mask  = t2w_mask
-                elif t2w:
-                    anat_image = t2w
-                    anat_mask  = t2w_mask
-                elif t1w:
-                    #If we have a T1w image only, create a synthetic T2w using T1w
-
-                    from core.anat.workflows.compute_synthetic_t2w import compute_synthetic_t2w
-                    if args.verbose or args.debug:
-                        print('Creating Synthetic T2w Image')
-
-                    anat_image = compute_synthetic_t2w(input_t1w    = t1w,
-                                                       output_dir   = anat_derivative_dir,
-                                                       cmd_args     = args,
-                                                       syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
-                                                       t1w_mask     = t1w_mask, 
-                                                       debug        = args.debug)
-                    anat_mask = t1w_mask
+            coreg_dir = os.path.join(dmri_preproc_dir, 'coregister-to-anat',)
+            if not os.path.exists(coreg_dir):
+                os.makedirs(coreg_dir)
+           
+            if args.use_freesurfer:
+                if args.freesurfer_subjects_dir:
+                    freesurfer_subjs_dir = args.freesurfer_subjects_dir
+                elif os.path.exists(os.path.join(args.bids_dir,'derivatives', 'freesurfer',)):
+                    freesurfer_subjs_dir = os.path.join(args.bids_dir,'derivatives','freesurfer',)
+                else:
+                    print("Freesurfer Directory doesn't exist or was not specified")
+                    exit(-1)
                     
-            elif args.coregister_dwi_to_anat_modality == 't1w' and t1w:
-                anat_image = t1w
-                anat_mask  = t1w_mask
-            elif args.coregister_dwi_to_anat_modality == 't2w':
-                if (t1w and t2w) or t2w:
-                    anat_image = t2w
-                    anat_mask  = t2w_mask
-                elif t1w:
-                    from core.anat.workflows.compute_synthetic_t2w import compute_synthetic_t2w
-                    if args.verbose or args.debug:
-                        print('Creating Synthetic T2w Image')
+                freesurfer_t1w  = os.path.join(freesurfer_subjs_dir, id, "mri", "orig_nu.mgz")
+                freesurfer_mask = os.path.join(freesurfer_subjs_dir, id, "mri", "brainmask.mgz")
+                
+                anat_img  = Image(filename = os.path.join(coreg_dir, id+'_desc-Freesurfer_T1w.nii.gz'))
+                anat_mask = Image(filename = os.path.join(coreg_dir, id+'_desc-Freesurfer_T1w_brain_mask.nii.gz'))
 
-                    anat_image = compute_synthetic_t2w(input_t1w    = t1w,
-                                                       output_dir   = anat_derivative_dir,
-                                                       cmd_args     = args,
-                                                       syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
-                                                       t1w_mask     = t1w_mask, 
-                                                       debug        = args.debug)
-                    anat_mask  = t1w_mask
+                #Convert to NIFTI
+                os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_t1w + ' -o ' + anat_img.filename)
+                os.system('mri_convert --in_type mgz --out_type nii -i ' + freesurfer_mask + ' -o ' + anat_mask.filename)
+            
             else:
-                print('No anatomical image!')
-                exit()
+                anat_pipeline = AnatomicalPrepPipeline()
+                t1w, t2w, anat_mask = anat_pipeline.run()
+                                
+                if args.dwi_eddy_current_correction == 'tortoise-diffprep':
+                    if t2w:
+                        anat_img = t2w
+                    elif t1w:
+                        #If we have a T1w image only, create a synthetic T2w using T1w
+                        from core.anat.workflows.compute_synthetic_t2w import compute_synthetic_t2w
+                        if args.verbose or args.debug:
+                            print('Creating Synthetic T2w Image')
+
+                        anat_img   = compute_synthetic_t2w(input_t1w    = t1w,
+                                                           output_dir   = coreg_dir,
+                                                           cmd_args     = args,
+                                                           syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
+                                                           t1w_mask     = brain_mask, 
+                                                           debug        = args.debug)
+                           
+                elif args.coregister_dwi_to_anat_modality == 't1w' and t1w:
+                    anat_img = t1w
+                elif args.coregister_dwi_to_anat_modality == 't2w':
+                    if t2w:
+                        anat_img = t2w
+                    elif t1w:
+                        from core.anat.workflows.compute_synthetic_t2w import compute_synthetic_t2w
+                        if args.verbose or args.debug:
+                            print('Creating Synthetic T2w Image')
+
+                        anat_img = compute_synthetic_t2w(input_t1w    = t1w,
+                                                         output_dir   = coreg_dir,
+                                                         cmd_args     = args,
+                                                         syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
+                                                         t1w_mask     = t1w_mask, 
+                                                         debug        = args.debug)
+                else:
+                    print('No anatomical image!')
+                    exit()
 
 
         ##################################
         ### DWI PROCESSING STARTS HERE ###
         ##################################
-        if not final_dwi.exists():
+        if not dmri_preproc.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
-            dwi_img, topup_base =  dmri_rawprep.prep_dwi_rawdata(bids_id                = bids_id,
-                                                                 bids_rawdata_dir       = bids_rawdata_dir,
-                                                                 dwi_preproc_dir        = preproc_dir,
+            dwi_img, topup_base =  dmri_rawprep.prep_dwi_rawdata(bids_id                = id,
+                                                                 bids_rawdata_dir       = rawdata_dir,
+                                                                 dwi_preproc_dir        = dmri_preproc_dir,
                                                                  check_gradients        = args.dwi_check_gradients,
                                                                  reorient_dwi           = args.dwi_reorient,
                                                                  dwi_reorient_template  = Image(filename=args.dwi_reorient_template),
@@ -558,15 +540,15 @@ class DiffusionProcessingPipeline:
                                                                  distortion_correction  = args.dwi_dist_corr,
                                                                  topup_config           = args.dwi_topup_config,
                                                                  outlier_detection      = args.dwi_outlier_detection,
-                                                                 t1w_img                = t1w, 
-                                                                 t1w_mask               = t1w_mask, 
+                                                                 t1w_img                = anat_img, 
+                                                                 t1w_mask               = anat_mask, 
                                                                  nthreads               = args.nthreads, 
                                                                  cmd_args               = args, 
                                                                  verbose                = args.verbose)
 
             if args.dwi_denoise_degibbs:
                 dwi_img = img_proc.denoise_degibbs(input_img       = dwi_img,
-                                                   working_dir     = os.path.join(preproc_dir, 'denoise-degibbs/'),
+                                                   working_dir     = os.path.join(dmri_preproc_dir, 'denoise-degibbs',),
                                                    suffix          = 'dwi',
                                                    denoise_method  = args.dwi_denoise_method,
                                                    gibbs_method    = args.dwi_gibbs_correction_method,
@@ -575,7 +557,7 @@ class DiffusionProcessingPipeline:
                 
         
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
-                                             working_dir                = os.path.join(preproc_dir, 'eddy-correction/'),
+                                             working_dir                = os.path.join(dmri_preproc_dir, 'eddy-correction',),
                                              topup_base                 = topup_base,
                                              method                     = args.dwi_eddy_current_correction,
                                              gpu                        = args.gpu,
@@ -588,13 +570,13 @@ class DiffusionProcessingPipeline:
                                              slspec                     = args.dwi_slspec,
                                              fsl_eddy_options           = args.dwi_eddy_options,
                                              tortoise_options           = args.dwi_tortoise_diffprep_options,
-                                             struct_img                 = anat_image,
+                                             struct_img                 = anat_img,
                                              verbose                    = args.verbose)
                                              
 
             if args.dwi_outlier_detection != None and args.dwi_outlier_detection != 'Manual':
                 dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,
-                                                              working_dir       = os.path.join(preproc_dir, 'outlier-removed-images/'),
+                                                              working_dir       = os.path.join(dmri_preproc_dir, 'outlier-removed-images',),
                                                               method            = args.dwi_outlier_detection,
                                                               percent_threshold = args.dwi_outlier_detection_threshold,
                                                               verbose           = args.verbose)
@@ -602,7 +584,7 @@ class DiffusionProcessingPipeline:
 
             if args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_dist_corr == 'Fieldmap':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
-                                                                     working_dir         = preproc_dir,
+                                                                     working_dir         = dmri_preproc_dir,
                                                                      t1w_image           = t1w,
                                                                      t2w_image           = t2w,
                                                                      fmap_image          = fmap_image,
@@ -616,7 +598,7 @@ class DiffusionProcessingPipeline:
             ###BIAS FIELD CORRECTION ###
             if args.dwi_biasfield_correction:
                 dwi_img = img_proc.perform_biasfield_correction(input_img   = dwi_img,
-                                                                working_dir = os.path.join(preproc_dir, 'biasfield-correction/'),
+                                                                working_dir = os.path.join(dmri_preproc_dir, 'biasfield-correction',),
                                                                 suffix      = 'dwi',
                                                                 method      = args.dwi_biasfield_correction_method,
                                                                 nthreads    = args.nthreads,
@@ -625,8 +607,8 @@ class DiffusionProcessingPipeline:
 
             if args.coregister_dwi_to_anat:
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
-                                                      working_dir          = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/'),
-                                                      anat_image           = anat_image,
+                                                      working_dir          = dmri_preproc_dir,
+                                                      anat_image           = anat_img,
                                                       anat_mask            = anat_mask,
                                                       mask_method          = args.dwi_mask_method,
                                                       reg_method           = args.coregister_dwi_to_anat_method,
@@ -641,26 +623,26 @@ class DiffusionProcessingPipeline:
 
                 if args.verbose:
                     print('Copying Anatomical Mask')
-                shutil.copy2(anat_mask.filename, dwi_mask.filename)
+                shutil.copy2(anat_mask.filename, dmri_mask.filename)
             else:
                 if args.verbose:
                     print('Creating DWI Brain Mask')
 
                 mask.mask_image(input                = dwi_img,
-                                mask                 = dwi_mask,
+                                mask                 = dmri_mask,
                                 algo                 = args.dwi_mask_method,
                                 nthreads             = args.nthreads,
                                 ref_img              = args.dwi_ants_mask_template,
                                 ref_mask             = args.dwi_ants_mask_template_mask,
                                 antspynet_modality   = args.dwi_antspynet_modality)
 
-            if not final_dwi.exists():
+            if not dmri_preproc.exists():
                 if args.verbose:
                     print('Creating Preprocessed DWI')
 
-                final_dwi.copy_image(dwi_img, datatype=np.float32)
+                dmri_preproc.copy_image(dwi_img, datatype=np.float32)
                 
-                dmri_qc.check_gradient_directions(input_dwi   = final_dwi,
+                dmri_qc.check_gradient_directions(input_dwi   = dmri_preproc,
                                                   nthreads    = args.nthreads)
 
 
@@ -679,80 +661,93 @@ class DiffusionProcessingPipeline:
             dirs_to_cleanup.append('coregister-to-anatomy')
 
             files_to_cleanup = []
-            files_to_cleanup.append(bids_id + '_desc-Acqparams_dwi.txt')
-            files_to_cleanup.append(bids_id + '_desc-Slspec_dwi.txt')
-            files_to_cleanup.append(bids_id + '_desc-Index_dwi.txt')
+            files_to_cleanup.append(id + '_desc-acqparams_dwi.txt')
+            files_to_cleanup.append(id + '_desc-slspec_dwi.txt')
+            files_to_cleanup.append(id + '_desc-index_dwi.txt')
 
             outlier_files_to_cleanup = []
-            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bval')
-            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.bvec')
-            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved_dwi.nii.gz')
-            outlier_files_to_cleanup.append(bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
+            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bval')
+            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bvec')
+            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.nii.gz')
+            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved-Index_dwi.txt')
 
             for dir in dirs_to_cleanup:
-                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir)):
-                    shutil.rmtree(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', dir))
+                if os.path.exists(os.path.join(dmri_preproc_dir, dir,)):
+                    shutil.rmtree(os.path.join(dmri_preproc_dir, dir,))
 
             for file in files_to_cleanup:
-                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file)):
-                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/', file))
+                if os.path.exists(os.path.join(dmri_preproc_dir, file)):
+                    os.remove(os.path.join(dmri_preproc_dir, file))
 
             for file in outlier_files_to_cleanup:
-                if os.path.exists(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file)):
-                    os.remove(os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'preprocessed/outlier-removed-images/', file))
+                if os.path.exists(os.path.join(dmri_preproc_dir, 'outlier-removed-images', file)):
+                    os.remove(os.path.join(dmri_preproc_dir, 'outlier-removed-images', file))
                     
         
         ##MASK THE PREPROCESSED DWI to save space
-        mask.apply_mask(input   = final_dwi,
-                        mask    = dwi_mask,
-                        output  = final_dwi)
-
+        mask.apply_mask(input   = dmri_preproc,
+                        mask    = dmri_mask,
+                        output  = dmri_preproc)
+    
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
-
-        models_dir = os.path.join(bids_derivative_dir, args.bids_dwi_dir, 'models/')
-
+        
+        subject_entities = {}
+        subject_entities['subject'] = args.subject
+        subject_entities['session'] = args.session
+                
+        dmri_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","dwi",)
+        dmri_models_dir     = writing.build_path(entities, dmri_model_patterns)
+        
         ###DTI MODELING ###
         if args.dti_fit_method != None:
-            dti_dir = os.path.join(models_dir, "DTI/")
-
-            if not os.path.exists(dti_dir+bids_id +"_model-DTI_parameter-FA.nii.gz"):
+            
+            FAmap_patterns = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-DTI_param-FA.nii.gz")
+            
+            if not os.path.exists(writing.build_path(entities, FAmap_patterns)):
                 if args.verbose:
                     print("Fitting DTI model with " + args.dti_fit_method + "...")
 
-                dti_model = DTI_Model(dwi_img       = final_dwi,
-                                      out_base      = dti_dir + bids_id,
+                dti_model = DTI_Model(dwi_img       = dmri_preproc,
+                                      sub_info      = subject_entities,
+                                      out_dir       = dmri_models_dir,
                                       fit_type      = args.dti_fit_method,
-                                      mask          = dwi_mask,
+                                      mask          = dmri_mask,
                                       bmax          = args.dti_bmax,
                                       full_output   = args.dti_full_output)
                 dti_model.fit()
 
         ####FWE MODELING ###
         if args.fwe_fit_method != None:
-            fwe_dir = os.path.join(models_dir, "FWE-DTI/")
-            if not os.path.exists( fwe_dir+bids_id+"_model-FWE-DTI_parameter-F.nii.gz"):
+            
+            Fmap_patterns = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz")
+    
+            if not os.path.exists(writing.build_path(entities, Fmap_patterns)):
                 if args.verbose:
                     print('Fitting Free-Water Elimination DTI Model')
 
-                fwedti_model = FWEDTI_Model(dwi_img   = final_dwi,
-                                            out_base  = fwe_dir+bids_id,
+                fwedti_model = FWEDTI_Model(dwi_img   = dmri_preproc,
+                                            sub_info  = subject_entities,
+                                            out_dir   = dmri_models_dir,
                                             fit_type  = args.fwe_fit_method,
-                                            mask      = dwi_mask)
+                                            mask      = dmri_mask,
+                                            nthreads  = args.nthreads)
                 fwedti_model.fit()
 
 
         if args.noddi_fit_method != None:
-            noddi_dir=os.path.join(models_dir, args.noddi_fit_method)
+            
+            NODDImap_patterns = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-NODDI_param-ICVF.nii.gz")
 
-            if not os.path.exists( noddi_dir+bids_id+"_model-NODDI_parameter-ICVF.nii.gz"):
+            if not os.path.exists(writing.build_path(entities, NODDImap_patterns)):
                 if args.verbose:
                     print('Fitting '+args.noddi_fit_method+' model...')
 
-                noddi_model = NODDI_Model(dwi_img               = final_dwi,
-                                          out_base              = noddi_dir+bids_id,
+                noddi_model = NODDI_Model(dwi_img               = dmri_preproc,
+                                          sub_info              = subject_entities,
+                                          out_dir               = dmri_models_dir,
                                           fit_type              = args.noddi_fit_method,
-                                          mask                  = dwi_mask,
+                                          mask                  = dmri_mask,
                                           parallel_diffusivity  = args.noddi_dpar,
                                           iso_diffusivity       = args.noddi_diso,
                                           solver                = args.noddi_solver,
@@ -762,34 +757,47 @@ class DiffusionProcessingPipeline:
 
 
         if args.dki_fit_method != None:
-            dki_dir=os.path.join(models_dir, "DKI/")
-            if not os.path.exists( dki_dir+bids_id+"_model-DKI_parameter-FA.nii.gz" ):
+            DKImap_patterns = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-DKI_param-MK.nii.gz")
+            if not os.path.exists( writing.build_path(entities, DKImap_patterns) ):
                 if args.verbose:
                     print('Fitting Diffusion Kurtosis Model')
 
-                dki_model = DKI_Model(dwi_img   = final_dwi,
-                                      out_base  = dki_dir+bids_id,
+                dki_model = DKI_Model(dwi_img   = dmri_preproc,
+                                      sub_info  = subject_entities,
+                                      out_dir   = dmri_models_dir,
                                       fit_type  = args.dki_fit_method,
-                                      mask      = dwi_mask)
+                                      mask      = dmri_mask)
                 dki_model.fit()
 
 
         if args.csd_fod_algo != None:
-            csd_dir=os.path.join(models_dir, "CSD/")
-            if not os.path.exists( csd_dir+bids_id+"_model-CSD_parameter-FOD.nii.gz" ) and not os.path.exists( csd_dir+bids_id+"_model-MSMT-5tt_parameter-WMfod.nii.gz" ) and not os.path.exists( csd_dir+bids_id+"_model-DHOLLANDER_parameter-WMfod.nii.gz" ):
+                        
+            CSDmap_patterns = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-{model}_param-{param}.nii.gz")
+            
+            entities['model'] = 'CSD'
+            entities['param'] = 'FOD'
+            CSD_fod = writing.build_path(entities, CSDmap_patterns)
+            
+            entities['model'] = 'MSMT-5tt'
+            entities['param'] = 'WMfod'
+            CSD_msmt    = writing.build_path(entities, CSDmap_patterns)
+            
+            entities['model'] = 'DHOLLANDER'
+            entities['param'] = 'WMfod'
+            CSD_dhollander    = writing.build_path(entities, CSDmap_patterns)
+            
+            if not os.path.exists( CSD_fod ) and not os.path.exists( CSD_msmt ) and not os.path.exists( CSD_dhollander ):
+                
                 if args.verbose:
                     print('Fitting Constrained Spherical Deconvolution Model')
 
-                csd_model = CSD_Model(dwi_img       = final_dwi,
-                                      out_base      = csd_dir+bids_id,
+                csd_model = CSD_Model(dwi_img       = dmri_preproc,
+                                      sub_info      = subject_entities,
+                                      out_dir       = dmri_models_dir,
                                       response_algo = args.csd_response_func_algo,
                                       fod_algo      = args.csd_fod_algo,
-                                      mask          = dwi_mask,
-                                      struct_img    = anat_image,
-                                      response      = args.csd_response_function,
-                                      wm_response   = args.csd_wm_response_function,
-                                      gm_response   = args.csd_gm_response_function,
-                                      csf_response  = args.csd_csf_response_function,
+                                      mask          = dmri_mask,
+                                      struct_img    = anat_img,
                                       nthreads      = args.nthreads)
                 csd_model.fit()
 
@@ -810,7 +818,10 @@ class DiffusionProcessingPipeline:
                              method                 = args.dwi_standard_template_method,
                              nthreads               = args.nthreads)
 
-
+if __name__ == "__main__":
+    dmriproc = DiffusionProcessingPipeline()
+    dmriproc.run()
+        
 
 #          ###GBSS PSEUDO T1w ###
 #         if args.setup_gbss:
