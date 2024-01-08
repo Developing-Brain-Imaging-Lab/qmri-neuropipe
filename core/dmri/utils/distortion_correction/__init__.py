@@ -728,12 +728,12 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
         print('Creating synthetic undistorted b0 images')
     SyNb0       = Synb0(verbose)
 
-    b0_data  = nib.load(b0_in_mni.filename).get_fdata()
-    T1w_data = nib.load(T1w_in_mni.filename).get_fdata()
-    rev_b0_data = SyNb0.predict(b0_data, T1w_data)
+    b0_img  = nib.load(b0_in_mni.filename)
+    T1w_img = nib.load(T1w_in_mni.filename)
+    rev_b0_data = SyNb0.predict(b0_img.get_fdata(), T1w_img.get_fdata)
 
     rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
-    nib.save(nib.Nifti1Image(rev_b0_data.astype(b0_data.dtype), mean_b0.affine), rev_b0_mni.filename)
+    nib.save(nib.Nifti1Image(rev_b0_data.astype(b0_img.get_data_dtype()), b0_img.affine), rev_b0_mni.filename)
     
     #Inverse warp the image
     rev_b0 = Image(filename = os.path.join(working_dir, "b0_u.nii.gz"))
