@@ -761,7 +761,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
     #Run TOPUP
-    synb0_config = os.path.join(os.path.dirname(__file__), "data", "synb0.conf")
+    synb0_config = os.path.join(os.path.dirname(__file__), "data", "synb0.cnf")
     topup_command = 'topup --imain='+ all_b0s.filename \
                   + ' --datain=' + disco_acqparams_path \
                   + ' --config=' + synb0_config \
