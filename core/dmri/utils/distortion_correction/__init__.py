@@ -655,7 +655,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + "  " + T1w_wm.filename)
 
     WM     = nib.load(T1w_wm.filename).get_fdata()
-    avg_wm = np.mean(WM)
+    avg_wm = np.mean(WM[np.nonzero(WM)])
     os.system("fslmaths " + t1w_img.filename + " -div " + str(avg_wm) + " -mul 110 " + T1w_norm.filename)
 
     #Coregister the T1w to the DWI image
