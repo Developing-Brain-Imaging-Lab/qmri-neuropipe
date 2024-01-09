@@ -650,8 +650,13 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                                  output_dir = os.path.join(working_dir), 
                                  nthreads   = nthreads)
     #Normalize the T1w image
+    T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
     T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
-    os.system("fslmaths " + t1w_img.filename + " -div " + wmseg_img.filename + " -mul 110 " + T1w_norm.filename)
+    os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + "  " + T1w_wm.filename)
+
+    WM     = nib.load(T1w_wm.filename).get_fdata()
+    avg_wm = np.mean(WM)
+    os.system("fslmaths " + t1w_img.filename + " -div " + str(avg_wm) + " -mul 110 " + T1w_norm.filename)
 
     #Coregister the T1w to the DWI image
     T1w_2_dwi         = Image(filename = os.path.join(working_dir, "T1w_toDWI.nii.gz"))
@@ -756,9 +761,10 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
 
     #Run TOPUP
+    synb0_config = os.path.join(os.path.dirname(__file__), "data", "synb0.conf")
     topup_command = 'topup --imain='+ all_b0s.filename \
                   + ' --datain=' + disco_acqparams_path \
-                  + ' --config=' + topup_config \
+                  + ' --config=' + synb0_config \
                   + ' --out=' + topup_base \
                   + ' --fout=' + topup_base + '_fmap.nii.gz'
 
