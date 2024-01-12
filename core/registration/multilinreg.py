@@ -3,7 +3,7 @@ import os, shutil, subprocess
 
 import nibabel as nib
 from core.utils.io import Image
-from core.registration.linreg import linreg
+import core.registration.linreg as reg
 
 def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=None, ants_options=None, freesurfer_subjs_dir=None, debug=False):
 
@@ -32,17 +32,17 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
         print(tmp_out_img.filename)
         print(debug)
 
-        linreg(input                = moving_img,
-               ref                  = ref,
-               out_mat              = output_mat,
-               out                  = tmp_out_img,
-               dof                  = dof,
-               nthreads             = nthreads,
-               method               = method, 
-               flirt_options        = flirt_options,
-               ants_options         = ants_options,
-               freesurfer_subjs_dir = freesurfer_subjs_dir,
-               debug                = debug)
+        reg.linreg(input                = moving_img,
+                   ref                  = ref,
+                   out_mat              = output_mat,
+                   out                  = tmp_out_img,
+                   dof                  = dof,
+                   nthreads             = nthreads,
+                   method               = method, 
+                   flirt_options        = flirt_options,
+                   ants_options         = ants_options,
+                   freesurfer_subjs_dir = freesurfer_subjs_dir,
+                   debug                = debug)
                
         fslmerge_cmd += " " + tmp_out_img.filename
 
