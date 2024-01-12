@@ -46,7 +46,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
                 freesurfer_subjs_dir = freesurfer_subjs_dir,
                 debug                = debug)
                
-        fslmerge_cmd += " " + tmp_out_img
+        fslmerge_cmd += " " + tmp_out_img.filename
 
     os.system(fslmerge_cmd)
     shutil.rmtree(tmp_dir)
