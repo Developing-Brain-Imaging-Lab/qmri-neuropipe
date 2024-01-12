@@ -45,7 +45,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
                
         fslmerge_cmd += " " + tmp_out_img.filename
 
-    subprocess.run([fslmerge_cmd], shell=True, stderr=subprocess.STDOUT)
+    subprocess.check_call([fslmerge_cmd], shell=True, stderr=subprocess.STDOUT)
     #shutil.rmtree(tmp_dir)
 
 

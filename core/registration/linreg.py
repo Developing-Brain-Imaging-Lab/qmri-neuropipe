@@ -41,7 +41,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
             print("Running FSL FLIRT")
             print(CMD)
         
-        os.system(CMD)
+        subprocess.check_call([CMD], shell=True, stderr=subprocess.STDOUT)
 
         if out != None and type(input) is list:
             #Apply transform to other images
@@ -86,7 +86,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
             print("Running ANTs Linear Registration")
             print(CMD)
         
-        os.system(CMD)
+        subprocess.check_call([CMD], shell=True, stderr=subprocess.STDOUT)
 
         #Change filenames
         os.rename(ants_tmp_out+"0GenericAffine.mat", out_mat)
@@ -136,7 +136,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
             + ' --fslmat ' + b0toT1flirtmtx \
             + ' --tmp ' + freesurfer_tmp_dir
 
-        os.system(CMD)
+        subprocess.check_call([CMD], shell=True, stderr=subprocess.STDOUT)
         convert_fsl2ants(input, ref, b0toT1flirtmtx, out_mat)
         
         
