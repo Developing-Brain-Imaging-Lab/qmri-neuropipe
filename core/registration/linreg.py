@@ -142,6 +142,11 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         subprocess.check_call([CMD], shell=True, stderr=subprocess.STDOUT)
         convert_fsl2ants(input, ref, b0toT1flirtmtx, out_mat)
 
+    else:
+        print("Invalid Method!")
+        print(method + " is not a valid option")
+        exit()
+
 
         
         
