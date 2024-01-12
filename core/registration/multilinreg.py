@@ -16,19 +16,19 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
     output_dir  = os.path.dirname(os.path.realpath(out.filename))
     output_base = os.path.basename(out.filename)
 
-    if output_base.endswith('.nii.gz'):
+    if output_base.endswith(".nii.gz"):
         output_base = output_base[:-7]
     else:
         output_base = output_base[:-3]
 
-    tmp_dir = os.path.join(output_dir, 'tmp',)
+    tmp_dir = os.path.join(output_dir, "tmp",)
     if os.path.exists(tmp_dir):
         shutil.rmtree(tmp_dir)
     os.makedirs(tmp_dir)
-    os.system('fslsplit ' + input.filename + ' ' + tmp_dir+'tmp_ -t')
+    os.system("fslsplit " + input.filename + " " + os.path.join(tmp_dir,"tmp_") + " -t")
 
     list_of_imgs = os.listdir(tmp_dir)
-    fslmerge_cmd = 'fslmerge -t ' + out.filename
+    fslmerge_cmd = "fslmerge -t " + out.filename
     for i in range(0,num_imgs):
         moving_img  = Image(filename = os.path.join(tmp_dir,list_of_imgs[i]))
         tmp_out_img = Image(filename = os.path.join(tmp_dir, "coreg_img_"+str(i).zfill(4)+".nii.gz"))
@@ -46,7 +46,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
                 freesurfer_subjs_dir = freesurfer_subjs_dir,
                 debug                = debug)
                
-        fslmerge_cmd += ' ' + tmp_out_img
+        fslmerge_cmd += " " + tmp_out_img
 
     os.system(fslmerge_cmd)
     shutil.rmtree(tmp_dir)
