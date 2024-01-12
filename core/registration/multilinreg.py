@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
    parser = argparse.ArgumentParser(description='QMRI-Neuropipe Linear Registration Tool')
    
-   parser.add_argument("-i", "--in",
+   parser.add_argument("-i", "--input",
                     type=str,
                     help="Input image",
                     default=None)
@@ -111,7 +111,7 @@ if __name__ == '__main__':
    args, unknown = parser.parse_known_args()
 
    
-   multilinreg(input                = Image(filename = args.i),
+   multilinreg(input                = Image(filename = args.input),
                ref                  = Image(filename = args.ref),
                out                  = Image(filename = args.out),
                dof                  = args.dof,
