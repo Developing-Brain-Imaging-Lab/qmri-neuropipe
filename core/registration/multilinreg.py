@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, shutil
+import os, shutil, subprocess
 
 import nibabel as nib
 from core.utils.io import Image
