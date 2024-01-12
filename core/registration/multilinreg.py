@@ -30,6 +30,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
 
         print(moving_img.filename)
         print(tmp_out_img.filename)
+        print(debug)
 
         linreg(input                = moving_img,
                ref                  = ref,

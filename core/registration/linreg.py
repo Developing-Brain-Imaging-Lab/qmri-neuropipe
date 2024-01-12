@@ -41,6 +41,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
             print("Running FSL FLIRT")
             print(CMD)
         
+        print(CMD)
         subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
         if out != None and type(input) is list:
