@@ -111,7 +111,7 @@ if __name__ == '__main__':
    args, unknown = parser.parse_known_args()
 
    
-   multilinreg(input                = Image(filename = args.in),
+   multilinreg(input                = Image(filename = args.i),
                ref                  = Image(filename = args.ref),
                out                  = Image(filename = args.out),
                dof                  = args.dof,
