@@ -54,9 +54,6 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
                                 method        = "fsl",
                                 flirt_options = flirt_options)
                 
-        return SUCCESS
-
-
     elif method.lower() == 'ants':
         os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = str(nthreads)
 
