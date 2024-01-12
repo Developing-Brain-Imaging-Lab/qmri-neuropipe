@@ -35,16 +35,16 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
         output_mat  = os.path.join(tmp_dir,"coreg_img_"+str(i).zfill(4)+".mat")
 
         linreg(input                 = moving_img,
-                ref                  = ref,
-                out_mat              = output_mat,
-                out                  = tmp_out_img,
-                dof                  = dof,
-                nthreads             = nthreads,
-                method               = method, 
-                flirt_options        = flirt_options,
-                ants_options         = ants_options,
-                freesurfer_subjs_dir = freesurfer_subjs_dir,
-                debug                = debug)
+               ref                  = ref,
+               out_mat              = output_mat,
+               out                  = tmp_out_img,
+               dof                  = dof,
+               nthreads             = nthreads,
+               method               = method, 
+               flirt_options        = flirt_options,
+               ants_options         = ants_options,
+               freesurfer_subjs_dir = freesurfer_subjs_dir,
+               debug                = debug)
                
         fslmerge_cmd += " " + tmp_out_img.filename
 
