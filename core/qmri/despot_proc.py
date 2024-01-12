@@ -277,7 +277,7 @@ class DESPOTProcessingPipeline:
             spgr_img = nib.load(spgr.filename)
             num_spgr = spgr_img.shape[3]
 
-            ref_img = nib.Nifti1Image(spgr_img.get_fdata()[:,:,:,num_spgr-1], spgr.affine)
+            ref_img = nib.Nifti1Image(spgr_img.get_fdata()[:,:,:,num_spgr-1], spgr_img.affine)
             ref_img.to_filename(target_img.filename)
 
 
