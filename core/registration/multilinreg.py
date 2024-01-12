@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os, shutil
-from glob import glob
 
 import nibabel as nib
 from core.utils.io import Image
