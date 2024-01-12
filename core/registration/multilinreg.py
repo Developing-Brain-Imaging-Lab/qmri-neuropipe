@@ -3,7 +3,7 @@ import os, shutil
 
 import nibabel as nib
 from core.utils.io import Image
-from .linreg import linreg
+from core.registration.linreg import linreg
 
 def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=None, ants_options=None, freesurfer_subjs_dir=None, debug=False):
 
