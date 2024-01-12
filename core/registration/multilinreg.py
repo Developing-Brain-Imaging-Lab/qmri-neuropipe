@@ -7,12 +7,6 @@ from core.registration.linreg import linreg
 
 def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=None, ants_options=None, freesurfer_subjs_dir=None, debug=False):
 
-    data_shape = nib.load(input.filename).shape
-
-    num_imgs = 1
-    if len(data_shape) == 4:
-        num_imgs = data_shape[3]
-
     output_dir  = os.path.dirname(os.path.realpath(out.filename))
     output_base = os.path.basename(out.filename)
 
@@ -29,10 +23,13 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
 
     list_of_imgs = os.listdir(tmp_dir)
     fslmerge_cmd = "fslmerge -t " + out.filename
-    for i in range(0,num_imgs):
+    for i in range(0,len(list_of_imgs)):
         moving_img  = Image(filename = os.path.join(tmp_dir,list_of_imgs[i]))
         tmp_out_img = Image(filename = os.path.join(tmp_dir, "coreg_img_"+str(i).zfill(4)+".nii.gz"))
         output_mat  = os.path.join(tmp_dir,"coreg_img_"+str(i).zfill(4)+".mat")
+
+        print(moving_img.filename)
+        print(tmp_out_img.filename)
 
         linreg(input                = moving_img,
                ref                  = ref,
@@ -49,7 +46,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
         fslmerge_cmd += " " + tmp_out_img.filename
 
     os.system(fslmerge_cmd)
-    shutil.rmtree(tmp_dir)
+    #shutil.rmtree(tmp_dir)
 
 
 if __name__ == '__main__':
