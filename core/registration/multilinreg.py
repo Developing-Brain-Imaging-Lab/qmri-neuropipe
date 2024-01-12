@@ -34,7 +34,7 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
         tmp_out_img = Image(filename = os.path.join(tmp_dir, "coreg_img_"+str(i).zfill(4)+".nii.gz"))
         output_mat  = os.path.join(tmp_dir,"coreg_img_"+str(i).zfill(4)+".mat")
 
-        linreg(input                 = moving_img,
+        linreg(input                = moving_img,
                ref                  = ref,
                out_mat              = output_mat,
                out                  = tmp_out_img,
