@@ -10,7 +10,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
 
     CMD=""
 
-    if method == 'fsl':
+    if method.lower() == 'fsl':
 
         if type(input) is list:
             in_img = input[0]
@@ -57,7 +57,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         return SUCCESS
 
 
-    elif method == 'ants':
+    elif method.lower() == 'ants':
         os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = str(nthreads)
 
         out_dir         = os.path.dirname(out_mat)
@@ -107,7 +107,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         #Clean up remaining ants files
         #os.system("rm -rf " + ants_tmp_out+"*")
         
-    elif method == 'bbr':
+    elif method.lower() == 'bbr':
     
         if type(input) is list:
             input = input[0]
@@ -148,7 +148,6 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         exit()
 
 
-        
         
 if __name__ == '__main__':
    

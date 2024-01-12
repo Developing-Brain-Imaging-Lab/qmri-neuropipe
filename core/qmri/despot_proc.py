@@ -111,8 +111,8 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--despot_coregistration_method',
                             type=str,
                             help='Method for Coregistration of DESPOT Images',
-                            choices=['ANTS', 'FSL'],
-                            default='FSL')
+                            choices=['ants', 'fsl'],
+                            default='fsl')
 
         parser.add_argument('--coregister_to_anat',
                             type = bool,
@@ -127,18 +127,18 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--coregister_to_anat_linear_method',
                             type = str,
                             help = 'Linear Registration for DESPOT to Anat',
-                            default = 'FSL')
+                            default = 'fsl')
 
         parser.add_argument('--coregister_to_anat_nonlinear_method',
                             type = str,
                             help = 'Linear Registration for DESPOT to Anat',
-                            default = 'ANTS')
+                            default = 'ants')
 
         parser.add_argument('--despot_b1_method',
                             type=str,
                             help='B1 Field Inhomogeneity Correction Method',
-                            choices=['AFI', 'HIFI'],
-                            default='AFI')
+                            choices=['afi', 'hifi'],
+                            default='afi')
 
         parser.add_argument('--despot1_fit_method',
                             type=str,
