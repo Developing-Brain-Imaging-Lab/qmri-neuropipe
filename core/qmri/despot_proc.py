@@ -50,9 +50,9 @@ class DESPOTProcessingPipeline:
                             help='Subject Timepoint',
                             default=None)
 
-        parser.add_argument('--bids_pipeline_name',
-                            type=str, help='BIDS PIPELINE Name',
-                            default='qmri-neuropipe')
+        parser.add_argument('--preproc_derivative_dir',
+                            type=str, help='Preprocessing Derivative Output',
+                            default='despot-neuropipe-preproc')
 
         parser.add_argument('--nthreads',
                             type=int,
