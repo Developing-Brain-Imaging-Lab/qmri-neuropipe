@@ -229,10 +229,8 @@ class DESPOTProcessingPipeline:
         if not os.path.exists(derivative_dir):
             os.makedirs(derivative_dir)
         
-
         if not os.path.exists(anat_preproc_dir):
             os.makedirs(anat_preproc_dir)
-
 
         fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
 
@@ -250,6 +248,9 @@ class DESPOTProcessingPipeline:
         if args.despot_b1_method.lower() == 'afi':
             afi = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.nii.gz'),
                         json     = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.json'))
+            
+            if not os.path.exists(fmap_preproc_dir):
+                os.makedirs(fmap_preproc_dir)
 
 
         create_processing_json(despot_json = fitparam_json,
