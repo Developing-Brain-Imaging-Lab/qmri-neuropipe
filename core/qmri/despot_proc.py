@@ -272,11 +272,11 @@ class DESPOTProcessingPipeline:
             ref_img.to_filename(target_img.filename)
 
 
-        coreg_spgr   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SPGR_VFA.nii.gz"))
+        coreg_spgr   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SPGR_VFA.nii.gz"),)
         coreg_ssfp   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-bSSFP_VFA.nii.gz"))        
-        coreg_irspgr = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-HIFI_T1w.nii.gz"))  
-        coreg_afi    = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1AFI.nii.gz"))
-        coreg_b1map  = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1map.nii.gz"))
+        coreg_irspgr = None 
+        coreg_afi    = None
+        coreg_b1map  = None
 
         #Coregister SPGR
         if not os.path.exists(coreg_spgr.filename):
@@ -308,6 +308,9 @@ class DESPOTProcessingPipeline:
 
 
         if args.despot_b1_method.lower() == 'hifi':
+
+            coreg_irspgr = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-HIFI_T1w.nii.gz"),
+                                 json     = irspgr.json)
             
             if not os.path.exists(coreg_irspgr.filename):
                 if args.verbose:
@@ -323,6 +326,11 @@ class DESPOTProcessingPipeline:
                                       debug         = args.verbose)
         
         elif args.despot_b1_method.lower() == 'afi':
+
+            coreg_afi    = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1AFI.nii.gz"),
+                                 json     = afi.json)
+            
+            coreg_b1map  = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1map.nii.gz"))
 
             if not os.path.exists(coreg_afi.filename):
                 if args.verbose:
