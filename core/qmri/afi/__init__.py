@@ -37,8 +37,9 @@ def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6)
     nib.save(b1map , output_img)
 
 
-def compute_afi_b1map(input_afi, input_json, output_img, n=5, fwhm=6):
-    afi_img = nib.load(input_afi)
+def compute_afi_b1map(afi, b1map, n=5, fwhm=6):
+    
+    afi_img = nib.load(afi.filename)
     img1_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,0], fwhm/2.35)
     img2_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,1], fwhm/2.35)
 
@@ -47,7 +48,7 @@ def compute_afi_b1map(input_afi, input_json, output_img, n=5, fwhm=6):
 
     n = float(n)
 
-    with open(input_json, 'r+') as afi_file:
+    with open(afi.json, 'r+') as afi_file:
         data = json.load(afi_file)
         theta = float(data["FlipAngle"])
 

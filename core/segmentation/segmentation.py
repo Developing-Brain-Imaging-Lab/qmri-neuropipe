@@ -10,7 +10,6 @@ from core.registration.convert_fsl2ants import convert_fsl2ants
 from core.registration.create_composite_transform import create_composite_transform
 
 
-
 def atlas_segmentation(target_img, target_mask, atlas, label, output_seg_file, nthreads=1, verbose=False):
 
     #Coregister the atlas to the target image
