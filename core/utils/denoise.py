@@ -71,9 +71,9 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
         if method=='dipy-nlmeans':
             denoised_arr = nlmeans(data,sigma=sigma, mask=mask_data, rician=True, patch_radius=2, block_radius=2)
         elif method=='dipy-localpca':
-            denoised_arr = localpca(data, sigma, mask=mask, tau_factor=2.3, patch_radius=2, pca_method="svd")
+            denoised_arr = localpca(data, sigma, mask=mask_data, tau_factor=2.3, patch_radius=2, pca_method="svd")
         elif method=='dipy-mppca':
-            denoised_arr = mppca(data, mask=mask, patch_radius=2, pca_method="svd")
+            denoised_arr = mppca(data, mask=mask_data, patch_radius=2, pca_method="svd")
         elif method=='dipy-patch2self':
             if input_img.get_type() != "DWImage":
                 print("Input needs to be diffusion image to use dipy-patch2self")
