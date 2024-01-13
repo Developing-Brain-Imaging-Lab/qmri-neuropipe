@@ -322,24 +322,23 @@ class DESPOTProcessingPipeline:
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
         
-        # elif args.despot_b1_method.lower() == 'afi':
+        elif args.despot_b1_method.lower() == 'afi':
 
-        #     if not os.path.exists(coreg_afi.filename):
+            if not os.path.exists(coreg_afi.filename):
+                if args.verbose:
+                    print('Coregistering AFI data')
 
-        #         if args.verbose:
-        #             print('Coregistering AFI data')
+                print(afi.filename)
 
-        #         print(afi.filename)
-
-        #         if afi != None:
-        #             afi_tools.coregister_afi(input_afi = afi, 
-        #                                      ref_img   = target_img, 
-        #                                      out_afi   = coreg_afi)
-                    
-        #             afi_tools.compute_afi_b1map(afi   = coreg_afi,
-        #                                         b1map = 
-        #                                         n          = 5, 
-        #                                         fwhm       = 6)
+                if afi != None:
+                    afi_tools.coregister_afi(input_afi = afi, 
+                                             ref_img   = target_img, 
+                                             out_afi   = coreg_afi)
+                
+            if not coreg_b1map.exists():
+                afi_tools.compute_afi_b1map(afi   = coreg_afi,
+                                            b1map = coreg_b1map,
+                                            fwhm  = 6)
                 
 
 

@@ -37,21 +37,21 @@ def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6)
     nib.save(b1map , output_img)
 
 
-def compute_afi_b1map(afi, b1map, n=5, fwhm=6):
+def compute_afi_b1map(afi, b1map, fwhm=6):
+
+    theta=0.0
+    n=0.0
+    with open(afi.json, 'r+') as afi_file:
+        data  = json.load(afi_file)
+        theta = float(data["FlipAngle"])
+        n     = float(data["TRRatio"])
     
     afi_img = nib.load(afi.filename)
-    img1_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,0], fwhm/2.35)
-    img2_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,1], fwhm/2.35)
+    tr1_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,0], fwhm/2.35)
+    tr2_smoothed = gaussian_filter(afi_img.get_fdata()[:,:,:,1], fwhm/2.35)
 
-    r = img2_smoothed / img1_smoothed
+    r = tr2_smoothed / tr1_smoothed
     r[r>1] = 1.00
-
-    n = float(n)
-
-    with open(afi.json, 'r+') as afi_file:
-        data = json.load(afi_file)
-        theta = float(data["FlipAngle"])
-
 
     arg = (r*n-1.0)/(n-r)
     arg[arg>1]=1
@@ -59,10 +59,11 @@ def compute_afi_b1map(afi, b1map, n=5, fwhm=6):
 
     b1 = np.degrees(np.arccos(arg))/theta
 
-    b1map = nib.Nifti1Image(b1.astype(np.float32), afi_img.get_affine(), afi_img.header)
-    b1map.set_sform(afi_img.get_sform())
-    b1map.set_qform(afi_img.get_qform())
-    nib.save(b1map, output_img)
+    b1img = nib.Nifti1Image(b1.astype(np.float32), afi_img.affine, afi_img.header)
+    b1img.set_sform(afi_img.get_sform())
+    b1img.set_qform(afi_img.get_qform())
+    
+    nib.save(b1img, b1map.filename)
 
 
 def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', searchrx='30', searchry='30', searchrz='30'):
