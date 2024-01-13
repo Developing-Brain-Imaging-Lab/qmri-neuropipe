@@ -355,7 +355,7 @@ class DESPOTProcessingPipeline:
         if not brain_mask.exists():
             mask.mask_image(input               = target_img,
                             mask                = brain_mask,
-                            method              = args.despot_mask_method,
+                            algo                = args.despot_mask_method,
                             ref_img             = args.despot_ants_mask_template,
                             ref_mask            = args.despot_ants_mask_template_mask,
                             antspynet_modality  = args.despot_antspynet_modality,
