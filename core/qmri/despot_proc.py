@@ -353,13 +353,13 @@ class DESPOTProcessingPipeline:
 
         brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz"))
         if not brain_mask.exists():
-            mask.mask_image(input_img            = target_img,
-                            output_mask          = brain_mask,
-                            method               = args.despot_mask_method,
-                            ref_img              = args.despot_ants_mask_template,
-                            ref_mask             = args.despot_ants_mask_template_mask,
-                            antspynet_modality   = args.despot_antspynet_modality,
-                            nthreads             = args.nthreads)
+            mask.mask_image(input               = target_img,
+                            mask                = brain_mask,
+                            method              = args.despot_mask_method,
+                            ref_img             = args.despot_ants_mask_template,
+                            ref_mask            = args.despot_ants_mask_template_mask,
+                            antspynet_modality  = args.despot_antspynet_modality,
+                            nthreads            = args.nthreads)
 
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
