@@ -13,7 +13,7 @@ import core.utils.denoise as denoise
 
 from core.qmri.despot.utils.json import create_processing_json
 import core.registration.multilinreg as coreg
-#import core.qmri.afi as afi_tools
+import core.qmri.afi as afi_tools
 
 #from core.qmri.despot.models.despot1 import DESPOT1_Model
 #from core.qmri.despot.models.despot2 import DESPOT2_Model
@@ -92,7 +92,7 @@ class DESPOTProcessingPipeline:
 
         parser.add_argument('--despot_denoise_method',
                             type=str,
-                            help='Method for Denoising DWIs',
+                            help='Method for Denoising DESPOT Data',
                             choices=['mrtrix', 'dipy-nlmeans', 'dipy-localpca', 'dipy-mppca', 'dipy-patch2self'],
                             default='mrtrix')
 
@@ -104,7 +104,7 @@ class DESPOTProcessingPipeline:
 
         parser.add_argument('--despot_biasfield_correction_method',
                             type=str,
-                            help='Method for Gibbs Ringing Correction',
+                            help='Method for Biasfield correction',
                             choices=['ants', 'fsl', 'N4'],
                             default='ants')
 
@@ -168,16 +168,6 @@ class DESPOTProcessingPipeline:
                             help='mcDESPOT Model',
                             choices=[3, 2],
                             default=3)
-
-        # parser.add_argument('--mcdespot_use_condor',
-        #                     type=bool,
-        #                     help='Perform fitting using CHTC CONDOR Submit Node (e.g. MEDUDA)',
-        #                     default=False)
-
-        # parser.add_argument('--mcdespot_package_condor_data',
-        #                     type=bool,
-        #                     help='Package CHTC CONDOR data',
-        #                     default=False)
 
         parser.add_argument('--despot_register_to_template',
                             type=bool,
@@ -285,6 +275,7 @@ class DESPOTProcessingPipeline:
         coreg_ssfp   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-bSSFP_VFA.nii.gz"))        
         coreg_irspgr = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-HIFI_T1w.nii.gz"))  
         coreg_afi    = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1AFI.nii.gz"))
+        coreg_b1map  = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1map.nii.gz"))
 
         #Coregister SPGR
         if not os.path.exists(coreg_spgr.filename):
@@ -305,7 +296,7 @@ class DESPOTProcessingPipeline:
             if args.verbose:
                 print('Coregistering SSFP images...')
 
-            if spgr != None:
+            if ssfp != None:
                 coreg.multilinreg(input         = ssfp,
                                   ref           = target_img,
                                   out           = coreg_ssfp,
@@ -315,21 +306,40 @@ class DESPOTProcessingPipeline:
                                   debug         = args.verbose)
 
 
-
-
-
+        if args.despot_b1_method.lower() == 'hifi':
             
+            if not os.path.exists(coreg_irspgr.filename):
+                if args.verbose:
+                    print('Coregistering IR-SPGR images...')
 
-        # if args.despot_b1_method == 'HIFI':
-        #     if not os.path.exists(coreg_irspgr._get_filename()):
-        #         if args.verbose:
-        #             print('Coregistering IR-SPGR images...')
+                if irspgr != None:
+                    coreg.multilinreg(input         = irspgr,
+                                      ref           = target_img,
+                                      out           = coreg_irspgr,
+                                      dof           = 6,
+                                      method        = args.despot_coregistration_method,
+                                      nthreads      = args.nthreads, 
+                                      debug         = args.verbose)
+        
+        elif args.despot_b1_method.lower == 'afi':
 
-        #         if raw_irspgr != None:
-        #             despot_coreg.coregister_images(input_img      = raw_irspgr,
-        #                                            reference_img  = target_img,
-        #                                            output_img     = coreg_irspgr,
-        #                                            method         = args.despot_coregistration_method)
+            if not os.path.exists(coreg_afi.filename):
+
+                if args.verbose:
+                    print('Coregistering AFI data')
+
+                if afi != None:
+                    afi_tools.coregister_afi(input_afi = afi, 
+                                             ref_img   = target_img, 
+                                             out_afi   = coreg_afi)
+                    
+                
+
+
+
+
+
+        
 
         # if args.despot_b1_method == 'AFI':
         #     if not os.path.exists(b1_map._get_filename()):
@@ -352,6 +362,13 @@ class DESPOTProcessingPipeline:
         #                     antspynet_modality   = args.despot_antspynet_modality,
         #                     nthreads             = args.nthreads)
 
+        
+        ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
+        
+        
+        
+        
+        
         # if args.despot1_fit_method != None:
         #     despot1_base = bids_id + '_model-DESPOT1_parameter-'
         #     despot1_model = 'DESPOT1'

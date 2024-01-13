@@ -5,6 +5,9 @@ import numpy as np
 import nibabel as nib
 from scipy.ndimage.filters import gaussian_filter
 
+from core.utils.io import Image
+import core.registration.linreg as coreg
+
 def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6):
 
     #Smooth the images
@@ -50,7 +53,7 @@ def compute_afi_b1map(input_afi, input_json, output_img, n=5, fwhm=6):
 
     arg = (r*n-1.0)/(n-r)
     arg[arg>1]=1
-    arg[arg<0]=1;
+    arg[arg<0]=1
 
     b1 = np.degrees(np.arccos(arg))/theta
 
@@ -60,16 +63,24 @@ def compute_afi_b1map(input_afi, input_json, output_img, n=5, fwhm=6):
     nib.save(b1map, output_img)
 
 
-def register_afi_flirt(input_afi, input_b1, ref_img, output_b1, dof='6', cost='normcorr', searchrx='30', searchry='30', searchrz='30'):
+def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', searchrx='30', searchry='30', searchrz='30'):
 
-    tmp_mat = os.path.split(output_b1._get_filename())[0] + '/tmp.mat'
-    tmp_img = os.path.split(output_b1._get_filename())[0] + '/tmp.nii.gz'
+    tmp_in  = Image(filename = os.path.join(os.path.dirname(out_afi.filename),"tmp.nii.gz"))
+    tmp_mat = os.path.join(os.path.dirname(out_afi.filename),"tmp.mat")
 
-    os.system('fslmaths ' + input_afi._get_filename() + ' -Tmean ' + tmp_img)
+    os.system('fslmaths ' + input_afi.filename + ' -Tmean ' + tmp_img.filename)
 
-    flirt_cmd = 'flirt -in ' + tmp_img + ' -ref ' + ref_img._get_filename() + ' -omat ' + tmp_mat + ' -dof 6 -searchrx -'+searchrx+' ' +searchrx + ' -searchry -'+searchry+ ' '+searchry + ' -searchrz -'+searchrz+' '+ searchrz
-    os.system(flirt_cmd)
+    flirt_opts = "-cost " + cost + " -searchrx -"+searchrx+" "+searchrx + " -searchry -"+searchry+" "+searchry + " -searchrz -"+searchrz+" "+searchrz
+    coreg.linreg(input                = tmp_in,
+                 ref                  = ref_img,
+                 out_mat              = tmp_mat,
+                 dof                  = dof,
+                 method               = "fsl", 
+                 flirt_options        = flirt_opts)
+    
 
-    os.system('flirt -in ' + input_b1._get_filename() + ' -ref ' + ref_img._get_filename() + ' -out ' + output_b1._get_filename() + ' -applyxfm -init ' + tmp_mat)
+    os.system("applyxfm4D " + input_afi.filename + " " + ref_img.filename + " " + out_afi.filename + " " + tmp_mat + " --singlematrix" )
+
+
     os.system('rm -rf ' + tmp_mat)
-    os.system('rm -rf ' + tmp_img)
+    os.system('rm -rf ' + tmp_in.filename)

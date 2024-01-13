@@ -28,28 +28,22 @@ def multilinreg(input, ref, out, dof=6, nthreads=1, method="fsl", flirt_options=
         tmp_out_img = Image(filename = os.path.join(tmp_dir, "coreg_img_"+str(i).zfill(4)+".nii.gz"))
         output_mat  = os.path.join(tmp_dir,"coreg_img_"+str(i).zfill(4)+".mat")
 
-        print(moving_img.filename)
-        print(tmp_out_img.filename)
-        print(debug)
-
-
-
         linreg(input                = moving_img,
-                ref                  = ref,
-                out_mat              = output_mat,
-                out                  = tmp_out_img,
-                dof                  = dof,
-                nthreads             = nthreads,
-                method               = method, 
-                flirt_options        = flirt_options,
-                ants_options         = ants_options,
-                freesurfer_subjs_dir = freesurfer_subjs_dir,
-                debug                = debug)
+               ref                  = ref,
+               out_mat              = output_mat,
+               out                  = tmp_out_img,
+               dof                  = dof,
+               nthreads             = nthreads,
+               method               = method, 
+               flirt_options        = flirt_options,
+               ants_options         = ants_options,
+               freesurfer_subjs_dir = freesurfer_subjs_dir,
+               debug                = debug)
                
         fslmerge_cmd += " " + tmp_out_img.filename
 
     subprocess.check_call([fslmerge_cmd], shell=True, stderr=subprocess.STDOUT)
-    #shutil.rmtree(tmp_dir)
+    shutil.rmtree(tmp_dir)
 
 
 if __name__ == '__main__':
