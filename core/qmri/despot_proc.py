@@ -351,34 +351,20 @@ class DESPOTProcessingPipeline:
 
 
 
-
-
+        brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz'"))
         
-
-        # if args.despot_b1_method == 'AFI':
-        #     if not os.path.exists(b1_map._get_filename()):
-        #         if args.verbose:
-        #             print('Coregistering AFI data')
-
-        #         if raw_afi_ref != None:
-        #             afi_tools.register_afi_flirt(input_afi        = raw_afi_ref,
-        #                                          input_b1         = raw_afi_b1,
-        #                                          ref_img          = target_img,
-        #                                          output_b1        = b1_map)
-
-        # brain_mask = Image(file = preprocess_dir + bids_id + '_desc-brain-mask.nii.gz')
-        # if not os.path.exists(brain_mask._get_filename()):
-        #     mask.mask_image(input_img            = target_img,
-        #                     output_mask          = brain_mask,
-        #                     method               = args.despot_mask_method,
-        #                     ref_img              = args.despot_ants_mask_template,
-        #                     ref_mask             = args.despot_ants_mask_template_mask,
-        #                     antspynet_modality   = args.despot_antspynet_modality,
-        #                     nthreads             = args.nthreads)
+        if not os.path.exists(brain_mask._get_filename()):
+            mask.mask_image(input_img            = target_img,
+                            output_mask          = brain_mask,
+                            method               = args.despot_mask_method,
+                            ref_img              = args.despot_ants_mask_template,
+                            ref_mask             = args.despot_ants_mask_template_mask,
+                            antspynet_modality   = args.despot_antspynet_modality,
+                            nthreads             = args.nthreads)
 
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
-        
+    
         
         
         
