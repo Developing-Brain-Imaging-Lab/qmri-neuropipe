@@ -375,7 +375,7 @@ class DESPOTProcessingPipeline:
             ssfp = denoise.denoise_image(input_img     = coreg_ssfp,
                                          output_file   = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-Denoised_VFA.nii.gz"),
                                          method        = args.despot_denoise_method, 
-                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-bSFSP-NoiseMap.nii.gz"), 
+                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-NoiseMap.nii.gz"), 
                                          nthreads      = args.nthreads, 
                                          debug         = args.verbose)
         
