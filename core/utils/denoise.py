@@ -47,9 +47,8 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
     elif method=="ants":
         CMD="DenoiseImage -d 3 -i " + input_img.filename + " -n " + noise_model
 
-        # if mask:
-        #     CMD += " -x " + mask.filename
-            
+        if mask:
+            CMD += " -x " + mask.filename
         if noise_map:
             CMD += " -o [" + output_img.filename + "," + noise_map + "]"
         else:

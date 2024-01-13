@@ -93,7 +93,7 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--despot_denoise_method',
                             type=str,
                             help='Method for Denoising DESPOT Data',
-                            choices=['mrtrix', 'dipy-nlmeans', 'dipy-localpca', 'dipy-mppca', 'dipy-patch2self'],
+                            choices=['mrtrix', 'dipy-nlmeans', 'dipy-localpca', 'dipy-mppca'],
                             default='mrtrix')
 
         parser.add_argument('--despot_gibbs_correction_method',
@@ -368,7 +368,6 @@ class DESPOTProcessingPipeline:
             spgr = denoise.denoise_image(input_img     = coreg_spgr,
                                          output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
                                          method        = args.despot_denoise_method, 
-                                         mask          = brain_mask, 
                                          noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
                                          nthreads      = args.nthreads, 
                                          debug         = args.verbose)
@@ -376,7 +375,6 @@ class DESPOTProcessingPipeline:
             ssfp = denoise.denoise_image(input_img     = coreg_ssfp,
                                          output_file   = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-Denoised_VFA.nii.gz"),
                                          method        = args.despot_denoise_method, 
-                                         mask          = brain_mask, 
                                          noise_map     = os.path.join(anat_preproc_dir, id+"_desc-bSFSP-NoiseMap.nii.gz"), 
                                          nthreads      = args.nthreads, 
                                          debug         = args.verbose)
