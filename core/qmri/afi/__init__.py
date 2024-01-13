@@ -7,6 +7,7 @@ from scipy.ndimage.filters import gaussian_filter
 
 from core.utils.io import Image
 import core.registration.linreg as coreg
+import core.registration.apply_transform as transform
 
 def compute_afi_b1map(input_img1, input_img2, output_img, theta=55, n=5, fwhm=6):
 
@@ -78,9 +79,21 @@ def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', search
                  method               = "fsl", 
                  flirt_options        = flirt_opts)
     
+    merge_cmd="fslmerge -t " + out_afi.filename
+    for i in range(0,2):
+        
+        os.system('fslroi ' + input_afi.filename + " " + tmp_in.filename + " " + str(i) + " 1")
+        tmp_out  = Image(filename = os.path.join(os.path.dirname(out_afi.filename),"tmp_"+str(i)+".nii.gz"))
 
-    os.system("applyxfm4D " + input_afi.filename + " " + ref_img.filename + " " + out_afi.filename + " " + tmp_mat + " --singlematrix" )
-
-
+        transform.apply_transform(input     = tmp_in,
+                                  ref       = ref_img, 
+                                  out       = tmp_out,
+                                  transform = tmp_mat,
+                                  method    = "fsl")
+        
+        merge_cmd += " " + tmp_out.filename
+    
+    os.system(merge_cmd)
+        
     os.system('rm -rf ' + tmp_mat)
     os.system('rm -rf ' + tmp_in.filename)
