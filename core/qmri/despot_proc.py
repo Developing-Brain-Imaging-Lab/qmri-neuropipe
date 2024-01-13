@@ -239,6 +239,11 @@ class DESPOTProcessingPipeline:
         ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP_VFA.nii.gz'),
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP_VFA.json'))
         
+        spgr_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR-preproc_VFA.nii.gz'),
+                             json     = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.json'))
+        ssfp_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP-preproc_VFA.nii.gz'),
+                             json     = os.path.join(anat_preproc_dir, id+'_desc-bSSFP-preproc_VFA.json'))
+        
         irspgr = None
         if args.despot_b1_method.lower() == 'hifi':
             irspgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.nii.gz'),
@@ -252,12 +257,10 @@ class DESPOTProcessingPipeline:
             if not os.path.exists(fmap_preproc_dir):
                 os.makedirs(fmap_preproc_dir)
 
-
         create_processing_json(despot_json = fitparam_json,
                                spgr_img    = spgr,
                                ssfp_img    = ssfp,
                                irspgr_img  = irspgr)
-
 
         #Create target image and coregister images to the target
         target_img = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-Ref_T1w.nii.gz'))
@@ -349,8 +352,6 @@ class DESPOTProcessingPipeline:
                                             fwhm  = 6)
                 
 
-
-
         brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz"))
         if not brain_mask.exists():
             mask.mask_image(input               = target_img,
@@ -363,8 +364,22 @@ class DESPOTProcessingPipeline:
 
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
-
-        
+        if args.despot_denoise_method:
+            spgr = denoise.denoise_image(input_img     = coreg_spgr,
+                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
+                                         method        = args.despot_denoise_method, 
+                                         mask          = brain_mask, 
+                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
+                                         nthreads      = args.nthreads, 
+                                         debug         = args.verbose)
+            
+            ssfp = denoise.denoise_image(input_img     = coreg_ssfp,
+                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-Denoised_VFA.nii.gz"),
+                                         method        = args.despot_denoise_method, 
+                                         mask          = brain_mask, 
+                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-bSFSP-NoiseMap.nii.gz"), 
+                                         nthreads      = args.nthreads, 
+                                         debug         = args.verbose)
         
         
         
