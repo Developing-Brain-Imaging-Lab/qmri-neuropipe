@@ -242,12 +242,12 @@ class DESPOTProcessingPipeline:
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP_VFA.json'))
         
         irspgr = None
-        if args.despot_b1_method == 'HIFI':
+        if args.despot_b1_method.lower() == 'hifi':
             irspgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.nii.gz'),
                            json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.json'))
 
         afi = None
-        if args.despot_b1_method == 'AFI':
+        if args.despot_b1_method.lower() == 'afi':
             afi = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.nii.gz'),
                         json     = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.json'))
 
