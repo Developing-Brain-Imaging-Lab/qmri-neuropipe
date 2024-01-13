@@ -261,7 +261,7 @@ class DESPOTProcessingPipeline:
 
         #Create target image and coregister images to the target
         target_img = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-Ref_T1w.nii.gz'))
-        if not os.path.exists(target_img.filename):
+        if not target_img.exists():
             if args.verbose:
                 print("Creating Target Image for Coregistration")
 
@@ -279,7 +279,7 @@ class DESPOTProcessingPipeline:
         coreg_b1map  = None
 
         #Coregister SPGR
-        if not os.path.exists(coreg_spgr.filename):
+        if not coreg_spgr.exists():
             if args.verbose:
                 print('Coregistering SPGR images...')
 
@@ -293,7 +293,7 @@ class DESPOTProcessingPipeline:
                                   debug         = args.verbose)
 
         #Coregister SSFP
-        if not os.path.exists(coreg_ssfp.filename):
+        if not coreg_ssfp.exists():
             if args.verbose:
                 print('Coregistering SSFP images...')
 
@@ -312,7 +312,7 @@ class DESPOTProcessingPipeline:
             coreg_irspgr = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-HIFI_T1w.nii.gz"),
                                  json     = irspgr.json)
             
-            if not os.path.exists(coreg_irspgr.filename):
+            if not coreg_irspgr.exists():
                 if args.verbose:
                     print('Coregistering IR-SPGR images...')
 
@@ -332,7 +332,7 @@ class DESPOTProcessingPipeline:
             
             coreg_b1map  = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1map.nii.gz"))
 
-            if not os.path.exists(coreg_afi.filename):
+            if not coreg_afi.exists():
                 if args.verbose:
                     print('Coregistering AFI data')
 
@@ -351,9 +351,8 @@ class DESPOTProcessingPipeline:
 
 
 
-        brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz'"))
-        
-        if not os.path.exists(brain_mask._get_filename()):
+        brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz"))
+        if not brain_mask.exists():
             mask.mask_image(input_img            = target_img,
                             output_mask          = brain_mask,
                             method               = args.despot_mask_method,
@@ -364,7 +363,7 @@ class DESPOTProcessingPipeline:
 
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
-    
+
         
         
         
