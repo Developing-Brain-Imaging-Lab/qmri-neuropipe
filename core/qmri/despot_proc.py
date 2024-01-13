@@ -328,6 +328,8 @@ class DESPOTProcessingPipeline:
                 if args.verbose:
                     print('Coregistering AFI data')
 
+                print(afi.filename)
+
                 if afi != None:
                     afi_tools.coregister_afi(input_afi = afi, 
                                              ref_img   = target_img, 
