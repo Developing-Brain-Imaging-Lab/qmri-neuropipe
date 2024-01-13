@@ -321,7 +321,7 @@ class DESPOTProcessingPipeline:
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
         
-        elif args.despot_b1_method.lower == 'afi':
+        elif args.despot_b1_method.lower() == 'afi':
 
             if not os.path.exists(coreg_afi.filename):
 
