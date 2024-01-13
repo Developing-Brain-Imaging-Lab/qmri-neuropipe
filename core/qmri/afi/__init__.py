@@ -68,7 +68,7 @@ def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', search
     tmp_in  = Image(filename = os.path.join(os.path.dirname(out_afi.filename),"tmp.nii.gz"))
     tmp_mat = os.path.join(os.path.dirname(out_afi.filename),"tmp.mat")
 
-    os.system('fslmaths ' + input_afi.filename + ' -Tmean ' + tmp_img.filename)
+    os.system('fslmaths ' + input_afi.filename + ' -Tmean ' + tmp_in.filename)
 
     flirt_opts = "-cost " + cost + " -searchrx -"+searchrx+" "+searchrx + " -searchry -"+searchry+" "+searchry + " -searchrz -"+searchrz+" "+searchrz
     coreg.linreg(input                = tmp_in,
