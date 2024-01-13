@@ -61,7 +61,13 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
         img = nib.load(input_img.filename)
         data = img.get_fdata()
         mask_data = nib.load(mask.filename).get_fdata()
-        sigma = pca_noise_estimate(data, gtab, correct_bias=True, smooth=2)
+        sigma = 0
+        
+        if input_img.get_type() == "DWImage":
+            sigma = pca_noise_estimate(data, gtab, correct_bias=True, smooth=2)
+        else:
+            sigma = estimate_sigma(data)
+
         if method=='dipy-nlmeans':
             denoised_arr = nlmeans(data,sigma=sigma, mask=mask_data, rician=True, patch_radius=2, block_radius=2)
         elif method=='dipy-localpca':
