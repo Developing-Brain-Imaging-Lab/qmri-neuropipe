@@ -236,13 +236,13 @@ class DESPOTProcessingPipeline:
 
         spgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR_VFA.nii.gz'),
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR_VFA.json'))
-        ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP_VFA.nii.gz'),
-                     json     = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP_VFA.json'))
+        ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.nii.gz'),
+                     json     = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.json'))
         
         spgr_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR-preproc_VFA.nii.gz'),
                              json     = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.json'))
-        ssfp_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-bSSFP-preproc_VFA.nii.gz'),
-                             json     = os.path.join(anat_preproc_dir, id+'_desc-bSSFP-preproc_VFA.json'))
+        ssfp_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP-preproc_VFA.nii.gz'),
+                             json     = os.path.join(anat_preproc_dir, id+'_desc-SSFP-preproc_VFA.json'))
         
         irspgr = None
         if args.despot_b1_method.lower() == 'hifi':
@@ -261,6 +261,36 @@ class DESPOTProcessingPipeline:
                                spgr_img    = spgr,
                                ssfp_img    = ssfp,
                                irspgr_img  = irspgr)
+        
+        ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
+        if args.despot_denoise_method:
+            spgr = denoise.denoise_image(input_img     = spgr,
+                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
+                                         method        = args.despot_denoise_method, 
+                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
+                                         nthreads      = args.nthreads, 
+                                         debug         = args.verbose)
+            
+            ssfp = denoise.denoise_image(input_img     = ssfp,
+                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
+                                         method        = args.despot_denoise_method, 
+                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
+                                         nthreads      = args.nthreads, 
+                                         debug         = args.verbose)
+            
+        if args.despot_gibbs_correction_method:
+            spgr = gibbs_ringing_correction(input_img   = spgr,
+                                            output_file = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz"),
+                                            method      = args.despot_gibbs_correction_method, 
+                                            nthreads    = args.nthreads, 
+                                            debug       = args.verbose)
+
+            ssfp = gibbs_ringing_correction(input_img   = ssfp,
+                                            output_file = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz"),
+                                            method      = args.despot_gibbs_correction_method, 
+                                            nthreads    = args.nthreads, 
+                                            debug       = args.verbose)
+
 
         #Create target image and coregister images to the target
         target_img = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-Ref_T1w.nii.gz'))
@@ -275,8 +305,8 @@ class DESPOTProcessingPipeline:
             ref_img.to_filename(target_img.filename)
 
 
-        coreg_spgr   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SPGR_VFA.nii.gz"),)
-        coreg_ssfp   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-bSSFP_VFA.nii.gz"))        
+        coreg_spgr   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SPGR_VFA.nii.gz"))
+        coreg_ssfp   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SSFP_VFA.nii.gz"))        
         coreg_irspgr = None 
         coreg_afi    = None
         coreg_b1map  = None
@@ -363,21 +393,7 @@ class DESPOTProcessingPipeline:
                             nthreads            = args.nthreads)
 
         
-        ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
-        if args.despot_denoise_method:
-            spgr = denoise.denoise_image(input_img     = coreg_spgr,
-                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
-                                         method        = args.despot_denoise_method, 
-                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
-                                         nthreads      = args.nthreads, 
-                                         debug         = args.verbose)
-            
-            ssfp = denoise.denoise_image(input_img     = coreg_ssfp,
-                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-Denoised_VFA.nii.gz"),
-                                         method        = args.despot_denoise_method, 
-                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-bSSFP-NoiseMap.nii.gz"), 
-                                         nthreads      = args.nthreads, 
-                                         debug         = args.verbose)
+
         
         
         
