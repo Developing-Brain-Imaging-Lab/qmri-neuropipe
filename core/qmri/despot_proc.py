@@ -351,7 +351,7 @@ class DESPOTProcessingPipeline:
 
         #Create target image and coregister images to the target
         target_img = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-Ref_T1w.nii.gz'))
-        if not target_img.exists():
+        if not spgr_preproc.exists() and not target_img.exists():
             if args.verbose:
                 print("Creating Target Image for Coregistration")
 
