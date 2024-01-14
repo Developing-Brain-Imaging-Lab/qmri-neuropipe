@@ -457,7 +457,7 @@ class DESPOTProcessingPipeline:
                 despot1_model = "DESPOT1"
 
             despot1_base = writing.build_path(entities, despot1_base_pattern)
-            if not os.path.exists(despot1_base+'T1.nii.gz'):
+            if not os.path.exists(os.path.join(despot_models_dir,despot1_base+'T1.nii.gz')):
                 if args.verbose:
                     print("Fitting DESPOT1 model with " + args.despot1_fit_method + "...")
 
@@ -475,81 +475,35 @@ class DESPOTProcessingPipeline:
 
                 model.fit()
         
-        # if args.despot1_fit_method != None:
-             
-        #     model_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
+        if args.despot2_fit_method != None:
+            despot2_model        = "DESPTO2-FM"
+            despot2_base = writing.build_path(entities, "sub-{subject}[_ses-{session}]_model-DESPOT2-FM_param-")            
+            
+            if not os.path.exists(os.path.join(despot_models_dir, despot2_base+'T2.nii.gz')):
+                if args.verbose:
+                    print('Fitting DESPOT2-FM model...')
 
 
-        #     despot1_base = bids_id + '_model-DESPOT1_parameter-'
-        #     despot1_model = 'DESPOT1'
+                model = DESPOT2_Model(ssfp       = ssfp_preproc,
+                                      params     = fitparam_json,
+                                      out_dir    = despot_models_dir,
+                                       out_base  = despot2_base,
+                                       t1        = Image(filename = os.path.join(despot_models_dir,despot1_base+"T1.nii.gz")),
+                                       b1        = afi_b1map,
+                                       mask      = brain_mask,
+                                       model     = despot2_model,
+                                       algorithm = args.despot2_fit_method,
+                                       nthreads  = args.nthreads,
+                                       verbose   = args.verbose)
 
-        #     if args.despot_b1_method == 'HIFI':
-        #         despot1_base = bids_id + '_model-HIFI_parameter-'
-        #         despot1_model = 'HIFI'
-
-        #     if not os.path.exists(despot1_dir + despot1_base + 'T1.nii.gz'):
-        #         if args.verbose:
-        #             print('Fitting DESPOT1 model...')
-
-
-        #         despot1_model = DESPOT1_Model(spgr_img      = coreg_spgr,
-        #                                       params        = despot_json,
-        #                                       out_dir       = despot1_dir,
-        #                                       out_base      = despot1_base,
-        #                                       b1            = b1_map,
-        #                                       irspgr_img    = coreg_irspgr,
-        #                                       mask          = brain_mask,
-        #                                       model         = despot1_model,
-        #                                       fit_algorithm = args.despot1_fit_method,
-        #                                       nthreads      = args.nthreads,
-        #                                       verbose       = args.verbose)
-
-        #         despot1_model.fit()
+                model.fit()
                 
-        #         exit()
+                if args.verbose:
+                    print('Smoothing F0')
 
-        #         if args.despot_b1_method == 'HIFI':
-        #             #Smooth the output B1 map, and refit using DESPOT1 code
-        #             print('Smoothing B1')
-        #             os.system('fslmaths ' + b1_map._get_filename() + ' -s 2.55 ' + despot1_dir + '/tmp_b1.nii.gz')
-        #             os.system('fslmaths ' + brain_mask._get_filename() + ' -s 2.55 ' + despot1_dir + '/tmp_mask.nii.gz')
-        #             os.system('fslmaths ' + despot1_dir +'/tmp_b1.nii.gz -div ' + despot1_dir + '/tmp_mask.nii.gz -mas ' + brain_mask._get_filename()+ ' ' + b1_map._get_filename()  )
-        #             os.remove(despot1_dir + '/tmp_mask.nii.gz')
-        #             os.remove(despot1_dir + '/tmp_b1.nii.gz')
-
-        #             despot1_model.set_b1(b1 = b1_map)
-        #             despot1_model.set_model('DESPOT1')
-        #             despot1_model.fit()
-
-        # if args.despot2_fit_method != None:
-        #     despot2_base = bids_id + '_model-DESPOT2_parameter-'
-        #     despot2_model = 'DESPOT2-FM'
-
-        #     if not os.path.exists(despot2_dir + despot2_base + 'T2.nii.gz'):
-        #         if args.verbose:
-        #             print('Fitting DESPOT2-FM model...')
-
-
-        #         despot2_model = DESPOT2_Model(ssfp_img      = coreg_ssfp,
-        #                                       params        = despot_json,
-        #                                       out_dir       = despot2_dir,
-        #                                       out_base      = despot2_base,
-        #                                       t1            = Image(file = despot1_dir + despot1_base + 'T1.nii.gz'),
-        #                                       b1            = b1_map,
-        #                                       mask          = brain_mask,
-        #                                       model         = despot2_model,
-        #                                       fit_algorithm = args.despot2_fit_method,
-        #                                       nthreads      = args.nthreads,
-        #                                       verbose       = args.verbose)
-
-        #         despot2_model.fit()
-                
-        #         if args.verbose:
-        #             print('Smoothing F0')
-
-        #         os.system('fslmaths ' + brain_mask._get_filename() + ' -s 2.55 ' + despot2_dir + '/tmp_mask.nii.gz')
-        #         os.system('fslmaths ' + despot2_dir + despot2_base + 'F0.nii.gz -s 2.55 -div ' + despot2_dir + '/tmp_mask.nii.gz -mas ' + brain_mask._get_filename() + ' ' + despot2_dir + despot2_base + 'F0.nii.gz' )
-        #         os.remove(despot2_dir + '/tmp_mask.nii.gz')
+                os.system('fslmaths ' + brain_mask._get_filename() + ' -s 2.55 ' + despot2_dir + '/tmp_mask.nii.gz')
+                os.system('fslmaths ' + despot2_dir + despot2_base + 'F0.nii.gz -s 2.55 -div ' + despot2_dir + '/tmp_mask.nii.gz -mas ' + brain_mask._get_filename() + ' ' + despot2_dir + despot2_base + 'F0.nii.gz' )
+                os.remove(despot2_dir + '/tmp_mask.nii.gz')
 
 
         # if args.mcdespot_fit_method != None and args.mcdespot_fit != False:
