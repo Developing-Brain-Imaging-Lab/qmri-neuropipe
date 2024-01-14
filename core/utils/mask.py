@@ -54,6 +54,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, re
 
         subprocess.run([CMD], shell=True, stdout=logfile)
         os.rename(temp_mask+"_mask.nii.gz", mask.filename)
+        os.remove(temp_mask+".nii.gz")
 
     elif algo == "dipy":
 

@@ -62,7 +62,7 @@ def compute_afi_b1map(afi, b1map, fwhm=6):
     b1img = nib.Nifti1Image(b1.astype(np.float32), afi_img.affine, afi_img.header)
     b1img.set_sform(afi_img.get_sform())
     b1img.set_qform(afi_img.get_qform())
-    
+
     nib.save(b1img, b1map.filename)
 
 
@@ -83,7 +83,6 @@ def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', search
     
     merge_cmd="fslmerge -t " + out_afi.filename
     for i in range(0,2):
-        
         os.system('fslroi ' + input_afi.filename + " " + tmp_in.filename + " " + str(i) + " 1")
         tmp_out  = Image(filename = os.path.join(os.path.dirname(out_afi.filename),"tmp_"+str(i)+".nii.gz"))
 
@@ -97,5 +96,6 @@ def coregister_afi(input_afi, ref_img, out_afi, dof='6', cost='normcorr', search
     
     os.system(merge_cmd)
         
+    os.system("rm -rf " + os.path.join(os.path.dirname(out_afi.filename),"tmp_*.nii.gz"))
     os.system('rm -rf ' + tmp_mat)
     os.system('rm -rf ' + tmp_in.filename)

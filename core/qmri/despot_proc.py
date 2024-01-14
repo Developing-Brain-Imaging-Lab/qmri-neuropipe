@@ -54,6 +54,10 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--preproc_derivative_dir',
                             type=str, help='Preprocessing Derivative Output',
                             default='despot-neuropipe-preproc')
+        
+        parser.add_argument('--models_derivative_dir',
+                            type=str, help='BIDS PIPELINE Name',
+                            default='despot-neuropipe-models')
 
         parser.add_argument('--nthreads',
                             type=int,
@@ -233,8 +237,6 @@ class DESPOTProcessingPipeline:
         if not os.path.exists(anat_preproc_dir):
             os.makedirs(anat_preproc_dir)
 
-        fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
-
         spgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR_VFA.nii.gz'),
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR_VFA.json'))
         ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.nii.gz'),
@@ -246,18 +248,30 @@ class DESPOTProcessingPipeline:
                              json     = os.path.join(anat_preproc_dir, id+'_desc-SSFP-preproc_VFA.json'))
         
         irspgr = None
+        irspgr_preproc = None
         if args.despot_b1_method.lower() == 'hifi':
             irspgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.nii.gz'),
                            json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.json'))
+            
+            irspgr_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI-preproc_T1w.nii.gz'),
+                                   json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI-preproc_T1w.json'))
 
         afi = None
+        afi_preproc = None
+        afi_b1map = None
         if args.despot_b1_method.lower() == 'afi':
             afi = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.nii.gz'),
                         json     = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.json'))
             
+            afi_preproc = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_desc-preproc_TB1AFI.nii.gz'),
+                                json     = os.path.join(rawdata_dir, 'fmap',id+'_desc-preproc_TB1AFI.json'))
+            
+            afi_b1map = Image(filename = os.path.join(fmap_preproc_dir, id+"_TB1map.nii.gz"))
+            
             if not os.path.exists(fmap_preproc_dir):
                 os.makedirs(fmap_preproc_dir)
 
+        fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
         create_processing_json(despot_json = fitparam_json,
                                spgr_img    = spgr,
                                ssfp_img    = ssfp,
@@ -306,35 +320,29 @@ class DESPOTProcessingPipeline:
             ref_img.to_filename(target_img.filename)
 
 
-        coreg_spgr   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SPGR_VFA.nii.gz"))
-        coreg_ssfp   = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-SSFP_VFA.nii.gz"))        
-        coreg_irspgr = None 
-        coreg_afi    = None
-        coreg_b1map  = None
-
         #Coregister SPGR
-        if not coreg_spgr.exists():
+        if not spgr_preproc.exists():
             if args.verbose:
                 print('Coregistering SPGR images...')
 
             if spgr != None:
                 coreg.multilinreg(input         = spgr,
                                   ref           = target_img,
-                                  out           = coreg_spgr,
+                                  out           = spgr_preproc,
                                   dof           = 6,
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
 
         #Coregister SSFP
-        if not coreg_ssfp.exists():
+        if not ssfp_preproc.exists():
             if args.verbose:
                 print('Coregistering SSFP images...')
 
             if ssfp != None:
                 coreg.multilinreg(input         = ssfp,
                                   ref           = target_img,
-                                  out           = coreg_ssfp,
+                                  out           = ssfp_preproc,
                                   dof           = 6,
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
@@ -342,44 +350,32 @@ class DESPOTProcessingPipeline:
 
 
         if args.despot_b1_method.lower() == 'hifi':
-
-            coreg_irspgr = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-Coreg-HIFI_T1w.nii.gz"),
-                                 json     = irspgr.json)
-            
-            if not coreg_irspgr.exists():
+            if not irspgr_preproc.exists():
                 if args.verbose:
                     print('Coregistering IR-SPGR images...')
 
                 if irspgr != None:
                     coreg.multilinreg(input         = irspgr,
                                       ref           = target_img,
-                                      out           = coreg_irspgr,
+                                      out           = irspgr_preproc,
                                       dof           = 6,
                                       method        = args.despot_coregistration_method,
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
         
         elif args.despot_b1_method.lower() == 'afi':
-
-            coreg_afi    = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1AFI.nii.gz"),
-                                 json     = afi.json)
-            
-            coreg_b1map  = Image(filename = os.path.join(fmap_preproc_dir, id+"_desc-Coreg-TB1map.nii.gz"))
-
-            if not coreg_afi.exists():
+            if not afi_preproc.exists():
                 if args.verbose:
                     print('Coregistering AFI data')
-
-                print(afi.filename)
 
                 if afi != None:
                     afi_tools.coregister_afi(input_afi = afi, 
                                              ref_img   = target_img, 
-                                             out_afi   = coreg_afi)
+                                             out_afi   = afi_preproc)
                 
-            if not coreg_b1map.exists():
-                afi_tools.compute_afi_b1map(afi   = coreg_afi,
-                                            b1map = coreg_b1map,
+            if not afi_b1map.exists():
+                afi_tools.compute_afi_b1map(afi   = afi_preproc,
+                                            b1map = afi_b1map,
                                             fwhm  = 6)
                 
 
@@ -394,11 +390,43 @@ class DESPOTProcessingPipeline:
                             nthreads            = args.nthreads)
 
         
+    
+        ############# DESPOT MODEL FITTING #################
+        despot_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","anat",)
+        despot_models_dir     = writing.build_path(entities, despot_model_patterns)
+        
+        ###DTI MODELING ###
+        if args.despot1_fit_method != None:
+            
+            T1map_patterns = None
+            if args.despot_b1_method.lower() == 'hifi':
+                T1map_patterns = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-T1.nii.gz")
+            else:
+                T1map_patterns = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1_param-T1.nii.gz")
+            
+            if not os.path.exists(writing.build_path(entities, T1map_patterns)):
+                if args.verbose:
+                    print("Fitting DESPOT1 model with " + args.despot1_fit_method + "...")
 
-        
-        
+                despot1_model = DESPOT1_Model(spgr_img      = spgr_preproc,
+                                              params        = despot_json,
+                                              out_dir       = despot1_dir,
+                                              out_base      = despot1_base,
+                                              b1            = b1_map,
+                                              irspgr_img    = coreg_irspgr,
+                                              mask          = brain_mask,
+                                              model         = despot1_model,
+                                              fit_algorithm = args.despot1_fit_method,
+                                              nthreads      = args.nthreads,
+                                              verbose       = args.verbose)
+
+                despot1_model.fit()
         
         # if args.despot1_fit_method != None:
+             
+        #     model_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
+
+
         #     despot1_base = bids_id + '_model-DESPOT1_parameter-'
         #     despot1_model = 'DESPOT1'
 
