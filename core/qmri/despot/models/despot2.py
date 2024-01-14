@@ -2,7 +2,7 @@ import os
 
 #GLOBAL EXECUTABLES HERE
 DESPOT_PATH = os.getenv('DESPOT_PATH')
-despot1_exe = os.path.join(DESPOT_PATH, "despot2")
+despot2_exe = os.path.join(DESPOT_PATH, "despot2")
 
 class DESPOT2_Model():
     def __init__(self, ssfp, params, t1, b1, out_dir, f0=None, out_base=None, model='DESPOT2-FM', algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
