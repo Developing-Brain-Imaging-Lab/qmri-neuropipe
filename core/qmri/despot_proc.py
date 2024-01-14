@@ -4,9 +4,6 @@ import nibabel as nib
 from bids.layout import writing
 from core.utils.io import Image
 
-import core.anat.workflows.prep_rawdata as raw_proc
-import core.utils.workflows.denoise_degibbs as img_proc
-
 import core.utils.tools as img_tools
 import core.utils.mask as mask
 import core.utils.denoise as denoise
@@ -270,12 +267,6 @@ class DESPOTProcessingPipeline:
             
             if not os.path.exists(fmap_preproc_dir):
                 os.makedirs(fmap_preproc_dir)
-
-        fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
-        create_processing_json(despot_json = fitparam_json,
-                               spgr_img    = spgr,
-                               ssfp_img    = ssfp,
-                               irspgr_img  = irspgr)
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
         if args.despot_denoise_method:
@@ -333,6 +324,7 @@ class DESPOTProcessingPipeline:
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
+                copy.copyfile(spgr.json, spgr_preproc.json)
 
         #Coregister SSFP
         if not ssfp_preproc.exists():
@@ -347,6 +339,7 @@ class DESPOTProcessingPipeline:
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
+                copy.copyfile(ssfp.json, ssfp_preproc.json)
 
 
         if args.despot_b1_method.lower() == 'hifi':
@@ -362,6 +355,7 @@ class DESPOTProcessingPipeline:
                                       method        = args.despot_coregistration_method,
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
+                    copy.copyfile(irspgr.json, irspgr_preproc.json)
         
         elif args.despot_b1_method.lower() == 'afi':
             if not afi_preproc.exists():
@@ -372,6 +366,7 @@ class DESPOTProcessingPipeline:
                     afi_tools.coregister_afi(input_afi = afi, 
                                              ref_img   = target_img, 
                                              out_afi   = afi_preproc)
+                    copy.copyfile(afi.json, afi_preproc.json)
                 
             if not afi_b1map.exists():
                 afi_tools.compute_afi_b1map(afi   = afi_preproc,
@@ -389,7 +384,11 @@ class DESPOTProcessingPipeline:
                             antspynet_modality  = args.despot_antspynet_modality,
                             nthreads            = args.nthreads)
 
-        
+        fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
+        create_processing_json(despot_json = fitparam_json,
+                               spgr_img    = spgr_preproc,
+                               ssfp_img    = ssfp_preproc,
+                               irspgr_img  = irspgr_preproc)
     
         ############# DESPOT MODEL FITTING #################
         despot_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","anat",)
