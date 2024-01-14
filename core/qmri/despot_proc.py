@@ -1,4 +1,4 @@
-import os,sys, shutil, json, argparse, copy
+import os, shutil, json, argparse
 import nibabel as nib
 
 from bids.layout import writing
@@ -13,7 +13,7 @@ from core.qmri.despot.utils.json import create_processing_json
 import core.registration.multilinreg as coreg
 import core.qmri.afi as afi_tools
 
-#from core.qmri.despot.models.despot1 import DESPOT1_Model
+from core.qmri.despot.models.despot1 import DESPOT1_Model
 #from core.qmri.despot.models.despot2 import DESPOT2_Model
 #from core.qmri.despot.models.mcdespot import MCDESPOT_Model
 
@@ -324,7 +324,7 @@ class DESPOTProcessingPipeline:
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
-                copy.copyfile(spgr.json, spgr_preproc.json)
+                shutil.copy2(spgr.json, spgr_preproc.json)
 
         #Coregister SSFP
         if not ssfp_preproc.exists():
@@ -339,7 +339,7 @@ class DESPOTProcessingPipeline:
                                   method        = args.despot_coregistration_method,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
-                copy.copyfile(ssfp.json, ssfp_preproc.json)
+                shutil.copy2(ssfp.json, ssfp_preproc.json)
 
 
         if args.despot_b1_method.lower() == 'hifi':
@@ -355,7 +355,7 @@ class DESPOTProcessingPipeline:
                                       method        = args.despot_coregistration_method,
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
-                    copy.copyfile(irspgr.json, irspgr_preproc.json)
+                    shutil.copy2(irspgr.json, irspgr_preproc.json)
         
         elif args.despot_b1_method.lower() == 'afi':
             if not afi_preproc.exists():
@@ -366,7 +366,7 @@ class DESPOTProcessingPipeline:
                     afi_tools.coregister_afi(input_afi = afi, 
                                              ref_img   = target_img, 
                                              out_afi   = afi_preproc)
-                    copy.copyfile(afi.json, afi_preproc.json)
+                    shutil.copy2(afi.json, afi_preproc.json)
                 
             if not afi_b1map.exists():
                 afi_tools.compute_afi_b1map(afi   = afi_preproc,
@@ -396,30 +396,33 @@ class DESPOTProcessingPipeline:
         
         ###DTI MODELING ###
         if args.despot1_fit_method != None:
-            
-            T1map_patterns = None
+            despot1_base_pattern = None
+            despot1_model        = None
             if args.despot_b1_method.lower() == 'hifi':
-                T1map_patterns = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-T1.nii.gz")
+                despot1_base_pattern = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-")
+                despot1_model = "HIFI"
             else:
-                T1map_patterns = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1_param-T1.nii.gz")
-            
-            if not os.path.exists(writing.build_path(entities, T1map_patterns)):
+                despot1_base_pattern = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1_param-")
+                despot1_model = "DESPOT1"
+
+            despot1_base = writing.build_path(entities, despot1_base_pattern)
+            if not os.path.exists(despot1_base+'T1.nii.gz'):
                 if args.verbose:
                     print("Fitting DESPOT1 model with " + args.despot1_fit_method + "...")
 
-                despot1_model = DESPOT1_Model(spgr_img      = spgr_preproc,
-                                              params        = despot_json,
-                                              out_dir       = despot1_dir,
-                                              out_base      = despot1_base,
-                                              b1            = b1_map,
-                                              irspgr_img    = coreg_irspgr,
-                                              mask          = brain_mask,
-                                              model         = despot1_model,
-                                              fit_algorithm = args.despot1_fit_method,
-                                              nthreads      = args.nthreads,
-                                              verbose       = args.verbose)
+                model = DESPOT1_Model(spgr_img      = spgr_preproc,
+                                      params        = fitparam_json,
+                                      out_dir       = despot_models_dir,
+                                      out_base      = despot1_base,
+                                      b1            = afi_b1map,
+                                      irspgr_img    = irspgr_preproc,
+                                      mask          = brain_mask,
+                                      model         = despot1_model,
+                                      fit_algorithm = args.despot1_fit_method,
+                                      nthreads      = args.nthreads,
+                                      verbose       = args.verbose)
 
-                despot1_model.fit()
+                model.fit()
         
         # if args.despot1_fit_method != None:
              

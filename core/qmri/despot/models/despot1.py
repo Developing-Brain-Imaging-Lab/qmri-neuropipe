@@ -5,7 +5,7 @@ DESPOT_PATH= os.getenv('DESPOT_PATH')
 despot1_exe = os.path.join(DESPOT_PATH, "despot1")
 
 class DESPOT1_Model():
-    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='DESPOT1', fit_algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
+    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='despot1', fit_algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
         self._inputs = {}
         self._inputs['spgr']    = spgr
         self._inputs['irspgr']  = irspgr
@@ -36,9 +36,9 @@ class DESPOT1_Model():
         if self._inputs['mask'] != None:
             despot1_cmd += ' --mask=' + self._inputs['mask'].filename
 
-        if self._inputs['model'] == 'HIFI':
+        if self._inputs['model'].lower() == 'hifi':
             despot1_cmd += ' --irspgr=' + self._inputs['irspgr'].filename
-        elif self._inputs['model'] == 'DESPOT1':
+        elif self._inputs['model'].lower() == 'despot1':
             despot1_cmd += ' --b1='+self._inputs['b1'].filename
         else:
             print('Need to specify a B1-Map or IR-SPGR for HIFI')
