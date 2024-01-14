@@ -1,20 +1,20 @@
 import os
 
 #GLOBAL EXECUTABLES HERE
-DESPOT_PATH= os.getenv('DESPOT_PATH')
+DESPOT_PATH = os.getenv('DESPOT_PATH')
 despot1_exe = os.path.join(DESPOT_PATH, "despot1")
 
 class DESPOT1_Model():
-    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='despot1', fit_algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
+    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='despot1', algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
         self._inputs = {}
-        self._inputs['spgr']    = spgr
-        self._inputs['irspgr']  = irspgr
+        self._inputs['spgr']        = spgr
+        self._inputs['irspgr']      = irspgr
         self._inputs['b1']          = b1
         self._inputs['model']       = model
         self._inputs['fit_params']  = params
         self._inputs['out_dir']     = out_dir
         self._inputs['out_base']    = out_base
-        self._inputs['algo']        = fit_algorithm
+        self._inputs['algo']        = algorithm
         self._inputs['mask']        = mask
         self._inputs['nthreads']    = nthreads
         self._inputs['logfile']     = logfile

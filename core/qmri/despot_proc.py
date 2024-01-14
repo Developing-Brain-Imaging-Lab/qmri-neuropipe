@@ -270,32 +270,83 @@ class DESPOTProcessingPipeline:
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
         if args.despot_denoise_method:
-            spgr = denoise.denoise_image(input_img     = spgr,
-                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
-                                         method        = args.despot_denoise_method, 
-                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
-                                         nthreads      = args.nthreads, 
-                                         debug         = args.verbose)
-            
-            ssfp = denoise.denoise_image(input_img     = ssfp,
-                                         output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
-                                         method        = args.despot_denoise_method, 
-                                         noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
-                                         nthreads      = args.nthreads, 
-                                         debug         = args.verbose)
-            
-        if args.despot_gibbs_correction_method:
-            spgr = gibbs_ringing_correction(input_img   = spgr,
-                                            output_file = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz"),
-                                            method      = args.despot_gibbs_correction_method, 
-                                            nthreads    = args.nthreads, 
-                                            debug       = args.verbose)
 
-            ssfp = gibbs_ringing_correction(input_img   = ssfp,
-                                            output_file = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz"),
-                                            method      = args.despot_gibbs_correction_method, 
-                                            nthreads    = args.nthreads, 
-                                            debug       = args.verbose)
+            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
+                if args.verbose:
+                    print("Denoising SPGR Image")
+                spgr = denoise.denoise_image(input_img     = spgr,
+                                            output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
+                                            method        = args.despot_denoise_method, 
+                                            noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
+                                            nthreads      = args.nthreads, 
+                                            debug         = args.verbose)
+            else:
+                spgr.filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")
+            
+            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")):
+                if args.verbose:
+                    print("Denoising SSFP Image")
+                ssfp = denoise.denoise_image(input_img     = ssfp,
+                                            output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
+                                            method        = args.despot_denoise_method, 
+                                            noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
+                                            nthreads      = args.nthreads, 
+                                            debug         = args.verbose)
+            else:
+                ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")
+
+            if args.despot_b1_method.lower() == 'hifi':
+                if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
+                    if args.verbose:
+                        print("Denoising IR-SPGR Image")
+
+                    irspgr = denoise.denoise_image(input_img     = irspgr,
+                                                   output_file   = os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz"),
+                                                   method        = args.despot_denoise_method, 
+                                                   noise_map     = os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz"), 
+                                                   nthreads      = args.nthreads, 
+                                                   debug         = args.verbose)
+                else:
+                    irspgr.filename = os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")
+                
+        if args.despot_gibbs_correction_method:
+
+            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
+                if args.verbose:
+                    print("Correcting Gibbs Ringing in SPGR Image")
+
+                spgr = gibbs_ringing_correction(input_img   = spgr,
+                                                output_file = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz"),
+                                                method      = args.despot_gibbs_correction_method, 
+                                                nthreads    = args.nthreads, 
+                                                debug       = args.verbose)
+            else:
+                spgr.filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")
+  
+            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")):
+                if args.verbose:
+                    print("Correcting Gibbs Ringing in SSFP Image")
+
+                ssfp = gibbs_ringing_correction(input_img   = ssfp,
+                                                output_file = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz"),
+                                                method      = args.despot_gibbs_correction_method, 
+                                                nthreads    = args.nthreads, 
+                                                debug       = args.verbose)
+            else:
+                ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")
+
+            if args.despot_b1_method.lower() == 'hifi':
+                if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
+                    if args.verbose:
+                        print("Correcting Gibbs Ringing in IR-SPGR Image")
+
+                    irspgr = gibbs_ringing_correction(input_img   = irspgr,
+                                                       output_file = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz"),
+                                                       method      = args.despot_gibbs_correction_method, 
+                                                       nthreads    = args.nthreads, 
+                                                       debug       = args.verbose)
+                else:
+                    irspgr.filename = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")
 
 
         #Create target image and coregister images to the target
@@ -341,7 +392,6 @@ class DESPOTProcessingPipeline:
                                   debug         = args.verbose)
                 shutil.copy2(ssfp.json, ssfp_preproc.json)
 
-
         if args.despot_b1_method.lower() == 'hifi':
             if not irspgr_preproc.exists():
                 if args.verbose:
@@ -385,10 +435,11 @@ class DESPOTProcessingPipeline:
                             nthreads            = args.nthreads)
 
         fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
-        create_processing_json(despot_json = fitparam_json,
-                               spgr_img    = spgr_preproc,
-                               ssfp_img    = ssfp_preproc,
-                               irspgr_img  = irspgr_preproc)
+        if not os.path.exists(fitparam_json):
+            create_processing_json(despot_json = fitparam_json,
+                                spgr_img    = spgr_preproc,
+                                ssfp_img    = ssfp_preproc,
+                                irspgr_img  = irspgr_preproc)
     
         ############# DESPOT MODEL FITTING #################
         despot_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","anat",)
@@ -410,17 +461,17 @@ class DESPOTProcessingPipeline:
                 if args.verbose:
                     print("Fitting DESPOT1 model with " + args.despot1_fit_method + "...")
 
-                model = DESPOT1_Model(spgr_img      = spgr_preproc,
-                                      params        = fitparam_json,
-                                      out_dir       = despot_models_dir,
-                                      out_base      = despot1_base,
-                                      b1            = afi_b1map,
-                                      irspgr_img    = irspgr_preproc,
-                                      mask          = brain_mask,
-                                      model         = despot1_model,
-                                      fit_algorithm = args.despot1_fit_method,
-                                      nthreads      = args.nthreads,
-                                      verbose       = args.verbose)
+                model = DESPOT1_Model(spgr      = spgr_preproc,
+                                      params    = fitparam_json,
+                                      out_dir   = despot_models_dir,
+                                      out_base  = despot1_base,
+                                      b1        = afi_b1map,
+                                      irspgr    = irspgr_preproc,
+                                      mask      = brain_mask,
+                                      model     = despot1_model,
+                                      algorithm = args.despot1_fit_method,
+                                      nthreads  = args.nthreads,
+                                      verbose   = args.verbose)
 
                 model.fit()
         
