@@ -450,10 +450,10 @@ class DESPOTProcessingPipeline:
             despot1_base_pattern = None
             despot1_model        = None
             if args.despot_b1_method.lower() == 'hifi':
-                despot1_base_pattern = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-")
+                despot1_base_pattern = "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-"
                 despot1_model = "HIFI"
             else:
-                despot1_base_pattern = os.path.join(despot_models_dir, "sub-{subject}[_ses-{session}]_model-DESPOT1_param-")
+                despot1_base_pattern = "sub-{subject}[_ses-{session}]_model-DESPOT1_param-"
                 despot1_model = "DESPOT1"
 
             despot1_base = writing.build_path(entities, despot1_base_pattern)
