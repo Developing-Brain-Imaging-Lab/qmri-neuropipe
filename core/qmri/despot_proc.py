@@ -271,7 +271,7 @@ class DESPOTProcessingPipeline:
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
         if args.despot_denoise_method:
 
-            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
+            if not spgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
                 if args.verbose:
                     print("Denoising SPGR Image")
                 spgr = denoise.denoise_image(input_img     = spgr,
@@ -283,7 +283,7 @@ class DESPOTProcessingPipeline:
             else:
                 spgr.filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")
             
-            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")):
+            if not ssfp_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")):
                 if args.verbose:
                     print("Denoising SSFP Image")
                 ssfp = denoise.denoise_image(input_img     = ssfp,
@@ -296,7 +296,7 @@ class DESPOTProcessingPipeline:
                 ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")
 
             if args.despot_b1_method.lower() == 'hifi':
-                if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
+                if not irspgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
                     if args.verbose:
                         print("Denoising IR-SPGR Image")
 
@@ -311,7 +311,7 @@ class DESPOTProcessingPipeline:
                 
         if args.despot_gibbs_correction_method:
 
-            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
+            if not spgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
                 if args.verbose:
                     print("Correcting Gibbs Ringing in SPGR Image")
 
@@ -323,7 +323,7 @@ class DESPOTProcessingPipeline:
             else:
                 spgr.filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")
   
-            if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")):
+            if not ssfp_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")):
                 if args.verbose:
                     print("Correcting Gibbs Ringing in SSFP Image")
 
@@ -336,7 +336,7 @@ class DESPOTProcessingPipeline:
                 ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")
 
             if args.despot_b1_method.lower() == 'hifi':
-                if not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
+                if not irspgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
                     if args.verbose:
                         print("Correcting Gibbs Ringing in IR-SPGR Image")
 
