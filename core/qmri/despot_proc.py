@@ -242,9 +242,9 @@ class DESPOTProcessingPipeline:
         ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.nii.gz'),
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.json'))
         
-        spgr_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SPGR-preproc_VFA.nii.gz'),
+        spgr_preproc = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.nii.gz'),
                              json     = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.json'))
-        ssfp_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP-preproc_VFA.nii.gz'),
+        ssfp_preproc = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SSFP-preproc_VFA.nii.gz'),
                              json     = os.path.join(anat_preproc_dir, id+'_desc-SSFP-preproc_VFA.json'))
         
         irspgr = None
@@ -253,8 +253,8 @@ class DESPOTProcessingPipeline:
             irspgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.nii.gz'),
                            json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.json'))
             
-            irspgr_preproc = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI-preproc_T1w.nii.gz'),
-                                   json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI-preproc_T1w.json'))
+            irspgr_preproc = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-HIFI-preproc_T1w.nii.gz'),
+                                   json     = os.path.join(anat_preproc_dir, id+'_desc-HIFI-preproc_T1w.json'))
 
         afi = None
         afi_preproc = None
@@ -263,8 +263,8 @@ class DESPOTProcessingPipeline:
             afi = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.nii.gz'),
                         json     = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.json'))
             
-            afi_preproc = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_desc-preproc_TB1AFI.nii.gz'),
-                                json     = os.path.join(rawdata_dir, 'fmap',id+'_desc-preproc_TB1AFI.json'))
+            afi_preproc = Image(filename = os.path.join(fmap_preproc_dir, id+'_desc-preproc_TB1AFI.nii.gz'),
+                                json     = os.path.join(fmap_preproc_dir, id+'_desc-preproc_TB1AFI.json'))
             
             afi_b1map = Image(filename = os.path.join(fmap_preproc_dir, id+"_TB1map.nii.gz"))
             
