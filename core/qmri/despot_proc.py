@@ -14,7 +14,7 @@ import core.registration.multilinreg as coreg
 import core.qmri.afi as afi_tools
 
 from core.qmri.despot.models.despot1 import DESPOT1_Model
-#from core.qmri.despot.models.despot2 import DESPOT2_Model
+from core.qmri.despot.models.despot2 import DESPOT2_Model
 #from core.qmri.despot.models.mcdespot import MCDESPOT_Model
 
 class DESPOTProcessingPipeline:
@@ -476,13 +476,12 @@ class DESPOTProcessingPipeline:
                 model.fit()
         
         if args.despot2_fit_method != None:
-            despot2_model        = "DESPTO2-FM"
-            despot2_base = writing.build_path(entities, "sub-{subject}[_ses-{session}]_model-DESPOT2-FM_param-")            
+            despot2_model = "DESPTO2-FM"
+            despot2_base  = writing.build_path(entities, "sub-{subject}[_ses-{session}]_model-DESPOT2-FM_param-")            
             
             if not os.path.exists(os.path.join(despot_models_dir, despot2_base+'T2.nii.gz')):
                 if args.verbose:
                     print('Fitting DESPOT2-FM model...')
-
 
                 model = DESPOT2_Model(ssfp       = ssfp_preproc,
                                       params     = fitparam_json,
@@ -501,9 +500,9 @@ class DESPOTProcessingPipeline:
                 if args.verbose:
                     print('Smoothing F0')
 
-                os.system('fslmaths ' + brain_mask._get_filename() + ' -s 2.55 ' + despot2_dir + '/tmp_mask.nii.gz')
-                os.system('fslmaths ' + despot2_dir + despot2_base + 'F0.nii.gz -s 2.55 -div ' + despot2_dir + '/tmp_mask.nii.gz -mas ' + brain_mask._get_filename() + ' ' + despot2_dir + despot2_base + 'F0.nii.gz' )
-                os.remove(despot2_dir + '/tmp_mask.nii.gz')
+                os.system('fslmaths ' + brain_mask.filename + ' -s 2.55 ' + os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
+                os.system('fslmaths ' + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") + " -s 2.55 -div " + os.path.join(despot_models_dir, "tmp_mask.nii.gz") + " -mas " + brain_mask.filename + " " + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") )
+                os.remove(os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
 
 
         # if args.mcdespot_fit_method != None and args.mcdespot_fit != False:
