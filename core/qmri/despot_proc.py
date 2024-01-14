@@ -10,6 +10,7 @@ import core.utils.workflows.denoise_degibbs as img_proc
 import core.utils.tools as img_tools
 import core.utils.mask as mask
 import core.utils.denoise as denoise
+from core.utils.gibbs_correction import gibbs_ringing_correction
 
 from core.qmri.despot.utils.json import create_processing_json
 import core.registration.multilinreg as coreg
