@@ -440,7 +440,35 @@ class DESPOTProcessingPipeline:
                                 spgr_img    = spgr_preproc,
                                 ssfp_img    = ssfp_preproc,
                                 irspgr_img  = irspgr_preproc)
-    
+            
+        if args.despot_cleanup:
+            #Remove all but preproc files
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR_VFA.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"))
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP_VFA.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"))
+            
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz"))
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz"))
+
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"))
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"))
+
+            if args.despot_b1_method.lower() == 'hifi':
+                if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
+                    os.remove(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz"))
+                if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
+                    os.remove(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz"))
+                if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz")):
+                    os.remove(os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz"))
+
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Ref_T1w.nii.gz")):
+                os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Ref_T1w.nii.gz"))
+
         ############# DESPOT MODEL FITTING #################
         despot_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","anat",)
         despot_models_dir     = writing.build_path(entities, despot_model_patterns)
@@ -503,6 +531,13 @@ class DESPOTProcessingPipeline:
                 os.system('fslmaths ' + brain_mask.filename + ' -s 2.55 ' + os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
                 os.system('fslmaths ' + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") + " -s 2.55 -div " + os.path.join(despot_models_dir, "tmp_mask.nii.gz") + " -mas " + brain_mask.filename + " " + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") )
                 os.remove(os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
+
+                #Refit after smoothing and fixing F0:
+                despot2_model = "DESPOT2"
+                model.set_f0(os.path.join(despot_models_dir, despot2_base+"F0.nii.gz"))
+                model.set_model(model = "DESPOT2")
+                model.fit()
+
 
 
         # if args.mcdespot_fit_method != None and args.mcdespot_fit != False:

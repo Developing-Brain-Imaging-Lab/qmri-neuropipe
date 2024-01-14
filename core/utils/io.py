@@ -38,6 +38,12 @@ class Image:
         else:
             shutil.copy2(img2copy.filename, self.filename)
 
+    def remove(self):
+        if self.exists():
+            os.remove(self.filename)
+            if self.json != None:
+                os.remove(self.json)
+
         
     def get_type(self):
         return "Image"
@@ -79,6 +85,21 @@ class DWImage(Image):
                 return False
         except AttributeError:
             return False
+    
+    def remove(self):
+        if self.exists():
+            os.remove(self.filename)
+            os.remove(self.bvals)
+            os.remove(self.bvecs)
+
+            if self.index != None:
+                os.remove(self.index)
+            if self.acqparams != None:
+                os.remove(self.acqparams)
+            if self.slspec != None:
+                os.remove(self.slspec)
+            if self.json != None:
+                os.remove(self.json)
     
     def get_type(self):
         return "DWImage"

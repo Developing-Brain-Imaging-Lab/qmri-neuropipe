@@ -36,7 +36,10 @@ class DESPOT2_Model():
                     + ' --out_dir='+ self._inputs['out_dir'] \
                     + ' --algo=' + self._inputs['algo'] \
                     + ' --threads=' + str(self._inputs['nthreads'])
-
+        
+        if self._inputs['model'].lower() == "despot2":
+            despot2_cmd += ' --f0=' + self._inputs['f0'].filename
+        
         if self._inputs['mask'] != None:
             despot2_cmd += ' --mask=' + self._inputs['mask'].filename
         if self._inputs['out_base'] != None:
