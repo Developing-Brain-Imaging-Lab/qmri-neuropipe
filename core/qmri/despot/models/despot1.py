@@ -55,4 +55,7 @@ class DESPOT1_Model():
 
             despot1_cmd += ' > ' + self._inputs['logfile']
 
+        if self._inputs['verbose']:
+            print(despot1_cmd)
+             
         os.system(despot1_cmd)

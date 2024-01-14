@@ -534,7 +534,7 @@ class DESPOTProcessingPipeline:
 
                 #Refit after smoothing and fixing F0:
                 despot2_model = "DESPOT2"
-                model.set_f0(os.path.join(despot_models_dir, despot2_base+"F0.nii.gz"))
+                model.set_f0(Image(filename = os.path.join(despot_models_dir, despot2_base+"F0.nii.gz")))
                 model.set_model(model = "DESPOT2")
                 model.fit()
 
