@@ -1,8 +1,8 @@
 import os
 
 #GLOBAL EXECUTABLES HERE
-DESPOT_INSTALL_DIR = os.getenv('DESPOT_DIR')
-despot1_exe = os.path.join(DESPOT_INSTALL_DIR, "bin", "despot1")
+DESPOT_PATH= os.getenv('DESPOT_PATH')
+despot1_exe = os.path.join(DESPOT_PATH, "despot1")
 
 class DESPOT1_Model():
     def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='DESPOT1', fit_algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
