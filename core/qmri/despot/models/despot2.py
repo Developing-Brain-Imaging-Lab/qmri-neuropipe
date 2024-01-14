@@ -5,7 +5,7 @@ DESPOT_PATH = os.getenv('DESPOT_PATH')
 despot2_exe = os.path.join(DESPOT_PATH, "despot2")
 
 class DESPOT2_Model():
-    def __init__(self, ssfp, params, t1, b1, out_dir, f0=None, out_base=None, model='DESPOT2-FM', algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
+    def __init__(self, ssfp, params, t1, b1, out_dir, f0=None, out_base=None, model='DESPOT2-FM', algorithm='Ceres', mask=None, param_type="double", logfile=None, nthreads=1, verbose=False):
         self._inputs = {}
         self._inputs['ssfp']        = ssfp
         self._inputs['t1']          = t1
@@ -18,6 +18,7 @@ class DESPOT2_Model():
         self._inputs['algo']        = algorithm
         self._inputs['mask']        = mask
         self._inputs['nthreads']    = nthreads
+        self._inputs['param_type']  = param_type
         self._inputs['logfile']     = logfile
         self._inputs['verbose']     = verbose
     
@@ -35,7 +36,8 @@ class DESPOT2_Model():
                     + ' --b1='+self._inputs['b1'].filename \
                     + ' --out_dir='+ self._inputs['out_dir'] \
                     + ' --algo=' + self._inputs['algo'] \
-                    + ' --nthreads=' + str(self._inputs['nthreads'])
+                    + ' --nthreads=' + str(self._inputs['nthreads']) \
+                    + ' --odt=' + self._inputs['param_type']
         
         if self._inputs['model'].lower() == "despot2":
             despot2_cmd += ' --f0=' + self._inputs['f0'].filename
@@ -55,5 +57,5 @@ class DESPOT2_Model():
 
         if self._inputs['verbose']:
             print(despot2_cmd)
-            
+
         os.system(despot2_cmd)

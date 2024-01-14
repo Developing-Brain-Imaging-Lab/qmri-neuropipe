@@ -5,7 +5,7 @@ DESPOT_PATH = os.getenv('DESPOT_PATH')
 despot1_exe = os.path.join(DESPOT_PATH, "despot1")
 
 class DESPOT1_Model():
-    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='despot1', algorithm='Ceres', mask=None, logfile=None, nthreads=1, verbose=False):
+    def __init__(self, spgr, params, out_dir, b1=None, irspgr=None, out_base=None, model='despot1', algorithm='Ceres', mask=None, param_type="double", logfile=None, nthreads=1, verbose=False):
         self._inputs = {}
         self._inputs['spgr']        = spgr
         self._inputs['irspgr']      = irspgr
@@ -19,6 +19,7 @@ class DESPOT1_Model():
         self._inputs['nthreads']    = nthreads
         self._inputs['logfile']     = logfile
         self._inputs['verbose']     = verbose
+        self._inputs['param_type']  = param_type
 
     def set_b1(self, b1):
         self._inputs['b1']          = b1
@@ -57,5 +58,5 @@ class DESPOT1_Model():
 
         if self._inputs['verbose']:
             print(despot1_cmd)
-             
+
         os.system(despot1_cmd)
