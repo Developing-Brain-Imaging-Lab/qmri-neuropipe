@@ -31,7 +31,7 @@ class DESPOT1_Model():
                     + ' --params=' + self._inputs['fit_params'] \
                     + ' --out_dir='+ self._inputs['out_dir'] \
                     + ' --algo=' + self._inputs['algo'] \
-                    + ' --threads=' + str(self._inputs['nthreads'])
+                    + ' --nthreads=' + str(self._inputs['nthreads'])
 
         if self._inputs['mask'] != None:
             despot1_cmd += ' --mask=' + self._inputs['mask'].filename

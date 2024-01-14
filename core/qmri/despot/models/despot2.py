@@ -35,7 +35,7 @@ class DESPOT2_Model():
                     + ' --b1='+self._inputs['b1'].filename \
                     + ' --out_dir='+ self._inputs['out_dir'] \
                     + ' --algo=' + self._inputs['algo'] \
-                    + ' --threads=' + str(self._inputs['nthreads'])
+                    + ' --nthreads=' + str(self._inputs['nthreads'])
         
         if self._inputs['model'].lower() == "despot2":
             despot2_cmd += ' --f0=' + self._inputs['f0'].filename
