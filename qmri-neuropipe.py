@@ -2,12 +2,6 @@
 import os,sys, shutil, json, argparse, copy
 from distutils.util import strtobool
 
-from core.anat.anat_proc import AnatomicalPrepPipeline
-from core.dmri.dmri_proc import DiffusionProcessingPipeline
-from core.qmri.despot_proc import DESPOTProcessingPipeline
-from core.segmentation.segment_proc import SegmentationPipeline
-
-
 
 parser = argparse.ArgumentParser(description='Waisman Center Processing for Quantitative MRI Data in BIDS format')
 
@@ -60,17 +54,21 @@ if args.load_json:
 ##################################
 
 if args.anat_proc_pipeline:
+    from core.anat.anat_proc import AnatomicalPrepPipeline
     anat_pipeline = AnatomicalPrepPipeline()
     anat_pipeline.run()
 
 if args.dwi_proc_pipeline:
+    from core.dmri.dmri_proc import DiffusionProcessingPipeline
     dwi_pipeline = DiffusionProcessingPipeline()
     dwi_pipeline.run()
 
 if args.despot_proc_pipeline:
+    from core.qmri.despot_proc import DESPOTProcessingPipeline
     despot_pipeline = DESPOTProcessingPipeline()
     despot_pipeline.run()
 
 if args.segmentation_pipeline:
+    from core.segmentation.segment_proc import SegmentationPipeline
     seg_pipeline = SegmentationPipeline()
     seg_pipeline.run()
