@@ -72,7 +72,6 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
                                                target_resolution  = resample_resolution,
                                                debug              = verbose)
 
-    exit()
     #Remove Last DWI volume before processing further
     if remove_last_vol:
         if verbose:
