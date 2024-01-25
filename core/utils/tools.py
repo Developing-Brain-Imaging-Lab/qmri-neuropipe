@@ -1,8 +1,9 @@
-import subprocess, copy
+import os, subprocess, copy
 from glob import glob
 
 import numpy as np
 import nibabel as nib
+from .io import Image
 
 def binarize(input_img, debug=False):
     output_img = copy.deepcopy(input_img)
@@ -65,16 +66,19 @@ def resample_image(input_img, output_file, target_resolution, debug=False):
     output_img          = copy.deepcopy(input_img)
     output_img.filename = output_file
 
+    tmp_img = Image(filename = os.path.join(os.path.dirname(output_file), "resampled.nii.gz"))
+
     CMD = "mrgrid " + input_img.filename \
         + " regrid -voxel " + str(target_resolution[0]) + "," +  str(target_resolution[1]) + "," + str(target_resolution[2]) \
-        + " -interp sinc " + output_img.filename + " -force -quiet"
+        + " -interp sinc " + tmp_img.filename + " -force -quiet"
     
 
     if debug:
-        print("Resmapling image to target resolution: " + str(target_resolution))
+        print("Resampling image to target resolution: " + str(target_resolution))
         print(CMD)
 
     subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT) 
+    os.rename(tmp_img.filename, output_img.filename)
     
     return output_img 
 
@@ -164,7 +168,6 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None, debug
 
         if not target_resolution:
             target_resolution = np.repeat(max(voxel_size), 3)
-
             print(target_resolution)
 
         return resample_image(input_img, output_file, target_resolution, debug=debug)
