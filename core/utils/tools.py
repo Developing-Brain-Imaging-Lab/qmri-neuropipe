@@ -165,6 +165,8 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None, debug
         if not target_resolution:
             target_resolution = np.repeat(max(voxel_size), 3)
 
+            print(target_resolution)
+
         return resample_image(input_img, output_file, target_resolution)
 
     elif target_resolution:

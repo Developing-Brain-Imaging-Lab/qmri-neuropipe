@@ -1,3 +1,4 @@
+from doctest import debug
 import os, shutil
 
 from core.utils.io import Image, DWImage
@@ -68,7 +69,8 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
 
     dwi_img = img_tools.check_isotropic_voxels(input_img          = dwi_img,
                                                output_file        = dwi_img.filename,
-                                               target_resolution  = resample_resolution)
+                                               target_resolution  = resample_resolution,
+                                               debug              = verbose)
 
     exit()
     #Remove Last DWI volume before processing further
