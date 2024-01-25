@@ -85,7 +85,6 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
     np.savetxt(DWI_out.bvecs, bvecs.transpose(), fmt='%.8f')
     shutil.copy2(DWI_pepolar0.json, DWI_out.json)
 
-    exit()
     return DWI_out
 
 

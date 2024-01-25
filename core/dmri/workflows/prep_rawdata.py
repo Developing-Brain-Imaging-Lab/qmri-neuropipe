@@ -70,6 +70,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
                                                output_file        = dwi_img.filename,
                                                target_resolution  = resample_resolution)
 
+    exit()
     #Remove Last DWI volume before processing further
     if remove_last_vol:
         if verbose:
