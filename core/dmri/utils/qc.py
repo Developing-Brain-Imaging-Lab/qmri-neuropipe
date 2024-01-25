@@ -47,7 +47,8 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
         bvecs_pepolar1 = np.delete(bvecs_pepolar1, indices_to_remove, 0)
 
     #Read in the DWI ACQPARAMS FILE, DETERMINE WHICH IMAGES CORRESPOND TO UP AND DOWN, AND MERGE INTO SEPARATE FILES
-    img_tools.merge_images([DWI_pepolar0, DWI_pepolar1], DWI_out)
+    #img_tools.merge_images([DWI_pepolar0, DWI_pepolar1], DWI_out)
+    merged_dwi = nib.funcs.concat_images((dwi_pepolar0, dwi_pepolar1), axis=3)
     bvals = np.concatenate((bvals_pepolar0, bvals_pepolar1), axis=0)
     bvecs = np.concatenate((bvecs_pepolar0, bvecs_pepolar1), axis=0)
 
@@ -77,7 +78,7 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
             elif(phase_encode_dir == 'j-'):
                 acqparams[i] = np.array(['0', '-1', '0', str(dwi_json["TotalReadoutTime"])])
 
-
+    nib.save(merged_dwi, DWI_out.filename)
     np.savetxt(DWI_out.index, np.concatenate((np.ones(nImages_pepolar0, dtype=int), 2*np.ones(nImages_pepolar1, dtype=int)), axis=0), fmt='%i', newline = ' ')
     np.savetxt(DWI_out.acqparams, acqparams, delimiter = ' ', fmt='%s')
     np.savetxt(DWI_out.bvals, bvals, fmt='%i', newline=' ')
