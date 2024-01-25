@@ -71,7 +71,7 @@ def resample_image(input_img, output_file, target_resolution, debug=False):
     
 
     if debug:
-        print("Resmapling image to target resolution: " + target_resolution)
+        print("Resmapling image to target resolution: " + str(target_resolution))
         print(CMD)
 
     subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT) 
