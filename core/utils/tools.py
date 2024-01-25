@@ -171,7 +171,7 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None, debug
 
     elif target_resolution:
         print ('Resampling Image Voxels')
-        return resample_image(input_img, output_file, np.fromstring(target_resolution, dtype=float, sep=' '), debug=debug))
+        return resample_image(input_img, output_file, np.fromstring(target_resolution, dtype=float, sep=' '), debug=debug)
     else:
         return input_img
 
