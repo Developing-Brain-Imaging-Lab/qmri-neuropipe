@@ -248,13 +248,13 @@ class DTI_Model():
             self.create_param_json(Image(self._outputs['l3']))
 
             if self._inputs['full_output']:
-                save_nifti(self._full_outputs['ga'], ga, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['tr'], trace, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
-                save_nifti(self._full_outputs['res'], residuals, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['ga'], ga, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['tr'], trace, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
 
             orig_ornt   = nib.io_orientation(ras_img.affine)
             targ_ornt   = nib.io_orientation(img.affine)
@@ -433,8 +433,8 @@ class DTI_Model():
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -fa -out ' + self._outputs['fa'])
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -rd -out ' + self._outputs['rd'])
             os.system('TVtool -in ' + self._outputs['tensor'] + ' -ad -out ' + self._outputs['ad'])
-            os.system('TVtool -in ' + self._outputs['tensor'] + ' -tr -out ' + self._full_outputs['tr'])
-            os.system('fslmaths ' + self._full_outputs['tr'] + ' -div 3.00 ' + self._outputs['md'])
+            os.system('TVtool -in ' + self._outputs['tensor'] + ' -tr -out ' + self._outputs['tr'])
+            os.system('fslmaths ' + self._outputs['tr'] + ' -div 3.00 ' + self._outputs['md'])
 
             #Output the eigenvectors and eigenvalues
             os.system('TVEigenSystem -in ' + self._outputs['tensor'] + ' -type FSL')
