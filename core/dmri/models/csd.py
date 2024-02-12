@@ -127,15 +127,6 @@ class CSD_Model():
                     
                 os.system(cmd)
         
-            #Now Generage FOD generation
-            parameter_base = self._inputs['out_base']
-            if self._inputs['response_algo']  == 'msmt_5tt':
-                parameter_base += '_model-MSMT-5tt'
-            elif self._inputs['response_algo']  == 'dhollander':
-                parameter_base += '_model-DHOLLANDER'
-            else:
-                print('Incorrect Response Function')
-                exit()
 
             cmd = 'dwi2fod msmt_csd ' \
                 + ' -force -quiet -nthreads ' + str(self._inputs['nthreads']) + ' ' \

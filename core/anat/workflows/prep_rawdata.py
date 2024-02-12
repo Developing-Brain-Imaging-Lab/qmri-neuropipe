@@ -21,8 +21,6 @@ def prep_anat_rawdata(id, rawdata_dir, t1w_type='t1w', mpnrage_derivatives_dir='
                 json     = os.path.join(rawdata_dir, "anat", id+'_T2w.json'))
 
 
-    print(t1w.filename)
-
     if not os.path.exists(t1w.filename):
         t1w = None
         if verbose:

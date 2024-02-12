@@ -485,6 +485,8 @@ class DiffusionProcessingPipeline:
             else:
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
+                print(t1w_img.filename)
+                print(anat_mask.filename)
                                 
                 if args.dwi_eddy_current_correction == 'tortoise-diffprep':
                     if t2w:
@@ -521,7 +523,7 @@ class DiffusionProcessingPipeline:
                 else:
                     print('No anatomical image!')
                     exit()
-
+      
 
         ##################################
         ### DWI PROCESSING STARTS HERE ###
