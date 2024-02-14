@@ -485,7 +485,7 @@ class DiffusionProcessingPipeline:
             else:
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run()
-                print(t1w_img.filename)
+                print(t1w.filename)
                 print(anat_mask.filename)
                                 
                 if args.dwi_eddy_current_correction == 'tortoise-diffprep':
