@@ -149,7 +149,7 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
  
     RefImage    = T1w
     InImage     = T2w
-    FullImage   = T2w,
+    FullImage   = T2w
     OutImage    = Image(filename = os.path.join(output_dir, id + "_space-individual-T1w_T2w.nii.gz"))
     T1w_output  = T1w
     T2w_output  = OutImage
