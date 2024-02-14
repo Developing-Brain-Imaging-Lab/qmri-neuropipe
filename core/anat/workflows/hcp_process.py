@@ -161,7 +161,8 @@ def coregister_images(output_dir, id, T1w, T2w, infant_mode=False, brain_size="1
         OutImage    = Image(filename = os.path.join(output_dir, id + "_space-individual-T2w_T1w.nii.gz"))
         T1w_output  = OutImage
         T2w_output  = T2w
-        
+
+    print(FullImage) 
     FullMat     = os.path.join(output_dir, id + "_desc-T2w-2-T1w.mat")
     InitMat     = os.path.join(output_dir, id + "_desc-Coreg.mat")
     BBRMat      = os.path.join(output_dir, id + "_desc-BBR.mat")
