@@ -484,9 +484,8 @@ class AnatomicalPrepPipeline:
                 if args.verbose:
                     print("\tCoregistering T1w and T2w images")
                     print(flush=True)
-                print(T1w_proc.filename)
-                print(T2w_proc.filename)
-                T1w_coreg, T2w_coreg = hcp.coregister_images(output_dir        = bids_output_dir,
+
+                T1w_coreg, T2w_coreg = hcp.coregister_images(output_dir       = bids_output_dir,
                                                             id                = bids_id,
                                                             T1w               = T1w_proc,
                                                             T2w               = T2w_proc,
