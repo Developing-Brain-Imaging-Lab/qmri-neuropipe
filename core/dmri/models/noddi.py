@@ -23,7 +23,9 @@ class NODDI_Model():
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
         
-        map_pattern = os.path.join(out_dir, "sub-{subject}[_ses-{session}][_model-{model}]_param-{map}.nii.gz")         
+        map_pattern = os.path.join(out_dir, "sub-{subject}[_ses-{session}][_model-{model}]_param-{map}.nii.gz")   
+
+        self._outputs = {}     
         map_entities['map']               = "ICVF"
         self._outputs['ficvf']            = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "ODI"
