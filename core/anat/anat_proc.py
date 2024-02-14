@@ -156,7 +156,7 @@ class AnatomicalPrepPipeline:
         parser.add_argument('--mpnrage_derivatives_dir',
                             type=str,
                             help='Derivatives directory for MPnRAGE Processed data',
-                            default=None)
+                            default="mpnrage-processed")
                             
         parser.add_argument('--wmseg',
                             type=str,
