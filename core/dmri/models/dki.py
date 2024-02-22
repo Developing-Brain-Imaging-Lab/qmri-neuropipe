@@ -13,6 +13,8 @@ from bids.layout import writing
 class DKI_Model():
     def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, include_micro_fit=False, fwhm=2, nthreads=1):
         self._inputs = {}
+        self._outputs = {}
+
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
