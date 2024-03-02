@@ -214,13 +214,11 @@ class AnatomicalPrepPipeline:
         logfile     = open(os.path.join(bids_derivative_dir, "QMRI-NeuroPipe_AnatomicalProcessing_Log.txt"), 'w')
         #sys.stdout  = logfile
         
-        print("TEST")
         T1w, T2w = raw_proc.prep_anat_rawdata(id                        = bids_id,
                                               rawdata_dir               = bids_rawdata_dir,
                                               t1w_type                  = args.t1w_type,
                                               mpnrage_derivatives_dir   = writing.build_path(entities, mpnrage_patterns),
-                                              verbose                   = args.verbose)
-        print(T1w.filename)             
+                                              verbose                   = args.verbose)           
         T1w_preproc_ent = entities.copy()
         T1w_preproc_ent['modality'] = 'T1w'
         T1w_preproc_ent['desc']     = 'preproc'
