@@ -25,7 +25,7 @@ class Image:
     
     def copy_image(self, img2copy, datatype=False):
         
-        if img2copy.json != None:
+        if img2copy.json != None and os.path.exists(img2copy.json):
             if self.json != None:
                 self.json = self.filename.replace('.nii.gz', '.json')
             
