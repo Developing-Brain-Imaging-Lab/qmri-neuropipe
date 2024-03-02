@@ -11,6 +11,8 @@ import core.utils.create_dataset_json as create_dataset_json
 import core.anat.workflows.prep_rawdata as raw_proc
 import core.anat.workflows.hcp_process as hcp
 
+import core.registration.nonlinreg as nonlinreg
+
 
 class AnatomicalPrepPipeline:
 
@@ -168,6 +170,37 @@ class AnatomicalPrepPipeline:
                             help='ANTsPyNet modality/network name',
                             choices=['t1', 't2'],
                             default='t1')
+        
+        parser.add_argument('--to_standard',
+                            type=bool,
+                            help="Perform registration to standard space",
+                            default=False)
+        
+        parser.add_argument('--standard_space',
+                            type=str,
+                            help="Label for the Standarad space",
+                            default=None)
+
+        parser.add_argument('--standard_registration_dir',
+                            type=str,
+                            help="Registration directory",
+                            default=None)
+        
+        parser.add_argument('--to_standard_method',
+                            type=str,
+                            help="Standard template file",
+                            choices=['fsl', 'ants'],
+                            default='ants')
+        
+        parser.add_argument('--standard_template',
+                            type=str,
+                            help="Standard template file",
+                            default=None)
+        
+        parser.add_argument('--standard_template_mask',
+                            type=str,
+                            help="Standard template file",
+                            default=None)
 
         parser.add_argument('--verbose',
                             type=bool,
@@ -579,6 +612,26 @@ class AnatomicalPrepPipeline:
                                                                         "SkllStrippingMethod": args.mask_method})
                     
                     brain_mask.copy_image(brain_mask_t2w, datatype="uint8")
+
+
+            
+            if args.to_standard:
+                if args.verbose:
+                    print("Running Registration to Standard Space")
+
+                registration_patterns = os.path.join(args.bids_dir, "derivatives", args.standard_registration_dir, "sub-{subject}[/ses-{session}]", "anat",)
+                out_dir               = writing.build_path(entities, registration_patterns)
+
+                out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
+                out_img  = Image(out_base+"Native2Standard.nii.gz")
+            
+                nonlinreg(input        = T1w_preproc,
+                          ref          = args.standard_template, 
+                          out_xfm      = out_img, 
+                          out_xfm_base = out_base,
+                          nthreads     = args.nthreads, 
+                          method       = args.to_standard_method)
+               
         
             #Cleanup the files  
             if args.cleanup:
