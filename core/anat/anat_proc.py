@@ -574,8 +574,6 @@ class AnatomicalPrepPipeline:
                                     ref_mask             = args.t1w_mask_template_mask,
                                     antspynet_modality   = args.antspynet_modality,
                                     logfile              = logfile)
-
-                    brain_mask.copy_image(brain_mask, datatype="uint8")
                     
                 elif not T1w_proc and T2w_proc:
                     create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
@@ -592,8 +590,6 @@ class AnatomicalPrepPipeline:
                                     ref_mask             = args.t1w_mask_template_mask,
                                     antspynet_modality   = args.antspynet_modality,
                                     logfile              = logfile)
-                    
-                    brain_mask.copy_image(brain_mask, datatype="uint8")
         
             #Cleanup the files  
             if args.cleanup:
