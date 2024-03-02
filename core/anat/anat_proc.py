@@ -565,7 +565,7 @@ class AnatomicalPrepPipeline:
                                                                         "Sources": T1w.filename,
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
-                    brain_mask.copy_image(brain_mask_t1w, dataype="uint8")
+                    brain_mask.copy_image(brain_mask_t1w, datatype="uint8")
                     
                     
                 elif not T1w_proc and T2w_proc:
@@ -575,7 +575,7 @@ class AnatomicalPrepPipeline:
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    brain_mask.copy_image(brain_mask_t2w, dataype="uint8")
+                    brain_mask.copy_image(brain_mask_t2w, datatype="uint8")
         
             #Cleanup the files  
             if args.cleanup:
