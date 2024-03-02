@@ -565,15 +565,8 @@ class AnatomicalPrepPipeline:
                                                                         "Sources": T1w.filename,
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
+                    brain_mask.copy_image(brain_mask_t1w, dataype="uint8")
                     
-                    mask.mask_image(input                = T1w_preproc,
-                                    mask                 = brain_mask,
-                                    algo                 = args.mask_method,
-                                    nthreads             = args.nthreads,
-                                    ref_img              = args.t1w_mask_template,
-                                    ref_mask             = args.t1w_mask_template_mask,
-                                    antspynet_modality   = args.antspynet_modality,
-                                    logfile              = logfile)
                     
                 elif not T1w_proc and T2w_proc:
                     create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
@@ -582,14 +575,7 @@ class AnatomicalPrepPipeline:
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    mask.mask_image(input                = T2w_preproc,
-                                    mask                 = brain_mask,
-                                    algo                 = args.mask_method,
-                                    nthreads             = args.nthreads,
-                                    ref_img              = args.t1w_mask_template,
-                                    ref_mask             = args.t1w_mask_template_mask,
-                                    antspynet_modality   = args.antspynet_modality,
-                                    logfile              = logfile)
+                    brain_mask.copy_image(brain_mask_t2w, dataype="uint8")
         
             #Cleanup the files  
             if args.cleanup:
@@ -597,9 +583,13 @@ class AnatomicalPrepPipeline:
                     print("Cleaning up files", flush=True)
                     
                 if T1w_proc:
-                    os.remove(T1w_proc.filename)
+                    T1w_proc.remove()
+                if brain_mask_t1w:
+                    brain_mask_t1w.remove()
+                if brain_mask_t2w:
+                    brain_mask_t2w.remove()
                 if T2w_proc:
-                    os.remove(T2w_proc.filename)
+                    T2w_proc.remove()
                 if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz")):
                     os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
                 if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz")):

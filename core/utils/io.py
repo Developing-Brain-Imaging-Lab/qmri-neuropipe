@@ -41,7 +41,7 @@ class Image:
     def remove(self):
         if self.exists():
             os.remove(self.filename)
-            if self.json != None:
+            if self.json != None and os.path.exists(self.json):
                 os.remove(self.json)
 
         
