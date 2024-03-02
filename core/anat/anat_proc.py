@@ -189,7 +189,6 @@ class AnatomicalPrepPipeline:
             'subject': args.subject,
             'session': args.session,
         }
-        
                              
         id_patterns         = "sub-{subject}[_ses-{session}]"
         rawdata_patterns    = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
@@ -215,6 +214,7 @@ class AnatomicalPrepPipeline:
         logfile     = open(os.path.join(bids_derivative_dir, "QMRI-NeuroPipe_AnatomicalProcessing_Log.txt"), 'w')
         #sys.stdout  = logfile
         
+        print("TEST")
         T1w, T2w = raw_proc.prep_anat_rawdata(id                        = bids_id,
                                               rawdata_dir               = bids_rawdata_dir,
                                               t1w_type                  = args.t1w_type,
