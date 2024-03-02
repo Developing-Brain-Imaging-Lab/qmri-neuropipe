@@ -354,7 +354,6 @@ class AnatomicalPrepPipeline:
                                 print("\tSharpening Successful", flush = True)
                                 
                 T1w_proc       = bias_img
-                T1w_proc_mask  = brain_mask_t1w
                 
                 if args.cleanup:
                     if os.path.exists(denoise_img.filename):
@@ -366,7 +365,6 @@ class AnatomicalPrepPipeline:
                     
             else:
                 T1w_proc       = None
-                T1w_proc_mask  = None
             
             if T2w:
                 img_ent                 = entities.copy()
@@ -528,23 +526,21 @@ class AnatomicalPrepPipeline:
                 T1w_proc      = T1w_coreg
                 T2w_proc      = T2w_coreg
             
-            
-            
             if T1w_proc:
                 
                 create_dataset_json.create_bids_sidecar_json(image = T1w_preproc, 
-                                                        data = {"Modality": "T1w",
-                                                                "Description": "Preprocessed T1w Image",
-                                                                "Sources": T1w.filename,
-                                                                "SkullStripped": True,
-                                                                "SkullStrippingMethod": args.mask_method,
-                                                                "Denoised": True,
-                                                                "DenoisingMethod": args.denoise_method,
-                                                                "GibbsCorrected": True,
-                                                                "GibbsCorrectionMethod": args.gibbs_correction_method,
-                                                                "BiasCorrected": True,
-                                                                "BiasCorrectionMethod": args.biasfield_correction_method,
-                                                                "Sharpened": args.sharpen_images})
+                                                            data = {"Modality": "T1w",
+                                                                    "Description": "Preprocessed T1w Image",
+                                                                    "Sources": T1w.filename,
+                                                                    "SkullStripped": True,
+                                                                    "SkullStrippingMethod": args.mask_method,
+                                                                    "Denoised": True,
+                                                                    "DenoisingMethod": args.denoise_method,
+                                                                    "GibbsCorrected": True,
+                                                                    "GibbsCorrectionMethod": args.gibbs_correction_method,
+                                                                    "BiasCorrected": True,
+                                                                    "BiasCorrectionMethod": args.biasfield_correction_method,
+                                                                    "Sharpened": args.sharpen_images})
                 T1w_preproc.copy_image(T1w_proc, datatype="float32")
                 
             
