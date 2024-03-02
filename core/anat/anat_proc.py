@@ -625,8 +625,8 @@ class AnatomicalPrepPipeline:
             out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
             out_img  = Image(out_base+"Native2Standard.nii.gz")
         
-            nonlinreg(input        = T1w_preproc,
-                        ref          = args.standard_template, 
+            nonlinreg(input          = T1w_preproc,
+                        ref          = Image(filename=args.standard_template), 
                         out_xfm      = out_img, 
                         out_xfm_base = out_base,
                         nthreads     = args.nthreads, 
