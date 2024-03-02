@@ -242,6 +242,9 @@ class AnatomicalPrepPipeline:
         brain_mask = Image(filename = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.nii.gz"),
                            json     = os.path.join(bids_output_dir, bids_id+"_desc-brain-mask.json"))
         
+        brain_mask_t1w=None
+        brain_mask_t2w=None
+        
         if (T1w and not T1w_preproc.exists()) or (T2w and not T2w_preproc.exists()):
           
             if args.verbose:
