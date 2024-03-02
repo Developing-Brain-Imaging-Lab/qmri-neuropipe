@@ -615,22 +615,22 @@ class AnatomicalPrepPipeline:
 
 
             
-            if args.to_standard:
-                if args.verbose:
-                    print("Running Registration to Standard Space")
+        if args.to_standard:
+            if args.verbose:
+                print("Running Registration to Standard Space")
 
-                registration_patterns = os.path.join(args.bids_dir, "derivatives", args.standard_registration_dir, "sub-{subject}[/ses-{session}]", "anat",)
-                out_dir               = writing.build_path(entities, registration_patterns)
+            registration_patterns = os.path.join(args.bids_dir, "derivatives", args.standard_registration_dir, "sub-{subject}[/ses-{session}]", "anat",)
+            out_dir               = writing.build_path(entities, registration_patterns)
 
-                out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
-                out_img  = Image(out_base+"Native2Standard.nii.gz")
-            
-                nonlinreg(input        = T1w_preproc,
-                          ref          = args.standard_template, 
-                          out_xfm      = out_img, 
-                          out_xfm_base = out_base,
-                          nthreads     = args.nthreads, 
-                          method       = args.to_standard_method)
+            out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
+            out_img  = Image(out_base+"Native2Standard.nii.gz")
+        
+            nonlinreg(input        = T1w_preproc,
+                        ref          = args.standard_template, 
+                        out_xfm      = out_img, 
+                        out_xfm_base = out_base,
+                        nthreads     = args.nthreads, 
+                        method       = args.to_standard_method)
                
         
             #Cleanup the files  
