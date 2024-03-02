@@ -282,9 +282,8 @@ class AnatomicalPrepPipeline:
                 noisemap_ent['desc']= 'NoiseMap'
                 gibbs_ent['desc']   = 'GibbsRingingCorrected'
                 bias_ent['desc']    = 'BiasFieldCorrected'
-                            
-                brain_img       = Image(filename = writing.build_path(img_ent, Image_pattern))    
-                brain_mask      = Image(filename = writing.build_path(mask_ent, Image_pattern))
+                             
+                brain_mask_t1w  = Image(filename = writing.build_path(mask_ent, Image_pattern))
                 denoise_img     = Image(filename = writing.build_path(denoise_ent, Image_pattern))
                 noisemap        = Image(filename = writing.build_path(noisemap_ent, Image_pattern))
                 gibbs_img       = Image(filename = writing.build_path(gibbs_ent, Image_pattern))
@@ -298,7 +297,7 @@ class AnatomicalPrepPipeline:
                         print("\tMasking image...", flush=True)
                         
                     mask.mask_image(input                = T1w,
-                                    mask                 = brain_mask,
+                                    mask                 = brain_mask_t1w,
                                     algo                 = args.mask_method,
                                     nthreads             = args.nthreads,
                                     ref_img              = args.t1w_mask_template,
@@ -325,9 +324,9 @@ class AnatomicalPrepPipeline:
                             print("\tCorrecting Gibbs Ringing...", flush = True)
                     
                         gibbs_img = degibbs.gibbs_ringing_correction(input_img    = denoise_img,
-                                                                    output_file  = gibbs_img.filename,
-                                                                    method       = args.gibbs_correction_method,
-                                                                    nthreads     = args.nthreads)
+                                                                     output_file  = gibbs_img.filename,
+                                                                     method       = args.gibbs_correction_method,
+                                                                     nthreads     = args.nthreads)
                         if args.verbose:
                             print("\tGibbs Ringing Correction Successful", flush = True)
                             print(flush = True)
@@ -336,12 +335,12 @@ class AnatomicalPrepPipeline:
                         if args.verbose:
                             print("\tCorrecting Bias Field...", flush = True)
                             
-                        bias = biascorrect.biasfield_correction(input_img   = gibbs_img,
-                                                                output_file = bias_img.filename, 
-                                                                method      = "ants", 
-                                                                mask_img    = brain_mask, 
-                                                                nthreads    = args.nthreads, 
-                                                                iterations  = 1)
+                        bias_img = biascorrect.biasfield_correction(input_img   = gibbs_img,
+                                                                    output_file = bias_img.filename, 
+                                                                    method      = "ants", 
+                                                                    mask_img    = brain_mask_t1w, 
+                                                                    nthreads    = args.nthreads, 
+                                                                    iterations  = 1)
                         if args.verbose:
                             print("\tBias Field Correction Successful", flush = True)
 
@@ -355,7 +354,7 @@ class AnatomicalPrepPipeline:
                                 print("\tSharpening Successful", flush = True)
                                 
                 T1w_proc       = bias_img
-                T1w_proc_mask  = brain_mask
+                T1w_proc_mask  = brain_mask_t1w
                 
                 if args.cleanup:
                     if os.path.exists(denoise_img.filename):
@@ -386,8 +385,8 @@ class AnatomicalPrepPipeline:
                 gibbs_ent['desc']   = 'GibbsRingingCorrected'
                 bias_ent['desc']    = 'BiasFieldCorrected'
                             
-                brain_img       = Image(filename = writing.build_path(img_ent, Image_pattern))    
-                brain_mask      = Image(filename = writing.build_path(mask_ent, Image_pattern))
+                
+                brain_mask_t2w  = Image(filename = writing.build_path(mask_ent, Image_pattern))
                 denoise_img     = Image(filename = writing.build_path(denoise_ent, Image_pattern))
                 noisemap        = Image(filename = writing.build_path(noisemap_ent, Image_pattern))
                 gibbs_img       = Image(filename = writing.build_path(gibbs_ent, Image_pattern))
@@ -396,12 +395,12 @@ class AnatomicalPrepPipeline:
                 print("Working on " + img_ent['modality'] + " image", flush=True)
                 
                 #First, create T2w brain mask
-                if not os.path.exists(brain_mask.filename):
+                if not os.path.exists(brain_mask_t2w.filename):
                     if args.verbose:
                         print("\tMasking image...", flush=True)
                         
                     mask.mask_image(input                = T2w,
-                                    mask                 = brain_mask,
+                                    mask                 = brain_mask_t2w,
                                     algo                 = args.mask_method,
                                     nthreads             = args.nthreads,
                                     ref_img              = args.t1w_mask_template,
@@ -442,7 +441,7 @@ class AnatomicalPrepPipeline:
                         bias_img = biascorrect.biasfield_correction(input_img   = gibbs_img,
                                                                     output_file = bias_img.filename, 
                                                                     method      = "ants", 
-                                                                    mask_img    = brain_mask, 
+                                                                    mask_img    = brain_mask_t2w, 
                                                                     nthreads    = args.nthreads, 
                                                                     iterations  = 1)
                         if args.verbose:
@@ -458,7 +457,7 @@ class AnatomicalPrepPipeline:
                                 print("\tSharpening Successful", flush = True)
                                 
                 T2w_proc       = bias_img
-                T2w_proc_mask  = brain_mask
+                T2w_proc_mask  = brain_mask_t2w
                 
                 if args.cleanup:
                     if os.path.exists(denoise_img.filename):
@@ -576,7 +575,16 @@ class AnatomicalPrepPipeline:
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    brain_mask.copy_image(T1w_proc_mask, datatype="uint8")
+                    mask.mask_image(input                = T1w_proc,
+                                    mask                 = brain_mask,
+                                    algo                 = args.mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.t1w_mask_template,
+                                    ref_mask             = args.t1w_mask_template_mask,
+                                    antspynet_modality   = args.antspynet_modality,
+                                    logfile              = logfile)
+
+                    brain_mask.copy_image(brain_mask, datatype="uint8")
                     
                 elif not T1w_proc and T2w_proc:
                     create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
@@ -585,7 +593,16 @@ class AnatomicalPrepPipeline:
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    brain_mask.copy_image(T2w_proc_mask, datatype="uint8")
+                    mask.mask_image(input                = T2w_proc,
+                                    mask                 = brain_mask,
+                                    algo                 = args.mask_method,
+                                    nthreads             = args.nthreads,
+                                    ref_img              = args.t1w_mask_template,
+                                    ref_mask             = args.t1w_mask_template_mask,
+                                    antspynet_modality   = args.antspynet_modality,
+                                    logfile              = logfile)
+                    
+                    brain_mask.copy_image(brain_mask, datatype="uint8")
         
             #Cleanup the files  
             if args.cleanup:
