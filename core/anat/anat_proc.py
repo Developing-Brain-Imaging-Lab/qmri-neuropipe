@@ -211,8 +211,8 @@ class AnatomicalPrepPipeline:
             create_dataset_json.create_preproc_bids_dataset_description_json(path          = bids_derivative_dir,
                                                                              bids_pipeline =  args.pipeline_name)
 
-        logfile     = open(os.path.join(bids_derivative_dir, "QMRI-NeuroPipe_AnatomicalProcessing_Log.txt"), 'w')
-        #sys.stdout  = logfile
+        logfile     = open(os.path.join(bids_output_dir, bids_id+"_desc-AnatProc.log"), 'w')
+        sys.stdout  = logfile
         
         T1w, T2w = raw_proc.prep_anat_rawdata(id                        = bids_id,
                                               rawdata_dir               = bids_rawdata_dir,
