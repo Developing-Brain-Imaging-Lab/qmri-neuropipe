@@ -428,9 +428,9 @@ class AnatomicalPrepPipeline:
                             print("\tCorrecting Gibbs Ringing...", flush = True)
                     
                         gibbs_img = degibbs.gibbs_ringing_correction(input_img    = denoise_img,
-                                                                    output_file  = gibbs_img.filename,
-                                                                    method       = args.gibbs_correction_method,
-                                                                    nthreads     = args.nthreads)
+                                                                     output_file  = gibbs_img.filename,
+                                                                     method       = args.gibbs_correction_method,
+                                                                     nthreads     = args.nthreads)
                         if args.verbose:
                             print("\tGibbs Ringing Correction Successful", flush = True)
                             print(flush = True)
@@ -439,12 +439,12 @@ class AnatomicalPrepPipeline:
                         if args.verbose:
                             print("\tCorrecting Bias Field...", flush = True)
                             
-                        bias = biascorrect.biasfield_correction(input_img   = gibbs_img,
-                                                                output_file = bias_img.filename, 
-                                                                method      = "ants", 
-                                                                mask_img    = brain_mask, 
-                                                                nthreads    = args.nthreads, 
-                                                                iterations  = 1)
+                        bias_img = biascorrect.biasfield_correction(input_img   = gibbs_img,
+                                                                    output_file = bias_img.filename, 
+                                                                    method      = "ants", 
+                                                                    mask_img    = brain_mask, 
+                                                                    nthreads    = args.nthreads, 
+                                                                    iterations  = 1)
                         if args.verbose:
                             print("\tBias Field Correction Successful", flush = True)
 
@@ -592,10 +592,6 @@ class AnatomicalPrepPipeline:
                 if args.verbose:
                     print("Cleaning up files", flush=True)
                     
-                if T1w_proc_mask:
-                    os.remove(T1w_proc_mask.filename)
-                if T2w_proc_mask:
-                    os.remove(T2w_proc_mask.filename)
                 if T1w_proc:
                     os.remove(T1w_proc.filename)
                 if T2w_proc:
