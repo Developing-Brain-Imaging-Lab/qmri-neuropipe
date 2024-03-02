@@ -353,7 +353,7 @@ class AnatomicalPrepPipeline:
                             if args.verbose:
                                 print("\tSharpening Successful", flush = True)
                                 
-                T1w_proc       = bias_img
+                T1w_proc = bias_img
                 
                 if args.cleanup:
                     if os.path.exists(denoise_img.filename):
@@ -455,7 +455,6 @@ class AnatomicalPrepPipeline:
                                 print("\tSharpening Successful", flush = True)
                                 
                 T2w_proc       = bias_img
-                T2w_proc_mask  = brain_mask_t2w
                 
                 if args.cleanup:
                     if os.path.exists(denoise_img.filename):
@@ -467,7 +466,6 @@ class AnatomicalPrepPipeline:
                 
             else:
                 T2w_proc       = None
-                T2w_proc_mask  = None            
             
             
             #Coregister the images if both exist
@@ -528,8 +526,10 @@ class AnatomicalPrepPipeline:
             
             if T1w_proc:
                 
+                T1w_preproc.copy_image(T1w_proc, datatype="float32")
+
                 create_dataset_json.create_bids_sidecar_json(image = T1w_preproc, 
-                                                            data = {"Modality": "T1w",
+                                                             data  = {"Modality": "T1w",
                                                                     "Description": "Preprocessed T1w Image",
                                                                     "Sources": T1w.filename,
                                                                     "SkullStripped": True,
@@ -540,38 +540,33 @@ class AnatomicalPrepPipeline:
                                                                     "GibbsCorrectionMethod": args.gibbs_correction_method,
                                                                     "BiasCorrected": True,
                                                                     "BiasCorrectionMethod": args.biasfield_correction_method,
-                                                                    "Sharpened": args.sharpen_images})
-                T1w_preproc.copy_image(T1w_proc, datatype="float32")
-                
-            
+                                                                    "Sharpened": args.sharpen_images})            
             if T2w_proc:
                
-                create_dataset_json.create_bids_sidecar_json(image = T2w_preproc, 
-                                                        data = {"Modality": "T2w",
-                                                                "Description": "Preprocessed T2w Image",
-                                                                "Sources": T2w.filename,
-                                                                "SkullStripped": True,
-                                                                "SkullStrippingMethod": args.mask_method,
-                                                                "Denoised": True,
-                                                                "DenoisingMethod": args.denoise_method,
-                                                                "GibbsCorrected": True,
-                                                                "GibbsCorrectionMethod": args.gibbs_correction_method,
-                                                                "BiasCorrected": True,
-                                                                "BiasCorrectionMethod": args.biasfield_correction_method,
-                                                                "Sharpened": args.sharpen_images})
-                
                 T2w_preproc.copy_image(T2w_proc, datatype="float32")
+                create_dataset_json.create_bids_sidecar_json(image = T2w_preproc, 
+                                                             data  = {"Modality": "T2w",
+                                                                    "Description": "Preprocessed T2w Image",
+                                                                    "Sources": T2w.filename,
+                                                                    "SkullStripped": True,
+                                                                    "SkullStrippingMethod": args.mask_method,
+                                                                    "Denoised": True,
+                                                                    "DenoisingMethod": args.denoise_method,
+                                                                    "GibbsCorrected": True,
+                                                                    "GibbsCorrectionMethod": args.gibbs_correction_method,
+                                                                    "BiasCorrected": True,
+                                                                    "BiasCorrectionMethod": args.biasfield_correction_method,
+                                                                    "Sharpened": args.sharpen_images})
                 
-            
             if not brain_mask.exists():   
                 if T1w_proc and not T2w_proc:  
                     create_dataset_json.create_bids_sidecar_json(image = brain_mask, 
-                                                                data = {"Description": "Brain Mask",
+                                                                 data  = {"Description": "Brain Mask",
                                                                         "Sources": T1w.filename,
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    mask.mask_image(input                = T1w_proc,
+                    mask.mask_image(input                = T1w_preproc,
                                     mask                 = brain_mask,
                                     algo                 = args.mask_method,
                                     nthreads             = args.nthreads,
@@ -589,7 +584,7 @@ class AnatomicalPrepPipeline:
                                                                         "SkullStripped": True,
                                                                         "SkllStrippingMethod": args.mask_method})
                     
-                    mask.mask_image(input                = T2w_proc,
+                    mask.mask_image(input                = T2w_preproc,
                                     mask                 = brain_mask,
                                     algo                 = args.mask_method,
                                     nthreads             = args.nthreads,
