@@ -11,7 +11,7 @@ import core.utils.create_dataset_json as create_dataset_json
 import core.anat.workflows.prep_rawdata as raw_proc
 import core.anat.workflows.hcp_process as hcp
 
-import core.registration.nonlinreg as nonlinreg
+from core.registration.nonlinreg import nonlinreg
 
 
 class AnatomicalPrepPipeline:
