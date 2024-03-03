@@ -75,50 +75,50 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         nonlin_transform      = working_dir + '/nonlinear_composite.nii.gz'
         final_transform       = ''
 
-        mask_img   = Image(filename = working_dir + '/mask.nii.gz')
-        dwi_masked = Image(filename = working_dir + '/dwi_masked.nii.gz')
-        b0_masked  = Image(filename = working_dir + '/b0_masked.nii.gz')
+        # mask_img   = Image(filename = working_dir + '/mask.nii.gz')
+        # dwi_masked = Image(filename = working_dir + '/dwi_masked.nii.gz')
+        # b0_masked  = Image(filename = working_dir + '/b0_masked.nii.gz')
 
-        mask.mask_image(input       = mean_dwi,
-                        mask        = mask_img,
-                        mask_img    = dwi_masked,
-                        algo        = mask_method,
-                        bet_options = '-f 0.25')
+        # mask.mask_image(input       = mean_dwi,
+        #                 mask        = mask_img,
+        #                 mask_img    = dwi_masked,
+        #                 algo        = mask_method,
+        #                 bet_options = '-f 0.25')
 
-        mask.apply_mask(input       = mean_b0,
-                        mask        = mask_img,
-                        output      = b0_masked)
+        # mask.apply_mask(input       = mean_b0,
+        #                 mask        = mask_img,
+        #                 output      = b0_masked)
                         
         #If structural T2w available, use it with the b=0
         if anat_modality == 't1w':
-            mov_img.append(dwi_masked)
+            mov_img.append(mean_dwi)
         elif anat_modality == 't2w':
-            mov_img.append(b0_masked)
+            mov_img.append(mean_b0)
         else:
             print('Invalid anatomy contrast')
             exit()
             
     
-        #Mask the Anatomical image and bias-correct
-        anat_masked = Image(filename = working_dir + '/anat_masked.nii.gz')
+        # #Mask the Anatomical image and bias-correct
+        # anat_masked = Image(filename = working_dir + '/anat_masked.nii.gz')
         
-        if not anat_mask:
-            anat_mask = Image(file = working_dir + '/anat_mask.nii.gz')
-            mask.mask_image(input   = anat_image,
-                            mask    = anat_mask,
-                            algo    = mask_method)
+        # if not anat_mask:
+        #     anat_mask = Image(file = working_dir + '/anat_mask.nii.gz')
+        #     mask.mask_image(input   = anat_image,
+        #                     mask    = anat_mask,
+        #                     algo    = mask_method)
         
-        mask.apply_mask(input       = anat_image,
-                        mask        = anat_mask,
-                        output      = anat_masked)
+        # mask.apply_mask(input       = anat_image,
+        #                 mask        = anat_mask,
+        #                 output      = anat_masked)
                 
-        anat_biascorr = Image(filename = working_dir + '/anat_biascorr.nii.gz')
-        bias_tools.biasfield_correction(input_img = anat_masked,
-                                        output_file = anat_biascorr.filename,
-                                        method = "ants",
-                                        iterations=3)
+        # anat_biascorr = Image(filename = working_dir + '/anat_biascorr.nii.gz')
+        # bias_tools.biasfield_correction(input_img = anat_masked,
+        #                                 output_file = anat_biascorr.filename,
+        #                                 method = "ants",
+        #                                 iterations=3)
     
-        ref_img.append(anat_biascorr)
+        ref_img.append(anat_image)
     
         #First, perform linear registration using FSL flirt
         tmp_coreg_img = Image(filename = working_dir+'/dwi_coreg.nii.gz')
@@ -128,7 +128,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                out           = [tmp_coreg_img],
                method        = 'fsl',
                dof           = dof,
-               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -interp sinc')
+               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
         if reg_method == 'bbr':
             #Create WM segmentation from structural image
