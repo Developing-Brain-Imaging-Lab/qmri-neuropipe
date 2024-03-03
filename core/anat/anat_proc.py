@@ -613,6 +613,28 @@ class AnatomicalPrepPipeline:
                     
                     brain_mask.copy_image(brain_mask_t2w, datatype="uint8")
 
+            
+            #Cleanup the files  
+            if args.cleanup:
+                if args.verbose:
+                    print("Cleaning up files", flush=True)
+                    
+                if T1w_proc:
+                    T1w_proc.remove()
+                if brain_mask_t1w:
+                    brain_mask_t1w.remove()
+                if brain_mask_t2w:
+                    brain_mask_t2w.remove()
+                if T2w_proc:
+                    T2w_proc.remove()
+                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz")):
+                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
+                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz")):
+                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
+    
+                if args.verbose:
+                    print("Finished cleaning up files", flush=True)
+                    print(flush=True)
 
             
         if args.to_standard:
@@ -640,32 +662,9 @@ class AnatomicalPrepPipeline:
                             method       = args.to_standard_method)
             
         
-            #Cleanup the files  
-            if args.cleanup:
-                if args.verbose:
-                    print("Cleaning up files", flush=True)
-                    
-                if T1w_proc:
-                    T1w_proc.remove()
-                if brain_mask_t1w:
-                    brain_mask_t1w.remove()
-                if brain_mask_t2w:
-                    brain_mask_t2w.remove()
-                if T2w_proc:
-                    T2w_proc.remove()
-                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz")):
-                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T1w.nii.gz"))
-                if os.path.exists(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz")):
-                    os.remove(os.path.join(bids_output_dir, bids_id+"_desc-BiasFieldCorrected_T2w.nii.gz"))
-    
-                if args.verbose:
-                    print("Finished cleaning up files", flush=True)
-                    print(flush=True)
-            
-                
-            if args.verbose:
-                print("Anatomical Processing Successful")
-                print("")
+        if args.verbose:
+            print("Anatomical Processing Successful")
+            print("")
         
                 
         return T1w_preproc, T2w_preproc, brain_mask
