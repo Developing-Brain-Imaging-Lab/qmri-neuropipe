@@ -65,6 +65,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
         else:
             exe = eddy_cuda
     else:
+        os.environ["OMP_NUM_THREADS"] = str(nthreads)
         exe = 'OMP_NUM_THREADS='+str(nthreads)+ ' ' + eddy
 
     command = exe + ' --imain=' + input_dwi.filename \
