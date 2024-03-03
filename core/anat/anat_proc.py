@@ -622,20 +622,23 @@ class AnatomicalPrepPipeline:
             registration_patterns = os.path.join(args.bids_dir, "derivatives", args.standard_registration_dir, "sub-{subject}[/ses-{session}]", "anat",)
             out_dir               = writing.build_path(entities, registration_patterns)
 
-            out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
-            out_img  = Image(out_base+"Native2Standard.nii.gz")
-
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
-        
-            nonlinreg(input          = T1w_preproc,
-                        ref          = Image(filename=args.standard_template), 
-                        mask         = Image(filename=args.standard_template_mask),
-                        out_xfm      = out_img, 
-                        out_xfm_base = out_base,
-                        nthreads     = args.nthreads, 
-                        method       = args.to_standard_method)
-               
+
+            if T1w_preproc.exists():
+                out_base = os.path.join(out_dir, bids_id+"_desc-ANTs_space-"+args.standard_space+"_")
+
+                if args.t1w_type.lower() == 'mpnrage':
+                    out_base = os.path.join(out_dir, bids_id+"_acq-MPnRAGE_space-"+args.standard_space+"_desc-ANTsNonlin_")
+            
+                nonlinreg(input          = T1w_preproc,
+                            ref          = Image(filename=args.standard_template), 
+                            mask         = Image(filename=args.standard_template_mask),
+                            out_xfm      = out_base+"FwdTransform.nii.gz", 
+                            out_xfm_base = out_base,
+                            nthreads     = args.nthreads, 
+                            method       = args.to_standard_method)
+            
         
             #Cleanup the files  
             if args.cleanup:
