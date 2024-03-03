@@ -128,7 +128,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                out           = [tmp_coreg_img],
                method        = 'fsl',
                dof           = dof,
-               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -cost normmi')
 
         if reg_method == 'bbr':
             #Create WM segmentation from structural image

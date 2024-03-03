@@ -459,7 +459,7 @@ class DiffusionProcessingPipeline:
         freesurfer_subjs_dir = None
         if args.use_freesurfer or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_eddy_current_correction == 'tortoise-diffprep':
             
-            coreg_dir = os.path.join(dmri_preproc_dir, 'coregister-to-anat',)
+            coreg_dir = os.path.join(dmri_preproc_dir, 'coregister-to-anatomy',)
             if not os.path.exists(coreg_dir):
                 os.makedirs(coreg_dir)
            
