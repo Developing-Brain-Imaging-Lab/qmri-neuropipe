@@ -91,7 +91,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                         
         #If structural T2w available, use it with the b=0
         if anat_modality == 't1w':
-            mov_img.append(mean_dwi)
+            mov_img.append(mean_b0)
         elif anat_modality == 't2w':
             mov_img.append(mean_b0)
         else:
