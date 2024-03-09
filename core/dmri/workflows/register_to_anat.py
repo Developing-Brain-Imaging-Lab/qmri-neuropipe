@@ -133,9 +133,8 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         if reg_method == 'bbr':
             #Create WM segmentation from structural image
             wmseg_img = seg_tools.create_wmseg(input_img        = ref_img[0],
-                                               brain_mask       = anat_mask,
                                                output_dir       = working_dir + '/wmseg/',
-                                               modality         = anat_modality )
+                                               nthreads         = nthreads )
                 
            
             #Next, re-run flirt, using bbr cost function and WM segmentation
