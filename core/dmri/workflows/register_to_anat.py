@@ -30,7 +30,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
     'desc': 'CoregisteredToAnatomy'
     }
 
-    working_dir += '/coregister-to-anatomy'
+    working_dir = os.path.join(working_dir, "coregister-to-anatomy",)
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
@@ -60,12 +60,12 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         mean_b0         = Image(filename = working_dir + '/mean_b0.nii.gz')
         mean_b0_data    = np.mean(dwi_data[:,:,:,np.asarray(ii).flatten()], 3)
         save_nifti(mean_b0.filename, mean_b0_data, affine, dwi_img.header)
-        denoise_image(mean_b0, mean_b0.filename, method='ants', nthreads=nthreads)
+        #denoise_image(mean_b0, mean_b0.filename, method='ants', nthreads=nthreads)
 
         mean_dwi        = Image(filename = working_dir + '/mean_dwi.nii.gz')
         mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
         save_nifti(mean_dwi.filename, mean_dwi_data, affine, dwi_img.header)
-        denoise_image(mean_dwi, mean_dwi.filename, method='ants', nthreads=nthreads)
+        #denoise_image(mean_dwi, mean_dwi.filename, method='ants', nthreads=nthreads)
 
         ref_img               = []
         mov_img               = []
@@ -75,23 +75,23 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         nonlin_transform      = working_dir + '/nonlinear_composite.nii.gz'
         final_transform       = ''
 
-        # mask_img   = Image(filename = working_dir + '/mask.nii.gz')
-        # dwi_masked = Image(filename = working_dir + '/dwi_masked.nii.gz')
-        # b0_masked  = Image(filename = working_dir + '/b0_masked.nii.gz')
+        mask_img   = Image(filename = working_dir + '/mask.nii.gz')
+        dwi_masked = Image(filename = working_dir + '/dwi_masked.nii.gz')
+        b0_masked  = Image(filename = working_dir + '/b0_masked.nii.gz')
 
-        # mask.mask_image(input       = mean_dwi,
-        #                 mask        = mask_img,
-        #                 mask_img    = dwi_masked,
-        #                 algo        = mask_method,
-        #                 bet_options = '-f 0.25')
+        mask.mask_image(input       = mean_dwi,
+                        mask        = mask_img,
+                        mask_img    = dwi_masked,
+                        algo        = mask_method,
+                        bet_options = '-f 0.25')
 
-        # mask.apply_mask(input       = mean_b0,
-        #                 mask        = mask_img,
-        #                 output      = b0_masked)
+        mask.apply_mask(input       = mean_b0,
+                        mask        = mask_img,
+                        output      = b0_masked)
                         
         #If structural T2w available, use it with the b=0
         if anat_modality == 't1w':
-            mov_img.append(mean_b0)
+            mov_img.append(mean_dwi)
         elif anat_modality == 't2w':
             mov_img.append(mean_b0)
         else:
@@ -99,18 +99,18 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
             exit()
             
     
-        # #Mask the Anatomical image and bias-correct
-        # anat_masked = Image(filename = working_dir + '/anat_masked.nii.gz')
+        #Mask the Anatomical image and bias-correct
+        anat_masked = Image(filename = working_dir + '/anat_masked.nii.gz')
         
-        # if not anat_mask:
-        #     anat_mask = Image(file = working_dir + '/anat_mask.nii.gz')
-        #     mask.mask_image(input   = anat_image,
-        #                     mask    = anat_mask,
-        #                     algo    = mask_method)
+        if not anat_mask:
+            anat_mask = Image(file = working_dir + '/anat_mask.nii.gz')
+            mask.mask_image(input   = anat_image,
+                            mask    = anat_mask,
+                            algo    = mask_method)
         
-        # mask.apply_mask(input       = anat_image,
-        #                 mask        = anat_mask,
-        #                 output      = anat_masked)
+        mask.apply_mask(input       = anat_image,
+                        mask        = anat_mask,
+                        output      = anat_masked)
                 
         # anat_biascorr = Image(filename = working_dir + '/anat_biascorr.nii.gz')
         # bias_tools.biasfield_correction(input_img = anat_masked,
@@ -118,7 +118,7 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
         #                                 method = "ants",
         #                                 iterations=3)
     
-        ref_img.append(anat_image)
+        ref_img.append(anat_masked)
     
         #First, perform linear registration using FSL flirt
         tmp_coreg_img = Image(filename = working_dir+'/dwi_coreg.nii.gz')
@@ -128,13 +128,13 @@ def register_to_anat(dwi_image, working_dir, anat_image=None, anat_mask=None, ma
                out           = [tmp_coreg_img],
                method        = 'fsl',
                dof           = dof,
-               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180 -cost normmi')
+               flirt_options =  '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
 
         if reg_method == 'bbr':
             #Create WM segmentation from structural image
             wmseg_img = seg_tools.create_wmseg(input_img        = ref_img[0],
                                                brain_mask       = anat_mask,
-                                               output_dir       = working_dir + '/atropos/',
+                                               output_dir       = working_dir + '/wmseg/',
                                                modality         = anat_modality )
                 
            
