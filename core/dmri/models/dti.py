@@ -171,7 +171,6 @@ class DTI_Model():
             ad              = np.zeros(img_shape)
             ga              = np.zeros(img_shape)
             trace           = np.zeros(img_shape)
-            color_fa        = np.zeros(img_shape)
             dti_mode        = np.zeros(img_shape)
             dti_planarity   = np.zeros(img_shape)
             dti_sphericity  = np.zeros(img_shape)
