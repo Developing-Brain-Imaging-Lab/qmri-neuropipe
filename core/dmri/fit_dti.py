@@ -9,7 +9,7 @@ from core.dmri.models.dti import DTI_Model
 
 def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy-WLS', grad_nonlin=None):
       
-    DWI = DWImage(file        = dwi_img,
+    DWI = DWImage(filename    = dwi_img,
                   bvecs       = bvecs,
                   bvals       = bvals)
                       
