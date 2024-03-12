@@ -175,9 +175,9 @@ class DTI_Model():
             dti_planarity   = np.zeros(img_shape)
             dti_sphericity  = np.zeros(img_shape)
 
-            for i in img_shape[0]:
-                for j in img_shape[1]:
-                    for k in img_shape[2]:
+            for i in range(img_shape[0]):
+                for j in range(img_shape[1]):
+                    for k in range(img_shape[2]):
 
                         if self._inputs['mask'] != None:
                             mask_vox = mask_data[i,j,k]
