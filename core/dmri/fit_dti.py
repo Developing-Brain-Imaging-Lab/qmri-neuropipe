@@ -19,7 +19,6 @@ def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy
     dti_model = DTI_Model(dwi_img               = DWI,
                           sub_info              = {subject},
                           out_dir               = out_dir,
-                          fit_type              = args.noddi_fit_method,
                           mask                  = MASK,
                           fit_type              = fit_method,
                           verbose               = args.verbose)
