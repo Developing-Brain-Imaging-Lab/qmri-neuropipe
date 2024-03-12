@@ -15,9 +15,11 @@ def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy
                       
     MASK = Image(filename = mask)
 
+    sub_info = {'subject': subject}
+
 
     dti_model = DTI_Model(dwi_img               = DWI,
-                          sub_info              = {subject},
+                          sub_info              = sub_info,
                           out_dir               = out_dir,
                           mask                  = MASK,
                           fit_type              = fit_method,
