@@ -29,12 +29,12 @@ def correct_bvals_bvecs(bvals, bvecs, grad_nonlin):
     for i in range(bvals.shape[0]):
         if bvals[i] > 0:  # Correct only for non-zero b-values
             # Correct the b-vector for the current gradient
-            bvecs_c[:, i] = np.matmul(Id + L, bvecs[:, i])
+            bvecs_c[i] = np.matmul(Id + L, bvecs[i])
 
             # Normalize the corrected b-vector
-            mag = np.linalg.norm(bvecs_c[:, i])
+            mag = np.linalg.norm(bvecs_c[i])
             if mag != 0:
-                bvecs_c[:, i] = bvecs_c[:, i] / mag
+                bvecs_c[i] = bvecs_c[i] / mag
 
             # Adjust the b-value
             bvals_c[i] = mag**2 * bvals[i]

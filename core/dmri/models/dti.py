@@ -191,10 +191,6 @@ class DTI_Model():
                             if self._inputs['grad_nonlin'] != None:
                                 grad_nonlin_vox = grad_nonlin_data[i,j,k,:]
 
-                                print(grad_nonlin_vox)
-                                print(bvals)
-                                print(bvecs)
-
                                 corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
                                 gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
                             else:
