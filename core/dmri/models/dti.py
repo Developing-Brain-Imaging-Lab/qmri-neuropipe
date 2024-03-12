@@ -163,6 +163,7 @@ class DTI_Model():
             tensor     = np.zeros((img_shape[0], img_shape[1], img_shape[2],6), dtype=np.float32)
             evecs      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3,3), dtype=np.float32)
             evals      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
+            color_fa   = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
             
             fa              = np.zeros(img_shape)
             md              = np.zeros(img_shape)
