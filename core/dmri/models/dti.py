@@ -160,9 +160,9 @@ class DTI_Model():
             #Loop over all voxels
             img_shape = data[:-1]
 
-            tensor     = np.zeros([img_shape[0], img_shape[1], img_shape[2],6])
-            evecs      = np.zeros([img_shape[0], img_shape[1], img_shape[2],3,3])
-            evals      = np.zeros([img_shape[0], img_shape[1], img_shape[2],3])
+            tensor     = np.zeros((img_shape[0], img_shape[1], img_shape[2],6))
+            evecs      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3,3))
+            evals      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3))
             
             fa              = np.zeros(img_shape)
             md              = np.zeros(img_shape)
