@@ -15,6 +15,7 @@ from dipy.reconst.dti import fractional_anisotropy
 from dipy.io.utils import nifti1_symmat
 
 from core.utils.io import Image, DWImage
+from core.dmri.utils.correct_bvals_bvecs import correct_bvals_bvecs
 
 #def calculate_dti_skewness(input_tensor, output_dir):
 #    tmp_dir = output_dir + '/tmp/'
@@ -49,7 +50,7 @@ from core.utils.io import Image, DWImage
 #    os.system('rm -rf ' + tmp_dir)
 
 class DTI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, bmax=None, full_output=False, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, bmax=None, grad_nonlin=None, full_output=False, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_dir']     = out_dir
@@ -58,6 +59,7 @@ class DTI_Model():
         self._inputs['bmax']        = bmax
         self._inputs['nthreads']    = nthreads
         self._inputs['full_output'] = full_output
+        self._inputs['grad_nonlin'] = grad_nonlin
         
         dti_entities = {}
         dti_entities['subject'] = sub_info['subject']
@@ -151,31 +153,103 @@ class DTI_Model():
             ii = np.where(np.array(bvals) == bvals.min())[0]
             b0_average = np.mean(data[:,:,:,ii], axis=3)
 
-            gtab = gradient_table(bvals, bvecs, atol=0.1)
+            grad_nonlin_data = None
+            if self._inputs['grad_nonlin'] != None:
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata()
 
-            if self._inputs['fit_type'] == 'dipy-RESTORE':
-                sigma = estimate_sigma(data)
-                dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+            #Loop over all voxels
+            img_shape = data[:-1]
 
-                if self._inputs['mask']  != None:
-                    dti_fit = dti_model.fit(data, mask_data)
-                else:
-                    dti_fit = dti_model.fit(data)
+            tensor     = np.array((img_data,6))
+            evecs      = np.array((img_data,3,3))
+            evals      = np.array((img_data,3))
+            
+            fa              = np.array(img_shape)
+            md              = np.array(img_shape)
+            rd              = np.array(img_shape)
+            ad              = np.array(img_shape)
+            ga              = np.array(img_shape)
+            trace           = np.array(img_shape)
+            color_fa        = np.array(img_shape)
+            dti_mode        = np.array(img_shape)
+            dti_planarity   = np.array(img_shape)
+            dti_sphericity  = np.array(img_shape)
 
-            else:
-                dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
+            for i in img_shape[0]:
+                for j in img_shape[1]:
+                    for k in img_shape[2]:
 
-                if self._inputs['mask']  != None:
-                    dti_fit = dti_model.fit(data, mask_data)
-                else:
-                    dti_fit = dti_model.fit(data)
+                        if self._inputs['mask'] != None:
+                            mask_vox = mask_data[i,j,k]
+                        else:
+                            mask_vox = 1
 
-            estimate_data = dti_fit.predict(gtab, S0=b0_average)
-            residuals = np.absolute(data - estimate_data)
+                        if mask_vox != 0:
+                            voxel_data = data[i,j,k,:]
 
-            tensor = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
-            evecs = dti_fit.evecs.astype(np.float32)
-            evals = dti_fit.evals.astype(np.float32)
+                            gtab=None
+                            if self._inputs['grad_nonlin'] != None:
+                                grad_nonlin_vox = grad_nonlin_data[i,j,k,:]
+
+                                corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
+                                gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+                            else:
+                                gtab = gradient_table(bvals, bvecs, atol=0.1)
+
+                            dti_model = None
+                            if self._inputs['fit_type'] == 'dipy-RESTORE':
+                                sigma = estimate_sigma(data)
+                                dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+                            else:
+                                dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
+
+                            dti_fit = dti_model.fit(voxel_data)
+
+                            estimate_data = dti_fit.predict(gtab, S0=b0_average)
+                            residuals = np.absolute(data - estimate_data)
+
+                            tensor[i,j,k,:]         = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
+                            evecs[i,j,k,:,:]        = dti_fit.evecs.astype(np.float32)
+                            evals[i,j,k,:]          = dti_fit.evals.astype(np.float32)
+                            fa[i,j,k]               = dti_fit.fa
+                            md[i,j,k]               = dti_fit.md
+                            rd[i,j,k]               = dti_fit.rd
+                            ad[i,j,k]               = dti_fit.ad
+                            ga[i,j,k]               = dti_fit.ga
+                            trace[i,j,k]            = dti_fit.trace
+                            color_fa[i,j,k]         = dti_fit.color_fa
+                            dti_mode[i,j,k]         = dti_fit.mode
+                            dti_planarity[i,j,k]    = dti_fit.planarity
+                            dti_sphericity[i,j,k]   = dti_fit.sphericity
+
+            # gtab = gradient_table(bvals, bvecs, atol=0.1)
+
+            # if self._inputs['fit_type'] == 'dipy-RESTORE':
+            #     sigma = estimate_sigma(data)
+            #     dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+
+            #     if self._inputs['mask']  != None:
+            #         dti_fit = dti_model.fit(data, mask_data)
+            #     else:
+            #         dti_fit = dti_model.fit(data)
+
+            # else:
+            #     dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
+
+            #     if self._inputs['mask']  != None:
+            #         dti_fit = dti_model.fit(data, mask_data)
+            #     else:
+            #         dti_fit = dti_model.fit(data)
+
+            # estimate_data = dti_fit.predict(gtab, S0=b0_average)
+            # residuals = np.absolute(data - estimate_data)
+
+            # tensor = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
+            # evecs = dti_fit.evecs.astype(np.float32)
+            # evals = dti_fit.evals.astype(np.float32)
+
+
+            ###END LOOP
 
             if self._inputs['full_output']:
                 tensor_img = nifti1_symmat(tensor, ras_img.affine, ras_img.header)
@@ -200,16 +274,16 @@ class DTI_Model():
                 tensor_mrtrix[:,:,:,5]  = tensor[:,:,:,4]
                 save_nifti(self._outputs['tensor-mrtrix'], tensor_mrtrix, ras_img.affine, ras_img.header)
 
-            fa              = dti_fit.fa
-            md              = dti_fit.md
-            rd              = dti_fit.rd
-            ad              = dti_fit.ad
-            ga              = dti_fit.ga
-            trace           = dti_fit.trace
-            color_fa        = dti_fit.color_fa
-            dti_mode        = dti_fit.mode
-            dti_planarity   = dti_fit.planarity
-            dti_sphericity  = dti_fit.sphericity
+            # fa              = dti_fit.fa
+            # md              = dti_fit.md
+            # rd              = dti_fit.rd
+            # ad              = dti_fit.ad
+            # ga              = dti_fit.ga
+            # trace           = dti_fit.trace
+            # color_fa        = dti_fit.color_fa
+            # dti_mode        = dti_fit.mode
+            # dti_planarity   = dti_fit.planarity
+            # dti_sphericity  = dti_fit.sphericity
 
             #Remove any nan
             fa[np.isnan(fa)]                            = 0
