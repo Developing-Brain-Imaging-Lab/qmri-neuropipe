@@ -160,20 +160,20 @@ class DTI_Model():
             #Loop over all voxels
             img_shape = data[:-1]
 
-            tensor     = np.array([img_shape[0], img_shape[1], img_shape[2],6])
-            evecs      = np.array([img_shape[0], img_shape[1], img_shape[2],3,3])
-            evals      = np.array([img_shape[0], img_shape[1], img_shape[2],3])
+            tensor     = np.zeros([img_shape[0], img_shape[1], img_shape[2],6])
+            evecs      = np.zeros([img_shape[0], img_shape[1], img_shape[2],3,3])
+            evals      = np.zeros([img_shape[0], img_shape[1], img_shape[2],3])
             
-            fa              = np.array(img_shape)
-            md              = np.array(img_shape)
-            rd              = np.array(img_shape)
-            ad              = np.array(img_shape)
-            ga              = np.array(img_shape)
-            trace           = np.array(img_shape)
-            color_fa        = np.array(img_shape)
-            dti_mode        = np.array(img_shape)
-            dti_planarity   = np.array(img_shape)
-            dti_sphericity  = np.array(img_shape)
+            fa              = np.zeros(img_shape)
+            md              = np.zeros(img_shape)
+            rd              = np.zeros(img_shape)
+            ad              = np.zeros(img_shape)
+            ga              = np.zeros(img_shape)
+            trace           = np.zeros(img_shape)
+            color_fa        = np.zeros(img_shape)
+            dti_mode        = np.zeros(img_shape)
+            dti_planarity   = np.zeros(img_shape)
+            dti_sphericity  = np.zeros(img_shape)
 
             for i in img_shape[0]:
                 for j in img_shape[1]:
