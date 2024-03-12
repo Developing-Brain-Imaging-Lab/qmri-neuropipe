@@ -7,7 +7,7 @@ from core.dmri.models.dti import DTI_Model
 
 
 
-def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy-WLS', grad_nonlin=None, verbose=True):
+def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy-WLS', grad_nonlin=None):
       
     DWI = DWImage(filename    = dwi_img,
                   bvecs       = bvecs,
@@ -21,7 +21,7 @@ def fit_dti(subject, dwi_img, bvals, bvecs, out_dir, mask=None, fit_method='dipy
                           out_dir               = out_dir,
                           mask                  = MASK,
                           fit_type              = fit_method,
-                          verbose               = verbose)
+                          grad_nonlin           = grad_nonlin)
     dti_model.fit()
         
 if __name__ == '__main__':
@@ -64,7 +64,8 @@ if __name__ == '__main__':
     
         parser.add_argument('--gradnonlin',
                             type=str,
-                            help='Fitting Algorithm for Neurite Orietation Dispersion and Density Imaging Model')
+                            help='Fitting Algorithm for Neurite Orietation Dispersion and Density Imaging Model',
+                            default=None)
 
         parser.add_argument('--verbose',
                             type=bool,
