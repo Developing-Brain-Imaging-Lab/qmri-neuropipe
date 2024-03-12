@@ -218,6 +218,9 @@ class DTI_Model():
                             ad[i,j,k]               = dti_fit.ad
                             #ga[i,j,k]               = dti_fit.ga
                             trace[i,j,k]            = dti_fit.trace
+
+                            print(dti_fit.color_fa)
+                            print(dti_fit.color_fa.shape)
                             color_fa[i,j,k,:]       = dti_fit.color_fa
                             dti_mode[i,j,k]         = dti_fit.mode
                             dti_planarity[i,j,k]    = dti_fit.planarity
