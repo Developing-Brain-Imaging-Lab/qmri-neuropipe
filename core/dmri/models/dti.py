@@ -205,8 +205,8 @@ class DTI_Model():
 
                             dti_fit = dti_model.fit(voxel_data)
 
-                            estimate_data = dti_fit.predict(gtab, S0=b0_average)
-                            residuals = np.absolute(data - estimate_data)
+                            estimate_data = dti_fit.predict(gtab, S0=b0_average[i,j,k])
+                            residuals = np.absolute(voxel_data - estimate_data)
 
                             tensor[i,j,k,:]         = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
                             evecs[i,j,k,:,:]        = dti_fit.evecs.astype(np.float32)
