@@ -443,9 +443,9 @@ class DESPOTProcessingPipeline:
             
         if args.despot_cleanup:
             #Remove all but preproc files
-            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR_VFA.nii.gz")):
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
                 os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"))
-            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP_VFA.nii.gz")):
+            if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")):
                 os.remove(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"))
             
             if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
@@ -472,6 +472,8 @@ class DESPOTProcessingPipeline:
         ############# DESPOT MODEL FITTING #################
         despot_model_patterns = os.path.join(args.bids_dir, "derivatives", args.models_derivative_dir, "sub-{subject}[/ses-{session}]","anat",)
         despot_models_dir     = writing.build_path(entities, despot_model_patterns)
+
+        b1map = afi_b1map
         
         ###DTI MODELING ###
         if args.despot1_fit_method != None:
@@ -502,6 +504,21 @@ class DESPOTProcessingPipeline:
                                       verbose   = args.verbose)
 
                 model.fit()
+
+                if args.despot_b1_method.lower() == 'hifi':
+                    if args.verbose:
+                        print('Smoothing B1')
+
+                    os.system('fslmaths ' + brain_mask.filename + ' -s 2.55 ' + os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
+                    os.system('fslmaths ' + os.path.join(despot_models_dir, despot1_base+"B1.nii.gz") + " -s 2.55 -div " + os.path.join(despot_models_dir, "tmp_mask.nii.gz") + " -mas " + brain_mask.filename + " " + os.path.join(despot_models_dir, despot1_base+"B1.nii.gz") )
+                    os.remove(os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
+
+                    #Refit after smoothing and fixing B1:
+                    b1map = Image(filename = os.path.join(despot_models_dir, despot1_base+"B1.nii.gz"))
+                    model.set_b1(b1map)
+                    model.set_model(model = "DESPOT1")
+                    model.fit()
+
         
         if args.despot2_fit_method != None:
             despot2_model = "DESPTO2-FM"
@@ -511,17 +528,18 @@ class DESPOTProcessingPipeline:
                 if args.verbose:
                     print('Fitting DESPOT2-FM model...')
 
-                model = DESPOT2_Model(ssfp       = ssfp_preproc,
-                                      params     = fitparam_json,
-                                      out_dir    = despot_models_dir,
-                                       out_base  = despot2_base,
-                                       t1        = Image(filename = os.path.join(despot_models_dir,despot1_base+"T1.nii.gz")),
-                                       b1        = afi_b1map,
-                                       mask      = brain_mask,
-                                       model     = despot2_model,
-                                       algorithm = args.despot2_fit_method,
-                                       nthreads  = args.nthreads,
-                                       verbose   = args.verbose)
+
+                model = DESPOT2_Model(ssfp      = ssfp_preproc,
+                                      params    = fitparam_json,
+                                      out_dir   = despot_models_dir,
+                                      out_base  = despot2_base,
+                                      t1        = Image(filename = os.path.join(despot_models_dir,despot1_base+"T1.nii.gz")),
+                                      b1        = b1map,
+                                      mask      = brain_mask,
+                                      model     = despot2_model,
+                                      algorithm = args.despot2_fit_method,
+                                      nthreads  = args.nthreads,
+                                      verbose   = args.verbose)
 
                 model.fit()
                 
