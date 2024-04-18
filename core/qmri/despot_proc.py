@@ -528,7 +528,6 @@ class DESPOTProcessingPipeline:
                 if args.verbose:
                     print('Fitting DESPOT2-FM model...')
 
-
                 model = DESPOT2_Model(ssfp      = ssfp_preproc,
                                       params    = fitparam_json,
                                       out_dir   = despot_models_dir,
@@ -543,20 +542,6 @@ class DESPOTProcessingPipeline:
 
                 model.fit()
                 
-                if args.verbose:
-                    print('Smoothing F0')
-
-                os.system('fslmaths ' + brain_mask.filename + ' -s 2.55 ' + os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
-                os.system('fslmaths ' + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") + " -s 2.55 -div " + os.path.join(despot_models_dir, "tmp_mask.nii.gz") + " -mas " + brain_mask.filename + " " + os.path.join(despot_models_dir, despot2_base+"F0.nii.gz") )
-                os.remove(os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
-
-                #Refit after smoothing and fixing F0:
-                despot2_model = "DESPOT2"
-                model.set_f0(Image(filename = os.path.join(despot_models_dir, despot2_base+"F0.nii.gz")))
-                model.set_model(model = "DESPOT2")
-                model.fit()
-
-
 
         # if args.mcdespot_fit_method != None and args.mcdespot_fit != False:
         #     mcdespot_base = bids_id + '_model-mcDESPOT_parameter-'
