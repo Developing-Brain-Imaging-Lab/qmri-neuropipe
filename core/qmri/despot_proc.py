@@ -339,7 +339,8 @@ class DESPOTProcessingPipeline:
 
                 print(data["FlipAngle"])
 
-                json.dump(data, spgr_file, indent=4, sort_keys=True)    
+                with open(spgr_resampled.json, 'w') as f:
+                    json.dump(data, f)
 
             exit()
 
