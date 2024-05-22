@@ -1,4 +1,5 @@
 import os, shutil, json, argparse
+import numpy as np
 import nibabel as nib
 
 from bids.layout import writing
@@ -16,6 +17,27 @@ import core.qmri.afi as afi_tools
 from core.qmri.despot.models.despot1 import DESPOT1_Model
 from core.qmri.despot.models.despot2 import DESPOT2_Model
 #from core.qmri.despot.models.mcdespot import MCDESPOT_Model
+
+from nilearn.image import resample_img
+
+
+def resample_image(input_img, out_shape):
+    in_nii = nib.load(input_img.filename)
+
+    # Initialize target_affine
+    target_affine = in_nii.affine.copy()
+    input_shape   = np.asarray(in_nii.shape)[:3]
+    target_shape  = np.asarray(out_shape)
+    scale         = np.divide(input_shape, target_shape)
+
+    # Reconstruct the affine
+    target_affine[:3,:3] = target_affine[:3,:3] @ np.diag(scale)
+
+    resampled_img = resample_img(img = in_nii, 
+                                 target_affine=target_affine,
+                                 target_shape=out_shape)
+                
+    return resampled_img
 
 class DESPOTProcessingPipeline:
 
@@ -69,6 +91,11 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--despot_cleanup',
                             type=bool,
                             help='Clean up the Preprocessing Subdirectories',
+                            default=False)
+        
+        parser.add_argument('--despot_hybrid',
+                            type=bool,
+                            help='Hybrid combination of High-res and Low-res DESPOT data',
                             default=False)
 
         parser.add_argument('--despot_mask_method',
@@ -239,6 +266,12 @@ class DESPOTProcessingPipeline:
         ssfp = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.nii.gz'),
                      json     = os.path.join(rawdata_dir, 'anat',id+'_desc-SSFP_VFA.json'))
         
+        spgr_highres = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_acq-highres_desc-SPGR_VFA.nii.gz'),
+                             json    = os.path.join(rawdata_dir, 'anat',id+'_acq-highres_desc-SPGR_VFA.json'))
+        
+        ssfp_highres = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_acq-highres_desc-SSFP_VFA.nii.gz'),
+                             json     = os.path.join(rawdata_dir, 'anat',id+'_acq-highres_desc-SSFP_VFA.json'))
+        
         spgr_preproc = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.nii.gz'),
                              json     = os.path.join(anat_preproc_dir, id+'_desc-SPGR-preproc_VFA.json'))
         ssfp_preproc = Image(filename = os.path.join(anat_preproc_dir, id+'_desc-SSFP-preproc_VFA.nii.gz'),
@@ -268,30 +301,51 @@ class DESPOTProcessingPipeline:
             if not os.path.exists(fmap_preproc_dir):
                 os.makedirs(fmap_preproc_dir)
         
+        
+        #IF performing HYBRID DESPOT, first, resample images to the higher resolution and then combine
+        if args.despot_hybrid:
+            spgr_img         = nib.load(spgr.filename)
+            spgr_highres_img = nib.load(spgr_highres.filename)
+
+            highres_shape = spgr_highres_img.shape[0:3]
+
+            spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz"))
+            shutil.copy2(spgr.filename, spgr_resampled.filename)
+            spgr_resampled = resample_image(spgr_resampled, highres_shape)
+
+
+            exit()
+
+
+        
+        
+        
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
         if args.despot_denoise_method:
 
             if not spgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
                 if args.verbose:
                     print("Denoising SPGR Image")
-                spgr = denoise.denoise_image(input_img     = spgr,
-                                            output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
-                                            method        = args.despot_denoise_method, 
-                                            noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
-                                            nthreads      = args.nthreads, 
-                                            debug         = args.verbose)
+
+                spgr = denoise.denoise_image(input_img    = spgr,
+                                             output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
+                                             method        = args.despot_denoise_method, 
+                                             noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
+                                             nthreads      = args.nthreads, 
+                                             debug         = args.verbose)
+
             else:
                 spgr.filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")
             
             if not ssfp_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")):
                 if args.verbose:
                     print("Denoising SSFP Image")
-                ssfp = denoise.denoise_image(input_img     = ssfp,
-                                            output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
-                                            method        = args.despot_denoise_method, 
-                                            noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
-                                            nthreads      = args.nthreads, 
-                                            debug         = args.verbose)
+                ssfp = denoise.denoise_image(input_img    = ssfp,
+                                             output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
+                                             method        = args.despot_denoise_method, 
+                                             noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
+                                             nthreads      = args.nthreads, 
+                                             debug         = args.verbose)
             else:
                 ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")
 
@@ -341,10 +395,10 @@ class DESPOTProcessingPipeline:
                         print("Correcting Gibbs Ringing in IR-SPGR Image")
 
                     irspgr = gibbs_ringing_correction(input_img   = irspgr,
-                                                       output_file = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz"),
-                                                       method      = args.despot_gibbs_correction_method, 
-                                                       nthreads    = args.nthreads, 
-                                                       debug       = args.verbose)
+                                                      output_file = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz"),
+                                                      method      = args.despot_gibbs_correction_method, 
+                                                      nthreads    = args.nthreads, 
+                                                      debug       = args.verbose)
                 else:
                     irspgr.filename = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")
 
