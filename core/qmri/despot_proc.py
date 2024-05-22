@@ -325,7 +325,7 @@ class DESPOTProcessingPipeline:
                               debug         = args.verbose)
             
             #Then merge the highres images
-            os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled + " " + spgr_highres.filename)
+            os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
 
 
             ssfp_highres_img = nib.load(ssfp_highres.filename)
@@ -344,7 +344,7 @@ class DESPOTProcessingPipeline:
                               nthreads      = args.nthreads, 
                               debug         = args.verbose)
             
-            os.system('fslmerge -t ' + ssfp_resampled.filename + " " + ssfp_resampled + " " + ssfp_highres.filename)
+            os.system('fslmerge -t ' + ssfp_resampled.filename + " " + ssfp_resampled.filename + " " + ssfp_highres.filename)
         
 
             exit()
