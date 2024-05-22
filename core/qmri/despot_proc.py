@@ -308,29 +308,41 @@ class DESPOTProcessingPipeline:
         
         #IF performing HYBRID DESPOT, first, resample images to the higher resolution and then combine
         if args.despot_hybrid:
-            spgr_img         = nib.load(spgr.filename)
             spgr_highres_img = nib.load(spgr_highres.filename)
-
-            highres_shape = np.asarray(spgr_highres_img.shape)[:3]
+            num_spgr = spgr_highres_img.shape[3]
+            ref_img = nib.Nifti1Image(spgr_highres_img.get_fdata()[:,:,:,num_spgr-1], spgr_highres_img.affine)
             
-            print(highres_shape)
-
+            spgr_target    = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGRtarget_VFA.nii.gz"))
             spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz"))
-            shutil.copy2(spgr.filename, spgr_resampled.filename)
-            spgr_resampled = resample_image(spgr_resampled, highres_shape)
+            ref_img.to_filename(spgr_target.filename)
+
+            coreg.multilinreg(input         = spgr,
+                              ref           = spgr_target,
+                              out           = spgr_resampled,
+                              dof           = 6,
+                              method        = args.despot_coregistration_method,
+                              nthreads      = args.nthreads, 
+                              debug         = args.verbose)
 
 
-            ssfp_img         = nib.load(ssfp.filename)
+
             ssfp_highres_img = nib.load(ssfp_highres.filename)
-
-            highres_shape = np.asarray(ssfp_highres_img.shape)[:3]
+            num_ssfp = ssfp_highres_img.shape[3]
+            ref_img = nib.Nifti1Image(ssfp_highres_img.get_fdata()[:,:,:,num_ssfp-1], ssfp_highres_img.affine)
             
-            print(highres_shape)
-
+            ssfp_target    = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFPtarget_VFA.nii.gz"))
             ssfp_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Hybrid_VFA.nii.gz"))
-            shutil.copy2(ssfp.filename, ssfp_resampled.filename)
-            ssfp_resampled = resample_image(ssfp_resampled, highres_shape)
+            ref_img.to_filename(ssfp_target.filename)
 
+            coreg.multilinreg(input         = ssfp,
+                              ref           = ssfp_target,
+                              out           = ssfp_resampled,
+                              dof           = 6,
+                              method        = args.despot_coregistration_method,
+                              nthreads      = args.nthreads, 
+                              debug         = args.verbose)
+            
+        
 
             exit()
 
