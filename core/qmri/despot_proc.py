@@ -313,20 +313,33 @@ class DESPOTProcessingPipeline:
             ref_img = nib.Nifti1Image(spgr_highres_img.get_fdata()[:,:,:,num_spgr-1], spgr_highres_img.affine)
             
             spgr_target    = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGRtarget_VFA.nii.gz"))
-            spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz"))
+            spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz")
+                                   json     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.json"))
+
             ref_img.to_filename(spgr_target.filename)
 
-            coreg.multilinreg(input         = spgr,
-                              ref           = spgr_target,
-                              out           = spgr_resampled,
-                              dof           = 6,
-                              method        = args.despot_coregistration_method,
-                              nthreads      = args.nthreads, 
-                              debug         = args.verbose)
+            # coreg.multilinreg(input         = spgr,
+            #                   ref           = spgr_target,
+            #                   out           = spgr_resampled,
+            #                   dof           = 6,
+            #                   method        = args.despot_coregistration_method,
+            #                   nthreads      = args.nthreads, 
+            #                   debug         = args.verbose)
             
-            #Then merge the highres images
-            os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
+            # #Then merge the highres images
+            # os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
 
+            #Update json file
+            shutil.copy2(spgr.json, spgr_resampled.json)
+            highres_json = json.load(open(spgr_highres.json, 'r+'))
+
+            with open(spgr_resampled.json, 'r+') as spgr_file:
+                data = json.load(spgr_file)
+                data["FlipAngle"].append(highres_json["FlipaAngle"])
+
+                json.dump(data, spgr_file, indent=4, sort_keys=True)    
+
+            exit()
 
             ssfp_highres_img = nib.load(ssfp_highres.filename)
             num_ssfp = ssfp_highres_img.shape[3]
