@@ -30,6 +30,8 @@ def resample_image(input_img, out_shape):
     target_shape  = np.asarray(out_shape)
     scale         = np.divide(input_shape, target_shape)
 
+
+
     # Reconstruct the affine
     target_affine[:3,:3] = target_affine[:3,:3] @ np.diag(scale)
 
