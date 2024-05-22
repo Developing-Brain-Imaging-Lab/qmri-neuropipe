@@ -313,7 +313,7 @@ class DESPOTProcessingPipeline:
             ref_img = nib.Nifti1Image(spgr_highres_img.get_fdata()[:,:,:,num_spgr-1], spgr_highres_img.affine)
             
             spgr_target    = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGRtarget_VFA.nii.gz"))
-            spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz")
+            spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz"),
                                    json     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.json"))
 
             ref_img.to_filename(spgr_target.filename)
