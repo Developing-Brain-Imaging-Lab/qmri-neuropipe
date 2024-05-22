@@ -318,16 +318,16 @@ class DESPOTProcessingPipeline:
 
             ref_img.to_filename(spgr_target.filename)
 
-            # coreg.multilinreg(input         = spgr,
-            #                   ref           = spgr_target,
-            #                   out           = spgr_resampled,
-            #                   dof           = 6,
-            #                   method        = args.despot_coregistration_method,
-            #                   nthreads      = args.nthreads, 
-            #                   debug         = args.verbose)
+            coreg.multilinreg(input         = spgr,
+                              ref           = spgr_target,
+                              out           = spgr_resampled,
+                              dof           = 6,
+                              method        = args.despot_coregistration_method,
+                              nthreads      = args.nthreads, 
+                              debug         = args.verbose)
             
-            # #Then merge the highres images
-            # os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
+            #Then merge the highres images
+            os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
 
             #Update json file
             shutil.copy2(spgr.json, spgr_resampled.json)
@@ -340,16 +340,15 @@ class DESPOTProcessingPipeline:
                 print(data["FlipAngle"])
 
                 with open(spgr_resampled.json, 'w') as f:
-                    json.dump(data, f)
-
-            exit()
+                    json.dump(data, f, indent=4, sort_keys=True)
 
             ssfp_highres_img = nib.load(ssfp_highres.filename)
             num_ssfp = ssfp_highres_img.shape[3]
             ref_img = nib.Nifti1Image(ssfp_highres_img.get_fdata()[:,:,:,num_ssfp-1], ssfp_highres_img.affine)
             
             ssfp_target    = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFPtarget_VFA.nii.gz"))
-            ssfp_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Hybrid_VFA.nii.gz"))
+            ssfp_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Hybrid_VFA.nii.gz"),
+                                   json     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Hybrid_VFA.json"))
             ref_img.to_filename(ssfp_target.filename)
 
             coreg.multilinreg(input         = ssfp,
@@ -361,8 +360,24 @@ class DESPOTProcessingPipeline:
                               debug         = args.verbose)
             
             os.system('fslmerge -t ' + ssfp_resampled.filename + " " + ssfp_resampled.filename + " " + ssfp_highres.filename)
+
+            #Update json file
+            shutil.copy2(ssfp.json, ssfp_resampled.json)
+            highres_json = json.load(open(ssfp_highres.json, 'r+'))
+
+            with open(ssfp_resampled.json, 'r+') as ssfp_file:
+                data = json.load(ssfp_file)
+                data["FlipAngle"] += highres_json["FlipAngle"]
+
+                print(data["FlipAngle"])
+
+                with open(ssfp_resampled.json, 'w') as f:
+                    json.dump(data, f, indent=4, sort_keys=True)
         
 
+            os.remove(ssfp_target.filename)
+            os.remove(spgr_target.filename)
+            
             exit()
 
 
