@@ -27,7 +27,8 @@ def resample_image(input_img, out_shape):
     # Initialize target_affine
     target_affine = in_nii.affine.copy()
     input_shape   = np.asarray(in_nii.shape)
-    target_shape  = np.asarray(out_shape, input_shape[3])
+    target_shape  = np.asarray(out_shape)
+    target_shape  = np.append(target_shape, input_shape[3])
     scale         = np.divide(input_shape, target_shape)
 
     print(scale)
