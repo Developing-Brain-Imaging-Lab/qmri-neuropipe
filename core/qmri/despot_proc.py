@@ -307,11 +307,25 @@ class DESPOTProcessingPipeline:
             spgr_img         = nib.load(spgr.filename)
             spgr_highres_img = nib.load(spgr_highres.filename)
 
-            highres_shape = spgr_highres_img.shape[0:3]
+            highres_shape = np.asarray(spgr_highres_img.shape)[:3]
+            
+            print(highres_shape)
 
             spgr_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Hybrid_VFA.nii.gz"))
             shutil.copy2(spgr.filename, spgr_resampled.filename)
             spgr_resampled = resample_image(spgr_resampled, highres_shape)
+
+
+            ssfp_img         = nib.load(ssfp.filename)
+            ssfp_highres_img = nib.load(ssfp_highres.filename)
+
+            highres_shape = np.asarray(ssfp_highres_img.shape)[:3]
+            
+            print(highres_shape)
+
+            ssfp_resampled = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Hybrid_VFA.nii.gz"))
+            shutil.copy2(ssfp.filename, ssfp_resampled.filename)
+            ssfp_resampled = resample_image(ssfp_resampled, highres_shape)
 
 
             exit()
