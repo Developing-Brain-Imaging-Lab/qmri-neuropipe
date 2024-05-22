@@ -337,6 +337,8 @@ class DESPOTProcessingPipeline:
                 data = json.load(spgr_file)
                 data["FlipAngle"].append(highres_json["FlipAngle"])
 
+                print(data["FlipAngle"])
+
                 json.dump(data, spgr_file, indent=4, sort_keys=True)    
 
             exit()
