@@ -328,6 +328,7 @@ class DESPOTProcessingPipeline:
             
             #Then merge the highres images
             os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
+            spgr = spgr_resampled
 
             #Update json file
             shutil.copy2(spgr.json, spgr_resampled.json)
@@ -360,6 +361,7 @@ class DESPOTProcessingPipeline:
                               debug         = args.verbose)
             
             os.system('fslmerge -t ' + ssfp_resampled.filename + " " + ssfp_resampled.filename + " " + ssfp_highres.filename)
+            ssfp = ssfp_resampled
 
             #Update json file
             shutil.copy2(ssfp.json, ssfp_resampled.json)
@@ -377,9 +379,8 @@ class DESPOTProcessingPipeline:
 
             os.remove(ssfp_target.filename)
             os.remove(spgr_target.filename)
-            
-            exit()
 
+           
 
         
         
