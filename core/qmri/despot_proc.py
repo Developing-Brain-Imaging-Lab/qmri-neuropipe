@@ -626,8 +626,8 @@ class DESPOTProcessingPipeline:
                     if args.verbose:
                         print('Smoothing B1')
 
-                    os.system('fslmaths ' + brain_mask.filename + ' -s 2.55 ' + os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
-                    os.system('fslmaths ' + os.path.join(despot_models_dir, despot1_base+"B1.nii.gz") + " -s 2.55 -div " + os.path.join(despot_models_dir, "tmp_mask.nii.gz") + " -mas " + brain_mask.filename + " " + os.path.join(despot_models_dir, despot1_base+"B1.nii.gz") )
+                    os.system(f'fslmaths {brain_mask.filename} -s 2.55 {os.path.join(despot_models_dir, "tmp_mask.nii.gz")}')
+                    os.system(f'fslmaths {os.path.join(despot_models_dir, despot1_base+"B1.nii.gz")} -s 2.55 -div {os.path.join(despot_models_dir, "tmp_mask.nii.gz")} -mas {brain_mask.filename} {os.path.join(despot_models_dir, despot1_base+"B1.nii.gz")}')
                     os.remove(os.path.join(despot_models_dir, "tmp_mask.nii.gz"))
 
                     #Refit after smoothing and fixing B1:
