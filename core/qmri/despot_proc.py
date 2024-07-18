@@ -327,9 +327,8 @@ class DESPOTProcessingPipeline:
                               debug         = args.verbose)
             
             #Then merge the highres images
-            os.system('fslmerge -t ' + spgr_resampled.filename + " " + spgr_resampled.filename + " " + spgr_highres.filename)
+            os.system(f'fslmerge -t {spgr_resampled.filename} {spgr_resampled.filename} spgr_highres.filename')
             
-
             #Update json file
             shutil.copy2(spgr.json, spgr_resampled.json)
             highres_json = json.load(open(spgr_highres.json, 'r+'))
@@ -360,7 +359,7 @@ class DESPOTProcessingPipeline:
                               nthreads      = args.nthreads, 
                               debug         = args.verbose)
             
-            os.system('fslmerge -t ' + ssfp_resampled.filename + " " + ssfp_resampled.filename + " " + ssfp_highres.filename)
+            os.system(f'fslmerge -t {ssfp_resampled.filename} {ssfp_resampled.filename} {ssfp_highres.filename}')
             
             #Update json file
             shutil.copy2(ssfp.json, ssfp_resampled.json)
@@ -383,8 +382,6 @@ class DESPOTProcessingPipeline:
             ssfp = ssfp_resampled
            
 
-        
-        
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
         if args.despot_denoise_method:

@@ -102,7 +102,7 @@ class MCDESPOT_Model():
             os.makedirs(condorOutput_dir)
             os.makedirs(sharedProcessing_dir)
 
-        shutil.copy2(self._inputs['fit_params'], sharedProcessing_dir+'mcd_params.json');
+        shutil.copy2(self._inputs['fit_params'], sharedProcessing_dir+'mcd_params.json')
         shutil.copy2(mcdespot_condor_exe, sharedProcessing_dir)
 
         spgr_img = self._inputs['spgr_img']._get_filename()
@@ -168,15 +168,15 @@ class MCDESPOT_Model():
             NUMBER_OF_VOXELS_TO_CHUNK=int(self._inputs['chunk_size'])
 
             imagesToPackage = []
-            imagesToPackage.append('csfT1')
-            imagesToPackage.append('csfT2')
-            imagesToPackage.append('vCSF')
-            imagesToPackage.append('freeT1')
-            imagesToPackage.append('freeT2')
-            imagesToPackage.append('tau')
-            imagesToPackage.append('mT1')
-            imagesToPackage.append('mT2')
             imagesToPackage.append('VFm')
+            imagesToPackage.append('T1m')
+            imagesToPackage.append('T2m')
+            imagesToPackage.append('VFcsf')
+            imagesToPackage.append('T1csf')
+            imagesToPackage.append('T2csf')
+            imagesToPackage.append('T1f')
+            imagesToPackage.append('T2f')
+            imagesToPackage.append('tau')
             imagesToPackage.append('freeWaterOffResonance')
 
             output_imgs = []

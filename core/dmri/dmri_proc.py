@@ -397,7 +397,7 @@ class DiffusionProcessingPipeline:
         id_patterns          = "sub-{subject}[_ses-{session}]"
         rawdata_patterns     = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
         derivative_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
-        output_patterns = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",)
+        output_patterns      = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",)
         
         id              = writing.build_path(entities, id_patterns)
         rawdata_dir     = writing.build_path(entities, rawdata_patterns)
@@ -500,7 +500,7 @@ class DiffusionProcessingPipeline:
                         anat_img   = compute_synthetic_t2w(input_t1w    = t1w,
                                                            output_dir   = coreg_dir,
                                                            cmd_args     = args,
-                                                           syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
+                                                           syn_t2w      = id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
                                                            t1w_mask     = brain_mask, 
                                                            debug        = args.debug)
                            
@@ -517,8 +517,8 @@ class DiffusionProcessingPipeline:
                         anat_img = compute_synthetic_t2w(input_t1w    = t1w,
                                                          output_dir   = coreg_dir,
                                                          cmd_args     = args,
-                                                         syn_t2w      = bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
-                                                         t1w_mask     = t1w_mask, 
+                                                         syn_t2w      = id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
+                                                         t1w_mask     = anat_mask, 
                                                          debug        = args.debug)
                 else:
                     print('No anatomical image!')

@@ -1,5 +1,6 @@
-import string, os, sys, subprocess, shutil, time, json, copy
+import os, json
 from glob import glob
+import nibabel as nib
 
 def create_processing_json(despot_json, spgr_img, ssfp_img, irspgr_img=None, afi_img=None):
 
@@ -9,6 +10,13 @@ def create_processing_json(despot_json, spgr_img, ssfp_img, irspgr_img=None, afi
     if not os.path.exists(despot_json):
 
         if spgr_img != None:
+
+            spgr  = nib.load(spgr_img.filename)
+            nspgr = spgr.header.get_data_shape()[-1]
+
+            print(nspgr)
+            
+
             with open(spgr_img.json, 'r+') as spgr_file:
                 data = json.load(spgr_file)
                 despot_data['SPGR'] = []
