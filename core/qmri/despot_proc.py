@@ -545,7 +545,7 @@ class DESPOTProcessingPipeline:
         if not brain_mask.exists():
 
             if not target_img.exists():
-                spgr_img = nib.load(spgr.filename)
+                spgr_img = nib.load(spgr_preproc.filename)
                 num_spgr = spgr_img.shape[3]
 
                 ref_img = nib.Nifti1Image(spgr_img.get_fdata()[:,:,:,num_spgr-1], spgr_img.affine)
