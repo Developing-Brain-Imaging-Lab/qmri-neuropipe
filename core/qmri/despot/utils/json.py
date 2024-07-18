@@ -18,11 +18,10 @@ def create_processing_json(despot_json, spgr_img, ssfp_img, irspgr_img=None, afi
                 data = json.load(spgr_file)
                 despot_data['SPGR'] = []
                 despot_data['SPGR'].append({
-                    'RepetitionTime' : list(np.repeat(data["RepetitionTime"], nspgr)),
-                    'EchoTime'  : list(np.repeat(data["EchoTime"], nspgr)),
+                    'RepetitionTime' : np.repeat(data["RepetitionTime"], nspgr).tolist(),
+                    'EchoTime'  : np.repeat(data["EchoTime"], nspgr).tolist(),
                     'FlipAngle' : data["FlipAngle"]
                 })
-
 
                 with open(despot_json, 'w+') as outfile:
                     json.dump(despot_data, outfile, indent=4, sort_keys=True)
@@ -35,8 +34,8 @@ def create_processing_json(despot_json, spgr_img, ssfp_img, irspgr_img=None, afi
                 data = json.load(ssfp_file)
                 despot_data['SSFP'] = []
                 despot_data['SSFP'].append({
-                    'RepetitionTime': list(np.repeat(data["RepetitionTime"], nssfp)),
-                    'EchoTime': list(p.repeat(data["EchoTime"], nssfp)),
+                    'RepetitionTime': np.repeat(data["RepetitionTime"], nssfp).tolist(),
+                    'EchoTime': np.repeat(data["EchoTime"], nssfp).tolist(),
                     'FlipAngle': data["FlipAngle"],
                     'PhaseCycling': data["PhaseCycling"],
                     'PhaseAngles': data["PhaseAngles"]
@@ -52,11 +51,11 @@ def create_processing_json(despot_json, spgr_img, ssfp_img, irspgr_img=None, afi
                 data = json.load(irspgr_file)
                 despot_data['IRSPGR'] = []
                 despot_data['IRSPGR'].append({
-                    'RepetitionTime': list(np.repeat(data["RepetitionTime"], nirspgr)),
-                    'EchoTime': list(np.repeat(data["EchoTime"], nirspgr)),
-                    'FlipAngle': list(np.repeat(data["FlipAngle"], nirspgr)),
+                    'RepetitionTime': np.repeat(data["RepetitionTime"], nirspgr).tolist(),
+                    'EchoTime': np.repeat(data["EchoTime"], nirspgr).tolist(),
+                    'FlipAngle': np.repeat(data["FlipAngle"], nirspgr).tolist(),
                     'InversionTime': data["InversionTime"],
-                    'EchoTrainLength': list(np.repeat(((data["PercentPhaseFOV"]/100.00)*(data["AcquisitionMatrixPE"]/2.00)), nirspgr))
+                    'EchoTrainLength': np.repeat(((data["PercentPhaseFOV"]/100.00)*(data["AcquisitionMatrixPE"]/2.00)), nirspgr).tolist()
                 })
                 with open(despot_json, 'w+') as outfile:
                     json.dump(despot_data, outfile, indent=4, sort_keys=True)
