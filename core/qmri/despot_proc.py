@@ -543,6 +543,15 @@ class DESPOTProcessingPipeline:
 
         brain_mask = Image(filename = os.path.join(anat_preproc_dir, id+"_desc-brain-mask.nii.gz"))
         if not brain_mask.exists():
+
+            if not target_img.exists():
+                spgr_img = nib.load(spgr.filename)
+                num_spgr = spgr_img.shape[3]
+
+                ref_img = nib.Nifti1Image(spgr_img.get_fdata()[:,:,:,num_spgr-1], spgr_img.affine)
+                ref_img.to_filename(target_img.filename)
+
+
             mask.mask_image(input               = target_img,
                             mask                = brain_mask,
                             algo                = args.despot_mask_method,
