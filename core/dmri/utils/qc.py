@@ -78,7 +78,7 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
             elif(phase_encode_dir == 'j-'):
                 acqparams[i] = np.array(['0', '-1', '0', str(dwi_json["TotalReadoutTime"])])
             
-            if np.float(acqparams[i][3]) > 0.2:
+            if np.float64(acqparams[i][3]) > 0.2:
                 acqparams[i][3] = "0.200"
 
     nib.save(merged_dwi, DWI_out.filename)
@@ -243,7 +243,7 @@ def create_index_acqparam_files(input_dwi, output_base):
 
 
     print(acqparams[3])
-    if np.float(acqparams[3]) > 0.2:
+    if np.float64(acqparams[3]) > 0.2:
         acqparams[3] = "0.200"
 
 
