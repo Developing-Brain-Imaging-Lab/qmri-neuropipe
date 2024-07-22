@@ -669,32 +669,33 @@ class DESPOTProcessingPipeline:
                 model.fit()
                 
 
-        # if args.mcdespot_fit_method != None and args.mcdespot_fit != False:
-        #     mcdespot_base = bids_id + '_model-mcDESPOT_parameter-'
+        if args.mcdespot_fit_method != None and args.mcdespot_fit != False:
+            mcdespot_model = "mcDESPOT"
+            mcdespot_base  = writing.build_path(entities, "sub-{subject}[_ses-{session}]_model-{mcdespot_model}_param-")   
+            
+            if not os.path.exists(despot_models_dir+mcdespot_base +'VFm.nii.gz'):
+                if args.verbose:
+                    print('Fitting mcDESPOT model...')
 
-        #     if not os.path.exists(mcdespot_dir + mcdespot_base + 'VFm.nii.gz'):
-        #         if args.verbose:
-        #             print('Fitting mcDESPOT model...')
 
+                mcdespot_model = MCDESPOT_Model(spgr_img      = spgr_preproc,
+                                                ssfp_img      = ssfp_preproc,
+                                                params        = fitparam_json,
+                                                out_dir       = despot_models_dir,
+                                                out_base      = mcdespot_base,
+                                                b1            = b1map,
+                                                f0            = Image(filename = os.path.join(despot_models_dir,despot2_base+"F0.nii.gz")),
+                                                mask          = brain_mask,
+                                                model         = args.mcdespot_model,
+                                                fit_algorithm = args.mcdespot_fit_method,
+                                                use_condor    = args.mcdespot_use_condor,
+                                                nthreads      = args.nthreads,
+                                                verbose       = args.verbose)
 
-        #         mcdespot_model = MCDESPOT_Model(spgr_img    = coreg_spgr,
-        #                                         ssfp_img      = coreg_ssfp,
-        #                                         params        = despot_json,
-        #                                         out_dir       = mcdespot_dir,
-        #                                         out_base      = mcdespot_base,
-        #                                         b1            = b1_map,
-        #                                         f0            = Image(file=despot2_dir+despot2_base+'F0.nii.gz'),
-        #                                         mask          = brain_mask,
-        #                                         model         = args.mcdespot_model,
-        #                                         fit_algorithm = args.mcdespot_fit_method,
-        #                                         use_condor    = args.mcdespot_use_condor,
-        #                                         nthreads      = args.nthreads,
-        #                                         verbose       = args.verbose)
-
-        #         if args.mcdespot_package_condor_data == True:
-        #             mcdespot_model.package_condor_chunks_three_compartments()
-        #         else:
-        #             mcdespot_model.fit()
+                if args.mcdespot_package_condor_data == True:
+                    mcdespot_model.package_condor_chunks_three_compartments()
+                else:
+                    mcdespot_model.fit()
 
         # if args.despot_register_to_template == True:
         #     import core.registration.registration as reg_tools

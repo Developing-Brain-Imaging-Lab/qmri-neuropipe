@@ -238,6 +238,10 @@ def create_index_acqparam_files(input_dwi, output_base):
             acqparams = np.array(['0', '-1', '0', str(dwi_json["EffectiveEchoSpacing"]*(dwi_img.header.get_data_shape()[2]-1))])
         except: KeyError
 
+    if np.float(acqparams[3]) > 0.2:
+        acqparams[3] = "0.200"
+
+        
 
     acqparams_file = output_base+"_desc-Acqparams_dwi.txt"
     index_file     = output_base+"_desc-Index_dwi.txt"
