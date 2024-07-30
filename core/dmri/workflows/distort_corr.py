@@ -21,7 +21,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
         'desc': 'Topup'
         }
 
-        filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+        filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_dir-{dir}][_desc-{desc}]_{suffix}{extension}'
         fieldmap = writing.build_path(entities, filename_patterns)
 
         if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):

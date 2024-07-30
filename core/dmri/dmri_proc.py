@@ -407,8 +407,8 @@ class DiffusionProcessingPipeline:
         anat_preproc_dir = os.path.join(output_dir, "anat/")
         dmri_preproc_dir = os.path.join(output_dir, "dwi/")
         
-        dmri_img_pattern = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_rec-{rec}][_desc-{desc}]_{modality}.nii.gz")
-        txt_pattern      = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_rec-{rec}][_desc-{desc}]_{modality}.txt")
+        dmri_img_pattern = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_rec-{rec}][_desc-{desc}]_{modality}.nii.gz")
+        txt_pattern      = os.path.join(dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_rec-{rec}][_desc-{desc}]_{modality}.txt")
         
         dmri_ent = entities.copy()
         dmri_ent['modality'] = 'dwi'
