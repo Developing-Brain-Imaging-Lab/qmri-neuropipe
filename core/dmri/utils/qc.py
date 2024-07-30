@@ -9,7 +9,7 @@ from dipy.segment.mask import median_otsu
 from dipy.denoise.nlmeans import nlmeans
 from dipy.denoise.noise_estimate import estimate_sigma
 from dipy.io import read_bvals_bvecs
-from dipy.core.gradient import reorient_vectors
+from dipy.core.gradients import reorient_vectors
 
 from core.utils.io import Image, DWImage
 import core.utils.mask as mask
