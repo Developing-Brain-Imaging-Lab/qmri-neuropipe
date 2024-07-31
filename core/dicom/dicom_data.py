@@ -60,7 +60,10 @@ def dicom_to_nifti(dcm_dir, output_img, method="dcm2niix", nthreads=1, **keyword
     filetype = 0
     raw_data = ""
 
-    if os.path.exists(dcm_dir+".tgz"):
+    if dcm_dir.endswith(".tgz"):
+        filetype = 1
+        raw_data = dcm_dir+".tgz"
+    elif os.path.exists(dcm_dir+".tgz"):
         filetype = 1
         raw_data = dcm_dir+".tgz"
     else:
