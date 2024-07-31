@@ -61,10 +61,10 @@ def dicom_to_nifti(dcm_dir, output_img, method="dcm2niix", nthreads=1, **keyword
     raw_data = ""
 
     if dcm_dir.endswith(".tgz"):
-        filetype = 1
+        filetype = 4
         raw_data = dcm_dir
     elif os.path.exists(dcm_dir+".tgz"):
-        filetype = 1
+        filetype = 4
         raw_data = dcm_dir+".tgz"
     else:
         for file in os.listdir(dcm_dir):
@@ -85,6 +85,11 @@ def dicom_to_nifti(dcm_dir, output_img, method="dcm2niix", nthreads=1, **keyword
         os.system('ls ' + dcm_dir + '/*.bz2 | xargs -P'+nthreads+' -I{} bash -c "rsync -a {} ' + tmp_dir + '/"')
     elif filetype == 3:
         os.system('rsync -a ' + dcm_dir + '/*.dcm ' + tmp_dir)
+    elif filetype == 4:
+        os.system(f'tar -xf {raw_data} -C {tmp_dir}')
+        dcm_dir = os.listdir(tmp_dir)[0]
+        os.system(f'rsync -a {tmp_dir}/{dcm_dir}/* {tmp_dir}')
+        os.system(f'rm -rf {tmp_dir}/{dcm_dir}')
     else:
         print('Unknown DICOM filetype!')
         exit(-1)
