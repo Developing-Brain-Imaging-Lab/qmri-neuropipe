@@ -137,12 +137,12 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dwi_ants_mask_template',
                             type=str,
                             help='Image to use for registration based skull-stripping',
-                            default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
+                            default=os.environ.get("FSLDIR")+'/data/standard/MNI152_T1_1mm.nii.gz')
 
         parser.add_argument('--dwi_ants_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping',
-                            default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
+                            default=os.environ.get("FSLDIR")+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
 
         parser.add_argument('--dwi_antspynet_modality',
                             type=str,
