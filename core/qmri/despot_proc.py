@@ -362,6 +362,7 @@ class DESPOTProcessingPipeline:
                               out           = ssfp_resampled,
                               dof           = 6,
                               method        = args.despot_coregistration_method,
+                              flirt_options = args.flirt_opts,
                               nthreads      = args.nthreads, 
                               debug         = args.verbose)
             
@@ -496,6 +497,7 @@ class DESPOTProcessingPipeline:
                                   out           = spgr_preproc,
                                   dof           = 6,
                                   method        = args.despot_coregistration_method,
+                                  flirt_options = args.flirt_opts,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
                 shutil.copy2(spgr.json, spgr_preproc.json)
@@ -511,6 +513,7 @@ class DESPOTProcessingPipeline:
                                   out           = ssfp_preproc,
                                   dof           = 6,
                                   method        = args.despot_coregistration_method,
+                                  flirt_options = args.flirt_opts,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
                 shutil.copy2(ssfp.json, ssfp_preproc.json)
@@ -526,6 +529,7 @@ class DESPOTProcessingPipeline:
                                       out           = irspgr_preproc,
                                       dof           = 6,
                                       method        = args.despot_coregistration_method,
+                                      flirt_options = args.flirt_opts,
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
                     shutil.copy2(irspgr.json, irspgr_preproc.json)
