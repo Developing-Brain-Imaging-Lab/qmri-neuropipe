@@ -146,6 +146,11 @@ class DESPOTProcessingPipeline:
                             help='Method for Coregistration of DESPOT Images',
                             choices=['ants', 'fsl'],
                             default='fsl')
+        
+        parser.add_argument('--flirt_opts',
+                            type=str,
+                            help='String of flirt options',
+                            default="")
 
         parser.add_argument('--coregister_to_anat',
                             type = bool,
@@ -323,7 +328,8 @@ class DESPOTProcessingPipeline:
                               out           = spgr_resampled,
                               dof           = 6,
                               method        = args.despot_coregistration_method,
-                              nthreads      = args.nthreads, 
+                              nthreads      = args.nthreads,
+                              flirt_options = args.flirt_opts, 
                               debug         = args.verbose)
             
             #Then merge the highres images
