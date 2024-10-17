@@ -27,7 +27,7 @@ def denoise_degibbs(input_img, working_dir, suffix, denoise_method="mrtrix", gib
     'desc': 'NoiseMap'
     }
 
-    filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+    filename_patterns = os.path.join(working_dir, 'sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}')
 
     denoised_img = copy.deepcopy(input_img)
     denoised_img.filename = writing.build_path(entities, filename_patterns)
@@ -86,7 +86,7 @@ def perform_biasfield_correction(input_img, working_dir, suffix, method="ants", 
     'desc': 'BiasFieldCorrected'
     }
 
-    filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+    filename_patterns = os.path.join(working_dir, "sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}")
 
     biascorr_img = copy.deepcopy(input_img)
     biascorr_img.filename = writing.build_path(entities, filename_patterns)

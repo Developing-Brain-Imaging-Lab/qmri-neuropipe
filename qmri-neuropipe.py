@@ -5,7 +5,7 @@ from distutils.util import strtobool
 
 parser = argparse.ArgumentParser(description='Waisman Center Processing for Quantitative MRI Data in BIDS format')
 
-parser.add_argument('--load_json',
+parser.add_argument('--proc_json',
                     type=str,
                     help='Load settings from file in json format. Command line options are overriden by values in file.',
                     default=None)
@@ -39,8 +39,8 @@ parser.add_argument('--verbose',
 args, unknown = parser.parse_known_args()
 
 
-if args.load_json:
-    with open(args.load_json, 'rt') as f:
+if args.proc_json:
+    with open(args.proc_json, 'rt') as f:
         t_args = argparse.Namespace()
         t_dict = vars(t_args)
         t_dict.update(json.load(f))

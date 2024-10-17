@@ -40,7 +40,7 @@ class DKI_Model():
         
         map_entities['map']               = "MK"
         self._outputs['mk']               = writing.build_path(map_entities, map_pattern)
-        map_entities['map']               = "RL"
+        map_entities['map']               = "RK"
         self._outputs['rk']               = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "AK"
         self._outputs['ak']               = writing.build_path(map_entities, map_pattern)

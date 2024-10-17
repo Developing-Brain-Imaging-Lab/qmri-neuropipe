@@ -1,5 +1,4 @@
-import os,sys, shutil, json, argparse, copy
-import nibabel as nib
+import os, shutil, json, argparse
 import numpy as np
 
 from bids.layout import writing
@@ -8,19 +7,16 @@ from core.utils.io import Image, DWImage
 import core.dmri.workflows.prep_rawdata as dmri_rawprep
 import core.utils.workflows.denoise_degibbs as img_proc
 
-import core.dmri.workflows.dmri_reorient as dmri_reorient
 import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 import core.dmri.workflows.register_to_anat as coreg_proc
+import core.dmri.workflows.prep_grad_nonlin as grad_non_lin_prep
 
 
 from core.anat.anat_proc import AnatomicalPrepPipeline
 
 import core.dmri.utils.qc as dmri_qc
-import core.utils.tools as img_tools
 import core.utils.mask as mask
-import core.utils.denoise as denoise
-import core.utils.create_dataset_json as create_dataset_json
 
 from core.dmri.models.dti import DTI_Model, FWEDTI_Model
 from core.dmri.models.dki import DKI_Model
@@ -57,8 +53,8 @@ class DiffusionProcessingPipeline:
                             help="Freesurfer Subjects Directory",
                             default=None)
 
-        parser.add_argument('--load_json',
-                            type=str, help='Load settings from file in json format. Command line options are overriden by values in file.',
+        parser.add_argument('--proc_json',
+                            type=str, help='Processing json with pipeline options. Command line options are overriden by values in file.',
                             default=None)
 
         parser.add_argument('--subject',
@@ -98,149 +94,133 @@ class DiffusionProcessingPipeline:
                             help='Preprocess the Anataomical Imaging Data',
                             default=False)
 
-        parser.add_argument('--dwi_cleanup',
+        parser.add_argument('--cleanup',
                             type=bool,
                             help='Clean up the Preprocessing Subdirectories',
                             default=False)
 
-        parser.add_argument('--dwi_remove_last_vol',
+        parser.add_argument('--remove_last_vol',
                             type=bool,
                             help='Remove End DWI in 4d File',
                             default=False)
 
-        parser.add_argument('--dwi_data_shelled',
-                            type=bool,
-                            help='Multiple Shell Diffusion Data',
-                            default=False)
-
-        parser.add_argument('--dwi_check_gradients',
+        parser.add_argument('--check_gradients',
                             type=bool,
                             help='Check DWI Gradient Directions',
                             default=False)
         
-        parser.add_argument('--dwi_reorient',
+        parser.add_argument('--reorient',
                             type=bool,
                             help='Reorient the diffusion images',
                             default=False)
         
-        parser.add_argument('--dwi_reorient_template',
+        parser.add_argument('--reorient_template',
                             type=str,
                             help='Template to use to reorient diffusion images',
                             default=None)
 
-        parser.add_argument('--dwi_mask_method',
+        parser.add_argument('--mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
                             choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
-        parser.add_argument('--dwi_ants_mask_template',
+        parser.add_argument('--ants_mask_template',
                             type=str,
                             help='Image to use for registration based skull-stripping',
                             default=os.environ.get("FSLDIR")+'/data/standard/MNI152_T1_1mm.nii.gz')
 
-        parser.add_argument('--dwi_ants_mask_template_mask',
+        parser.add_argument('--ants_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping',
                             default=os.environ.get("FSLDIR")+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
 
-        parser.add_argument('--dwi_antspynet_modality',
+        parser.add_argument('--antspynet_modality',
                             type=str,
                             help='ANTsPyNet modality/network name',
                             default='t1')
                             
-        parser.add_argument('--dwi_denoise_degibbs',
+        parser.add_argument('--denoise_degibbs',
                             type=bool,
                             help='Perform Noise and Gibbs Ringing Correction',
                             default=True)
 
-        parser.add_argument('--dwi_denoise_method',
+        parser.add_argument('--denoise_method',
                             type=str,
                             help='Method for Denoising DWIs',
                             choices=['mrtrix', 'dipy-nlmeans', 'dipy-localpca', 'dipy-mppca', 'dipy-patch2self'],
                             default='mrtrix')
 
-        parser.add_argument('--dwi_gibbs_correction_method',
+        parser.add_argument('--gibbs_correction_method',
                             type=str,
                             help='Method for Gibbs Ringing Correction',
                             choices=['mrtrix', 'dipy'],
                             default='mrtrix')
                             
-        parser.add_argument('--dwi_biasfield_correction',
+        parser.add_argument('--biasfield_correction',
                             type=bool,
                             help='Perform DWI Bias-Field Correction',
                             default=True)
 
-        parser.add_argument('--dwi_biasfield_correction_method',
+        parser.add_argument('--biasfield_correction_method',
                             type=str,
                             help='Method for Gibbs Ringing Correction',
                             choices=["mrtrix-ants", "mrtrix-fsl", 'ants', 'fsl', 'N4'],
                             default='ants')
 
-        parser.add_argument('--dwi_outlier_detection',
+        parser.add_argument('--outlier_detection',
                             type=str,
                             help='Outlier Detection Method',
                             choices=[None, 'EDDY-QUAD', 'Threshold', 'Manual'],
                             default=None)
 
-        parser.add_argument('--dwi_outlier_detection_threshold',
+        parser.add_argument('--outlier_detection_threshold',
                             type=float,
                             help='Outlier Detection Method',
                             default=0.1)
 
-        parser.add_argument('--dwi_dist_corr',
+        parser.add_argument('--dist_correction',
                             type=str,
                             help='Distortion Correction Flag',
                             choices=['Topup', 'Topup-Separate','Synb0-Disco', 'Fieldmap', 'Anatomical-Coregistration'],
                             default=None)
 
-        parser.add_argument('--dwi_distortion_linreg_method',
+        parser.add_argument('--distortion_linreg_method',
                             type=str,
                             help='Linear registration method to be used for registration based distortion correction',
                             choices=['fsl', 'ants'],
                             default='fsl')
 
-        parser.add_argument('--dwi_topup_config',
+        parser.add_argument('--topup_config',
                             type=str,
                             help='Configuration File for TOPUP',
                             default=None)
 
-        parser.add_argument('--dwi_eddy_current_correction',
+        parser.add_argument('--eddy_current_correction',
                             type=str,
                             help='Eddy current correction method',
                             choices=['eddy', 'eddy_correct', 'two-pass', 'tortoise-diffprep'],
                             default='eddy')
 
-        parser.add_argument('--dwi_eddy_options',
+        parser.add_argument('--fsl_eddy_options',
                             type=str,
                             help='Additional eddy current correction options to pass to eddy',
                             default='')
         
-        parser.add_argument('--dwi_tortoise_diffprep_options',
+        parser.add_argument('--tortoise_diffprep_options',
                             type=str,
                             help='Additional eddy current correction options to pass to TORTOISE DIFFPREP',
                             default='')
-
-        parser.add_argument('--dwi_slspec',
-                            type=str,
-                            help='Text file specifying slices/MB order in acquisition',
-                            default=None)
-
-        parser.add_argument('--repol',
+        
+        parser.add_argument('--gradnonlin_correction',
                             type=bool,
-                            help='EDDY Outlier Replacement',
-                            choices=[0,1],
-                            default=True)
-
-        parser.add_argument('--estimate_move_by_suscept',
-                            type=bool,
-                            help='Correcting susceptibility-by-movement interactions with eddy',
+                            help='Do gradient non-linearity correction',
                             default=False)
 
-        parser.add_argument('--mporder',
-                            type=int,
-                            help='EDDY mporder',
-                            default=0)
+        parser.add_argument('--gw_coils_dat',
+                            type=str,
+                            help='Path to scanner spherical harmonics coefficients file gw_coils.dat',
+                            default=None)
 
         parser.add_argument('--coregister_dwi_to_anat',
                             type = bool,
@@ -267,8 +247,13 @@ class DiffusionProcessingPipeline:
                             type = str,
                             help = 'Linear Registration for DWI to Anat',
                             default = 'ants')
+        
+        parser.add_argument('--noresample_dwi_to_anat',
+                            type = bool,
+                            help = 'Apply Only to Header Linear xform Diffusion MRI to Structural MRI',
+                            default = False)
 
-        parser.add_argument('--dwi_resample_resolution',
+        parser.add_argument('--resample_resolution',
                             type=int,
                             nargs='+',
                             help='Resampling Input Resolution',
@@ -346,18 +331,18 @@ class DiffusionProcessingPipeline:
                             help="Perform registration to standard space",
                             default=False)
         
-        parser.add_argument('--dwi_standard_template_method',
+        parser.add_argument('--standard_template_method',
                             type=str,
                             help="Standard template file",
                             choices=['fsl', 'ants'],
                             default='ants')
         
-        parser.add_argument('--dwi_standard_template',
+        parser.add_argument('--standard_template',
                             type=str,
                             help="Standard template file",
                             default=None)
         
-        parser.add_argument('--dwi_standard_template_mask',
+        parser.add_argument('--standard_template_mask',
                             type=str,
                             help="Standard template file",
                             default=None)
@@ -380,12 +365,15 @@ class DiffusionProcessingPipeline:
         
         args, unknown = parser.parse_known_args()
         
-        if args.load_json:
-            with open(args.load_json, 'rt') as f:
+        if args.proc_json:
+            with open(args.proc_json, 'rt') as f:
                 t_args = argparse.Namespace()
                 t_dict = vars(t_args)
-                t_dict.update(json.load(f))
+                test_json = json.load(f)
+                t_dict.update(test_json)
+                t_dict.update(test_json["dwi"])
                 args, unknown = parser.parse_known_args(namespace=t_args)
+
 
         #Setup the BIDS Directories and Paths
         entities = {
@@ -393,15 +381,13 @@ class DiffusionProcessingPipeline:
         'subject': args.subject,
         'session': args.session
         }
-             
+         
         id_patterns          = "sub-{subject}[_ses-{session}]"
         rawdata_patterns     = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
-        derivative_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
         output_patterns      = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",)
         
         id              = writing.build_path(entities, id_patterns)
         rawdata_dir     = writing.build_path(entities, rawdata_patterns)
-        derivative_dir  = writing.build_path(entities, derivative_patterns)
         output_dir      = writing.build_path(entities, output_patterns)
         
         anat_preproc_dir = os.path.join(output_dir, "anat/")
@@ -451,13 +437,14 @@ class DiffusionProcessingPipeline:
         #
         #
         
-        if args.dwi_dist_corr == 'Fieldmap':
-            fmap_image      = Image(filename = os.path.join(rawdata_dir, 'fmap-dwi', id+'_fieldmap.nii.gz'))
-            fmap_ref_image  = Image(filename = os.path.join(rawdata_dir, 'fmap-dwi', id+'_magnitude.nii.gz'))
+        if args.dist_correction:
+            if str.lower(args.dist_correction) == 'fieldmap':
+                fmap_image      = Image(filename = os.path.join(rawdata_dir, 'fmap', id+'_fieldmap.nii.gz'))
+                fmap_ref_image  = Image(filename = os.path.join(rawdata_dir, 'fmap', id+'_magnitude.nii.gz'))
         
         
         freesurfer_subjs_dir = None
-        if args.use_freesurfer or args.coregister_dwi_to_anat or args.dwi_dist_corr == 'Synb0-Disco' or args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_eddy_current_correction == 'tortoise-diffprep':
+        if args.use_freesurfer or args.coregister_dwi_to_anat or args.dist_correction == 'synb0' or args.dist_correction == 'anatomical-coregistration' or args.eddy_current_correction == 'tortoise-diffprep':
             
             coreg_dir = os.path.join(dmri_preproc_dir, 'coregister-to-anatomy',)
             if not os.path.exists(coreg_dir):
@@ -531,101 +518,97 @@ class DiffusionProcessingPipeline:
         if not dmri_preproc.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
-            dwi_img, topup_base =  dmri_rawprep.prep_dwi_rawdata(bids_id                = id,
-                                                                 bids_rawdata_dir       = rawdata_dir,
-                                                                 dwi_preproc_dir        = dmri_preproc_dir,
-                                                                 check_gradients        = args.dwi_check_gradients,
-                                                                 reorient_dwi           = args.dwi_reorient,
-                                                                 dwi_reorient_template  = Image(filename=args.dwi_reorient_template),
-                                                                 resample_resolution    = args.dwi_resample_resolution,
-                                                                 remove_last_vol        = args.dwi_remove_last_vol,
-                                                                 distortion_correction  = args.dwi_dist_corr,
-                                                                 topup_config           = args.dwi_topup_config,
-                                                                 outlier_detection      = args.dwi_outlier_detection,
-                                                                 t1w_img                = anat_img, 
-                                                                 t1w_mask               = anat_mask, 
-                                                                 nthreads               = args.nthreads, 
-                                                                 cmd_args               = args, 
-                                                                 verbose                = args.verbose)
+            dwi_img, topup_base =  dmri_rawprep.prep_rawdata(bids_dir               = args.bids_dir, 
+                                                             preproc_dir            = dmri_preproc_dir,
+                                                             id                     = args.subject,
+                                                             session                = args.session, 
+                                                             bids_filter            = args.proc_json,
+                                                             check_gradients        = args.check_gradients, 
+                                                             reorient_dwi           = args.reorient,     
+                                                             dwi_reorient_template  = Image(filename=args.reorient_template), 
+                                                             resample_resolution    = args.resample_resolution, 
+                                                             remove_last_vol        = args.remove_last_vol,
+                                                             distortion_correction  = args.dist_correction, 
+                                                             topup_config           = args.topup_config,
+                                                             outlier_detection      = args.outlier_detection, 
+                                                             t1w_img                = anat_img,       
+                                                             nthreads               = args.nthreads,
+                                                             cmd_args               = args, 
+                                                             verbose                = args.verbose) 
 
-            if args.dwi_denoise_degibbs:
+            if args.denoise_degibbs:
                 dwi_img = img_proc.denoise_degibbs(input_img       = dwi_img,
                                                    working_dir     = os.path.join(dmri_preproc_dir, 'denoise-degibbs',),
                                                    suffix          = 'dwi',
-                                                   denoise_method  = args.dwi_denoise_method,
-                                                   gibbs_method    = args.dwi_gibbs_correction_method,
+                                                   denoise_method  = args.denoise_method,
+                                                   gibbs_method    = args.gibbs_correction_method,
                                                    nthreads        = args.nthreads,
                                                    verbose         = args.verbose)
                 
-        
             dwi_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
                                              working_dir                = os.path.join(dmri_preproc_dir, 'eddy-correction',),
                                              topup_base                 = topup_base,
-                                             method                     = args.dwi_eddy_current_correction,
+                                             method                     = args.eddy_current_correction,
                                              gpu                        = args.gpu,
                                              cuda_device                = args.cuda_device,
                                              nthreads                   = args.nthreads,
-                                             data_shelled               = args.dwi_data_shelled,
-                                             repol                      = args.repol,
-                                             estimate_move_by_suscept   = args.estimate_move_by_suscept,
-                                             mporder                    = args.mporder,
-                                             slspec                     = args.dwi_slspec,
-                                             fsl_eddy_options           = args.dwi_eddy_options,
-                                             tortoise_options           = args.dwi_tortoise_diffprep_options,
+                                             fsl_eddy_options           = args.fsl_eddy_options,
+                                             tortoise_options           = args.tortoise_diffprep_options,
                                              struct_img                 = anat_img,
-                                             verbose                    = args.verbose)
-                                             
+                                             verbose                    = args.verbose)                 
 
-            if args.dwi_outlier_detection != None and args.dwi_outlier_detection != 'Manual':
+            if args.outlier_detection != None and args.outlier_detection != 'Manual':
                 dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,
                                                               working_dir       = os.path.join(dmri_preproc_dir, 'outlier-removed-images',),
-                                                              method            = args.dwi_outlier_detection,
-                                                              percent_threshold = args.dwi_outlier_detection_threshold,
+                                                              method            = args.outlier_detection,
+                                                              percent_threshold = args.outlier_detection_threshold,
                                                               verbose           = args.verbose)
  
 
-            if args.dwi_dist_corr == 'Anatomical-Coregistration' or args.dwi_dist_corr == 'Fieldmap':
+            if args.dist_correction == 'Anatomical-Coregistration' or args.dist_correction == 'Fieldmap':
                 dwi_img = distort_proc.perform_distortion_correction(dwi_image           = dwi_img,
                                                                      working_dir         = dmri_preproc_dir,
                                                                      t1w_image           = t1w,
                                                                      t2w_image           = t2w,
                                                                      fmap_image          = fmap_image,
                                                                      fmap_ref_image      = fmap_ref_image,
-                                                                     distortion_method   = args.dwi_dist_corr,
+                                                                     distortion_method   = args.dist_correction,
                                                                      distortion_modality = args.coregister_dwi_to_anat_modality,
-                                                                     linreg_method       = args.dwi_distortion_linreg_method,
+                                                                     linreg_method       = args.distortion_linreg_method,
                                                                      nthreads            = args.nthreads,
                                                                      verbose             = args.verbose)
 
             ###BIAS FIELD CORRECTION ###
-            if args.dwi_biasfield_correction:
+            if args.biasfield_correction:
                 dwi_img = img_proc.perform_biasfield_correction(input_img   = dwi_img,
                                                                 working_dir = os.path.join(dmri_preproc_dir, 'biasfield-correction',),
                                                                 suffix      = 'dwi',
-                                                                method      = args.dwi_biasfield_correction_method,
+                                                                method      = args.biasfield_correction_method,
                                                                 nthreads    = args.nthreads,
                                                                 verbose     = args.verbose)
-
 
             if args.coregister_dwi_to_anat:
                 dwi_img = coreg_proc.register_to_anat(dwi_image            = dwi_img,
                                                       working_dir          = dmri_preproc_dir,
                                                       anat_image           = anat_img,
                                                       anat_mask            = anat_mask,
-                                                      mask_method          = args.dwi_mask_method,
+                                                      mask_method          = args.mask_method,
                                                       reg_method           = args.coregister_dwi_to_anat_method,
                                                       linreg_method        = args.coregister_dwi_to_anat_linear_method,
-                                                      nonlinreg_method     = args.coregister_dwi_to_anat_nonlinear_method,
                                                       anat_modality        = args.coregister_dwi_to_anat_modality,
                                                       freesurfer_subjs_dir = freesurfer_subjs_dir,
-                                                      use_freesurfer       = args.use_freesurfer,
+                                                      noresample           = args.noresample_dwi_to_anat,
                                                       nthreads             = args.nthreads,
-                                                      verbose              = args.verbose,
-                                                      debug                = args.debug)
+                                                      verbose              = args.verbose)
 
+            
+            #Create brain mask
+            if args.coregister_dwi_to_anat and not args.noresample_dwi_to_anat:
                 if args.verbose:
                     print('Copying Anatomical Mask')
+
                 shutil.copy2(anat_mask.filename, dmri_mask.filename)
+            
             else:
                 if args.verbose:
                     print('Creating DWI Brain Mask')
@@ -637,15 +620,24 @@ class DiffusionProcessingPipeline:
                                 ref_img              = args.dwi_ants_mask_template,
                                 ref_mask             = args.dwi_ants_mask_template_mask,
                                 antspynet_modality   = args.dwi_antspynet_modality)
+              
+            #Create the preprocessed DWI file
+            if args.verbose:
+                print('Creating Preprocessed DWI')
 
-            if not dmri_preproc.exists():
-                if args.verbose:
-                    print('Creating Preprocessed DWI')
-
-                dmri_preproc.copy_image(dwi_img, datatype=np.float32)
+            dmri_preproc.copy_image(dwi_img, datatype=np.float32)
+            dmri_qc.check_gradient_directions(input_dwi   = dmri_preproc,
+                                              nthreads    = args.nthreads)
                 
-                dmri_qc.check_gradient_directions(input_dwi   = dmri_preproc,
-                                                  nthreads    = args.nthreads)
+            if args.gradnonlin_correction:
+                if args.verbose:
+                    print('Creating gradient deviation tensor map')
+
+                grad_nonlin_prep.grad_dev_tensor(input                  = dwi_img,
+                                                 gw_coils               = args.gw_coils_dat,
+                                                 coregister_dwi_to_anat = args.coregister_dwi_to_anat,
+                                                 gpu                    = args.gpu,
+                                                 working_dir            = dmri_preproc_dir)
 
 
         if args.dwi_cleanup:

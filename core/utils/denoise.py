@@ -31,11 +31,11 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
     
     CMD=""
     if method=="mrtrix":
-        CMD="dwidenoise " + input_img.filename + " " + output_img.filename + " -mask " + mask.filename \
-           +" -nthreads " + str(nthreads) + " -quiet -force"
+        CMD=f"dwidenoise {input_img.filename} {output_img.filename} -mask {mask.filename} \
+           -nthreads {str(nthreads)} -quiet -force"
         
         if noise_map:
-            CMD+=" -noise " + noise_map.filename
+            CMD+=f" -noise {noise_map.filename}"
 
         if debug:
             print("Denoising image")
@@ -45,18 +45,18 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
         subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     elif method=="ants":
-        CMD="DenoiseImage -d 3 -i " + input_img.filename + " -n " + noise_model
+        CMD=f"DenoiseImage -d 3 -i {input_img.filename} -n {noise_model}"
 
         if mask:
-            CMD += " -x " + mask.filename
+            CMD += f" -x {mask.filename}"
         if noise_map:
-            CMD += " -o [" + output_img.filename + "," + noise_map + "]"
+            CMD += f" -o [{output_img.filename},{noise_map}]"
         else:
-            CMD += " -o " + output_img.filename
+            CMD += f" -o {output_img.filename}"
             
         subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
-    elif method[0:4]=='dipy':
+    elif method[0:4]=="dipy":
         img = nib.load(input_img.filename)
         data = img.get_fdata()
         mask_data = nib.load(mask.filename).get_fdata()
@@ -67,13 +67,13 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
         else:
             sigma = estimate_sigma(data)
 
-        if method=='dipy-nlmeans':
+        if method=="dipy-nlmeans":
             denoised_arr = nlmeans(data,sigma=sigma, mask=mask_data, rician=True, patch_radius=2, block_radius=2)
-        elif method=='dipy-localpca':
+        elif method=="dipy-localpca":
             denoised_arr = localpca(data, sigma, mask=mask_data, tau_factor=2.3, patch_radius=2, pca_method="svd")
-        elif method=='dipy-mppca':
+        elif method=="dipy-mppca":
             denoised_arr = mppca(data, mask=mask_data, patch_radius=2, pca_method="svd")
-        elif method=='dipy-patch2self':
+        elif method=="dipy-patch2self":
             if input_img.get_type() != "DWImage":
                 print("Input needs to be diffusion image to use dipy-patch2self")
                 exit(-1)

@@ -35,31 +35,42 @@ def apply_transform(input, ref, out, transform, nthreads=1, method="fsl", flirt_
         output_dir = os.path.dirname(out.filename)
 
         mrtrix_img = os.path.join(output_dir,"img.mif")
+        warped_img = os.path.join(output_dir,"img_warped.mif")
         os.system("mrconvert -fslgrad " + input.bvecs + " " + input.bvals + " " + input.filename + " " + mrtrix_img + " -force -quiet -nthreads " + str(nthreads))
 
-        ident_warp  = os.path.join(output_dir, "identity_warp")
-        mrtrix_warp = os.path.join(output_dir, "mrtrix_warp")
-        os.system("warpinit " + mrtrix_img + " " + ident_warp+"[].nii -force -quiet")
-
-        for i in range(0,3):
-            os.system("antsApplyTransforms -d 3 -e 0 -i " + ident_warp+str(i)+".nii -o " + mrtrix_warp+str(i)+".nii -r " + ref.filename + " -t " + transform)
-
-        mrtrix_corr_warp = os.path.join(output_dir, "mrtrix_warp_corrected.mif")
-        os.system("warpcorrect " + mrtrix_warp+"[].nii " +  mrtrix_corr_warp + " -force -quiet")
-
-        warped_img = os.path.join(output_dir,"img_warped.mif")
-        os.system("mrtransform " + mrtrix_img \
-            + " -warp " + mrtrix_corr_warp \
-            + " " + warped_img + " -template " + ref.filename \
-            + " -strides " +  ref.filename + " -force -quiet -reorient_fod no -nthreads " + str(nthreads) + " -interp sinc")
         
-        os.system("mrconvert -force -quiet " + warped_img + " " + out.filename + " -export_grad_fsl " + out.bvecs + " " + out.bvals + " -nthreads " + str(nthreads))
+
+        if noresample:
+            os.system("mrtransform " + mrtrix_img \
+                      + " -linear " + transform \
+                      + " " + warped_img + " " + " -force " + " -strides " +  ref.filename)
+
+            os.system("mrconvert -force -quiet " + warped_img + " " + out.filename + " -export_grad_fsl " + out.bvecs + " " + out.bvals + " -nthreads " + str(nthreads) + " " + " -force ")
+
+        else:
         
-        #Clean up files
-        if method=="mrtrix":
-            os.system('rm -rf ' + ident_warp+'*')
-            os.system('rm -rf ' + mrtrix_warp+'*')
-            os.remove(warped_img)
+            ident_warp  = os.path.join(output_dir, "identity_warp")
+            mrtrix_warp = os.path.join(output_dir, "mrtrix_warp")
+            os.system("warpinit " + mrtrix_img + " " + ident_warp+"[].nii -force -quiet")
+
+            for i in range(0,3):
+                os.system("antsApplyTransforms -d 3 -e 0 -i " + ident_warp+str(i)+".nii -o " + mrtrix_warp+str(i)+".nii -r " + ref.filename + " -t " + transform)
+
+            mrtrix_corr_warp = os.path.join(output_dir, "mrtrix_warp_corrected.mif")
+            os.system("warpcorrect " + mrtrix_warp+"[].nii " +  mrtrix_corr_warp + " -force -quiet")
+
+            os.system("mrtransform " + mrtrix_img \
+                + " -warp " + mrtrix_corr_warp \
+                + " " + warped_img + " -template " + ref.filename \
+                + " -strides " +  ref.filename + " -force -quiet -reorient_fod no -nthreads " + str(nthreads) + " -interp sinc")
+            
+            os.system("mrconvert -force -quiet " + warped_img + " " + out.filename + " -export_grad_fsl " + out.bvecs + " " + out.bvals + " -nthreads " + str(nthreads))
+            
+            #Clean up files
+            if method=="mrtrix":
+                os.system('rm -rf ' + ident_warp+'*')
+                os.system('rm -rf ' + mrtrix_warp+'*')
+                os.remove(warped_img)
 
 
 if __name__ == '__main__':

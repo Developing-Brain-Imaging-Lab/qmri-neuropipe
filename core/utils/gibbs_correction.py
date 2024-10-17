@@ -12,9 +12,9 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
     output_img          = copy.deepcopy(input_img)
     output_img.filename = output_file 
 
-    if method=='mrtrix':
+    if method=="mrtrix":
 
-        CMD="mrdegibbs " + input_img.filename + " " + output_img.filename + " -nthreads " + str(nthreads) + " -quiet -force"
+        CMD=f"mrdegibbs {input_img.filename} {output_img.filename} -nthreads {str(nthreads)} -quiet -force"
 
         if debug:
             print("Gibbs Ringing Correction with MRtrix")
@@ -23,7 +23,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
         subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
                         
 
-    if method=='dipy':
+    if method=="dipy":
         img = nib.load(input_img.filename)
         data = img.get_fdata()
         data_corrected = gibbs_removal(data, num_processes=nthreads)
@@ -34,7 +34,7 @@ def gibbs_ringing_correction(input_img, output_file, method='mrtrix', nthreads=0
         nib.save(corrected_img, output_img.filename)
         
     #After the gibbs ringing correction, copy the header from the input to ensure proper sizing
-    os.system('fslcpgeom ' + input_img.filename + ' ' + output_img.filename )
+    os.system(f"fslcpgeom {input_img.filename} {output_img.filename}")
 
     return output_img
 

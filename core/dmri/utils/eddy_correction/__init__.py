@@ -4,30 +4,26 @@ import numpy as np
 from core.utils.io import Image, DWImage
 import core.utils.mask as mask
 
-if sys.platform == 'linux':
-    eddy='eddy_openmp'
-    eddy_cuda='eddy_cuda10.2'
-else:
-    eddy='eddy'
+
+eddy='eddy_cpu'
+eddy_cuda='eddy_cuda10.2'
 
 def eddy_correct_fsl(input_dwi, output_base):
 
     output_dir = os.path.dirname(output_base)
-
-    log_file   = output_dir + '/dwi.ecclog'
-    bvecs_file = output_dir + '/dwi.bvecs'
-    dwi_file   = output_dir + '/dwi.nii.gz'
+    log_file   = os.path.join(output_dir, "dwi.ecclog")
+    bvecs_file = os.path.join(output_dir, "dwi.bvecs")
+    dwi_file   = os.path.join(output_dir, "dwi.nii.gz")
 
     if os.path.exists(log_file):
         os.remove(log_file)
-        
         
     #Implementing FSL eddy_correct
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    os.system('eddy_correct ' + input_dwi.filename + ' ' + dwi_file + ' 0')
-    os.system('fdt_rotate_bvecs ' + input_dwi.bvecs + ' ' + bvecs_file + ' ' + log_file)
+    os.system(f"eddy_correct {input_dwi.filename} {dwi_file} 0")
+    os.system(f"fdt_rotate_bvecs {input_dwi.bvecs} {bvecs_file} {log_file}")
 
     output_img = copy.deepcopy(input_dwi)
     output_img.filename = output_base+'_desc-EddyCurrentCorrected_dwi.nii.gz'
@@ -41,7 +37,7 @@ def eddy_correct_fsl(input_dwi, output_base):
 
     return output_img
 
-def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, repol=0, data_shelled=False, mb=None, cuda=False, mporder=0, ol_type='sw', mb_off='1', estimate_move_by_suscept=False, cuda_device=None, nthreads='1', fsl_eddy_options='', debug=False):
+def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, cuda=False, cuda_device=None, nthreads=1, fsl_eddy_options='', debug=False):
 
     output_dir = os.path.dirname(output_base)
 
@@ -55,7 +51,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
     output_img.bvecs    = eddy_output_base+'.bvec'
 
     if mask_img == None:
-        mask_img = Image(filename = output_dir + '/mask.nii.gz')
+        mask_img = Image(filename = os.path.join(output_dir, "mask.nii.gz"))
         mask.mask_image(input_dwi, mask_img, algo='bet', bet_options='-f 0.1')
 
     exe = ''
@@ -66,7 +62,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
             exe = eddy_cuda
     else:
         os.environ["OMP_NUM_THREADS"] = str(nthreads)
-        exe = 'OMP_NUM_THREADS='+str(nthreads)+ ' ' + eddy
+        exe = 'OMP_NUM_THREADS='+str(nthreads)+ " " + eddy
 
     command = exe + ' --imain=' + input_dwi.filename \
               + ' --mask='  + mask_img.filename \
@@ -76,42 +72,31 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
               + ' --bvals=' + input_dwi.bvals \
               + ' --slspec=' + input_dwi.slspec \
               + ' --out='   + eddy_output_base \
-              + ' --cnr_maps --residuals --ol_type='+ol_type
+              + ' --nthr='   + str(nthreads)
 
     if topup_base != None:
         command += ' --topup='+topup_base
     if external_b0 != None:
         command += ' --field='+external_b0
-    if repol != 0:
-        command += ' --repol '
-    if data_shelled:
-        command += ' --data_is_shelled '
-    if mb != None:
-        command += ' --mb=' + str(mb)
-    if mporder != 0:
-        command += ' --mporder='+str(mporder)
-    if estimate_move_by_suscept:
-        command += ' --estimate_move_by_susceptibility'
-
-    command += ' ' + fsl_eddy_options
+   
+    command += " " + fsl_eddy_options
 
     if debug:
         print(command)
         
     os.system(command)
     #Rotate b-vecs after doing the eddy correction
-    os.system('mv ' + eddy_output_base +'.eddy_rotated_bvecs ' + output_img.bvecs)
-    os.remove(output_dir + '/mask.nii.gz')
+    os.rename(eddy_output_base+'.eddy_rotated_bvecs', output_img.bvecs)
+    os.remove(os.path.join(output_dir, "mask.nii.gz"))
 
     return output_img
 
 def compute_average_motion(eddy_basename):
-    movement_rms_file = eddy_basename + '.eddy_movement_rms'
-    restricted_movement_rms_file = eddy_basename + '.eddy_restricted_movement_rms'
+    movement_rms_file = os.path.join(eddy_basename, '.eddy_movement_rms')
+    restricted_movement_rms_file = os.path.join(eddy_basename, '.eddy_restricted_movement_rms')
 
     movement_rms = np.loadtxt(movement_rms_file)
     restricted_movement_rms = np.loadtxt(restricted_movement_rms_file)
-
 
     avg_movement_rms = np.mean(movement_rms, axis=0)
     avg_restricted_movement_rms = np.mean(restricted_movement_rms, axis=0)
@@ -126,7 +111,6 @@ def compute_average_motion(eddy_basename):
             'Average Slice Movement', avg_movement_rms[1],
             'Average Restricted Movement', avg_restricted_movement_rms[0],
             'Average Restricted Slice Movement', avg_restricted_movement_rms[1])
-
 
 def diffprep_tortoise(input_dwi, output_base, phase='horizontal', tortoise_options=None, struct_img=None, nthreads=1, verbose=False):
     

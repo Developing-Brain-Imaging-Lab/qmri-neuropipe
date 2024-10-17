@@ -21,14 +21,12 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
         'desc': 'Topup'
         }
 
-        filename_patterns = working_dir + '/sub-{subject}[_ses-{session}][_dir-{dir}][_desc-{desc}]_{suffix}{extension}'
+        filename_patterns = os.path.join(working_dir, "sub-{subject}[_ses-{session}][_dir-{dir}][_desc-{desc}]_{suffix}{extension}")
         fieldmap = writing.build_path(entities, filename_patterns)
 
-        if not os.path.exists(topup_base + '_fieldcoef.nii.gz'):
-
+        if not os.path.exists(topup_base+"_fieldcoef.nii.gz"):
             if verbose:
                 print('Performing Topup Disortion Correction')
-
             if dist_corr == 'Topup':
                 distcorr.topup_fsl(input_dwi            = dwi_image,
                                    output_topup_base    = topup_base,
@@ -42,7 +40,7 @@ def perform_topup(dwi_image, topup_base, topup_config, dist_corr, verbose=False)
                 print('Incorrect Method')
                 exit()
 
-def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, fmap_image=None, t1w_image=None, t2w_image=None, fmap=None, distortion_method=None, distortion_modality='t1w', linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
+def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, fmap_image=None, t1w_image=None, t2w_image=None, distortion_method=None, distortion_modality='t1w', linreg_method='FSL', resample_to_anat=False, nthreads=1, verbose=False):
 
     if distortion_method != None:
 
@@ -56,15 +54,15 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
         'desc': 'DistortionCorrected'
         }
 
-        if distortion_method == 'Anatomical-Coregistration':
+        if distortion_method == 'anatomical-coregistration':
             working_dir += '/anatomical-distortion-correction'
-        elif distortion_method == 'Fieldmap':
+        elif distortion_method == 'fieldmap':
             working_dir += '/fieldmap-distortion-correction'
 
         if not os.path.exists(working_dir):
             os.makedirs(working_dir)
 
-        filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
+        filename_patterns   = os.path.join(working_dir, "sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}")
 
         distcorr_file = writing.build_path(entities, filename_patterns)
         entities['extension'] = '.bvec'
@@ -75,7 +73,7 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
         distcorr_img._set_bvecs(distcorr_bvec)
 
         if not distcorr_img.exists():
-            if distortion_method == 'Anatomical-Coregistration':
+            if distortion_method == 'anatomical-coregistration':
                 if verbose:
                     print('Performing Registration-Based Distortion Correction')
 
@@ -89,7 +87,7 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
                                                             nthreads            = nthreads,
                                                             verbose             = verbose)
 
-            if distortion_method == 'Fieldmap':
+            if distortion_method == 'fieldmap':
                 if verbose:
                     print('Performing Fieldmap Based Distortion Correction')
                 
@@ -98,8 +96,6 @@ def perform_distortion_correction(dwi_image, working_dir, fmap_ref_image=None, f
                                                   fmap_ref_image    = fmap_ref_image,
                                                   working_dir       = working_dir)
                                     
-
-
         return distcorr_img
 
     else:

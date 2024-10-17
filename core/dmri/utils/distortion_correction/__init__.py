@@ -47,19 +47,17 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
 
     output_dir = os.path.dirname(output_topup_base)
-    tmp_acqparams = output_dir + '/tmp.acqparams.txt'
-    tmp_b0 = output_dir + '/tmp.B0.nii.gz'
+    tmp_acqparams = os.path.join(output_dir, "tmp.acqparams.txt")
+    tmp_b0 = os.path.join(output_dir, "tmp.B0.nii.gz")
 
     topup_imgs = nib.Nifti1Image(topup_data, aff, dwi_img.header)
     nib.save(topup_imgs, tmp_b0)
     np.savetxt(tmp_acqparams, topup_acqparams, fmt='%.8f')
 
-    topup_command = 'topup --imain='+ tmp_b0 \
-                  + ' --datain=' + tmp_acqparams \
-                  + ' --out=' + output_topup_base
+    topup_command = f"topup --imain={tmp_b0} --datain={tmp_acqparams} --out={output_topup_base}"
 
     if config_file != None:
-        topup_command += ' --config='+config_file
+        topup_command += f" --config={config_file}"
     if field_output:
         topup_command += ' --fout='+output_topup_base+'_fmap.nii.gz'
 

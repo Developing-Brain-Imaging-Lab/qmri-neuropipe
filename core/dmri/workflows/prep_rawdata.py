@@ -1,10 +1,9 @@
-from doctest import debug
-import os, shutil
+import os, shutil, json
+from bids import BIDSLayout
+from bids.layout import writing
 
-from core.utils.io import Image, DWImage
+from core.utils.io import DWImage
 import core.utils.tools as img_tools
-import core.utils.mask as mask
-import core.utils.biascorrect as bias_tools
 
 import core.dmri.utils.qc as dmri_qc
 import core.dmri.utils.distortion_correction as distcorr
@@ -12,56 +11,101 @@ import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
 from core.dmri.workflows.dmri_reorient import dmri_reorient
 
-def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients=False, reorient_dwi=False, dwi_reorient_template=None, resample_resolution=None, remove_last_vol=False, distortion_correction='None', topup_config=None, outlier_detection=None, t1w_img=None, t1w_mask=None, nthreads=1, cmd_args=None, verbose=False):
+def prep_rawdata(bids_dir, preproc_dir, 
+                 id, 
+                 session=None, 
+                 bids_filter=None,
+                 check_gradients=False, 
+                 reorient_dwi=False, 
+                 dwi_reorient_template=None, 
+                 resample_resolution=None, 
+                 remove_last_vol=False, 
+                 distortion_correction='None', 
+                 topup_config=None, 
+                 outlier_detection=None, 
+                 t1w_img=None, 
+                 nthreads=1,
+                 cmd_args=None, 
+                 verbose=False):
 
     #Setup raw data paths
-    bids_rawdata_dwi_dir        = os.path.join(bids_rawdata_dir, "dwi/")
+    layout      = BIDSLayout(bids_dir, validate=False)
+    bids_id     = writing.build_path({'subject': id, 'session': session}, "sub-{subject}[_ses-{session}]")
+    proc_dir    = os.path.join(preproc_dir, "rawdata/")
 
-    #Define directories and image paths
-    preprocess_dir              = os.path.join(dwi_preproc_dir, "rawdata/")
+    if not os.path.exists(proc_dir):
+        os.makedirs(proc_dir)
 
-    if not os.path.exists(preprocess_dir):
-        os.makedirs(preprocess_dir)
+    #Get the subject's diffusion data
+    subj_data = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='nii.gz', return_type='filename')
+    num_dwis  = len(subj_data)
 
-    dwi_img = DWImage(filename  = preprocess_dir + bids_id + '_dwi.nii.gz',
-                      bvals     = preprocess_dir + bids_id + '_dwi.bval',
-                      bvecs     = preprocess_dir + bids_id + '_dwi.bvec',
-                      index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt',
-                      acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt',
-                      json      = preprocess_dir + bids_id + '_dwi.json')
+    dwi_img = DWImage(filename  = f"{proc_dir}/{bids_id}_dwi.nii.gz",
+                      bvals     = f"{proc_dir}/{bids_id}_dwi.bval",
+                      bvecs     = f"{proc_dir}/{bids_id}_dwi.bvec",
+                      index     = f"{proc_dir}/{bids_id}_desc-Index_dwi.txt",
+                      acqparams = f"{proc_dir}/{bids_id}_desc-Acqparams_dwi.txt",
+                      json      = f"{proc_dir}/{bids_id}_dwi.json")
 
-    topup_base = None
-    run_topup  = False
-
-    #Check to see if TOPUP Style data exists and if so, create merged DWI input image
-    if os.path.exists(os.path.join(bids_rawdata_dwi_dir,bids_id+'_desc-pepolar-0_dwi.nii.gz')) and os.path.exists(os.path.join(bids_rawdata_dwi_dir,bids_id+'_desc-pepolar-1_dwi.nii.gz')):
-
-        if distortion_correction == "Topup" or distortion_correction == "Topup-Separate":
-            run_topup  = True
-
-        if not dwi_img.exists():
-            if verbose:
-                print('Merging DWIs with different phase encode directions')
-
-            pepolar_0 = DWImage(filename = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz',
-                                bvals    = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.bval',
-                                bvecs    = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.bvec',
-                                json     = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-0_dwi.json')
-
-            pepolar_1 = DWImage(filename = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz',
-                                bvals    = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.bval',
-                                bvecs    = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.bvec',
-                                json     = bids_rawdata_dwi_dir + bids_id + '_desc-pepolar-1_dwi.json')
-
-            dwi_img = dmri_qc.merge_phase_encodes(DWI_pepolar0 = pepolar_0,
-                                                  DWI_pepolar1 = pepolar_1,
-                                                  output_base  = preprocess_dir + bids_id)
+    if num_dwis == 1:
+        img     = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='nii.gz', return_type='filename')[0]
+        bvals   = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='bval', return_type='filename')[0]
+        bvecs   = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='bvec', return_type='filename')[0]
+        sidecar = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='json', return_type='filename')[0]
+        
+        shutil.copy2(img, dwi_img.filename)
+        shutil.copy2(bvals, dwi_img.bvecs)
+        shutil.copy2(bvecs, dwi_img.bvals)
+        shutil.copy2(sidecar, dwi_img.json)
 
     else:
-        shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.nii.gz', dwi_img.filename)
-        shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.bvec', dwi_img.bvecs)
-        shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.bval', dwi_img.bvals)
-        shutil.copy2(bids_rawdata_dwi_dir + bids_id + '_dwi.json', dwi_img.json)
+        
+        if bids_filter is None:
+            print("Please provide a BIDS filter to select the appropriate DWI data")
+            exit(-1)
+
+        imgs_to_merge = []
+        dwi_filter = json.load(open(bids_filter, 'r'))['dwi']
+        
+        if "rpe_direction" in dwi_filter:
+            dwi_dirs = dwi_filter['rpe_direction']
+
+            for rpe_dir in dwi_dirs:
+                
+                img     = layout.get(subject=id, session=session, datatype='dwi', direction=rpe_dir, suffix='dwi', extension='nii.gz', return_type='filename')[0]
+                bvals   = layout.get(subject=id, session=session, datatype='dwi', direction=rpe_dir, suffix='dwi', extension='bval', return_type='filename')[0]
+                bvecs   = layout.get(subject=id, session=session, datatype='dwi', direction=rpe_dir, suffix='dwi', extension='bvec', return_type='filename')[0]
+                sidecar = layout.get(subject=id, session=session, datatype='dwi', direction=rpe_dir, suffix='dwi', extension='json', return_type='filename')[0]
+
+                imgs_to_merge.append(DWImage(filename=img, bvals=bvals, bvecs=bvecs, json=sidecar))
+
+        elif "description" in dwi_filter:          
+            dwi_desc = dwi_filter['description']
+
+            img     = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='nii.gz', return_type='filename')
+            bvals   = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='bval', return_type='filename')
+            bvecs   = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='bvec', return_type='filename')
+            sidecar = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='json', return_type='filename')
+                
+            for img_desc in dwi_desc:
+                for i in range(len(img)):
+                    if img_desc in img[i]:
+                        imgs_to_merge.append(DWImage(filename=img[i], bvals=bvals[i], bvecs=bvecs[i], json=sidecar[i]))
+                        break
+        else:
+            print("Please provide a valid BIDS filter")
+            exit(-1)      
+
+        
+        dwi_img = dmri_qc.merge_phase_encodes(DWI_pepolar0 = imgs_to_merge[0], 
+                                              DWI_pepolar1 = imgs_to_merge[1], 
+                                              output_base  = f"{proc_dir}/{bids_id}")
+        if len(imgs_to_merge) > 2:
+            for i in range(2, len(imgs_to_merge)):
+                dwi_img = dmri_qc.merge_phase_encodes(DWI_pepolar0 = dwi_img, 
+                                                      DWI_pepolar1 = imgs_to_merge[i], 
+                                                      output_base  = f"{proc_dir}/{bids_id}")
+        run_topup  = True
 
     #Ensure ISOTROPIC voxels prior to processing
     if verbose:
@@ -85,26 +129,26 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
         print('Checking DWI Acquisition Size and Gradient Orientations')
 
     dmri_qc.check_bvals_bvecs(input_dwi   = dwi_img,
-                              output_base = preprocess_dir + bids_id)
+                              output_base = f"{proc_dir}/{bids_id}")
 
     if check_gradients:
         dmri_qc.check_gradient_directions(input_dwi   = dwi_img,
                                           nthreads    = nthreads)
 
-    dwi_img.index     = preprocess_dir + bids_id + '_desc-Index_dwi.txt'
-    dwi_img.acqparams = preprocess_dir + bids_id + '_desc-Acqparams_dwi.txt'
+    dwi_img.index     = f"{proc_dir}/{bids_id}_desc-Index_dwi.txt"
+    dwi_img.acqparams = f"{proc_dir}/{bids_id}_desc-Acqparams_dwi.txt"
     
     if not os.path.exists(dwi_img.index) or not os.path.exists(dwi_img.acqparams):
         dwi_img.index, dwi_img.acqparams = dmri_qc.create_index_acqparam_files(input_dwi   = dwi_img,
-                                                                               output_base = preprocess_dir + bids_id)
+                                                                               output_base = f"{proc_dir}/{bids_id}")
 
-    dwi_img.slspec = preprocess_dir + bids_id + '_desc-Slspec_dwi.txt'
+    dwi_img.slspec = f"{proc_dir}/{bids_id}_desc-Slspec_dwi.txt"
     if not os.path.exists( dwi_img.slspec ):
         dwi_img.slspec = dmri_qc.create_slspec_file(input_dwi        = dwi_img,
-                                                    output_base      = preprocess_dir+bids_id)
+                                                    output_base      = f"{proc_dir}/{bids_id}")
 
     if outlier_detection == 'Manual':
-        outlier_detection_dir = os.path.join(dwi_preproc_dir, 'outlier-removed-images/')
+        outlier_detection_dir = os.path.join(preproc_dir, 'outlier-removed-images/')
 
         if verbose:
             print('Removing DWIs from manual selection')
@@ -112,7 +156,7 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
         dwi_img = eddy_proc.perform_outlier_detection(dwi_image         = dwi_img,
                                                       working_dir       = outlier_detection_dir,
                                                       method            = outlier_detection,
-                                                      manual_report_dir = bids_rawdata_dwi_dir,
+                                                      manual_report_dir = f"{bids_dir}/{bids_id}/dwi",
                                                       verbose           = verbose )
         
     if reorient_dwi:
@@ -121,29 +165,15 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
                       ref_img = dwi_reorient_template)
 
     if run_topup or distortion_correction == 'Synb0-Disco':
-        topup_base = os.path.join(preprocess_dir, "topup", bids_id+"_desc-Topup")
+        topup_base = os.path.join(proc_dir, "topup", bids_id+"_desc-Topup")
         
-        if not os.path.exists(topup_base+'_fieldcoef.nii.gz'):
+        if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
     
-            #First going to run eddy and motion-correction to ensure images are aligned prior to estimating fields. Data are only used
+            #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
             #here and not for subsequent processing
-            eddy_img = eddy_proc.perform_eddy(dwi_image                  = dwi_img,
-                                              working_dir                = os.path.join(preprocess_dir, 'tmp-eddy-correction/'),
-                                              topup_base                 = None,
-                                              method                     = cmd_args.dwi_eddy_current_correction,
-                                              gpu                        = cmd_args.gpu,
-                                              cuda_device                = cmd_args.cuda_device,
-                                              nthreads                   = cmd_args.nthreads,
-                                              data_shelled               = cmd_args.dwi_data_shelled,
-                                              repol                      = cmd_args.repol,
-                                              estimate_move_by_suscept   = cmd_args.estimate_move_by_suscept,
-                                              mporder                    = cmd_args.mporder,
-                                              slspec                     = cmd_args.dwi_slspec,
-                                              fsl_eddy_options           = cmd_args.dwi_eddy_options,
-                                              verbose                    = cmd_args.verbose)
-        
-            
-
+            eddy_img = eddy_proc.perform_eddy(dwi_image   = dwi_img,
+                                              working_dir = os.path.join(proc_dir, 'tmp-eddy-correction/'),
+                                              method='eddy_correct')
             if run_topup:
                 distort_proc.perform_topup(dwi_image    = eddy_img,
                                            topup_base   = topup_base,
@@ -159,5 +189,6 @@ def prep_dwi_rawdata(bids_id, bids_rawdata_dir, dwi_preproc_dir, check_gradients
                                          topup_base     = topup_base,
                                          topup_config   = topup_config,
                                          nthreads       = nthreads)
-
+    
+    
     return dwi_img, topup_base
