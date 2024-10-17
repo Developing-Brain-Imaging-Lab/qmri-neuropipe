@@ -12,12 +12,13 @@ documentation for details.
 
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Contents:
 
-   usage
    installation
-
+   usage
+   
+   
 Indices and tables
 ==================
 
