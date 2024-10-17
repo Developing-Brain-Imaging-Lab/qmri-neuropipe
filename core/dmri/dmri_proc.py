@@ -471,11 +471,11 @@ class DiffusionProcessingPipeline:
             
             else:
                 anat_pipeline = AnatomicalPrepPipeline()
-                t1w, t2w, anat_mask = anat_pipeline.run()
+                t1w, t2w, anat_mask = anat_pipeline.run(proc_dir = args.preproc_derivative_dir)
                 print(t1w.filename)
                 print(anat_mask.filename)
                                 
-                if args.dwi_eddy_current_correction == 'tortoise-diffprep':
+                if args.eddy_current_correction == 'tortoise-diffprep':
                     if t2w:
                         anat_img = t2w
                     elif t1w:
@@ -640,7 +640,7 @@ class DiffusionProcessingPipeline:
                                                  working_dir            = dmri_preproc_dir)
 
 
-        if args.dwi_cleanup:
+        if args.cleanup:
             if args.verbose:
                 print('Cleaning up DWI Preprocessing Files')
 

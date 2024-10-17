@@ -2,7 +2,7 @@
 import os, sys, subprocess, shutil, time, copy
 
 
-def apply_transform(input, ref, out, transform, nthreads=1, method="fsl", flirt_options=None, ants_options=None):
+def apply_transform(input, ref, out, transform, noresample=False, nthreads=1, method="fsl", flirt_options=None, ants_options=None):
 
     CMD = ""
 
@@ -39,7 +39,6 @@ def apply_transform(input, ref, out, transform, nthreads=1, method="fsl", flirt_
         os.system("mrconvert -fslgrad " + input.bvecs + " " + input.bvals + " " + input.filename + " " + mrtrix_img + " -force -quiet -nthreads " + str(nthreads))
 
         
-
         if noresample:
             os.system("mrtransform " + mrtrix_img \
                       + " -linear " + transform \
@@ -106,6 +105,11 @@ if __name__ == '__main__':
                     type=str,
                     help="Transform to warp image ",
                     choices=["fsl", "ants", "mrtrix", "mrtrix"])
+
+   parser.add_argument("--noresample",
+                       type=bool,
+                       help="No resampling of data",
+                       default=False)
    
    parser.add_argument("--nthreads",
                        type=int,
@@ -133,6 +137,7 @@ if __name__ == '__main__':
                    ref             = args.ref,
                    out             = args.out, 
                    transform       = args.transform,
+                   noresample      = args.noresample,
                    nthreads        = args.nthreads,
                    method          = args.method,
                    flirt_options   = args.flirt_options,

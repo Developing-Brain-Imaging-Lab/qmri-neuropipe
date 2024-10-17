@@ -20,11 +20,11 @@ class AnatomicalPrepPipeline:
         if verbose:
             print('Creating Anatomical Preprocessing Pipeline')
 
-    def run(self):
+    def run(self, proc_dir=None):
         # parse commandline
         parser = argparse.ArgumentParser()
 
-        parser.add_argument('--load_json',
+        parser.add_argument('--proc_json',
                             type=str, 
                             help='Load settings from file in json format. Command line options are overriden by values in file.', 
                             default=None)
@@ -37,7 +37,7 @@ class AnatomicalPrepPipeline:
                             type=str, help='BIDS RAWDATA Directory',
                             default='rawdata') 
     
-        parser.add_argument('--pipeline_name',
+        parser.add_argument('--preproc_derivative_dir',
                             type=str, help='Pipeline Derivative Directory',
                             default='qmri-neuropipe-preproc')
 
@@ -171,6 +171,12 @@ class AnatomicalPrepPipeline:
                             choices=['t1', 't2'],
                             default='t1')
         
+        parser.add_argument('--resample_resolution',
+                            type=int,
+                            nargs='+',
+                            help='Resampling Input Resolution',
+                            default=None)
+        
         parser.add_argument('--to_standard',
                             type=bool,
                             help="Perform registration to standard space",
@@ -209,12 +215,17 @@ class AnatomicalPrepPipeline:
         
         args, unknown = parser.parse_known_args()
 
-        if args.load_json:
-            with open(args.load_json, "rt") as f:
+        if args.proc_json:
+            with open(args.proc_json, 'rt') as f:
                 t_args = argparse.Namespace()
                 t_dict = vars(t_args)
-                t_dict.update(json.load(f))
+                test_json = json.load(f)
+                t_dict.update(test_json)
+                t_dict.update(test_json["anat"])
                 args, unknown = parser.parse_known_args(namespace=t_args)
+
+        if proc_dir is not None:
+            args.preproc_derivative_dir = proc_dir
 
         #Setup the BIDS Directories and Paths
         entities = {
@@ -224,13 +235,12 @@ class AnatomicalPrepPipeline:
         }
                              
         id_patterns         = "sub-{subject}[_ses-{session}]"
-        rawdata_patterns    = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
-        derivative_patterns = os.path.join(args.bids_dir, "derivatives", args.pipeline_name),
-        output_patterns     = os.path.join(args.bids_dir, "derivatives", args.pipeline_name, "sub-{subject}[/ses-{session}]", "anat",)
+        derivative_patterns = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir,)
+
+        output_patterns     = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]", "anat",)
         mpnrage_patterns    = os.path.join(args.bids_dir, "derivatives", args.mpnrage_derivatives_dir, "sub-{subject}[/ses-{session}]", "anat",)
         
         bids_id             = writing.build_path(entities, id_patterns)
-        bids_rawdata_dir    = writing.build_path(entities, rawdata_patterns)
         bids_derivative_dir = writing.build_path(entities, derivative_patterns)
         bids_output_dir     = writing.build_path(entities, output_patterns)
         
@@ -242,16 +252,20 @@ class AnatomicalPrepPipeline:
         #Create dataset_description.json
         if not os.path.exists(os.path.join(bids_derivative_dir, "dataset_description.json")):
             create_dataset_json.create_preproc_bids_dataset_description_json(path          = bids_derivative_dir,
-                                                                             bids_pipeline =  args.pipeline_name)
+                                                                             bids_pipeline =  args.preproc_derivative_dir)
 
         logfile     = open(os.path.join(bids_output_dir, bids_id+"_desc-AnatProc.log"), 'w')
         sys.stdout  = logfile
-        
-        T1w, T2w = raw_proc.prep_anat_rawdata(id                        = bids_id,
-                                              rawdata_dir               = bids_rawdata_dir,
+
+        T1w, T2w = raw_proc.prep_anat_rawdata(bids_dir                  = args.bids_dir,   
+                                              preproc_dir               = bids_output_dir,
+                                              id                        = args.subject,    
+                                              session                   = args.session,
                                               t1w_type                  = args.t1w_type,
+                                              resample_resolution       = args.resample_resolution, 
                                               mpnrage_derivatives_dir   = writing.build_path(entities, mpnrage_patterns),
-                                              verbose                   = args.verbose)           
+                                              verbose                   = args.verbose)
+      
         T1w_preproc_ent = entities.copy()
         T1w_preproc_ent['modality'] = 'T1w'
         T1w_preproc_ent['desc']     = 'preproc'

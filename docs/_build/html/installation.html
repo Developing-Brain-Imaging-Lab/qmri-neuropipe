@@ -45,7 +45,10 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Installation</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#required-software">Required software</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#manually-prepared-python-environment">Manually Prepared Python Environment</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#external-dependencies">External Dependencies</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -77,12 +80,30 @@
              
   <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h1>
-<p>qmri-neuropipe requires several software packages to be installed on your system. The following instructions will guide you through the installation process.</p>
-<section id="required-software">
-<h2>Required software<a class="headerlink" href="#required-software" title="Link to this heading"></a></h2>
-<p><a href="#id1"><span class="problematic" id="id2">*</span></a>FSL
-<a href="#id3"><span class="problematic" id="id4">*</span></a>AFNI
-<a href="#id5"><span class="problematic" id="id6">*</span></a>HD-BET</p>
+<p>There are two ways to install <em>qmri-neuropipe</em>:</p>
+<ul class="simple">
+<li><p>within a <a class="reference internal" href="#manually-prepared-python-environment">Manually Prepared Python Environment</a>, or</p></li>
+<li><p>using container (Docker or Singularity);</p></li>
+</ul>
+<section id="manually-prepared-python-environment">
+<h2>Manually Prepared Python Environment<a class="headerlink" href="#manually-prepared-python-environment" title="Link to this heading"></a></h2>
+<p>Make sure all of <em>qmri-neuropipe</em>’s <a class="reference internal" href="#external-dependencies">External Dependencies</a> are installed.
+These tools must be installed and their binaries available in the
+system’s <code class="docutils literal notranslate"><span class="pre">$PATH</span></code>.</p>
+<section id="external-dependencies">
+<h3>External Dependencies<a class="headerlink" href="#external-dependencies" title="Link to this heading"></a></h3>
+<p><em>qmri-neuropipe</em> is written using Python 3.8 (or above)</p>
+<p><em>qmri-neuropipe</em> requires other neuroimaging software tools that are
+not handled by the Python’s packaging system (Pypi) used to deploy
+the <code class="docutils literal notranslate"><span class="pre">qmri-neuropipe</span></code> package:</p>
+<ul class="simple">
+<li><p>FSL (version 6.0.7.7)</p></li>
+<li><p>ANTs (version 2.5.1)</p></li>
+<li><p>AFNI (version 24.0.05)</p></li>
+<li><p><cite>C3D &lt;https://sourceforge.net/projects/c3d/&gt;</cite> (version 1.4.0)</p></li>
+<li><p>FreeSurfer (version 7.3.2, optional)</p></li>
+</ul>
+</section>
 </section>
 </section>
 

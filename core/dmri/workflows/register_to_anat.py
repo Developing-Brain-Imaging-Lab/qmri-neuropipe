@@ -95,7 +95,7 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
                    debug                = verbose)
 
             convert_fsl2ants(mean_b0, T1nii, b0toT1flirtmtx, fsl2antsAffine)
-            os.systemI(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii} flirt_import {b0toT1flirtmtx_mrtrixformat} -force")
+            os.systemI(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii} flirt_import {b0toT1flirtmtx_mrtrixformat} -force -quiet")
 
             if noresample:
                 final_transform = b0toT1flirtmtx_mrtrixformat
@@ -135,7 +135,7 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
                 exit()
     
             #Mask the Anatomical image and bias-correct
-            anat_masked = Image(filename = os.pathj.join(working_dir, "anat_masked.nii.gz"))
+            anat_masked = Image(filename = os.path.join(working_dir, "anat_masked.nii.gz"))
             if not anat_mask:
                 anat_mask = Image(file = os.path.join(working_dir, "anat_mask.nii.gz"))
                 mask.mask_image(input   = anat_image,
@@ -165,7 +165,6 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
                                                 output_dir       = working_dir + '/wmseg/',
                                                 nthreads         = nthreads )
                     
-            
                 #Next, re-run flirt, using bbr cost function and WM segmentation
                 bbr_options = ' -cost bbr -wmseg ' + wmseg_img.filename \
                             + ' -schedule $FSLDIR/etc/flirtsch/bbr.sch -interp sinc -bbrtype global_abs -bbrslope 0.25 -finesearch 18 -init ' \
@@ -178,12 +177,17 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
                     method        = 'fsl',
                     dof           = dof,
                     flirt_options = bbr_options)
-                                    
-            #Convert to ITK format for warping
-            convert_fsl2ants(input    = mov_img[0],
-                             ref      = ref_img[0],
-                             fsl_mat  = fsl_transform,
-                             ants_mat = itk_transform )
+
+            
+            if noresample:
+                os.system(f"transformconvert {fsl_transform} {mov_img[0].filename} {ref_img[0].filename} flirt_import {itk_transform} -force -quiet")
+            else:               
+                #Convert to ITK format for warping
+                convert_fsl2ants(input    = mov_img[0],
+                                 ref      = ref_img[0],
+                                 fsl_mat  = fsl_transform,
+                                 ants_mat = itk_transform )
+
                                     
             if reg_method == 'linear' or reg_method == 'fsl-bbr':
                 final_transform = itk_transform
