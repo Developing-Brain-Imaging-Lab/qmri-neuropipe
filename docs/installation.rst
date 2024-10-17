@@ -28,3 +28,4 @@ the ``qmri-neuropipe`` package:
 - AFNI (version 24.0.05)
 - `C3D <https://sourceforge.net/projects/c3d/>` (version 1.4.0)
 - FreeSurfer (version 7.3.2, optional)
+- Tortoise (version 4)
