@@ -615,11 +615,11 @@ class DiffusionProcessingPipeline:
 
                 mask.mask_image(input                = dwi_img,
                                 mask                 = dmri_mask,
-                                algo                 = args.dwi_mask_method,
+                                algo                 = args.mask_method,
                                 nthreads             = args.nthreads,
-                                ref_img              = args.dwi_ants_mask_template,
-                                ref_mask             = args.dwi_ants_mask_template_mask,
-                                antspynet_modality   = args.dwi_antspynet_modality)
+                                ref_img              = args.ants_mask_template,
+                                ref_mask             = args.ants_mask_template_mask,
+                                antspynet_modality   = args.antspynet_modality)
               
             #Create the preprocessed DWI file
             if args.verbose:

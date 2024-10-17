@@ -16,6 +16,7 @@ documentation for details.
    :caption: Contents:
 
    usage
+   installation
 
 Indices and tables
 ==================
