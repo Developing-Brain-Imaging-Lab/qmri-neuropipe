@@ -83,7 +83,7 @@ class AnatomicalPrepPipeline:
         parser.add_argument('--brain_size',
                             type=str,
                             help='Estimate of Brain size (used for robustfov)',
-                            default="150")
+                            default="220")
         
         parser.add_argument('--t1w_type',
                             type=str,

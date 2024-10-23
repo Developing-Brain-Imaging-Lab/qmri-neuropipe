@@ -72,7 +72,6 @@ def resample_image(input_img, output_file, target_resolution, debug=False):
         + " regrid -voxel " + str(target_resolution[0]) + "," +  str(target_resolution[1]) + "," + str(target_resolution[2]) \
         + " -interp sinc " + tmp_img.filename + " -force -quiet"
     
-
     if debug:
         print("Resampling image to target resolution: " + str(target_resolution))
         print(CMD)

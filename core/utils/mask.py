@@ -18,7 +18,7 @@ def apply_mask(input, mask, output, debug=False):
 
     os.system(CMD)
 
-def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, ref_img=None, ref_mask=None, bet_options="", ants_lower_threshold=0.2, antspynet_modality="t1", debug=False, logfile=None):
+def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gpu_device=0, ref_img=None, ref_mask=None, bet_options="", ants_lower_threshold=0.2, antspynet_modality="t1", debug=False, logfile=None):
     
     if logfile:
         sys.stdout = logfile
@@ -45,7 +45,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, re
         CMD = "hd-bet -i " + temp_img.filename + " -mode accurate -tta 0 -o " + temp_mask
         
         if gpu:
-            CMD+= " -device gpu"
+            CMD+= f" -device {gpu_device}"
         else:
             CMD+= " -device cpu"
 
