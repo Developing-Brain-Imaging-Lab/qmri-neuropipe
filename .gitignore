@@ -3,3 +3,5 @@ core/*/*cache*
 
 #Ignore testing directory
 testing/
+
+*.py[co]
