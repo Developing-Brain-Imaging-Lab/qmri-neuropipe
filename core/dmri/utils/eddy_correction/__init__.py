@@ -71,9 +71,10 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
               + ' --bvecs=' + input_dwi.bvecs \
               + ' --bvals=' + input_dwi.bvals \
               + ' --slspec=' + input_dwi.slspec \
-              + ' --out='   + eddy_output_base \
-              + ' --nthr='  + str(nthreads)
-
+              + ' --out='   + eddy_output_base
+    
+    if not cuda:
+        command += ' --nthr ' + str(nthreads)
     if topup_base != None:
         command += ' --topup='+topup_base
     if external_b0 != None:
