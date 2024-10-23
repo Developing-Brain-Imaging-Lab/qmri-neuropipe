@@ -33,6 +33,8 @@ def perform_eddy(dwi_image, working_dir, topup_base=None, method='eddy', gpu=Fal
     eddycorrected_img.filename = eddy_file
     eddycorrected_img.bvecs = eddy_bvec
 
+    os.system(f"mrconvert -nthreads {nthreads} -datatype int16 -force -quiet {dwi_image.filename} {dwi_image.filename}")
+
     if not eddycorrected_img.exists():
 
         #First, create Index and Acqparams based on DWI and JSON
@@ -72,14 +74,12 @@ def perform_eddy(dwi_image, working_dir, topup_base=None, method='eddy', gpu=Fal
             eddy_corr_img = eddycorr.eddy_fsl(input_dwi                      = dwi_image,
                                                   output_base                = output_base,
                                                   topup_base                 = topup_base,
-                                                  repol                      = repol,
-                                                  data_shelled               = data_shelled,
                                                   cuda                       = gpu,
                                                   cuda_device                = cuda_device,
-                                                  estimate_move_by_suscept   = estimate_move_by_suscept,
                                                   fsl_eddy_options           = fsl_eddy_options,
-                                                  mporder                    = mporder,
-                                                  nthreads                   = nthreads)
+                                                  nthreads                   = nthreads,
+                                                  debug                      = verbose)
+            
                                                   
             print('Running EDDY-CORRECT')
             eddycorrected_img = eddycorr.eddy_correct_fsl(input_dwi   = eddy_corr_img,
