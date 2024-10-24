@@ -42,7 +42,7 @@ def apply_transform(input, ref, out, transform, noresample=False, nthreads=1, me
         if noresample:
             os.system("mrtransform " + mrtrix_img \
                       + " -linear " + transform \
-                      + " " + warped_img + " " + " -force " + " -strides " +  ref.filename)
+                      + " " + warped_img + " " + " -reorient_fod no -force " + " -strides " +  ref.filename)
 
             os.system("mrconvert -force -quiet " + warped_img + " " + out.filename + " -export_grad_fsl " + out.bvecs + " " + out.bvals + " -nthreads " + str(nthreads) + " " + " -force ")
 

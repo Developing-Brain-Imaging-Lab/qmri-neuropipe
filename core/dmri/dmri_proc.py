@@ -633,11 +633,11 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Creating gradient deviation tensor map')
 
-                grad_nonlin_prep.grad_dev_tensor(input                  = dwi_img,
-                                                 gw_coils               = args.gw_coils_dat,
-                                                 coregister_dwi_to_anat = args.coregister_dwi_to_anat,
-                                                 gpu                    = args.gpu,
-                                                 working_dir            = dmri_preproc_dir)
+                grad_non_lin_prep.grad_dev_tensor(dwi_img                = dwi_img,
+                                                  gw_coils               = args.gw_coils_dat,
+                                                  coregister_dwi_to_anat = args.coregister_dwi_to_anat,
+                                                  gpu                    = args.gpu,
+                                                  working_dir            = dmri_preproc_dir)
 
 
         if args.cleanup:
