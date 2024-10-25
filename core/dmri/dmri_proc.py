@@ -308,6 +308,16 @@ class DiffusionProcessingPipeline:
                             help='Fitting Algorithm for Diffusion Kurtosis Imaging Model',
                             choices=['dipy-OLS', 'dipy-WLS'],
                             default=None)
+        
+        parser.add_argument('--dki_smooth_input',
+                            type=bool,
+                            help='Smooth input DWI data prior to DKI fitting',
+                            default=True)
+    
+        parser.add_argument('--dki_smooth_fwhm',
+                            type=float,
+                            help='FWHM to smooth input DWI data prior to DKI fitting',
+                            default=2.0)
 
         parser.add_argument('--csd_response_func_algo',
                             type=str,
@@ -756,11 +766,13 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting Diffusion Kurtosis Model')
 
-                dki_model = DKI_Model(dwi_img   = dmri_preproc,
-                                      sub_info  = subject_entities,
-                                      out_dir   = dmri_models_dir,
-                                      fit_type  = args.dki_fit_method,
-                                      mask      = dmri_mask)
+                dki_model = DKI_Model(dwi_img     = dmri_preproc,
+                                      sub_info    = subject_entities,
+                                      out_dir     = dmri_models_dir,
+                                      fit_type    = args.dki_fit_method,
+                                      mask        = dmri_mask,
+                                      smooth_data = args.dki_smooth_input,
+                                      fwhm        = args.dki_smooth_fwhm)
                 dki_model.fit()
 
 

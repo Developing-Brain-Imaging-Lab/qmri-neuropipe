@@ -11,7 +11,7 @@ import scipy.ndimage.filters as filters
 from bids.layout import writing
 
 class DKI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, include_micro_fit=False, fwhm=2, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, include_micro_fit=False, smooth_data=True, fwhm=2, nthreads=1):
         self._inputs = {}
         self._outputs = {}
 
@@ -20,6 +20,7 @@ class DKI_Model():
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
         self._inputs['micro']       = include_micro_fit
+        self._inputs['smooth_data'] = smooth_data
         self._inputs['fwhm']        = fwhm  
         self._inputs['nthreads']    = nthreads
              
@@ -73,19 +74,23 @@ class DKI_Model():
         ii = np.where(values == bvals.min())[0]
         b0_average = np.mean(data[:,:,:,ii], axis=3)
 
+        data_to_fit = data
+
         #Recommended to smooth data prior to fitting:
-        gauss_std = self._inputs['fwhm'] / np.sqrt(8 * np.log(2))  # converting fwhm to Gaussian std
-        data_smooth = np.zeros(data.shape)
-        for v in range(data.shape[-1]):
-            data_smooth[..., v] = filters.gaussian_filter(data[..., v], sigma=gauss_std)
+        if self._inputs['smooth_data']:
+            gauss_std = self._inputs['fwhm'] / np.sqrt(8 * np.log(2))  # converting fwhm to Gaussian std
+            data_to_fit = np.zeros(data.shape)
+            for v in range(data.shape[-1]):
+                data_to_fit[..., v] = filters.gaussian_filter(data[..., v], sigma=gauss_std)
+
 
         fit_type = self._inputs['fit_type'].split('-')[1]
         dkimodel = dki.DiffusionKurtosisModel(gtab, fit_type)
 
         if self._inputs['mask'] != None:
-            dkifit = dkimodel.fit(data_smooth, mask_data)
+            dkifit = dkimodel.fit(data_to_fit, mask_data)
         else:
-            dkifit = dkimodel.fit(data_smooth)
+            dkifit = dkimodel.fit(data_to_fit)
 
         save_nifti(self._outputs['fa'], dkifit.fa.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['md'], dkifit.md.astype(np.float32), img.affine, img.header)
@@ -123,7 +128,7 @@ class DKI_Model():
             well_aligned_mask[np.isnan(cs)] = False
 
             dki_micro_model = dki_micro.KurtosisMicrostructureModel(gtab, fit_type)
-            dki_micro_fit = dki_micro_model.fit(data_smooth, mask=well_aligned_mask)
+            dki_micro_fit = dki_micro_model.fit(data_to_fit, mask=well_aligned_mask)
 
             save_nifti(self._outputs['awf'], dki_micro_fit.awf.astype(np.float32), img.affine, img.header)
             save_nifti(self._outputs['tort'], dki_micro_fit.tortuosity.astype(np.float32), img.affine, img.header)
