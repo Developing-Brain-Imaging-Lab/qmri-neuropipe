@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-import os,sys, shutil, time, argparse, json
+import os, shutil, argparse
 
-from core.utils.io import Image, DWImage
+from core.utils.io import DWImage
 import core.dicom.dicom_data as rawdata
 import core.dmri.utils.qc as dmri_qc
 
@@ -45,21 +45,21 @@ bids_rawdata_dir  = os.path.join(args.bids_dir, args.bids_rawdata_dir, bids_sub_
 ##################################
 ##################################
 
-bids_dwi_dir    = bids_rawdata_dir + 'dwi/'
+bids_dwi_dir    = os.path.join(bids_rawdata_dir, 'dwi',)
 
 if not os.path.exists(bids_dwi_dir):
     os.makedirs(bids_dwi_dir)
 
 if args.dwi_pepolar1_dcm_dir != None:
-    bids_dwi        = bids_dwi_dir + bids_id + '_desc-pepolar-0_dwi.nii.gz'
-    bids_dwi_json   = bids_dwi_dir + bids_id + '_desc-pepolar-0_dwi.json'
-    bids_dwi_bvals  = bids_dwi_dir + bids_id + '_desc-pepolar-0_dwi.bval'
-    bids_dwi_bvecs  = bids_dwi_dir + bids_id + '_desc-pepolar-0_dwi.bvec'
+    bids_dwi        = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-0_dwi.nii.gz')
+    bids_dwi_json   = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-0_dwi.json')
+    bids_dwi_bvals  = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-0_dwi.bval')
+    bids_dwi_bvecs  = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-0_dwi.bvec')
 else:
-    bids_dwi        = bids_dwi_dir + bids_id + '_dwi.nii.gz'
-    bids_dwi_json   = bids_dwi_dir + bids_id + '_dwi.json'
-    bids_dwi_bvals  = bids_dwi_dir + bids_id + '_dwi.bval'
-    bids_dwi_bvecs  = bids_dwi_dir + bids_id + '_dwi.bvec'
+    bids_dwi        = os.path.join(bids_dwi_dir, bids_id + '_dwi.nii.gz')
+    bids_dwi_json   = os.path.join(bids_dwi_dir, bids_id + '_dwi.json')
+    bids_dwi_bvals  = os.path.join(bids_dwi_dir, bids_id + '_dwi.bval')
+    bids_dwi_bvecs  = os.path.join(bids_dwi_dir, bids_id + '_dwi.bvec')
 
 print('Converting DWI Images...')
 rawdata.dicom_to_nifti(dcm_dir     = args.dwi_dcm_dir,
@@ -75,14 +75,15 @@ dmri_qc.check_bvals_bvecs(DWImage(filename=bids_dwi, bvals=bids_dwi_bvals, bvecs
 
 ###CONVERT THE REVERSE PHASE ENCODE DATA ###
 if args.dwi_pepolar1_dcm_dir != None:
-    bids_dwi        = bids_dwi_dir + bids_id + '_desc-pepolar-1_dwi.nii.gz'
-    bids_dwi_json   = bids_dwi_dir + bids_id + '_desc-pepolar-1_dwi.json'
-    bids_dwi_bvals  = bids_dwi_dir + bids_id + '_desc-pepolar-1_dwi.bval'
-    bids_dwi_bvecs  = bids_dwi_dir + bids_id + '_desc-pepolar-1_dwi.bvec'
+    bids_dwi        = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-1_dwi.nii.gz')
+    bids_dwi_json   = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-1_dwi.json')
+    bids_dwi_bvals  = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-1_dwi.bval')
+    bids_dwi_bvecs  = os.path.join(bids_dwi_dir, bids_id + '_desc-pepolar-1_dwi.bvec')
 
     print('Converting Reversed-Phase Encode DWI Images...')
-    rawdata.dicom_to_nifti_dcm2niix(dcm_dir     = args.dwi_pepolar1_dcm_dir,
-                                    output_img  = bids_dwi)
+    rawdata.dicom_to_nifti(dcm_dir     = args.dwi_pepolar1_dcm_dir,
+                           method      = args.nifti_convert_method,
+                           output_img  = bids_dwi)
 
     if args.dwi_pepolar1_bvals != None:
         shutil.copy2(args.dwi_pepolar1_bvals, bids_dwi_bvals)
@@ -96,13 +97,13 @@ if args.dwi_pepolar1_dcm_dir != None:
 ###CONVERT FMAP DATA IF AVAILABLE
 if args.dwi_fieldmap_dcm_dir != None:
 
-    bids_fmap_dir    = bids_rawdata_dir + 'fmap-dwi/'
+    bids_fmap_dir    = os.path.join(bids_rawdata_dir,'fmap-dwi',)
 
     if not os.path.exists(bids_fmap_dir):
         os.makedirs(bids_fmap_dir)
 
-    bids_fmap       = bids_fmap_dir + bids_id + '_fieldmap.nii.gz'
-    bids_fmap_ref   = bids_fmap_dir + bids_id + '_magnitude.nii.gz'
+    bids_fmap       = os.path.join(bids_fmap_dir, bids_id + '_fieldmap.nii.gz')
+    bids_fmap_ref   = os.path.join(bids_fmap_dir, bids_id + '_magnitude.nii.gz')
 
     print('Converting DWI Fieldmap Images...')
     rawdata.dicom_to_nifti_dcm2niix(dcm_dir     = args.dwi_fieldmap_dcm_dir,
