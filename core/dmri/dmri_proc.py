@@ -317,7 +317,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--dki_smooth_fwhm',
                             type=float,
                             help='FWHM to smooth input DWI data prior to DKI fitting',
-                            default=2.0)
+                            default=1.25)
 
         parser.add_argument('--csd_response_func_algo',
                             type=str,

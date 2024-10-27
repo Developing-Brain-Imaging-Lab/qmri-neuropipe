@@ -9,6 +9,7 @@ parser = argparse.ArgumentParser(description='Convert DIFFUSION DICOM Data to NI
 parser.add_argument('--subject', type=str, help='Subject ID')
 parser.add_argument('--session', type=str, help='Subject Timepoint', default=None)
 parser.add_argument('--bids_dir', type=str, help='BIDS Directory')
+parser.add_argument('--bids_rawdata_dir', type=str, default="", help='BIDS Directory')
 parser.add_argument('--nthreads', type=int, help='Number of Threads', default=1)
 parser.add_argument('--nifti_convert_method', type=str, help='Method to use for NIFTI conversion', default="dcm2niix", choices=["dcm2niix", "dcm2nii", "mrtrix", "mri-convert"])
 
@@ -29,13 +30,13 @@ bids_id=""
 bids_sub_dir=""
 
 if args.session:
-	bids_id                = 'sub-' + args.subject + '_ses-' + args.session.zfill(2)
-	bids_sub_dir           = 'sub-' + args.subject + '/ses-' + args.session.zfill(2)
+	bids_id       = os.path.join(f"sub-{args.subject}_ses-{args.session.zfill(2)}")
+	bids_sub_dir  = os.path.join(f"sub-{args.subject}", f"ses-{args.session.zfill(2)}")
 else:
-	bids_id                = 'sub-' + args.subject
-	bids_sub_dir           = 'sub-' + args.subject
+	bids_id       = f"sub-{args.subject}"
+	bids_sub_dir  = f"sub-{args.subject}"
 
-bids_rawdata_dir       = args.bids_dir + '/rawdata/' + bids_sub_dir + '/'
+bids_rawdata_dir  = os.path.join(args.bids_dir, args.bids_rawdata_dir, bids_sub_dir)
 
 
 ##################################
