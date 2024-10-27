@@ -52,7 +52,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
 
     if mask_img == None:
         mask_img = Image(filename = os.path.join(output_dir, "mask.nii.gz"))
-        mask.mask_image(input_dwi, mask_img, algo='hd-bet', nthreads=nthreads, gpu=cuda, debug=debug)
+        mask.mask_image(input_dwi, mask_img, algo='bet', nthreads=nthreads, gpu=cuda, debug=debug)
 
     exe = ''
     if cuda:
