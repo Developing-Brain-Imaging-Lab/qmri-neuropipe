@@ -5,3 +5,4 @@ core/*/*cache*
 testing/
 
 *.py[co]
+*DS_Store*

@@ -61,7 +61,7 @@ class DESPOTProcessingPipeline:
                             type=str, help='BIDS RAWDATA Directory',
                             default='rawdata')
 
-        parser.add_argument('--load_json',
+        parser.add_argument('--proc_json',
                             type=str, help='Load settings from file in json format. Command line options are overriden by values in file.',
                             default=None)
 
@@ -92,7 +92,7 @@ class DESPOTProcessingPipeline:
                             help='CUDA GPU Available',
                             default=False)
 
-        parser.add_argument('--despot_cleanup',
+        parser.add_argument('--cleanup',
                             type=bool,
                             help='Clean up the Preprocessing Subdirectories',
                             default=False)
@@ -102,46 +102,46 @@ class DESPOTProcessingPipeline:
                             help='Hybrid combination of High-res and Low-res DESPOT data',
                             default=False)
 
-        parser.add_argument('--despot_mask_method',
+        parser.add_argument('--mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
                             choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet', 'mri_synthstrip'],
                             default='bet')
 
-        parser.add_argument('--despot_ants_mask_template',
+        parser.add_argument('--ants_mask_template',
                             type=str,
                             help='Image to use for registration based skull-stripping',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm.nii.gz')
 
-        parser.add_argument('--despot_ants_mask_template_mask',
+        parser.add_argument('--ants_mask_template_mask',
                             type=str,
                             help='Brain mask to use for registration based skull-stripping',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_1mm_brain_mask.nii.gz')
 
-        parser.add_argument('--despot_antspynet_modality',
+        parser.add_argument('--antspynet_modality',
                             type=str,
                             help='ANTsPyNet modality/network name',
                             default='t1')
 
-        parser.add_argument('--despot_denoise_method',
+        parser.add_argument('--denoise_method',
                             type=str,
                             help='Method for Denoising DESPOT Data',
                             choices=['mrtrix', 'dipy-nlmeans', 'dipy-localpca', 'dipy-mppca'],
                             default='mrtrix')
 
-        parser.add_argument('--despot_gibbs_correction_method',
+        parser.add_argument('--gibbs_correction_method',
                             type=str,
                             help='Method for Gibbs Ringing Correction',
                             choices=['mrtrix', 'dipy'],
                             default='mrtrix')
 
-        parser.add_argument('--despot_biasfield_correction_method',
+        parser.add_argument('--biasfield_correction_method',
                             type=str,
                             help='Method for Biasfield correction',
                             choices=['ants', 'fsl', 'N4'],
                             default='ants')
 
-        parser.add_argument('--despot_coregistration_method',
+        parser.add_argument('--coregistration_method',
                             type=str,
                             help='Method for Coregistration of DESPOT Images',
                             choices=['ants', 'fsl'],
@@ -171,8 +171,13 @@ class DESPOTProcessingPipeline:
                             type = str,
                             help = 'Linear Registration for DESPOT to Anat',
                             default = 'ants')
+        
+        parser.add_argument('--noresample_to_anat',
+                            type = bool,
+                            help = 'Apply Only to Header Linear xform Diffusion MRI to Structural MRI',
+                            default = False)
 
-        parser.add_argument('--despot_b1_method',
+        parser.add_argument('--b1_method',
                             type=str,
                             help='B1 Field Inhomogeneity Correction Method',
                             choices=['afi', 'hifi'],
@@ -207,22 +212,22 @@ class DESPOTProcessingPipeline:
                             choices=[3, 2],
                             default=3)
 
-        parser.add_argument('--despot_register_to_template',
+        parser.add_argument('--register_to_template',
                             type=bool,
                             help='Normalize DESPOT data to template space',
                             default=False)
 
-        parser.add_argument('--despot_registration_template',
+        parser.add_argument('--registration_template',
                             type=str,
                             help='Template to Normalize DESPOT Data',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_2mm_brain.nii.gz')
 
-        parser.add_argument('--despot_registration_template_mask',
+        parser.add_argument('--registration_template_mask',
                             type=str,
                             help='Mask of template to Normalize DESPOT Data',
                             default=os.environ['FSLDIR']+'/data/standard/MNI152_T1_2mm_brain_mask.nii.gz')
 
-        parser.add_argument('--despot_registration_method',
+        parser.add_argument('--registration_method',
                             type=str,
                             help='Method for Normalizing DESPOT Data to template',
                             default='ANTS')
@@ -233,12 +238,14 @@ class DESPOTProcessingPipeline:
                             default=False)
 
         args, unknown = parser.parse_known_args()
-
-        if args.load_json:
-            with open(args.load_json, 'rt') as f:
+        
+        if args.proc_json:
+            with open(args.proc_json, 'rt') as f:
                 t_args = argparse.Namespace()
                 t_dict = vars(t_args)
-                t_dict.update(json.load(f))
+                test_json = json.load(f)
+                t_dict.update(test_json)
+                t_dict.update(test_json["despot"])
                 args, unknown = parser.parse_known_args(namespace=t_args)
 
 
@@ -252,20 +259,18 @@ class DESPOTProcessingPipeline:
 
         id_patterns          = "sub-{subject}[_ses-{session}]"
         rawdata_patterns     = os.path.join(args.bids_dir, args.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",)
-        derivative_patterns  = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir),
         output_patterns      = os.path.join(args.bids_dir, "derivatives", args.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",)
         
         id              = writing.build_path(entities, id_patterns)
         rawdata_dir     = writing.build_path(entities, rawdata_patterns)
-        derivative_dir  = writing.build_path(entities, derivative_patterns)
         output_dir      = writing.build_path(entities, output_patterns)
         
         anat_preproc_dir = os.path.join(output_dir, "anat",)
         fmap_preproc_dir = os.path.join(output_dir, "fmap",)
 
 
-        if not os.path.exists(derivative_dir):
-            os.makedirs(derivative_dir)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         
         if not os.path.exists(anat_preproc_dir):
             os.makedirs(anat_preproc_dir)
@@ -288,7 +293,7 @@ class DESPOTProcessingPipeline:
         
         irspgr = None
         irspgr_preproc = None
-        if args.despot_b1_method.lower() == 'hifi':
+        if args.b1_method.lower() == 'hifi':
             irspgr = Image(filename = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.nii.gz'),
                            json     = os.path.join(rawdata_dir, 'anat',id+'_desc-HIFI_T1w.json'))
             
@@ -298,7 +303,7 @@ class DESPOTProcessingPipeline:
         afi = None
         afi_preproc = None
         afi_b1map = None
-        if args.despot_b1_method.lower() == 'afi':
+        if args.b1_method.lower() == 'afi':
             afi = Image(filename = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.nii.gz'),
                         json     = os.path.join(rawdata_dir, 'fmap',id+'_TB1AFI.json'))
             
@@ -327,7 +332,7 @@ class DESPOTProcessingPipeline:
                               ref           = spgr_target,
                               out           = spgr_resampled,
                               dof           = 6,
-                              method        = args.despot_coregistration_method,
+                              method        = args.coregistration_method,
                               nthreads      = args.nthreads,
                               flirt_options = args.flirt_opts, 
                               debug         = args.verbose)
@@ -361,7 +366,7 @@ class DESPOTProcessingPipeline:
                               ref           = ssfp_target,
                               out           = ssfp_resampled,
                               dof           = 6,
-                              method        = args.despot_coregistration_method,
+                              method        = args.coregistration_method,
                               flirt_options = args.flirt_opts,
                               nthreads      = args.nthreads, 
                               debug         = args.verbose)
@@ -391,7 +396,7 @@ class DESPOTProcessingPipeline:
 
         
         ##ADD IN OPTIONS FOR DENOISING AND GIBBS RINGING CORRECTION
-        if args.despot_denoise_method:
+        if args.denoise_method:
 
             if not spgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
                 if args.verbose:
@@ -399,7 +404,7 @@ class DESPOTProcessingPipeline:
 
                 spgr = denoise.denoise_image(input_img    = spgr,
                                              output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
-                                             method        = args.despot_denoise_method, 
+                                             method        = args.denoise_method, 
                                              noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
                                              nthreads      = args.nthreads, 
                                              debug         = args.verbose)
@@ -412,28 +417,28 @@ class DESPOTProcessingPipeline:
                     print("Denoising SSFP Image")
                 ssfp = denoise.denoise_image(input_img    = ssfp,
                                              output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
-                                             method        = args.despot_denoise_method, 
+                                             method        = args.denoise_method, 
                                              noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
                                              nthreads      = args.nthreads, 
                                              debug         = args.verbose)
             else:
                 ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz")
 
-            if args.despot_b1_method.lower() == 'hifi':
+            if args.b1_method.lower() == 'hifi':
                 if not irspgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
                     if args.verbose:
                         print("Denoising IR-SPGR Image")
 
                     irspgr = denoise.denoise_image(input_img     = irspgr,
                                                    output_file   = os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz"),
-                                                   method        = args.despot_denoise_method, 
+                                                   method        = args.denoise_method, 
                                                    noise_map     = os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz"), 
                                                    nthreads      = args.nthreads, 
                                                    debug         = args.verbose)
                 else:
                     irspgr.filename = os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")
                 
-        if args.despot_gibbs_correction_method:
+        if args.gibbs_correction_method:
 
             if not spgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz")):
                 if args.verbose:
@@ -441,7 +446,7 @@ class DESPOTProcessingPipeline:
 
                 spgr = gibbs_ringing_correction(input_img   = spgr,
                                                 output_file = os.path.join(anat_preproc_dir, id+"_desc-SPGR-GibbsRinging_VFA.nii.gz"),
-                                                method      = args.despot_gibbs_correction_method, 
+                                                method      = args.gibbs_correction_method, 
                                                 nthreads    = args.nthreads, 
                                                 debug       = args.verbose)
             else:
@@ -453,20 +458,20 @@ class DESPOTProcessingPipeline:
 
                 ssfp = gibbs_ringing_correction(input_img   = ssfp,
                                                 output_file = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz"),
-                                                method      = args.despot_gibbs_correction_method, 
+                                                method      = args.gibbs_correction_method, 
                                                 nthreads    = args.nthreads, 
                                                 debug       = args.verbose)
             else:
                 ssfp.filename = os.path.join(anat_preproc_dir, id+"_desc-SSFP-GibbsRinging_VFA.nii.gz")
 
-            if args.despot_b1_method.lower() == 'hifi':
+            if args.b1_method.lower() == 'hifi':
                 if not irspgr_preproc.exists() and not os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
                     if args.verbose:
                         print("Correcting Gibbs Ringing in IR-SPGR Image")
 
                     irspgr = gibbs_ringing_correction(input_img   = irspgr,
                                                       output_file = os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz"),
-                                                      method      = args.despot_gibbs_correction_method, 
+                                                      method      = args.gibbs_correction_method, 
                                                       nthreads    = args.nthreads, 
                                                       debug       = args.verbose)
                 else:
@@ -496,7 +501,7 @@ class DESPOTProcessingPipeline:
                                   ref           = target_img,
                                   out           = spgr_preproc,
                                   dof           = 6,
-                                  method        = args.despot_coregistration_method,
+                                  method        = args.coregistration_method,
                                   flirt_options = args.flirt_opts,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
@@ -512,13 +517,13 @@ class DESPOTProcessingPipeline:
                                   ref           = target_img,
                                   out           = ssfp_preproc,
                                   dof           = 6,
-                                  method        = args.despot_coregistration_method,
+                                  method        = args.coregistration_method,
                                   flirt_options = args.flirt_opts,
                                   nthreads      = args.nthreads, 
                                   debug         = args.verbose)
                 shutil.copy2(ssfp.json, ssfp_preproc.json)
 
-        if args.despot_b1_method.lower() == 'hifi':
+        if args.b1_method.lower() == 'hifi':
             if not irspgr_preproc.exists():
                 if args.verbose:
                     print('Coregistering IR-SPGR images...')
@@ -528,13 +533,13 @@ class DESPOTProcessingPipeline:
                                       ref           = target_img,
                                       out           = irspgr_preproc,
                                       dof           = 6,
-                                      method        = args.despot_coregistration_method,
+                                      method        = args.coregistration_method,
                                       flirt_options = args.flirt_opts,
                                       nthreads      = args.nthreads, 
                                       debug         = args.verbose)
                     shutil.copy2(irspgr.json, irspgr_preproc.json)
         
-        elif args.despot_b1_method.lower() == 'afi':
+        elif args.b1_method.lower() == 'afi':
             if not afi_preproc.exists():
                 if args.verbose:
                     print('Coregistering AFI data')
@@ -564,10 +569,10 @@ class DESPOTProcessingPipeline:
 
             mask.mask_image(input               = target_img,
                             mask                = brain_mask,
-                            algo                = args.despot_mask_method,
-                            ref_img             = args.despot_ants_mask_template,
-                            ref_mask            = args.despot_ants_mask_template_mask,
-                            antspynet_modality  = args.despot_antspynet_modality,
+                            algo                = args.mask_method,
+                            ref_img             = args.ants_mask_template,
+                            ref_mask            = args.ants_mask_template_mask,
+                            antspynet_modality  = args.antspynet_modality,
                             nthreads            = args.nthreads)
 
         fitparam_json = os.path.join(anat_preproc_dir, id+'_desc-FittingParameters.json')
@@ -577,7 +582,7 @@ class DESPOTProcessingPipeline:
                                 ssfp_img    = ssfp_preproc,
                                 irspgr_img  = irspgr_preproc)
             
-        if args.despot_cleanup:
+        if args.cleanup:
             #Remove all but preproc files
             if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz")):
                 os.remove(os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"))
@@ -594,7 +599,7 @@ class DESPOTProcessingPipeline:
             if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz")):
                 os.remove(os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"))
 
-            if args.despot_b1_method.lower() == 'hifi':
+            if args.b1_method.lower() == 'hifi':
                 if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz")):
                     os.remove(os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz"))
                 if os.path.exists(os.path.join(anat_preproc_dir, id+"_desc-HIFI-GibbsRinging_T1w.nii.gz")):
@@ -615,7 +620,7 @@ class DESPOTProcessingPipeline:
         if args.despot1_fit_method != None:
             despot1_base_pattern = None
             despot1_model        = None
-            if args.despot_b1_method.lower() == 'hifi':
+            if args.b1_method.lower() == 'hifi':
                 despot1_base_pattern = "sub-{subject}[_ses-{session}]_model-DESPOT1-HIFI_param-"
                 despot1_model = "HIFI"
             else:
@@ -641,7 +646,7 @@ class DESPOTProcessingPipeline:
 
                 model.fit()
 
-                if args.despot_b1_method.lower() == 'hifi':
+                if args.b1_method.lower() == 'hifi':
                     if args.verbose:
                         print('Smoothing B1')
 
