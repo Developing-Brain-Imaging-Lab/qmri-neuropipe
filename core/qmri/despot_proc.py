@@ -81,6 +81,10 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--models_derivative_dir',
                             type=str, help='BIDS PIPELINE Name',
                             default='despot-neuropipe-models')
+        
+        parser.add_argument('--standard_derivative_dir',
+                            type=str, help='BIDS PIPELINE Name',
+                            default='despot-standard')
 
         parser.add_argument('--nthreads',
                             type=int,
@@ -180,7 +184,7 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--b1_method',
                             type=str,
                             help='B1 Field Inhomogeneity Correction Method',
-                            choices=['afi', 'hifi'],
+                            choices=['afi', 'hifi', 'none'],
                             default='afi')
 
         parser.add_argument('--despot1_fit_method',
@@ -712,7 +716,7 @@ class DESPOTProcessingPipeline:
                 else:
                     mcdespot_model.fit()
 
-        # if args.despot_register_to_template == True:
+        # if args.register_to_template == True:
         #     import core.registration.registration as reg_tools
 
         #     registration_dir      = bids_derivative_dir + '/despot/registration/'
