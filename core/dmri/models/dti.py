@@ -155,7 +155,7 @@ class DTI_Model():
 
             grad_nonlin_data = None
             if self._inputs['grad_nonlin'] != None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata()
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata().reshape(-1, data.shape[-1])
 
             #Loop over all voxels
             img_shape = data.shape[:-1]
@@ -175,6 +175,40 @@ class DTI_Model():
             dti_planarity   = np.zeros(img_shape)
             dti_sphericity  = np.zeros(img_shape)
 
+
+            flat_data   = data.reshape(-1, data.shape[-1])
+            flat_params = np.empty((flat_data.shape[0], 12))
+            flat_mask   = mask_data.reshape(-1)
+
+            gtab = gradient_table(bvals, bvecs, atol=0.1)
+
+            for vox in range(flat_data.shape[0]):
+                if flat_mask[vox] > 0:
+
+                    if self._inputs['grad_nonlin'] != None:
+                        grad_nonlin_vox = grad_nonlin_data[vox]
+                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
+                        gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+
+                    
+                    dti_model = None
+                    if self._inputs['fit_type'] == 'dipy-RESTORE':
+                        sigma = estimate_sigma(data)
+                        dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+                    else:
+                        dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
+
+                    dti_fit = dti_model.fit(flat_data[vox])
+
+                    flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
+                    flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32)
+
+                   
+
+
+
+
+            
             for i in range(img_shape[0]):
                 for j in range(img_shape[1]):
                     for k in range(img_shape[2]):
@@ -343,7 +377,6 @@ class DTI_Model():
                     reoriented.to_filename(self._outputs[key])
 
 
-
             #Correct FSL tensor for orientation
             dirs = []
             dirs.append(np.array([[1],[0],[0]]))
@@ -393,14 +426,12 @@ class DTI_Model():
 
             save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
 
-
             fsl_v2 = nib.load(self._outputs['v2'])
             corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
 
             save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
-
 
             fsl_v3 = nib.load(self._outputs['v3'])
             corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]

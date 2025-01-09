@@ -439,6 +439,7 @@ class DiffusionProcessingPipeline:
         
         fmap_image=None
         fmap_ref_image=None
+        gradnonlin_image=None
 
         topup_base=None
         
@@ -680,6 +681,10 @@ class DiffusionProcessingPipeline:
                                                   coregister_dwi_to_anat = args.coregister_dwi_to_anat,
                                                   gpu                    = args.gpu,
                                                   working_dir            = dmri_preproc_dir)
+                
+                gradnonlin_image = Image(filename = os.path.join(dmri_preproc_dir, id+'_desc-GradNonLinTensor_dwi.nii.gz'))
+                
+             
 
 
         if args.cleanup:
@@ -749,6 +754,7 @@ class DiffusionProcessingPipeline:
                                       out_dir       = dmri_models_dir,
                                       fit_type      = args.dti_fit_method,
                                       mask          = dmri_mask,
+                                      grad_nonlin   = gradnonlin_image,
                                       bmax          = args.dti_bmax,
                                       full_output   = args.dti_full_output)
                 dti_model.fit()
@@ -784,6 +790,7 @@ class DiffusionProcessingPipeline:
                                           out_dir               = dmri_models_dir,
                                           fit_type              = args.noddi_fit_method,
                                           mask                  = dmri_mask,
+                                          grad_nonlin           = gradnonlin_image,
                                           parallel_diffusivity  = args.noddi_dpar,
                                           iso_diffusivity       = args.noddi_diso,
                                           solver                = args.noddi_solver,

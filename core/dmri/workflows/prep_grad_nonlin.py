@@ -25,7 +25,7 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
     'subject': parsed_filename.get('subject'),
     'session': parsed_filename.get('session'),
     'suffix':  'dwi',
-    'desc': 'graddev_c'
+    'desc': 'GradNonLinTensor'
     }
     
     filename_patterns = os.path.join(working_dir, 'sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}')

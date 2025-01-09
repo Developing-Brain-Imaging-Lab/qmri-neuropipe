@@ -110,7 +110,7 @@ def register_to_anat(dwi_image,
                    debug                = verbose)
             
             convert_fsl2ants(mean_b0, T1nii, b0toT1flirtmtx, fsl2antsAffine)
-            os.systemI(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii.filename} flirt_import {b0toT1flirtmtx_mrtrixformat} -force -quiet")
+            os.system(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii.filename} flirt_import {b0toT1flirtmtx_mrtrixformat} -force -quiet")
 
             if noresample:
                 final_transform = b0toT1flirtmtx_mrtrixformat
