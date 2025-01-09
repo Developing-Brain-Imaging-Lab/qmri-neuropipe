@@ -18,7 +18,18 @@ from core.registration.create_composite_transform import create_composite_transf
 import core.segmentation.segmentation as seg_tools
 
 
-def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresample=False, mask_method='hd-bet', reg_method = 'linear', linreg_method='fsl', dof=6, anat_modality='t1w', freesurfer_subjs_dir=None, nthreads=1, verbose=False):
+def register_to_anat(dwi_image, 
+                     anat_image, 
+                     working_dir, 
+                     anat_mask=None, 
+                     noresample=False, 
+                     mask_method='hd-bet', 
+                     reg_method = 'linear', 
+                     linreg_method='fsl', 
+                     dof=6, anat_modality='t1w', 
+                     freesurfer_subjs_dir=None, 
+                     nthreads=1, 
+                     verbose=False):
 
     parsed_filename = parse_file_entities(dwi_image.filename)
 
@@ -30,8 +41,8 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
     'desc': 'CoregisteredToAnatomy'
     }
 
-    id_patterns          = 'sub-{subject}[_ses-{session}]'
-    id                   = writing.build_path(entities, id_patterns)
+    id_patterns = 'sub-{subject}[_ses-{session}]'
+    id          = writing.build_path(entities, id_patterns)
 
     working_dir = os.path.join(working_dir, "coregister-to-anatomy",)
 
@@ -68,6 +79,8 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
         mean_dwi_data   = np.mean(dwi_data[:,:,:,np.asarray(jj).flatten()], 3)
         save_nifti(mean_dwi.filename, mean_dwi_data, affine, dwi_img.header)
 
+        ref_img = []
+
         if linreg_method == "freesurfer-bbr":
             if verbose:
                 print('Coregistering DWI to Anatomy using FreeSurfer BBR')
@@ -79,23 +92,25 @@ def register_to_anat(dwi_image, anat_image, working_dir, anat_mask=None, noresam
             b0toT1flirtmtx = os.path.join(bbrdwi2T1_dir, 'b0toT1flirt.mtx')
             fsl2antsAffine = os.path.join(bbrdwi2T1_dir, 'b0toT1flirtmtx_fsl2antsAffine.txt')
             b0toT1flirtmtx_mrtrixformat = os.path.join(bbrdwi2T1_dir, 'b0toT1flirtmtx_mrtrixformat.txt')
-            nuT1 = os.path.join(freesurfer_subjs_dir, id, 'mri', 'orig_nu.mgz')
-            T1nii = os.path.join(bbrdwi2T1_dir, 'orig_nu.nii.gz')
+            
+            nuT1  = os.path.join(freesurfer_subjs_dir, id, 'mri', 'orig_nu.mgz')
+            T1nii = Image(filename=os.path.join(bbrdwi2T1_dir, 'orig_nu.nii.gz'))
+            ref_img.append(T1nii)
 
             # Convert T1 to NIfTI
-            mri_convert_cmd = f"mri_convert --in_type mgz --out_type nii {nuT1} {T1nii}"
+            mri_convert_cmd = f"mri_convert --in_type mgz --out_type nii {nuT1} {T1nii.filename}"
             os.system(mri_convert_cmd)
- 
+
             linreg(input                = mean_b0, 
-                   ref                  = T1nii,
+                   ref                  = ref_img,
                    out_mat              = b0toT1flirtmtx,
                    out                  = None,
                    method               = "bbr", 
                    freesurfer_subjs_dir = freesurfer_subjs_dir, 
                    debug                = verbose)
-
+            
             convert_fsl2ants(mean_b0, T1nii, b0toT1flirtmtx, fsl2antsAffine)
-            os.systemI(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii} flirt_import {b0toT1flirtmtx_mrtrixformat} -force -quiet")
+            os.systemI(f"transformconvert {b0toT1flirtmtx} {mean_b0.filename} {T1nii.filename} flirt_import {b0toT1flirtmtx_mrtrixformat} -force -quiet")
 
             if noresample:
                 final_transform = b0toT1flirtmtx_mrtrixformat

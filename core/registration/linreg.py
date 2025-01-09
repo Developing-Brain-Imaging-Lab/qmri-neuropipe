@@ -127,16 +127,16 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         ## run bbregister and output transform in fsl format
         b0toT1mat      = os.path.join(output_dir, "b0toT1.mat")
         b0toT1lta      = os.path.join(output_dir, "b0toT1.lta")
-        b0toT1flirtmtx = os.path.join(output_dir, "b0toT1flirt.mtx")
+        #b0toT1flirtmtx = os.path.join(output_dir, "b0toT1flirt.mtx")
         
         CMD = "bbregister --s " + subid + " --mov " + input.filename \
             + " --reg " + b0toT1mat \
             + ' --dti --init-fsl --lta ' + b0toT1lta \
-            + ' --fslmat ' + b0toT1flirtmtx \
+            + ' --fslmat ' + out_mat \
             + ' --tmp ' + freesurfer_tmp_dir
 
         subprocess.check_call([CMD], shell=True, stderr=subprocess.STDOUT)
-        convert_fsl2ants(input, ref, b0toT1flirtmtx, out_mat)
+        #convert_fsl2ants(input, ref, b0toT1flirtmtx, out_mat)
 
     else:
         print("Invalid Method!")

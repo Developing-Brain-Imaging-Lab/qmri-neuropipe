@@ -6,9 +6,7 @@ from core.utils.io import DWImage
 import core.utils.tools as img_tools
 
 import core.dmri.utils.qc as dmri_qc
-import core.dmri.utils.distortion_correction as distcorr
 import core.dmri.workflows.eddy_corr as eddy_proc
-import core.dmri.workflows.distort_corr as distort_proc
 from core.dmri.workflows.dmri_reorient import dmri_reorient
 
 def prep_rawdata(bids_dir, preproc_dir, 
@@ -20,18 +18,15 @@ def prep_rawdata(bids_dir, preproc_dir,
                  dwi_reorient_template=None, 
                  resample_resolution=None, 
                  remove_last_vol=False, 
-                 distortion_correction='None', 
-                 topup_config=None, 
                  outlier_detection=None, 
-                 t1w_img=None, 
                  nthreads=1,
-                 cmd_args=None, 
                  verbose=False):
 
     #Setup raw data paths
     layout      = BIDSLayout(bids_dir, validate=False)
     bids_id     = writing.build_path({'subject': id, 'session': session}, "sub-{subject}[_ses-{session}]")
     proc_dir    = os.path.join(preproc_dir, "rawdata/")
+    run_topup   = False
 
     if not os.path.exists(proc_dir):
         os.makedirs(proc_dir)
@@ -107,6 +102,8 @@ def prep_rawdata(bids_dir, preproc_dir,
                                                       output_base  = f"{proc_dir}/{bids_id}")
         run_topup  = True
 
+    
+
     #Ensure ISOTROPIC voxels prior to processing
     if verbose:
         print('Ensuring DWIs have isotropic voxels')
@@ -164,31 +161,7 @@ def prep_rawdata(bids_dir, preproc_dir,
                       out_dwi = dwi_img,
                       ref_img = dwi_reorient_template)
 
-    if run_topup or distortion_correction == 'Synb0-Disco':
-        topup_base = os.path.join(proc_dir, "topup", bids_id+"_desc-Topup")
+  
         
-        if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
     
-            #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
-            #here and not for subsequent processing
-            eddy_img = eddy_proc.perform_eddy(dwi_image   = dwi_img,
-                                              working_dir = os.path.join(proc_dir, 'tmp-eddy-correction/'),
-                                              method='eddy_correct')
-            if run_topup:
-                distort_proc.perform_topup(dwi_image    = eddy_img,
-                                           topup_base   = topup_base,
-                                           topup_config = topup_config,
-                                           dist_corr    = 'Topup',
-                                           verbose=verbose)
-
-
-            if distortion_correction == 'Synb0-Disco':
-                #Run the Synb0 distortion correction'
-                distcorr.run_synb0_disco(dwi_img        = eddy_img,
-                                         t1w_img        = t1w_img,
-                                         topup_base     = topup_base,
-                                         topup_config   = topup_config,
-                                         nthreads       = nthreads)
-    
-    
-    return dwi_img, topup_base
+    return dwi_img

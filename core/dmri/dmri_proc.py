@@ -9,6 +9,7 @@ import core.utils.workflows.denoise_degibbs as img_proc
 
 import core.dmri.workflows.eddy_corr as eddy_proc
 import core.dmri.workflows.distort_corr as distort_proc
+import core.dmri.utils.distortion_correction as distcorr
 import core.dmri.workflows.register_to_anat as coreg_proc
 import core.dmri.workflows.prep_grad_nonlin as grad_non_lin_prep
 
@@ -438,6 +439,8 @@ class DiffusionProcessingPipeline:
         
         fmap_image=None
         fmap_ref_image=None
+
+        topup_base=None
         
         #Setup anatomical imaging data if its neded first
         #
@@ -528,23 +531,52 @@ class DiffusionProcessingPipeline:
         if not dmri_preproc.exists():
 
             #Setup the raw data and perform some basic checks on the data and associated files
-            dwi_img, topup_base =  dmri_rawprep.prep_rawdata(bids_dir               = args.bids_dir, 
-                                                             preproc_dir            = dmri_preproc_dir,
-                                                             id                     = args.subject,
-                                                             session                = args.session, 
-                                                             bids_filter            = args.proc_json,
-                                                             check_gradients        = args.check_gradients, 
-                                                             reorient_dwi           = args.reorient,     
-                                                             dwi_reorient_template  = Image(filename=args.reorient_template), 
-                                                             resample_resolution    = args.resample_resolution, 
-                                                             remove_last_vol        = args.remove_last_vol,
-                                                             distortion_correction  = args.dist_correction, 
-                                                             topup_config           = args.topup_config,
-                                                             outlier_detection      = args.outlier_detection, 
-                                                             t1w_img                = anat_img,       
-                                                             nthreads               = args.nthreads,
-                                                             cmd_args               = args, 
-                                                             verbose                = args.verbose) 
+            dwi_img =  dmri_rawprep.prep_rawdata(bids_dir               = args.bids_dir, 
+                                                 preproc_dir            = dmri_preproc_dir,
+                                                 id                     = args.subject,
+                                                 session                = args.session, 
+                                                 bids_filter            = args.proc_json,
+                                                 check_gradients        = args.check_gradients, 
+                                                 reorient_dwi           = args.reorient,     
+                                                 dwi_reorient_template  = Image(filename=args.reorient_template), 
+                                                 resample_resolution    = args.resample_resolution, 
+                                                 remove_last_vol        = args.remove_last_vol,
+                                                 outlier_detection      = args.outlier_detection, 
+                                                 nthreads               = args.nthreads,
+                                                 verbose                = args.verbose) 
+            
+            #Calculate Topup/SynB0-DISCO field maps
+            if args.dist_correction.lower()[0:4] == 'topup' or args.dist_correction.lower() == 'synb0-disco':
+                topup_base = os.path.join(dmri_preproc_dir, "rawdata", "topup", id+"_desc-Topup")
+            
+                if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
+                    #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
+                    #here and not for subsequent processing
+                    eddy_img = eddy_proc.perform_eddy(dwi_image         = dwi_img,
+                                                      working_dir       = os.path.join(dmri_preproc_dir, "rawdata", "tmp-eddy-correction/"),
+                                                      method            ='eddy',
+                                                      gpu               = args.gpu,
+                                                      cuda_device       = args.cuda_device,
+                                                      nthreads          = args.nthreads,
+                                                      fsl_eddy_options  = " --data_is_shelled",
+                                                      verbose           = args.verbose) 
+                                                      
+                    if args.dist_correction.lower()[0:4] == 'topup' :
+                        distort_proc.perform_topup(dwi_image    = eddy_img,
+                                                   topup_base   = topup_base,
+                                                   topup_config = args.topup_config,
+                                                   dist_corr    = 'Topup',
+                                                   verbose      = args.verbose)
+
+                    if args.dist_correction.lower() == 'synb0-disco':
+                        #Run the Synb0 distortion correction'
+                        distcorr.run_synb0_disco(dwi_img        = eddy_img,
+                                                 t1w_img        = anat_img,
+                                                 topup_base     = topup_base,
+                                                 topup_config   = args.topup_config,
+                                                 nthreads       = args.nthreads)
+                
+
 
             if args.denoise_degibbs:
                 dwi_img = img_proc.denoise_degibbs(input_img       = dwi_img,
