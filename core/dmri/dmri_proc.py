@@ -561,7 +561,7 @@ class DiffusionProcessingPipeline:
                                                       fsl_eddy_options  = " --data_is_shelled",
                                                       verbose           = args.verbose) 
                                                       
-                    if args.dist_correction.lower()[0:4] == 'topup' :
+                    if args.dist_correction.lower()[0:5] == 'topup' :
                         distort_proc.perform_topup(dwi_image    = eddy_img,
                                                    topup_base   = topup_base,
                                                    topup_config = args.topup_config,

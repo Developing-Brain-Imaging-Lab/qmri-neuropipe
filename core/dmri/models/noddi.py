@@ -3,7 +3,18 @@ import numpy as np
 from bids.layout import writing
 
 class NODDI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='noddi-watson', mask=None, solver='brute2fine', parallel_diffusivity=1.7e-9, iso_diffusivity=3e-9, nthreads=1, verbose=False):
+    def __init__(self, 
+                 dwi_img, 
+                 sub_info, 
+                 out_dir, 
+                 fit_type='noddi-watson', 
+                 mask=None, 
+                 solver='brute2fine', 
+                 parallel_diffusivity=1.7e-9, 
+                 iso_diffusivity=3e-9, 
+                 nthreads=1, 
+                 verbose=False):
+        
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_dir']     = out_dir
