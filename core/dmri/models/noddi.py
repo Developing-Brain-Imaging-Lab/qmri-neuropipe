@@ -8,7 +8,8 @@ class NODDI_Model():
                  sub_info, 
                  out_dir, 
                  fit_type='noddi-watson', 
-                 mask=None, 
+                 mask=None,
+                 grad_nonlin=None, 
                  solver='brute2fine', 
                  parallel_diffusivity=1.7e-9, 
                  iso_diffusivity=3e-9, 
@@ -20,6 +21,7 @@ class NODDI_Model():
         self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
+        self._inputs['grad_nonlin'] = grad_nonlin
         self._inputs['solver']      = solver
         self._inputs['dpar']        = parallel_diffusivity
         self._inputs['diso']        = iso_diffusivity
@@ -62,8 +64,8 @@ class NODDI_Model():
             import nibabel as nib
             from dmipy.signal_models import cylinder_models, gaussian_models
             from dmipy.distributions.distribute_models import SD1WatsonDistributed, SD2BinghamDistributed
-            from dmipy.core.modeling_framework import MultiCompartmentModel
-            from dmipy.core import modeling_framework
+            #from dmipy.core.modeling_framework import MultiCompartmentModel
+            from .framework.modeling_framework_gnc import MultiCompartmentModel
             from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
             from dipy.io import read_bvals_bvecs
             from dipy.io.image import load_nifti, save_nifti
@@ -84,6 +86,11 @@ class NODDI_Model():
             img = nib.funcs.squeeze_image(nib.load(self._inputs['mask'].filename))
             mask_data = img.get_fdata()
 
+            #Load the gradnonlin data
+            grad_nonlin_data=None
+            if self._inputs['grad_nonlin'] is not None:
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata()
+                
             ball = gaussian_models.G1Ball() #CSF
             stick = cylinder_models.C1Stick() #Intra-axonal diffusion
             zeppelin = gaussian_models.G2Zeppelin() #Extra-axonal diffusion
@@ -99,7 +106,14 @@ class NODDI_Model():
 
             NODDI_mod = MultiCompartmentModel(models=[ball, dispersed_bundle])
             NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
-            NODDI_fit = NODDI_mod.fit(acq_scheme, data, mask=mask_data, number_of_processors=int(self._inputs['nthreads']), solver=self._inputs['solver'])
+            NODDI_fit = NODDI_mod.fit(acq_scheme, 
+                                      data, 
+                                      mask=mask_data, 
+                                      grad_nonlin=grad_nonlin_data, 
+                                      bvals=bvals, 
+                                      bvecs=bvecs,
+                                      number_of_processors=int(self._inputs['nthreads']), 
+                                      solver=self._inputs['solver'])
 
             fitted_parameters = NODDI_fit.fitted_parameters
 

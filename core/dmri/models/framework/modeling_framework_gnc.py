@@ -1152,7 +1152,12 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
         self._check_acquisition_scheme_has_b0s(acquisition_scheme)
         self._check_if_volume_fractions_are_fixed()
         self._check_if_sh_coeff_fixed_if_present()
-
+        
+        #Edits for Gradient nonlineraity corrections (JG, DD)
+        self.grad_nonlin_data = grad_nonlin
+        self.uncorr_bvals = bvals
+        self.uncorr_bvecs = bvecs
+    
         # estimate S0
         self.scheme = acquisition_scheme
         data_ = np.atleast_2d(data)
@@ -1272,14 +1277,9 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
         #     uncorr_bvals=bvals
         #     uncorr_bvecs=bvecs
 
-        grad_nonlin_data_ = np.atleast_2d(grad_nonlin)
-        print('gnc data dimensions: {}'.format(grad_nonlin_data_.shape))
-        uncorr_bvals=bvals
-        uncorr_bvecs=bvecs
-        print('dwi data dimensions: {}'.format(data_.shape))
-        print('mask data dimensions: {}'.format(mask.shape))
-
-
+        if grad_nonlin is not None:
+            self.grad_nonlin_data = np.atleast_2d(grad_nonlin)
+  
         start = time()
         for idx, pos in enumerate(zip(*mask_pos)):
             voxel_E = data_[pos] / S0[pos]
@@ -1304,27 +1304,23 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
             # else:
             #     acq_scheme_gnc = acquisition_scheme
 
-            grad_nonlin_vox = grad_nonlin_data_[pos]
-            corr_bvals, corr_bvecs = correct_bvals_bvecs(uncorr_bvals, uncorr_bvecs, grad_nonlin_vox)
-            corr_bvals_SI = corr_bvals*1e6
-            acq_scheme_gnc = acquisition_scheme_from_bvalues(corr_bvals_SI, corr_bvecs)
+            if grad_nonlin is not None:
+                grad_nonlin_vox = self.grad_nonlin_data[pos]
+                corr_bvals, corr_bvecs = correct_bvals_bvecs(self.uncorr_bvals, self.uncorr_bvecs, grad_nonlin_vox)
+                corr_bvals_SI = corr_bvals*1e6
 
-            # print('bvals before gnc: {}'.format(uncorr_bvals))
-            # print('bvals after gnc: {}'.format(corr_bvals))
-            # print('bvecs before gnc: {}'.format(uncorr_bvecs))
-            # print('bvecs after gnc: {}'.format(corr_bvecs))
-
+                self.scheme = acquisition_scheme_from_bvalues(corr_bvals_SI, corr_bvecs)
 
             start = time()
             if solver == 'brute2fine':
                 global_brute = GlobalBruteOptimizer(
-                    self, acq_scheme_gnc, x0_, Ns, N_sphere_samples)
+                    self, self.scheme, x0_, Ns, N_sphere_samples)
                 fit_func = Brute2FineOptimizer(self, self.scheme, Ns)
                 # print('Setup brute2fine optimizer in {} seconds'.format(
                 #     time() - start))
             elif solver == 'mix':
                 self._check_for_tortuosity_constraint()
-                fit_func = MixOptimizer(self, acq_scheme_gnc, maxiter)
+                fit_func = MixOptimizer(self, self.scheme, maxiter)
                 # print('Setup MIX optimizer in {} seconds'.format(
                 #     time() - start))
             else:
@@ -1367,18 +1363,14 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
                 voxel_S = data_[pos]
                 parameters = fitted_parameters_lin[idx]
 
-                acq_scheme_gnc = None
                 if grad_nonlin is not None:
-                    grad_nonlin_vox = grad_nonlin_data_[pos]
-                    corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
+                    grad_nonlin_vox = self.grad_nonlin_data[pos]
+                    corr_bvals, corr_bvecs = correct_bvals_bvecs(self.uncorr_bvals, self.uncorr_bvecs, grad_nonlin_vox)
                     corr_bvals_SI = corr_bvals*1e6
-                    acq_scheme_gnc = acquisition_scheme_from_bvalues(corr_bvals_SI, corr_bvecs)
-
-                else:
-                    acq_scheme_gnc = acquisition_scheme
+                    self.scheme = acquisition_scheme_from_bvalues(corr_bvals_SI, corr_bvecs)
 
                 fit_func = MultiTissueConvexOptimizer(
-                    acq_scheme_gnc, self, self.S0_tissue_responses)
+                    self.scheme, self, self.S0_tissue_responses)
                 mt_fractions[idx] = fit_func(voxel_S, parameters)
             fitting_time = time() - start
             msg = 'Multi-tissue fitting of {} voxels complete in {} seconds.'
