@@ -153,10 +153,6 @@ class DTI_Model():
             ii = np.where(np.array(bvals) == bvals.min())[0]
             b0_average = np.mean(data[:,:,:,ii], axis=3)
 
-            grad_nonlin_data = None
-            if self._inputs['grad_nonlin'] != None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(-1, data.shape[-1])
-
             #Loop over all voxels
             img_shape = data.shape[:-1]
 
@@ -165,37 +161,34 @@ class DTI_Model():
             evals      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
             color_fa   = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
             
-            fa              = np.zeros(img_shape)
-            md              = np.zeros(img_shape)
-            rd              = np.zeros(img_shape)
-            ad              = np.zeros(img_shape)
-            ga              = np.zeros(img_shape)
-            trace           = np.zeros(img_shape)
-            dti_mode        = np.zeros(img_shape)
-            dti_planarity   = np.zeros(img_shape)
-            dti_sphericity  = np.zeros(img_shape)
+            # fa              = np.zeros(img_shape)
+            # md              = np.zeros(img_shape)
+            # rd              = np.zeros(img_shape)
+            # ad              = np.zeros(img_shape)
+            # ga              = np.zeros(img_shape)
+            # trace           = np.zeros(img_shape)
+            # dti_mode        = np.zeros(img_shape)
+            # dti_planarity   = np.zeros(img_shape)
+            # dti_sphericity  = np.zeros(img_shape)
 
             flat_data   = data.reshape(-1, data.shape[-1])
             flat_params = np.empty((flat_data.shape[0], 12))
             flat_mask   = mask_data.reshape(-1)
-
-            print(flat_data.shape)
-            print(flat_params.shape)
-            print(flat_mask.shape)
-
-            exit()
-
             gtab = gradient_table(bvals, bvecs, atol=0.1)
+
+            grad_nonlin_data = None
+            if self._inputs['grad_nonlin'] != None:
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(-1, data.shape[-1])
+
+            print(grad_nonlin_data.shape)
 
             for vox in range(flat_data.shape[0]):
                 if flat_mask[vox] > 0:
 
                     if self._inputs['grad_nonlin'] != None:
-                        grad_nonlin_vox = grad_nonlin_data[vox]
-                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
+                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
                         gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
 
-                    
                     dti_model = None
                     if self._inputs['fit_type'] == 'dipy-RESTORE':
                         sigma = estimate_sigma(data)
@@ -208,7 +201,7 @@ class DTI_Model():
                     flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
 
-            params = flat_params.reshape((img_shape + (3,3)))
+            params = flat_params.reshape((img_shape + (12,)))
 
             evals = params[:,1:3]
             evecs = params[:,3:12]
