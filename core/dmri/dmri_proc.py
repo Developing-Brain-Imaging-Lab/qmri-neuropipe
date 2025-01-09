@@ -546,7 +546,7 @@ class DiffusionProcessingPipeline:
                                                  verbose                = args.verbose) 
             
             #Calculate Topup/SynB0-DISCO field maps
-            if args.dist_correction.lower()[0:4] == 'topup' or args.dist_correction.lower() == 'synb0-disco':
+            if args.dist_correction.lower()[0:5] == 'topup' or args.dist_correction.lower() == 'synb0-disco':
                 topup_base = os.path.join(dmri_preproc_dir, "rawdata", "topup", id+"_desc-Topup")
             
                 if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
