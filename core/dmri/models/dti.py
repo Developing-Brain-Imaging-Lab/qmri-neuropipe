@@ -155,7 +155,7 @@ class DTI_Model():
 
             grad_nonlin_data = None
             if self._inputs['grad_nonlin'] != None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata().reshape(-1, data.shape[-1])
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(-1, data.shape[-1])
 
             #Loop over all voxels
             img_shape = data.shape[:-1]
