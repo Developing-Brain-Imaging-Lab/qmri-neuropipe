@@ -179,6 +179,12 @@ class DTI_Model():
             flat_params = np.empty((flat_data.shape[0], 12))
             flat_mask   = mask_data.reshape(-1)
 
+            print(flat_data.shape)
+            print(flat_params.shape)
+            print(flat_mask.shape)
+
+            exit()
+
             gtab = gradient_table(bvals, bvecs, atol=0.1)
 
             for vox in range(flat_data.shape[0]):
