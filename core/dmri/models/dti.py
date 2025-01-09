@@ -178,7 +178,7 @@ class DTI_Model():
 
             grad_nonlin_data = None
             if self._inputs['grad_nonlin'] != None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(img_shape + (9,))
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(flat_data.shape[0], 9)
 
             print(grad_nonlin_data.shape)
 
