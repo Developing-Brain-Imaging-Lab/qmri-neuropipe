@@ -44,8 +44,8 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
                         algo     = 'hd-bet',
                         gpu      = gpu)
     
-        final_img_brain = Image(filename=os.path.join(working_dir, "temp_img_brain.nii.gz"))
-        final_img_mask  = Image(filename=os.path.join(working_dir, "temp_img_mask.nii.gz"))
+        final_img_brain = Image(filename=os.path.join(graddev_dir, "temp_img_brain.nii.gz"))
+        final_img_mask  = Image(filename=os.path.join(graddev_dir, "temp_img_mask.nii.gz"))
         mask.mask_image(input    = final_img,
                         mask     = final_img_mask,
                         mask_img = final_img_brain,

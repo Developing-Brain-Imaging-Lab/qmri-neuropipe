@@ -11,7 +11,7 @@ from dipy.denoise.noise_estimate import estimate_sigma
 from dipy.core.gradients import gradient_table, reorient_vectors
 from dipy.io import  read_bvals_bvecs
 from dipy.io.image import load_nifti, save_nifti
-from dipy.reconst.dti import fractional_anisotropy
+from dipy.reconst.dti import fractional_anisotropy, axial_diffusivity, radial_diffusivity, mean_diffusivity
 from dipy.io.utils import nifti1_symmat
 
 from core.utils.io import Image, DWImage
@@ -175,7 +175,6 @@ class DTI_Model():
             dti_planarity   = np.zeros(img_shape)
             dti_sphericity  = np.zeros(img_shape)
 
-
             flat_data   = data.reshape(-1, data.shape[-1])
             flat_params = np.empty((flat_data.shape[0], 12))
             flat_mask   = mask_data.reshape(-1)
@@ -203,58 +202,64 @@ class DTI_Model():
                     flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32)
 
+            params = flat_params.reshape((img_shape[:-1], 12))
+
+            evals = params[:,1:3]
+            evecs = params[:,3:12]
+
+            fa = fractional_anisotropy(evals)
+            md = mean_diffusivity(evals)
+            ad = axial_diffusivity(evals)
+            rd = radial_diffusivity(evals)
+
                    
-
-
-
-
             
-            for i in range(img_shape[0]):
-                for j in range(img_shape[1]):
-                    for k in range(img_shape[2]):
+            # for i in range(img_shape[0]):
+            #     for j in range(img_shape[1]):
+            #         for k in range(img_shape[2]):
 
-                        if self._inputs['mask'] != None:
-                            mask_vox = mask_data[i,j,k]
-                        else:
-                            mask_vox = 1
+            #             if self._inputs['mask'] != None:
+            #                 mask_vox = mask_data[i,j,k]
+            #             else:
+            #                 mask_vox = 1
 
-                        if mask_vox != 0:
-                            voxel_data = data[i,j,k,:]
+            #             if mask_vox != 0:
+            #                 voxel_data = data[i,j,k,:]
 
-                            gtab=None
-                            if self._inputs['grad_nonlin'] != None:
-                                grad_nonlin_vox = grad_nonlin_data[i,j,k,:]
+            #                 gtab=None
+            #                 if self._inputs['grad_nonlin'] != None:
+            #                     grad_nonlin_vox = grad_nonlin_data[i,j,k,:]
 
-                                corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
-                                gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
-                            else:
-                                gtab = gradient_table(bvals, bvecs, atol=0.1)
+            #                     corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_vox)
+            #                     gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+            #                 else:
+            #                     gtab = gradient_table(bvals, bvecs, atol=0.1)
 
-                            dti_model = None
-                            if self._inputs['fit_type'] == 'dipy-RESTORE':
-                                sigma = estimate_sigma(data)
-                                dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
-                            else:
-                                dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
+            #                 dti_model = None
+            #                 if self._inputs['fit_type'] == 'dipy-RESTORE':
+            #                     sigma = estimate_sigma(data)
+            #                     dti_model = dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+            #                 else:
+            #                     dti_model = dti.TensorModel(gtab, fit_method=self._inputs['fit_type'][5:])
 
-                            dti_fit = dti_model.fit(voxel_data)
+            #                 dti_fit = dti_model.fit(voxel_data)
 
-                            estimate_data = dti_fit.predict(gtab, S0=b0_average[i,j,k])
-                            residuals = np.absolute(voxel_data - estimate_data)
+            #                 estimate_data = dti_fit.predict(gtab, S0=b0_average[i,j,k])
+            #                 residuals = np.absolute(voxel_data - estimate_data)
 
-                            tensor[i,j,k,:]         = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
-                            evecs[i,j,k,:,:]        = dti_fit.evecs.astype(np.float32)
-                            evals[i,j,k,:]          = dti_fit.evals.astype(np.float32)
-                            fa[i,j,k]               = dti_fit.fa
-                            md[i,j,k]               = dti_fit.md
-                            rd[i,j,k]               = dti_fit.rd
-                            ad[i,j,k]               = dti_fit.ad
-                            #ga[i,j,k]               = dti_fit.ga
-                            trace[i,j,k]            = dti_fit.trace
-                            color_fa[i,j,k,:]       = dti_fit.color_fa.astype(np.float32)
-                            dti_mode[i,j,k]         = dti_fit.mode
-                            dti_planarity[i,j,k]    = dti_fit.planarity
-                            dti_sphericity[i,j,k]   = dti_fit.sphericity
+            #                 tensor[i,j,k,:]         = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
+            #                 evecs[i,j,k,:,:]        = dti_fit.evecs.astype(np.float32)
+            #                 evals[i,j,k,:]          = dti_fit.evals.astype(np.float32)
+            #                 fa[i,j,k]               = dti_fit.fa
+            #                 md[i,j,k]               = dti_fit.md
+            #                 rd[i,j,k]               = dti_fit.rd
+            #                 ad[i,j,k]               = dti_fit.ad
+            #                 #ga[i,j,k]               = dti_fit.ga
+            #                 trace[i,j,k]            = dti_fit.trace
+            #                 color_fa[i,j,k,:]       = dti_fit.color_fa.astype(np.float32)
+            #                 dti_mode[i,j,k]         = dti_fit.mode
+            #                 dti_planarity[i,j,k]    = dti_fit.planarity
+            #                 dti_sphericity[i,j,k]   = dti_fit.sphericity
 
             # gtab = gradient_table(bvals, bvecs, atol=0.1)
 
@@ -285,51 +290,41 @@ class DTI_Model():
 
             ###END LOOP
 
-            if self._inputs['full_output']:
-                tensor_img = nifti1_symmat(tensor, ras_img.affine, ras_img.header)
-                tensor_img.header.set_intent = 'NIFTI_INTENT_SYMMATRIX'
-                tensor_img.to_filename(self._outputs['tensor'])
+            # if self._inputs['full_output']:
+            #     tensor_img = nifti1_symmat(tensor, ras_img.affine, ras_img.header)
+            #     tensor_img.header.set_intent = 'NIFTI_INTENT_SYMMATRIX'
+            #     tensor_img.to_filename(self._outputs['tensor'])
 
-                tensor_fsl          = np.empty(tensor.shape)
-                tensor_fsl[:,:,:,0] = tensor[:,:,:,0]
-                tensor_fsl[:,:,:,1] = tensor[:,:,:,1]
-                tensor_fsl[:,:,:,2] = tensor[:,:,:,3]
-                tensor_fsl[:,:,:,3] = tensor[:,:,:,2]
-                tensor_fsl[:,:,:,4] = tensor[:,:,:,4]
-                tensor_fsl[:,:,:,5] = tensor[:,:,:,5]
-                save_nifti(self._outputs['tensor-fsl'], tensor_fsl, ras_img.affine, ras_img.header)
+            #     tensor_fsl          = np.empty(tensor.shape)
+            #     tensor_fsl[:,:,:,0] = tensor[:,:,:,0]
+            #     tensor_fsl[:,:,:,1] = tensor[:,:,:,1]
+            #     tensor_fsl[:,:,:,2] = tensor[:,:,:,3]
+            #     tensor_fsl[:,:,:,3] = tensor[:,:,:,2]
+            #     tensor_fsl[:,:,:,4] = tensor[:,:,:,4]
+            #     tensor_fsl[:,:,:,5] = tensor[:,:,:,5]
+            #     save_nifti(self._outputs['tensor-fsl'], tensor_fsl, ras_img.affine, ras_img.header)
 
-                tensor_mrtrix           = np.empty(tensor.shape)
-                tensor_mrtrix[:,:,:,0]  = tensor[:,:,:,0]
-                tensor_mrtrix[:,:,:,1]  = tensor[:,:,:,2]
-                tensor_mrtrix[:,:,:,2]  = tensor[:,:,:,5]
-                tensor_mrtrix[:,:,:,3]  = tensor[:,:,:,1]
-                tensor_mrtrix[:,:,:,4]  = tensor[:,:,:,3]
-                tensor_mrtrix[:,:,:,5]  = tensor[:,:,:,4]
-                save_nifti(self._outputs['tensor-mrtrix'], tensor_mrtrix, ras_img.affine, ras_img.header)
+            #     tensor_mrtrix           = np.empty(tensor.shape)
+            #     tensor_mrtrix[:,:,:,0]  = tensor[:,:,:,0]
+            #     tensor_mrtrix[:,:,:,1]  = tensor[:,:,:,2]
+            #     tensor_mrtrix[:,:,:,2]  = tensor[:,:,:,5]
+            #     tensor_mrtrix[:,:,:,3]  = tensor[:,:,:,1]
+            #     tensor_mrtrix[:,:,:,4]  = tensor[:,:,:,3]
+            #     tensor_mrtrix[:,:,:,5]  = tensor[:,:,:,4]
+            #     save_nifti(self._outputs['tensor-mrtrix'], tensor_mrtrix, ras_img.affine, ras_img.header)
 
-            # fa              = dti_fit.fa
-            # md              = dti_fit.md
-            # rd              = dti_fit.rd
-            # ad              = dti_fit.ad
-            # ga              = dti_fit.ga
-            # trace           = dti_fit.trace
-            # color_fa        = dti_fit.color_fa
-            # dti_mode        = dti_fit.mode
-            # dti_planarity   = dti_fit.planarity
-            # dti_sphericity  = dti_fit.sphericity
-
+            
             #Remove any nan
             fa[np.isnan(fa)]                            = 0
             md[np.isnan(md)]                            = 0
             rd[np.isnan(rd)]                            = 0
             ad[np.isnan(ad)]                            = 0
-            ga[np.isnan(ga)]                            = 0
-            trace[np.isnan(trace)]                      = 0
-            color_fa[np.isnan(color_fa)]                = 0
-            dti_mode[np.isnan(dti_mode)]                = 0
-            dti_planarity[np.isnan(dti_planarity)]      = 0
-            dti_sphericity[np.isnan(dti_sphericity)]    = 0
+            # ga[np.isnan(ga)]                            = 0
+            # trace[np.isnan(trace)]                      = 0
+            # color_fa[np.isnan(color_fa)]                = 0
+            # dti_mode[np.isnan(dti_mode)]                = 0
+            # dti_planarity[np.isnan(dti_planarity)]      = 0
+            # dti_sphericity[np.isnan(dti_sphericity)]    = 0
 
             save_nifti(self._outputs['v1'], evecs[:,:,:,:,0], ras_img.affine, ras_img.header)
             save_nifti(self._outputs['v2'], evecs[:,:,:,:,1], ras_img.affine, ras_img.header)
@@ -355,90 +350,90 @@ class DTI_Model():
             self.create_param_json(Image(self._outputs['l2']))
             self.create_param_json(Image(self._outputs['l3']))
 
-            if self._inputs['full_output']:
-                save_nifti(self._outputs['ga'], ga, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['tr'], trace, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
+            # if self._inputs['full_output']:
+            #     save_nifti(self._outputs['ga'], ga, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['tr'], trace, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['pl'], dti_planarity, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['sp'], dti_sphericity, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
+            #     save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
 
-            orig_ornt   = nib.io_orientation(ras_img.affine)
-            targ_ornt   = nib.io_orientation(img.affine)
-            transform   = nib.orientations.ornt_transform(orig_ornt, targ_ornt)
-            affine_xfm  = nib.orientations.inv_ornt_aff(transform, ras_img.shape)
-            trans_mat = affine_xfm[0:3,0:3]
+            # orig_ornt   = nib.io_orientation(ras_img.affine)
+            # targ_ornt   = nib.io_orientation(img.affine)
+            # transform   = nib.orientations.ornt_transform(orig_ornt, targ_ornt)
+            # affine_xfm  = nib.orientations.inv_ornt_aff(transform, ras_img.shape)
+            # trans_mat = affine_xfm[0:3,0:3]
 
-            for key in self._outputs:                
-                if os.path.exists(self._outputs[key]):
-                    orig_img    = nib.load(self._outputs[key])
-                    reoriented  = orig_img.as_reoriented(transform)
-                    reoriented.to_filename(self._outputs[key])
+            # for key in self._outputs:                
+            #     if os.path.exists(self._outputs[key]):
+            #         orig_img    = nib.load(self._outputs[key])
+            #         reoriented  = orig_img.as_reoriented(transform)
+            #         reoriented.to_filename(self._outputs[key])
 
 
-            #Correct FSL tensor for orientation
-            dirs = []
-            dirs.append(np.array([[1],[0],[0]]))
-            dirs.append(np.array([[1],[1],[0]]))
-            dirs.append(np.array([[1],[0],[1]]))
-            dirs.append(np.array([[0],[1],[0]]))
-            dirs.append(np.array([[0],[1],[1]]))
-            dirs.append(np.array([[0],[0],[1]]))
+            # #Correct FSL tensor for orientation
+            # dirs = []
+            # dirs.append(np.array([[1],[0],[0]]))
+            # dirs.append(np.array([[1],[1],[0]]))
+            # dirs.append(np.array([[1],[0],[1]]))
+            # dirs.append(np.array([[0],[1],[0]]))
+            # dirs.append(np.array([[0],[1],[1]]))
+            # dirs.append(np.array([[0],[0],[1]]))
 
-            if os.path.exists(self._outputs['tensor-fsl']):
-                tensor_fsl = nib.load(self._outputs['tensor-fsl'])
-                corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
+            # if os.path.exists(self._outputs['tensor-fsl']):
+            #     tensor_fsl = nib.load(self._outputs['tensor-fsl'])
+            #     corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
 
-                for i in range(0,len(dirs)):
+            #     for i in range(0,len(dirs)):
 
-                    rot_dir = np.matmul(trans_mat, dirs[i])
-                    sign = 1.0
-                    if np.sum(rot_dir) == 0.0:
-                        sign = -1.0
+            #         rot_dir = np.matmul(trans_mat, dirs[i])
+            #         sign = 1.0
+            #         if np.sum(rot_dir) == 0.0:
+            #             sign = -1.0
 
-                    if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
-                        tensor_ind = 0
-                    elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
-                        tensor_ind = 1
-                    elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
-                        tensor_ind = 2
-                    elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
-                        tensor_ind = 3
-                    elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
-                        tensor_ind = 4
-                    elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
-                        tensor_ind = 5
+            #         if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
+            #             tensor_ind = 0
+            #         elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
+            #             tensor_ind = 1
+            #         elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
+            #             tensor_ind = 2
+            #         elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
+            #             tensor_ind = 3
+            #         elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
+            #             tensor_ind = 4
+            #         elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
+            #             tensor_ind = 5
 
-                    corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
+            #         corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
 
-                save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
+            #     save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
 
-            #Now correct the eigenvectors
-            #Determine the order to rearrange
-            vec_order = np.transpose(targ_ornt[:,0]).astype(int)
-            sign_order = np.transpose(targ_ornt[:,1]).astype(int)
+            # #Now correct the eigenvectors
+            # #Determine the order to rearrange
+            # vec_order = np.transpose(targ_ornt[:,0]).astype(int)
+            # sign_order = np.transpose(targ_ornt[:,1]).astype(int)
 
-            fsl_v1 = nib.load(self._outputs['v1'])
-            corr_fsl_v1 = fsl_v1.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
+            # fsl_v1 = nib.load(self._outputs['v1'])
+            # corr_fsl_v1 = fsl_v1.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
 
-            save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
+            # save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
 
-            fsl_v2 = nib.load(self._outputs['v2'])
-            corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
+            # fsl_v2 = nib.load(self._outputs['v2'])
+            # corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
 
-            save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
+            # save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
 
-            fsl_v3 = nib.load(self._outputs['v3'])
-            corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
+            # fsl_v3 = nib.load(self._outputs['v3'])
+            # corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
 
-            save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, fsl_v3.header)
+            # save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, fsl_v3.header)
 
         elif self._inputs['fit_type'][0:6] == 'mrtrix':
 
