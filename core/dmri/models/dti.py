@@ -155,12 +155,7 @@ class DTI_Model():
 
             #Loop over all voxels
             img_shape = data.shape[:-1]
-
-            tensor     = np.zeros((img_shape + (6,)), dtype=np.float32)
-            evecs      = np.zeros((img_shape + (3,3)), dtype=np.float32)
-            evals      = np.zeros((img_shape + (3,)), dtype=np.float32)
-            color_fa   = np.zeros((img_shape + (3,)), dtype=np.float32)
-            
+           
             # fa              = np.zeros(img_shape)
             # md              = np.zeros(img_shape)
             # rd              = np.zeros(img_shape)
@@ -201,10 +196,16 @@ class DTI_Model():
                     flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
 
-            params = flat_params.reshape((img_shape + (12,)))
 
-            evals = params[:,1:3]
+            print(flat_params.shape)
+            params = flat_params.reshape((img_shape, 12))
+            print(params.shape)
+
+            evals = params[:,:3]
             evecs = params[:,3:12]
+
+            print(evals.shape)
+            print(evecs.shape)
 
             fa = fractional_anisotropy(evals)
             md = mean_diffusivity(evals)
