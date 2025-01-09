@@ -202,7 +202,7 @@ class DTI_Model():
                     flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
 
-            params = flat_params.reshape((img_shape[:-1] + (3,3)))
+            params = flat_params.reshape((img_shape + (3,3)))
 
             evals = params[:,1:3]
             evecs = params[:,3:12]
