@@ -729,6 +729,10 @@ class DiffusionProcessingPipeline:
         mask.apply_mask(input   = dmri_preproc,
                         mask    = dmri_mask,
                         output  = dmri_preproc)
+        
+
+        if args.gradnonlin_correction:
+            gradnonlin_image = Image(filename = os.path.join(dmri_preproc_dir, id+'_desc-GradNonLinTensor_dwi.nii.gz'))
     
 
         ############### PREPROCESSING OF DWI DATA FINISHED ####################
