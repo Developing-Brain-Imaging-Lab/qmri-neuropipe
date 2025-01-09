@@ -156,10 +156,10 @@ class DTI_Model():
             #Loop over all voxels
             img_shape = data.shape[:-1]
 
-            tensor     = np.zeros((img_shape[0], img_shape[1], img_shape[2],6), dtype=np.float32)
-            evecs      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3,3), dtype=np.float32)
-            evals      = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
-            color_fa   = np.zeros((img_shape[0], img_shape[1], img_shape[2],3), dtype=np.float32)
+            tensor     = np.zeros((img_shape + (6,)), dtype=np.float32)
+            evecs      = np.zeros((img_shape + (3,3)), dtype=np.float32)
+            evals      = np.zeros((img_shape + (3,)), dtype=np.float32)
+            color_fa   = np.zeros((img_shape + (3,)), dtype=np.float32)
             
             # fa              = np.zeros(img_shape)
             # md              = np.zeros(img_shape)
@@ -186,7 +186,7 @@ class DTI_Model():
                 if flat_mask[vox] > 0:
 
                     if self._inputs['grad_nonlin'] != None:
-                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
+                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox,:9])
                         gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
 
                     dti_model = None
