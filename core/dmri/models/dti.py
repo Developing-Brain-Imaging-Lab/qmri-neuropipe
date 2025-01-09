@@ -198,7 +198,7 @@ class DTI_Model():
 
 
             print(flat_params.shape)
-            params = flat_params.reshape((img_shape, 12))
+            params = flat_params.reshape((img_shape + (12,)))
             print(params.shape)
 
             evals = params[:,:3]
