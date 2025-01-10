@@ -95,7 +95,7 @@ class DKI_Model():
 
         #Loop over all voxels
         img_shape   = data_to_fit.shape[:-1]
-        flat_data   = data.reshape(-1, data_to_fit.shape[-1])
+        flat_data   = data_to_fit.reshape(-1, data_to_fit.shape[-1])
         flat_params = np.empty((flat_data.shape[0], npa))
         flat_mask   = mask_data.reshape(-1)
         gtab        = gradient_table(bvals, bvecs, atol=0.1)
