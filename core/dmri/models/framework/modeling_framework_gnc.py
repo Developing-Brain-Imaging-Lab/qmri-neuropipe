@@ -1284,25 +1284,7 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
         for idx, pos in enumerate(zip(*mask_pos)):
             voxel_E = data_[pos] / S0[pos]
             voxel_x0_vector = x0_[pos]
-            print('working on voxel # {} and position {}'.format(idx,pos))
-
-            # acq_scheme_gnc = None
-            # if grad_nonlin is not None:
-            #     print('GNC data detected at'.format(
-            #         time()))
-            #     grad_nonlin_vox = grad_nonlin_data_[pos]
-            #     corr_bvals, corr_bvecs = correct_bvals_bvecs(uncorr_bvals, uncorr_bvecs, grad_nonlin_vox)
-            #     corr_bvals_SI = corr_bvals*1e6
-            #     acq_scheme_gnc = acquisition_scheme_from_bvalues(corr_bvals_SI, corr_bvecs)
-            #
-            #     uncorr_bvals
-            #     corr_bvals
-            #     uncorr_bvecs
-            #     corr_bvecs
-            #
-            #
-            # else:
-            #     acq_scheme_gnc = acquisition_scheme
+            #print('working on voxel # {} and position {}'.format(idx,pos))
 
             if grad_nonlin is not None:
                 grad_nonlin_vox = self.grad_nonlin_data[pos]
@@ -1374,7 +1356,7 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
                 mt_fractions[idx] = fit_func(voxel_S, parameters)
             fitting_time = time() - start
             msg = 'Multi-tissue fitting of {} voxels complete in {} seconds.'
-            print(msg.format(len(mt_fractions), fitting_time))
+            #print(msg.format(len(mt_fractions), fitting_time))
             fitted_mt_fractions = np.zeros(np.r_[mask.shape, self.N_models])
             fitted_mt_fractions[mask_pos] = mt_fractions
 
