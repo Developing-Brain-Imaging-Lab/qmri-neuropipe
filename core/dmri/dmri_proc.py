@@ -772,12 +772,13 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting Free-Water Elimination DTI Model')
 
-                fwedti_model = FWEDTI_Model(dwi_img   = dmri_preproc,
-                                            sub_info  = subject_entities,
-                                            out_dir   = dmri_models_dir,
-                                            fit_type  = args.fwe_fit_method,
-                                            mask      = dmri_mask,
-                                            nthreads  = args.nthreads)
+                fwedti_model = FWEDTI_Model(dwi_img     = dmri_preproc,
+                                            sub_info    = subject_entities,
+                                            out_dir     = dmri_models_dir,
+                                            fit_type    = args.fwe_fit_method,
+                                            mask        = dmri_mask,
+                                            grad_nonlin = gradnonlin_image,
+                                            nthreads    = args.nthreads)
                 fwedti_model.fit()
 
 
