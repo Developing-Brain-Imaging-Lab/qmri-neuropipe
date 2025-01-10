@@ -532,8 +532,8 @@ class FWEDTI_Model():
                 fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
                 fwidti_fit = fwidtimodel.fit(flat_data[vox])
 
-                flat_params[vox] = fwidti_fit.fwdti_params
-                print(fwidti_fit.fwdti_params.shape)
+                flat_params[vox] = fwidti_fit.model_params
+                print(fwidti_fit.model_params.shape)
 
         #         flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
         #         flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
