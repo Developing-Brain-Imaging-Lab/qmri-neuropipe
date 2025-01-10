@@ -135,17 +135,15 @@ class DTI_Model():
         if self._inputs['fit_type'][0:4]=='dipy':
             img = nib.load(dwi_img.filename)
             axis_orient = nib.aff2axcodes(img.affine)
-            ras_img = img
-            #ras_img = nib.as_closest_canonical(img)
-            #data = ras_img.get_fdata()
+            ras_img = nib.as_closest_canonical(img)
+            data = ras_img.get_fdata()
             data = img.get_fdata()
 
             bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-            #bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
+            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
-                mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
-                #mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask'].filename)).get_fdata()
+                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask'].filename)).get_fdata()
 
             if self._inputs['bmax'] != None:
                 jj = np.where(bvals >= self._inputs['bmax'])
@@ -158,16 +156,6 @@ class DTI_Model():
 
             #Loop over all voxels
             img_shape = data.shape[:-1]
-           
-            # fa              = np.zeros(img_shape)
-            # md              = np.zeros(img_shape)
-            # rd              = np.zeros(img_shape)
-            # ad              = np.zeros(img_shape)
-            # ga              = np.zeros(img_shape)
-            # trace           = np.zeros(img_shape)
-            # dti_mode        = np.zeros(img_shape)
-            # dti_planarity   = np.zeros(img_shape)
-            # dti_sphericity  = np.zeros(img_shape)
 
             flat_data   = data.reshape(-1, data.shape[-1])
             flat_params = np.empty((flat_data.shape[0], 12))
@@ -176,7 +164,7 @@ class DTI_Model():
 
             grad_nonlin_data = None
             if self._inputs['grad_nonlin'] != None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(flat_data.shape[0], 9)
+                grad_nonlin_data = nib.as_closest_canonical(nib.load(self._inputs['grad_nonlin'].filename)).get_fdata().reshape(flat_data.shape[0], 9)
 
             for vox in range(flat_data.shape[0]):
                 if flat_mask[vox] > 0:
