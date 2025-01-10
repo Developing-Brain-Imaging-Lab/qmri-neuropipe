@@ -497,6 +497,14 @@ class FWEDTI_Model():
         self._outputs['l2']               = writing.build_path(dti_entities, map_pattern)
         dti_entities['map']               = "L3"
         self._outputs['l3']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "BVALS" 
+        self._outputs['bvals']            = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "BVEC_1"
+        self._outputs['bvec_1']           = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "BVEC_2"
+        self._outputs['bvec_2']           = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "BVEC_3"
+        self._outputs['bvec_3']           = writing.build_path(dti_entities, map_pattern)
 
     def fit(self):
 
@@ -524,6 +532,8 @@ class FWEDTI_Model():
         flat_tensor = np.empty((flat_data.shape[0], 6))
         flat_mask   = mask_data.reshape(-1)
         gtab = gradient_table(bvals, bvecs, atol=0.1)
+        bval_map    = np.empty(flat_data.shape)
+        bvec_map    = np.empty((flat_data.shape[0] + (3,3))) 
 
         grad_nonlin_data = None
         if self._inputs['grad_nonlin'] != None:
@@ -534,6 +544,8 @@ class FWEDTI_Model():
                 if self._inputs['grad_nonlin'] != None:
                     corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
                     gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+                    bval_flat[vox] = corr_bvals
+                    bvec_flat[vox] = corr_bvecs
 
                 fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
                 fwidti_fit = fwidtimodel.fit(flat_data[vox])
@@ -565,3 +577,8 @@ class FWEDTI_Model():
         save_nifti(self._outputs['l1'], evals[:,:,:,0], img.affine, img.header)
         save_nifti(self._outputs['l2'], evals[:,:,:,1], img.affine, img.header)
         save_nifti(self._outputs['l3'], evals[:,:,:,2], img.affine, img.header)
+
+        save_nifti(self._outputs['bvals'], bval_map, img.affine, img.header)
+        save_nifti(self._outputs['bvec_1'], bvec_map[...,0], img.affine, img.header)
+        save_nifti(self._outputs['bvec_2'], bvec_map[...,1], img.affine, img.header)
+        save_nifti(self._outputs['bvec_3'], bvec_map[...,2], img.affine, img.header)
