@@ -169,7 +169,7 @@ class DTI_Model():
                 if flat_mask[vox] > 0:
 
                     if self._inputs['grad_nonlin'] != None:
-                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox,:9])
+                        corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
                         gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
 
                     dti_model = None
