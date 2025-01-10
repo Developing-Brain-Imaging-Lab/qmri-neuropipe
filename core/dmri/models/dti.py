@@ -460,7 +460,7 @@ class DTI_Model():
             os.system('rm -rf ' + output_dir + '/exitcode.nii.gz')
 
 class FWEDTI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, grad_nonlin=None, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_dir']     = out_dir
