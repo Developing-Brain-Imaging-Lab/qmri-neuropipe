@@ -578,7 +578,7 @@ class FWEDTI_Model():
         save_nifti(self._outputs['l2'], evals[:,:,:,1], img.affine, img.header)
         save_nifti(self._outputs['l3'], evals[:,:,:,2], img.affine, img.header)
 
-        save_nifti(self._outputs['bvals'], bval_map, img.affine, img.header)
-        save_nifti(self._outputs['bvec_1'], bvec_map[...,0], img.affine, img.header)
-        save_nifti(self._outputs['bvec_2'], bvec_map[...,1], img.affine, img.header)
-        save_nifti(self._outputs['bvec_3'], bvec_map[...,2], img.affine, img.header)
+        save_nifti(self._outputs['bvals'], bval_map.reshape(img_shape), img.affine, img.header)
+        save_nifti(self._outputs['bvec_1'], bvec_map.reshape((img_shape+(3,)))[...,0], img.affine, img.header)
+        save_nifti(self._outputs['bvec_2'], bvec_map.reshape((img_shape+(3,)))[...,1], img.affine, img.header)
+        save_nifti(self._outputs['bvec_3'], bvec_map.reshape((img_shape+(3,)))[...,2], img.affine, img.header)
