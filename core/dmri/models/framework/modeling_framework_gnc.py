@@ -1317,7 +1317,7 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
 
             if use_parallel_processing:
                 fitted_parameters_lin[idx] = pool.apipe(fit_func, *fit_args)
-                print('fitted parameters: {}'.format(fitted_parameters_lin[idx]))
+                #print('fitted parameters: {}'.format(fitted_parameters_lin[idx]))
             else:
                 fitted_parameters_lin[idx] = fit_func(*fit_args)
         if use_parallel_processing:
