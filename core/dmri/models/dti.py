@@ -125,7 +125,6 @@ class DTI_Model():
                                                              "Estimation Software": "qmri-neuropipe"})
     
     def fit(self):
-
         dwi_img = self._inputs['dwi_img']
         output_dir = os.path.dirname(self._inputs['out_dir'])
 
@@ -271,80 +270,80 @@ class DTI_Model():
                 #save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
                 #save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
 
-            orig_ornt   = nib.io_orientation(ras_img.affine)
-            targ_ornt   = nib.io_orientation(img.affine)
-            transform   = nib.orientations.ornt_transform(orig_ornt, targ_ornt)
-            affine_xfm  = nib.orientations.inv_ornt_aff(transform, ras_img.shape)
-            trans_mat = affine_xfm[0:3,0:3]
+            # orig_ornt   = nib.io_orientation(ras_img.affine)
+            # targ_ornt   = nib.io_orientation(img.affine)
+            # transform   = nib.orientations.ornt_transform(orig_ornt, targ_ornt)
+            # affine_xfm  = nib.orientations.inv_ornt_aff(transform, ras_img.shape)
+            # trans_mat = affine_xfm[0:3,0:3]
 
-            for key in self._outputs:                
-                if os.path.exists(self._outputs[key]):
-                    orig_img    = nib.load(self._outputs[key])
-                    reoriented  = orig_img.as_reoriented(transform)
-                    reoriented.to_filename(self._outputs[key])
+            # for key in self._outputs:                
+            #     if os.path.exists(self._outputs[key]):
+            #         orig_img    = nib.load(self._outputs[key])
+            #         reoriented  = orig_img.as_reoriented(transform)
+            #         reoriented.to_filename(self._outputs[key])
 
 
-            #Correct FSL tensor for orientation
-            dirs = []
-            dirs.append(np.array([[1],[0],[0]]))
-            dirs.append(np.array([[1],[1],[0]]))
-            dirs.append(np.array([[1],[0],[1]]))
-            dirs.append(np.array([[0],[1],[0]]))
-            dirs.append(np.array([[0],[1],[1]]))
-            dirs.append(np.array([[0],[0],[1]]))
+            # #Correct FSL tensor for orientation
+            # dirs = []
+            # dirs.append(np.array([[1],[0],[0]]))
+            # dirs.append(np.array([[1],[1],[0]]))
+            # dirs.append(np.array([[1],[0],[1]]))
+            # dirs.append(np.array([[0],[1],[0]]))
+            # dirs.append(np.array([[0],[1],[1]]))
+            # dirs.append(np.array([[0],[0],[1]]))
 
-            if os.path.exists(self._outputs['tensor-fsl']):
-                tensor_fsl = nib.load(self._outputs['tensor-fsl'])
-                corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
+            # if os.path.exists(self._outputs['tensor-fsl']):
+            #     tensor_fsl = nib.load(self._outputs['tensor-fsl'])
+            #     corr_fsl_tensor = np.empty(tensor_fsl.get_fdata().shape)
 
-                for i in range(0,len(dirs)):
-                    rot_dir = np.matmul(trans_mat, dirs[i])
-                    sign = 1.0
-                    if np.sum(rot_dir) == 0.0:
-                        sign = -1.0
+            #     for i in range(0,len(dirs)):
+            #         rot_dir = np.matmul(trans_mat, dirs[i])
+            #         sign = 1.0
+            #         if np.sum(rot_dir) == 0.0:
+            #             sign = -1.0
 
-                    if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
-                        tensor_ind = 0
-                    elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
-                        tensor_ind = 1
-                    elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
-                        tensor_ind = 2
-                    elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
-                        tensor_ind = 3
-                    elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
-                        tensor_ind = 4
-                    elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
-                        tensor_ind = 5
+            #         if (np.absolute(rot_dir) == np.array([[1],[0],[0]])).all():
+            #             tensor_ind = 0
+            #         elif (np.absolute(rot_dir) == np.array([[1],[1],[0]])).all():
+            #             tensor_ind = 1
+            #         elif (np.absolute(rot_dir) == np.array([[1],[0],[1]])).all():
+            #             tensor_ind = 2
+            #         elif (np.absolute(rot_dir) == np.array([[0],[1],[0]])).all():
+            #             tensor_ind = 3
+            #         elif ( np.absolute(rot_dir) == np.array([[0],[1],[1]])).all():
+            #             tensor_ind = 4
+            #         elif ( np.absolute(rot_dir) == np.array([[0],[0],[1]])).all():
+            #             tensor_ind = 5
 
-                    corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
+            #         corr_fsl_tensor[:,:,:,i] = sign*tensor_fsl.get_fdata()[:,:,:,tensor_ind]
 
-                save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
+            #     save_nifti(self._outputs['tensor-fsl'], corr_fsl_tensor, tensor_fsl.affine, tensor_fsl.header)
 
-            #Now correct the eigenvectors
-            #Determine the order to rearrange
-            vec_order = np.transpose(targ_ornt[:,0]).astype(int)
-            sign_order = np.transpose(targ_ornt[:,1]).astype(int)
+            # #Now correct the eigenvectors
+            # #Determine the order to rearrange
+            # vec_order = np.transpose(targ_ornt[:,0]).astype(int)
+            # sign_order = np.transpose(targ_ornt[:,1]).astype(int)
 
-            fsl_v1 = nib.load(self._outputs['v1'])
-            corr_fsl_v1 = fsl_v1.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
+            # fsl_v1 = nib.load(self._outputs['v1'])
+            # corr_fsl_v1 = fsl_v1.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
 
-            save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
+            # save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
 
-            fsl_v2 = nib.load(self._outputs['v2'])
-            corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
+            # fsl_v2 = nib.load(self._outputs['v2'])
+            # corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
 
-            save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
+            # save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
 
-            fsl_v3 = nib.load(self._outputs['v3'])
-            corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
-            for i in range(0,2):
-                corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
+            # fsl_v3 = nib.load(self._outputs['v3'])
+            # corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
+            # for i in range(0,2):
+            #     corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
 
-            save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, fsl_v3.header)
+            # save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, fsl_v3.header)
 
         elif self._inputs['fit_type'][0:6] == 'mrtrix':
 
