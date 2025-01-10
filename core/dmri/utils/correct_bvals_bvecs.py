@@ -18,9 +18,9 @@ def correct_bvals_bvecs(bvals, bvecs, grad_nonlin):
     bvecs_c = np.copy(bvecs)
 
     # Construct the gradient coil tensor L from the gradient non-linearity parameters
-    L = np.array([[grad_nonlin[0], grad_nonlin[1], grad_nonlin[2]],
-                  [grad_nonlin[3], grad_nonlin[4], grad_nonlin[5]],
-                  [grad_nonlin[6], grad_nonlin[7], grad_nonlin[8]]])
+    L = np.array([[grad_nonlin[0], grad_nonlin[3], grad_nonlin[6]],
+                  [grad_nonlin[1], grad_nonlin[4], grad_nonlin[7]],
+                  [grad_nonlin[2], grad_nonlin[5], grad_nonlin[8]]])
 
     # Identity matrix
     Id = np.eye(3)
@@ -29,7 +29,7 @@ def correct_bvals_bvecs(bvals, bvecs, grad_nonlin):
     for i in range(bvals.shape[0]):
         if bvals[i] > 0:  # Correct only for non-zero b-values
             # Correct the b-vector for the current gradient
-            bvecs_c[i] = np.matmul(Id + L, bvecs[i])
+            bvecs_c[i] = np.matmul(L, bvecs[i])
 
             # Normalize the corrected b-vector
             mag = np.linalg.norm(bvecs_c[i])
