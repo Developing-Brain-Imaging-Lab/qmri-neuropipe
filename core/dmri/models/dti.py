@@ -533,7 +533,7 @@ class FWEDTI_Model():
         flat_mask   = mask_data.reshape(-1)
         gtab = gradient_table(bvals, bvecs, atol=0.1)
         bval_map    = np.empty(flat_data.shape)
-        bvec_map    = np.empty((flat_data.shape[0] + (3,3))) 
+        bvec_map    = np.empty((flat_data.shape + (3,3))) 
 
         grad_nonlin_data = None
         if self._inputs['grad_nonlin'] != None:
