@@ -544,8 +544,8 @@ class FWEDTI_Model():
                 if self._inputs['grad_nonlin'] != None:
                     corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
                     gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
-                    bval_flat[vox] = corr_bvals
-                    bvec_flat[vox] = corr_bvecs
+                    bval_map[vox] = corr_bvals
+                    bvec_map[vox] = corr_bvecs
 
                 fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
                 fwidti_fit = fwidtimodel.fit(flat_data[vox])
