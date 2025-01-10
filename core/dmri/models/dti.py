@@ -137,8 +137,7 @@ class DTI_Model():
             axis_orient = nib.aff2axcodes(img.affine)
             ras_img = nib.as_closest_canonical(img)
             data = ras_img.get_fdata()
-            data = img.get_fdata()
-
+            
             bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
             bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
