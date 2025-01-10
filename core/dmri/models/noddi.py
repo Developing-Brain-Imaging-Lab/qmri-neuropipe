@@ -89,7 +89,7 @@ class NODDI_Model():
             #Load the gradnonlin data
             grad_nonlin_data=None
             if self._inputs['grad_nonlin'] is not None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin']).get_fdata()
+                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata()
                 
             ball = gaussian_models.G1Ball() #CSF
             stick = cylinder_models.C1Stick() #Intra-axonal diffusion
