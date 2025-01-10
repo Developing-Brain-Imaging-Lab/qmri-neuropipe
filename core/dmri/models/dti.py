@@ -531,32 +531,28 @@ class FWEDTI_Model():
 
                 fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
                 fwidti_fit = fwidtimodel.fit(flat_data[vox])
-
                 flat_params[vox] = fwidti_fit.model_params
-                print(fwidti_fit.model_params.shape)
+                
+        params = flat_params.reshape((img_shape + (13,)))
+        evals = params[...,:3].astype(np.float32)
+        evecs = params[...,3:12].reshape((img_shape + (3,3))).astype(np.float32)
+        f     = params[...,12].astype(np.float32)
 
-        #         flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
-        #         flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
-        #         flat_tensor[vox]       = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
+        fa = fractional_anisotropy(evals)
+        md = mean_diffusivity(evals)
+        ad = axial_diffusivity(evals)
+        rd = radial_diffusivity(evals)
 
-        #     params = flat_params.reshape((img_shape + (12,)))
-        #     evals  = params[...,:3]
-        #     evecs  = params[...,3:12].reshape((img_shape + (3,3)))
-        #     tensor = flat_tensor.reshape((img_shape + (6,)))
-
-
-
-
-
-   
-    
-        
-
-
+        #Remove any nan
+        fa[np.isnan(fa)] = 0
+        md[np.isnan(md)] = 0
+        rd[np.isnan(rd)] = 0
+        ad[np.isnan(ad)] = 0
+        f[np.isnan(f)]   = 0    
 
         # #Calculate Parameters for FWDTI Model
-        # save_nifti(self._outputs['fa'], fwidti_fit.fa.astype(np.float32), img.affine, img.header)
-        # save_nifti(self._outputs['md'], fwidti_fit.md.astype(np.float32), img.affine, img.header)
-        # save_nifti(self._outputs['rd'], fwidti_fit.rd.astype(np.float32), img.affine, img.header)
-        # save_nifti(self._outputs['ad'], fwidti_fit.ad.astype(np.float32), img.affine, img.header)
-        # save_nifti(self._outputs['f'],  fwidti_fit.f.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['f'],  f.astype(np.float32),  img.affine, img.header)
