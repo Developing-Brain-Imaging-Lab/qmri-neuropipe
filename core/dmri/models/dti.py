@@ -202,7 +202,7 @@ class DTI_Model():
             print(params.shape)
 
             evals = params[...,:3]
-            evecs = params[...,3:12]
+            evecs = params[...,3:12].reshape((img_shape + (3,3)))
 
             print(evals.shape)
             print(evecs.shape)
