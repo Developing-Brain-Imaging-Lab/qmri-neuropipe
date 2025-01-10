@@ -30,7 +30,7 @@ from dmipy.utils.utils import (
     parameter_equality,
     fractional_parameter)
 
-from ..utils.correct_bvals_bvecs import correct_bvals_bvecs
+from ....utils.correct_bvals_bvecs import correct_bvals_bvecs
 from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
 
 pathos, have_pathos, _ = optional_package("pathos")
