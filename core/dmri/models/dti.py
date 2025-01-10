@@ -491,6 +491,12 @@ class FWEDTI_Model():
         self._outputs['ad']               = writing.build_path(dti_entities, map_pattern)
         dti_entities['map']               = "F"
         self._outputs['f']                = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L1" 
+        self._outputs['l1']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L2"
+        self._outputs['l2']               = writing.build_path(dti_entities, map_pattern)
+        dti_entities['map']               = "L3"
+        self._outputs['l3']               = writing.build_path(dti_entities, map_pattern)
 
     def fit(self):
 
@@ -556,3 +562,6 @@ class FWEDTI_Model():
         save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['f'],  f.astype(np.float32),  img.affine, img.header)
+        save_nifti(self._outputs['l1'], evals[:,:,:,0], ras_img.affine, ras_img.header)
+        save_nifti(self._outputs['l2'], evals[:,:,:,1], ras_img.affine, ras_img.header)
+        save_nifti(self._outputs['l3'], evals[:,:,:,2], ras_img.affine, ras_img.header)

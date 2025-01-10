@@ -131,7 +131,7 @@ def linreg(input, ref, out_mat, out=None, dof=6, nthreads=1, method="fsl", flirt
         
         CMD = "bbregister --s " + subid + " --mov " + input.filename \
             + " --reg " + b0toT1mat \
-            + ' --dti --init-fsl --lta ' + b0toT1lta \
+            + ' --dti --lta ' + b0toT1lta \
             + ' --fslmat ' + out_mat \
             + ' --tmp ' + freesurfer_tmp_dir
 
