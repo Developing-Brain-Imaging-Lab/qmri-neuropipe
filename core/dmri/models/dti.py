@@ -467,6 +467,7 @@ class FWEDTI_Model():
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
         self._inputs['nthreads']    = nthreads
+        self._inputs['grad_nonlin'] = grad_nonlin
    
         dti_entities = {}
         dti_entities['subject'] = sub_info['subject']
@@ -501,25 +502,61 @@ class FWEDTI_Model():
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+        if self._inputs['mask'] != None:
+            mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
+
         img = nib.load(dwi_img.filename)
         data = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
         gtab = gradient_table(bvals, bvecs)
 
-        values = np.array(bvals)
-        ii = np.where(values == bvals.min())[0]
+        #Loop over all voxels
+        img_shape = data.shape[:-1]
+
+        flat_data   = data.reshape(-1, data.shape[-1])
+        flat_params = np.empty((flat_data.shape[0], 13))
+        flat_tensor = np.empty((flat_data.shape[0], 6))
+        flat_mask   = mask_data.reshape(-1)
+        gtab = gradient_table(bvals, bvecs, atol=0.1)
+
+        grad_nonlin_data = None
+        if self._inputs['grad_nonlin'] != None:
+            grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(flat_data.shape[0], 9)
+
+        for vox in range(flat_data.shape[0]):
+            if flat_mask[vox] > 0:
+                if self._inputs['grad_nonlin'] != None:
+                    corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
+                    gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+
+                fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
+                fwidti_fit = fwidtimodel.fit(flat_data[vox])
+
+                flat_params[vox] = fwidti_fit.fwdti_params
+                print(fwidti_fit.fwdti_params.shape)
+
+        #         flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
+        #         flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
+        #         flat_tensor[vox]       = dti.lower_triangular(dti_fit.quadratic_form.astype(np.float32))
+
+        #     params = flat_params.reshape((img_shape + (12,)))
+        #     evals  = params[...,:3]
+        #     evecs  = params[...,3:12].reshape((img_shape + (3,3)))
+        #     tensor = flat_tensor.reshape((img_shape + (6,)))
+
+
+
+
+
+   
     
-        fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
+        
 
-        if self._inputs['mask'] != None:
-            mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
-            fwidti_fit = fwidtimodel.fit(data, mask_data)
-        else:
-            fwidti_fit = fwidtimodel.fit(data)
 
-        #Calculate Parameters for FWDTI Model
-        save_nifti(self._outputs['fa'], fwidti_fit.fa.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['md'], fwidti_fit.md.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rd'], fwidti_fit.rd.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ad'], fwidti_fit.ad.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['f'],  fwidti_fit.f.astype(np.float32), img.affine, img.header)
+
+        # #Calculate Parameters for FWDTI Model
+        # save_nifti(self._outputs['fa'], fwidti_fit.fa.astype(np.float32), img.affine, img.header)
+        # save_nifti(self._outputs['md'], fwidti_fit.md.astype(np.float32), img.affine, img.header)
+        # save_nifti(self._outputs['rd'], fwidti_fit.rd.astype(np.float32), img.affine, img.header)
+        # save_nifti(self._outputs['ad'], fwidti_fit.ad.astype(np.float32), img.affine, img.header)
+        # save_nifti(self._outputs['f'],  fwidti_fit.f.astype(np.float32), img.affine, img.header)
