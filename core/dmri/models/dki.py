@@ -132,7 +132,7 @@ class DKI_Model():
         kfa = dki.kurtosis_fractional_anisotropy(params)
 
         mkt = dki.mean_kurtosis_tensor(params)
-        rtk = dki.radial_tensor_kurtosis(params)
+        #rtk = dki.radial_tensor_kurtosis(params)
   
         save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, img.header)
@@ -142,7 +142,7 @@ class DKI_Model():
         save_nifti(self._outputs['rk'], rk.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['ak'], ak.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['mkt'],mkt.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rtk'],rtk.astype(np.float32), img.affine, img.header)
+        #save_nifti(self._outputs['rtk'],rtk.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['kfa'],kfa.astype(np.float32), img.affine, img.header)
 
         if self._inputs['micro']:
