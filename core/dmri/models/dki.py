@@ -113,7 +113,7 @@ class DKI_Model():
                 fit_type = self._inputs['fit_type'].split('-')[1]
                 dkimodel = dki.DiffusionKurtosisModel(gtab, fit_type)
                 dkifit   = dkimodel.fit(flat_data[vox])
-                flat_params[vox] = dkimodel.model_params
+                flat_params[vox] = dkifit.model_params
 
 
         #Reshape the parameters
