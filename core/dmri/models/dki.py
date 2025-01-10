@@ -3,15 +3,20 @@ import string, os, sys, subprocess, shutil, time
 #Neuroimaging Modules
 import nibabel as nib
 import numpy as np
-from dipy.io.image import load_nifti, save_nifti
-from dipy.core.gradients import gradient_table
-from dipy.io import read_bvals_bvecs
-import dipy.reconst.dki as dki
 import scipy.ndimage.filters as filters
 from bids.layout import writing
 
+from dipy.io.image import save_nifti
+from dipy.core.gradients import gradient_table
+from dipy.io import read_bvals_bvecs
+
+import dipy.reconst.dti as dti
+import dipy.reconst.dki as dki
+
+from core.dmri.utils.correct_bvals_bvecs import correct_bvals_bvecs
+
 class DKI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, include_micro_fit=False, smooth_data=True, fwhm=2, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, grad_nonlin=None, include_micro_fit=False, smooth_data=True, fwhm=2, nthreads=1):
         self._inputs = {}
         self._outputs = {}
 
@@ -23,6 +28,7 @@ class DKI_Model():
         self._inputs['smooth_data'] = smooth_data
         self._inputs['fwhm']        = fwhm  
         self._inputs['nthreads']    = nthreads
+        self._inputs['grad_nonlin'] = grad_nonlin
              
         map_entities = {}
         map_entities['subject'] = sub_info['subject']
@@ -47,6 +53,8 @@ class DKI_Model():
         self._outputs['ak']               = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "MKT"
         self._outputs['mkt']              = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "RTK"
+        self._outputs['rtk']              = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "kFA"
         self._outputs['kfa']              = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "AWF"
@@ -58,6 +66,8 @@ class DKI_Model():
 
         dwi_img = self._inputs['dwi_img']
         output_dir = self._inputs['out_dir']
+
+        npa = 27
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -83,24 +93,57 @@ class DKI_Model():
             for v in range(data.shape[-1]):
                 data_to_fit[..., v] = filters.gaussian_filter(data[..., v], sigma=gauss_std)
 
+        #Loop over all voxels
+        img_shape   = data_to_fit.shape[:-1]
+        flat_data   = data.reshape(-1, data_to_fit.shape[-1])
+        flat_params = np.empty((flat_data.shape[0], npa))
+        flat_mask   = mask_data.reshape(-1)
+        gtab        = gradient_table(bvals, bvecs, atol=0.1)
 
-        fit_type = self._inputs['fit_type'].split('-')[1]
-        dkimodel = dki.DiffusionKurtosisModel(gtab, fit_type)
+        grad_nonlin_data = None
+        if self._inputs['grad_nonlin'] != None:
+            grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(flat_data.shape[0], 9)
 
-        if self._inputs['mask'] != None:
-            dkifit = dkimodel.fit(data_to_fit, mask_data)
-        else:
-            dkifit = dkimodel.fit(data_to_fit)
+        for vox in range(flat_data.shape[0]):
+            if flat_mask[vox] > 0:
+                if self._inputs['grad_nonlin'] != None:
+                    corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
+                    gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
 
-        save_nifti(self._outputs['fa'], dkifit.fa.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['md'], dkifit.md.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rd'], dkifit.rd.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ad'], dkifit.ad.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['mk'], dkifit.mk(0,3).astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rk'], dkifit.rk(0,3).astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ak'], dkifit.ak(0,3).astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['mkt'], dkifit.mkt(0,3).astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['kfa'], dkifit.kfa.astype(np.float32), img.affine, img.header)
+                fit_type = self._inputs['fit_type'].split('-')[1]
+                dkimodel = dki.DiffusionKurtosisModel(gtab, fit_type)
+                dkifit   = dkimodel.fit(flat_data[vox])
+                flat_params[vox] = dkimodel.model_params
+
+
+        #Reshape the parameters
+        params = flat_params.reshape((img_shape + (npa,)))
+        evals = params[..., :3]
+        evecs = params[..., 3:12].reshape(params.shape[:-1] + (3, 3))
+
+        fa = dti.fractional_anisotropy(evals)
+        md = dti.mean_diffusivity(evals)
+        rd = dti.radial_diffusivity(evals)
+        ad = dti.axial_diffusivity(evals)
+
+        mk = dki.mean_kurtosis(params)
+        rk = dki.radial_kurtosis(params)
+        ak = dki.axial_kurtosis(params)
+        kfa = dki.kurtosis_fractional_anisotropy(params)
+
+        mkt = dki.mean_kurtosis_tensor(params)
+        rtk = dki.radial_tensor_kurtosis(params)
+  
+        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['mk'], mk.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['rk'], rk.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['ak'], ak.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['mkt'],mkt.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['rtk'],rtk.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['kfa'],kfa.astype(np.float32), img.affine, img.header)
 
         if self._inputs['micro']:
 
