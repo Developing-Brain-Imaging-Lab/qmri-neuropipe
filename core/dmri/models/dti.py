@@ -135,14 +135,17 @@ class DTI_Model():
         if self._inputs['fit_type'][0:4]=='dipy':
             img = nib.load(dwi_img.filename)
             axis_orient = nib.aff2axcodes(img.affine)
-            ras_img = nib.as_closest_canonical(img)
-            data = ras_img.get_fdata()
+            ras_img = img
+            #ras_img = nib.as_closest_canonical(img)
+            #data = ras_img.get_fdata()
+            data = img.get_fdata()
 
             bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-            bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
+            #bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
-                mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask'].filename)).get_fdata()
+                mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
+                #mask_data = nib.as_closest_canonical(nib.load(self._inputs['mask'].filename)).get_fdata()
 
             if self._inputs['bmax'] != None:
                 jj = np.where(bvals >= self._inputs['bmax'])
@@ -193,7 +196,6 @@ class DTI_Model():
 
                     flat_params[vox, :3]   = dti_fit.evals.astype(np.float32)
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
-
 
             params = flat_params.reshape((img_shape + (12,)))
             evals = params[...,:3]
