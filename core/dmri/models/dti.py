@@ -175,8 +175,6 @@ class DTI_Model():
             if self._inputs['grad_nonlin'] != None:
                 grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata().reshape(flat_data.shape[0], 9)
 
-            print(grad_nonlin_data.shape)
-
             for vox in range(flat_data.shape[0]):
                 if flat_mask[vox] > 0:
 
@@ -197,15 +195,9 @@ class DTI_Model():
                     flat_params[vox, 3:12] = dti_fit.evecs.astype(np.float32).ravel()
 
 
-            print(flat_params.shape)
             params = flat_params.reshape((img_shape + (12,)))
-            print(params.shape)
-
             evals = params[...,:3]
             evecs = params[...,3:12].reshape((img_shape + (3,3)))
-
-            print(evals.shape)
-            print(evecs.shape)
 
             fa = fractional_anisotropy(evals)
             md = mean_diffusivity(evals)
