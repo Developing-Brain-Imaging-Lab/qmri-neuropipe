@@ -115,6 +115,21 @@ class DKI_Model():
                 dkifit   = dkimodel.fit(flat_data[vox])
                 flat_params[vox] = dkifit.model_params
 
+                # voxel_E  = flat_data[vox]
+                # fit_args = (voxel_E)
+                # 
+
+        #     if use_parallel_processing:
+        #         fitted_parameters_lin[vox] = pool.apipe(dkimodel.fit, flat_data[vox])
+        #         #print('fitted parameters: {}'.format(fitted_parameters_lin[idx]))
+        #     else:
+        #         fitted_parameters_lin[idx] = dkimodel.fit(flat_data[vox])
+        # if use_parallel_processing:
+        #     fitted_parameters_lin = np.array(
+        #         [p.get() for p in fitted_parameters_lin])
+        #     pool.close()
+        #     pool.join()
+        #     pool.clear()
 
         #Reshape the parameters
         params = flat_params.reshape((img_shape + (npa,)))

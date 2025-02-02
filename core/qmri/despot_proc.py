@@ -409,7 +409,7 @@ class DESPOTProcessingPipeline:
                 spgr = denoise.denoise_image(input_img    = spgr,
                                              output_file   = os.path.join(anat_preproc_dir, id+"_desc-SPGR-Denoised_VFA.nii.gz"),
                                              method        = args.denoise_method, 
-                                             noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz"), 
+                                             noise_map     = Image(filename=os.path.join(anat_preproc_dir, id+"_desc-SPGR-NoiseMap.nii.gz")), 
                                              nthreads      = args.nthreads, 
                                              debug         = args.verbose)
 
@@ -422,7 +422,7 @@ class DESPOTProcessingPipeline:
                 ssfp = denoise.denoise_image(input_img    = ssfp,
                                              output_file   = os.path.join(anat_preproc_dir, id+"_desc-SSFP-Denoised_VFA.nii.gz"),
                                              method        = args.denoise_method, 
-                                             noise_map     = os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz"), 
+                                             noise_map     = Image(filename=os.path.join(anat_preproc_dir, id+"_desc-SSFP-NoiseMap.nii.gz")), 
                                              nthreads      = args.nthreads, 
                                              debug         = args.verbose)
             else:
@@ -436,7 +436,7 @@ class DESPOTProcessingPipeline:
                     irspgr = denoise.denoise_image(input_img     = irspgr,
                                                    output_file   = os.path.join(anat_preproc_dir, id+"_desc-HIFI-Denoised_T1w.nii.gz"),
                                                    method        = args.denoise_method, 
-                                                   noise_map     = os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz"), 
+                                                   noise_map     = Image(filename=os.path.join(anat_preproc_dir, id+"_desc-HIFI-NoiseMap_T1w.nii.gz")), 
                                                    nthreads      = args.nthreads, 
                                                    debug         = args.verbose)
                 else:
