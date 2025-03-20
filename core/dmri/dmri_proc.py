@@ -797,6 +797,7 @@ class DiffusionProcessingPipeline:
                                                   grad_nonlin           = gradnonlin_image,
                                                   parallel_diffusivity  = args.noddi_dpar,
                                                   iso_diffusivity       = args.noddi_diso,
+                                                  solver                = args.noddi_solver,
                                                   nthreads              = args.nthreads,
                                                   verbose               = args.verbose)
                 else:
