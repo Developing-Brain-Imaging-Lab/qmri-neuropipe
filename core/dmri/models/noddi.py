@@ -238,71 +238,70 @@ class SMT_NODDI_Model():
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)
 
-        if self._inputs['fit_type'][0:5] == 'noddi':
-            import nibabel as nib
-            from dmipy.signal_models import cylinder_models, gaussian_models
-            from dmipy.distributions.distribute_models import BundleModel
-            from dmipy.core import modeling_framework
-            #from dmipy.core.modeling_framework import MultiCompartmentModel
-            #from .framework.modeling_framework_gnc import MultiCompartmentModel 
-            from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
-            from dipy.io import read_bvals_bvecs
-            from dipy.io.image import load_nifti, save_nifti
+        import nibabel as nib
+        from dmipy.signal_models import cylinder_models, gaussian_models
+        from dmipy.distributions.distribute_models import BundleModel
+        from dmipy.core import modeling_framework
+        #from dmipy.core.modeling_framework import MultiCompartmentModel
+        #from .framework.modeling_framework_gnc import MultiCompartmentModel 
+        from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
+        from dipy.io import read_bvals_bvecs
+        from dipy.io.image import load_nifti, save_nifti
 
-            #Setup the acquisition scheme
-            bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-            bvals_SI = bvals*1e6
-            acq_scheme = acquisition_scheme_from_bvalues(bvals_SI, bvecs)
+        #Setup the acquisition scheme
+        bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
+        bvals_SI = bvals*1e6
+        acq_scheme = acquisition_scheme_from_bvalues(bvals_SI, bvecs)
+        
+        if self._inputs['verbose']:
+            acq_scheme.print_acquisition_info
+
+        #Load the data
+        img = nib.load(dwi_img.filename)
+        data = img.get_fdata()
+
+        #Load the mask
+        img = nib.funcs.squeeze_image(nib.load(self._inputs['mask'].filename))
+        mask_data = img.get_fdata()
+
+        #Load the gradnonlin data
+        grad_nonlin_data=None
+        if self._inputs['grad_nonlin'] is not None:
+            grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata()
             
-            if self._inputs['verbose']:
-                acq_scheme.print_acquisition_info
+        ball = gaussian_models.G1Ball() #CSF
+        stick = cylinder_models.C1Stick() #Intra-axonal diffusion
+        zeppelin = gaussian_models.G2Zeppelin() #Extra-axonal diffusion
 
-            #Load the data
-            img = nib.load(dwi_img.filename)
-            data = img.get_fdata()
+        bundle = BundleModel([stick, zeppelin])
+        bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par','partial_volume_0')
+        bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+        bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', self._inputs['dpar'])
 
-            #Load the mask
-            img = nib.funcs.squeeze_image(nib.load(self._inputs['mask'].filename))
-            mask_data = img.get_fdata()
+        SMT_NODDI_mod = modeling_framework.MultiCompartmentSphericalMeanModel(models=[bundle, ball])
+        SMT_NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
 
-            #Load the gradnonlin data
-            grad_nonlin_data=None
-            if self._inputs['grad_nonlin'] is not None:
-                grad_nonlin_data = nib.load(self._inputs['grad_nonlin'].filename).get_fdata()
-                
-            ball = gaussian_models.G1Ball() #CSF
-            stick = cylinder_models.C1Stick() #Intra-axonal diffusion
-            zeppelin = gaussian_models.G2Zeppelin() #Extra-axonal diffusion
+        SMT_NODDI_fit = SMT_NODDI_mod.fit(acq_scheme, 
+                                            data, 
+                                            mask=mask_data, 
+                                            grad_nonlin=grad_nonlin_data, 
+                                            bvals=bvals, 
+                                            bvecs=bvecs,
+                                            number_of_processors=int(self._inputs['nthreads']), 
+                                            solver=self._inputs['solver'])
 
-            bundle = BundleModel([stick, zeppelin])
-            bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par','partial_volume_0')
-            bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-            bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', self._inputs['dpar'])
+        fitted_parameters = SMT_NODDI_fit.fitted_parameters
 
-            SMT_NODDI_mod = modeling_framework.MultiCompartmentSphericalMeanModel(models=[bundle, ball])
-            SMT_NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
+        vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_1'])
+        vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
+        vf_iso   = fitted_parameters['partial_volume_0']
+        odi      = fitted_parameters['BundleModel_1_SD1Watson_1_odi']
 
-            SMT_NODDI_fit = SMT_NODDI_mod.fit(acq_scheme, 
-                                              data, 
-                                              mask=mask_data, 
-                                              grad_nonlin=grad_nonlin_data, 
-                                              bvals=bvals, 
-                                              bvecs=bvecs,
-                                              number_of_processors=int(self._inputs['nthreads']), 
-                                              solver=self._inputs['solver'])
-
-            fitted_parameters = SMT_NODDI_fit.fitted_parameters
-
-            vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_1'])
-            vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
-            vf_iso   = fitted_parameters['partial_volume_0']
-            odi      = fitted_parameters['BundleModel_1_SD1Watson_1_odi']
-
-            #Save the images
-            save_nifti(self._outputs['odi'], odi.astype(np.float32), img.affine, img.header)
-            save_nifti(self._outputs['ficvf'], vf_intra.astype(np.float32), img.affine, img.header)
-            save_nifti(self._outputs['exvf'], vf_extra.astype(np.float32), img.affine, img.header)
-            save_nifti(self._outputs['fiso'], vf_iso.astype(np.float32), img.affine, img.header)
+        #Save the images
+        save_nifti(self._outputs['odi'], odi.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['ficvf'], vf_intra.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['exvf'], vf_extra.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['fiso'], vf_iso.astype(np.float32), img.affine, img.header)
 
 
 
