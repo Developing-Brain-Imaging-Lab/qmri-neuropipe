@@ -19,7 +19,7 @@ def apply_mask(input, mask, output, debug=False):
     os.system(CMD)
 
 def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gpu_device=0, ref_img=None, ref_mask=None, bet_options="", ants_lower_threshold=0.2, antspynet_modality="t1", debug=False, logfile=None):
-    
+
     if logfile:
         sys.stdout = logfile
 
@@ -29,7 +29,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
     temp_img    = img_tools.calculate_mean_img(input, os.path.join(output_dir, "temp_img.nii.gz"), debug=debug)
     CMD=""
 
-    if algo == "bet": 
+    if algo == "bet":
         CMD = "bet " + temp_img.filename+ " " + mask.filename + " " + bet_options
 
         if debug:
@@ -43,7 +43,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
 
         temp_mask = os.path.join(output_dir, "temp_mask")
         CMD = "hd-bet -i " + temp_img.filename + " -mode accurate -tta 0 -o " + temp_mask
-        
+
         if gpu:
             CMD+= f" -device {gpu_device}"
         else:
@@ -87,18 +87,18 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
             print('Need to specify B-vectors and B-values to use dwi2mask!')
             exit(-1)
 
-        CMD = "dwi2mask -quiet -force -fslgrad " + input.bvecs + " " + input.bvals \
-            + input.filename + " " + mask.filename + " -nthreads " + str(nthreads) 
+        CMD = "dwi2mask -quiet -force -fslgrad " + input.bvecs + " " + input.bvals + " " \
+            + input.filename + " " + mask.filename + " -nthreads " + str(nthreads)
 
         if debug:
             print(CMD)
 
         subprocess.run([CMD], shell=True, stdout=logfile)
-        
+
     elif algo == "mri_synthstrip":
-        
+
         CMD = "mri_synthstrip -i " + temp_img.filename + " -o " + mask.filename
-        
+
         if debug:
             print(CMD)
 
@@ -115,7 +115,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
             exit(-1)
 
         ants_output = output_dir + '/ants_'
-    
+
         CMD = "antsRegistrationSyN.sh -d 3 -j 1 -y 1 -n " + str(nthreads) \
                  + " -f " + temp_img.filename \
                  + " -m " + ref_img \
@@ -125,7 +125,7 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
             print(CMD)
 
         subprocess.run([CMD], shell=True, stdout=logfile)
-    
+
         #Warp the mask
         CMD = "antsApplyTransforms -d 3 -n NearestNeighbor" \
                  + " -i " + ref_mask \
@@ -157,84 +157,84 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
     #Clean up Temporary Files
     if temp_img.exists():
         os.remove(temp_img.filename)
-    
+
 
 
 if __name__ == '__main__':
-   
+
    import argparse
-   
+
    parser = argparse.ArgumentParser(description='QMRI-Neuropipe Skull-stripping function')
-   
+
    parser.add_argument('--input',
                     type=str,
                     help="Input image to be skull-stripped",
                     default=None)
-   
+
    parser.add_argument('--mask',
                        type=str,
                        help="Output binary mask",
                        default=None)
-   
+
    parser.add_argument('--mask_img',
                        type=str,
                        help="Output masked data",
                        default=None)
-   
+
    parser.add_argument('--algo',
                        type=str,
                        help="Skull-stripping algorithm",
-                       choices=["bet", "hd-bet", "dipy", "mrtrix", "afni", "ants", "antspynet"],
+                       choices=["bet", "hd-bet", "dipy", "mrtrix", "afni", "ants", "antspynet", "mri_synthstrip"],
                        default="bet")
-   
+
    parser.add_argument("--nthreads",
                        type=int,
                        help="Number of threads",
                        default=1)
-   
+
    parser.add_argument("--use_gpu",
                        type=bool,
                        help="Use GPU for compatible methods",
                        default=False)
-   
+
    parser.add_argument("--reference_image",
                        type=str,
                        help="Reference image for registration based methods",
                        default=None)
-   
+
    parser.add_argument("--reference_mask",
                        type=str,
                        help="Reference mask for registration based methods",
-                       default=None)    
-   
+                       default=None)
+
    parser.add_argument("--bet_options",
                        type=str,
                        help="FSL BET options",
                        default="")
-   
+
    parser.add_argument("--ants_lower_threshold",
                        type=float,
                        help="Lower threshold for ANTS",
-                       default=0.2)  
-   
+                       default=0.2)
+
    parser.add_argument("--antspynet_modality",
                        type=str,
                        help="ANTSPYNET Image Modality",
                        choices=["t1", "t2", "t1infant", "t2infant", "fa"],
                        default="t1")
-   
+
    parser.add_argument("--debug",
                        type=bool,
                        help="Print debugging statements",
                        default=False)
-   
+
    parser.add_argument("--logfile",
                        type=str,
                        help="Log file to print statements",
-                       default=None)            
-   
+                       default=None)
+
    args, unknown = parser.parse_known_args()
-   
+
    mask_image(input                = Image(filename=args.input),
               mask                 = Image(filename=args.mask),
               mask_img             = Image(filename=args.mask_img),
@@ -248,6 +248,3 @@ if __name__ == '__main__':
               antspynet_modality   = args.antspynet_modality,
               debug                = args.debug,
               logfile              = args.logfile)
-
-
-
