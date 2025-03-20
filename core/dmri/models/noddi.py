@@ -284,7 +284,6 @@ class SMT_NODDI_Model():
         SMT_NODDI_fit = SMT_NODDI_mod.fit(acq_scheme, 
                                             data, 
                                             mask=mask_data, 
-                                            grad_nonlin=grad_nonlin_data, 
                                             bvals=bvals, 
                                             bvecs=bvecs,
                                             number_of_processors=int(self._inputs['nthreads']), 
