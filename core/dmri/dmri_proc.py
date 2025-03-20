@@ -22,7 +22,7 @@ import core.utils.mask as mask
 from core.dmri.models.dti import DTI_Model, FWEDTI_Model
 from core.dmri.models.dki import DKI_Model
 from core.dmri.models.csd import CSD_Model
-from core.dmri.models.noddi import NODDI_Model
+from core.dmri.models.noddi import NODDI_Model, SMT_NODDI_Model
 
 from core.dmri.workflows.dmri_to_standard import dmri_to_standard
 
@@ -279,7 +279,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--noddi_fit_method',
                             type=str,
                             help='Fitting Algorithm for Neurite Orietation Dispersion and Density Imaging Model',
-                            choices=['amico', 'noddi-watson', 'noddi-bingham'],
+                            choices=['amico', 'noddi-watson', 'noddi-bingham', 'smt'],
                             default=None)
 
         parser.add_argument('--noddi_dpar',
@@ -788,17 +788,29 @@ class DiffusionProcessingPipeline:
                 if args.verbose:
                     print('Fitting '+args.noddi_fit_method+' model...')
 
-                noddi_model = NODDI_Model(dwi_img               = dmri_preproc,
-                                          sub_info              = subject_entities,
-                                          out_dir               = dmri_models_dir,
-                                          fit_type              = args.noddi_fit_method,
-                                          mask                  = dmri_mask,
-                                          grad_nonlin           = gradnonlin_image,
-                                          parallel_diffusivity  = args.noddi_dpar,
-                                          iso_diffusivity       = args.noddi_diso,
-                                          solver                = args.noddi_solver,
-                                          nthreads              = args.nthreads,
-                                          verbose               = args.verbose)
+                noddi_model = None
+                if args.noddi_fit_method.lower() == 'smt':
+                    noddi_model = SMT_NODDI_Model(dwi_img               = dmri_preproc,
+                                                  sub_info              = subject_entities,
+                                                  out_dir               = dmri_models_dir,
+                                                  mask                  = dmri_mask,
+                                                  grad_nonlin           = gradnonlin_image,
+                                                  parallel_diffusivity  = args.noddi_dpar,
+                                                  iso_diffusivity       = args.noddi_diso,
+                                                  nthreads              = args.nthreads,
+                                                  verbose               = args.verbose)
+                else:
+                    noddi_model = NODDI_Model(dwi_img               = dmri_preproc,
+                                              sub_info              = subject_entities,
+                                              out_dir               = dmri_models_dir,
+                                              fit_type              = args.noddi_fit_method,
+                                              mask                  = dmri_mask,
+                                              grad_nonlin           = gradnonlin_image,
+                                              parallel_diffusivity  = args.noddi_dpar,
+                                              iso_diffusivity       = args.noddi_diso,
+                                              solver                = args.noddi_solver,
+                                              nthreads              = args.nthreads,
+                                              verbose               = args.verbose)
                 noddi_model.fit()
 
 
