@@ -289,9 +289,9 @@ class SMT_NODDI_Model():
 
         fitted_parameters = SMT_NODDI_fit.fitted_parameters
 
-        vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_1'])
-        vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
-        vf_iso   = fitted_parameters['partial_volume_0']
+        vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_0'])
+        vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_0'])
+        vf_iso   = fitted_parameters['partial_volume_1']
 
         #Save the images
         save_nifti(self._outputs['ficvf'], vf_intra.astype(np.float32), img.affine, img.header)
