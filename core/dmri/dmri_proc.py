@@ -486,8 +486,6 @@ class DiffusionProcessingPipeline:
             else:
                 anat_pipeline = AnatomicalPrepPipeline()
                 t1w, t2w, anat_mask = anat_pipeline.run(proc_dir = args.preproc_derivative_dir)
-                print(t1w.filename)
-                print(anat_mask.filename)
                                 
                 if args.eddy_current_correction == 'tortoise-diffprep':
                     if t2w:
