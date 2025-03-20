@@ -282,12 +282,10 @@ class SMT_NODDI_Model():
         SMT_NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
 
         SMT_NODDI_fit = SMT_NODDI_mod.fit(acq_scheme, 
-                                            data, 
-                                            mask=mask_data, 
-                                            bvals=bvals, 
-                                            bvecs=bvecs,
-                                            number_of_processors=int(self._inputs['nthreads']), 
-                                            solver=self._inputs['solver'])
+                                          data, 
+                                          mask=mask_data, 
+                                          number_of_processors=int(self._inputs['nthreads']), 
+                                          solver=self._inputs['solver'])
 
         fitted_parameters = SMT_NODDI_fit.fitted_parameters
 
