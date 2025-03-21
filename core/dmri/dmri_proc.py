@@ -123,7 +123,7 @@ class DiffusionProcessingPipeline:
         parser.add_argument('--mask_method',
                             type=str,
                             help='Skull-stripping Algorithm',
-                            choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet'],
+                            choices=['bet', 'hd-bet', 'mri_synthstrip', 'mrtrix', 'ants', 'antspynet'],
                             default='bet')
 
         parser.add_argument('--ants_mask_template',
