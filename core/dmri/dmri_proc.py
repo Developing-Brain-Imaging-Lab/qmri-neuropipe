@@ -297,6 +297,11 @@ class DiffusionProcessingPipeline:
                             help='DMIPY Optimization solver for NODDI model',
                             choices=['brute2fine', 'mix'],
                             default='brute2fine')
+        
+        parser.add_argument('--constrain_noddi',
+                            type=bool,
+                            help='Constrain NODDI FISO parameter based on FWE-DTI Free Water Fraction',
+                            default=False)
 
         parser.add_argument('--fwe_fit_method',
                             type=str,
@@ -790,6 +795,12 @@ class DiffusionProcessingPipeline:
 
                 noddi_model = None
                 if args.noddi_fit_method.lower() == 'smt':
+
+                    fix_fiso = None
+                    if args.constrain_noddi and os.path.exists(os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz")):
+                        fix_fiso = os.path.join(dmri_model_patterns, "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz")
+
+
                     noddi_model = SMT_NODDI_Model(dwi_img               = dmri_preproc,
                                                   sub_info              = subject_entities,
                                                   out_dir               = dmri_models_dir,
@@ -797,6 +808,7 @@ class DiffusionProcessingPipeline:
                                                   grad_nonlin           = gradnonlin_image,
                                                   parallel_diffusivity  = args.noddi_dpar,
                                                   iso_diffusivity       = args.noddi_diso,
+                                                  fix_fiso              = fix_fiso,
                                                   solver                = args.noddi_solver,
                                                   nthreads              = args.nthreads,
                                                   verbose               = args.verbose)
