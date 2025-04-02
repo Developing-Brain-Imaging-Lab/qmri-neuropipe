@@ -31,9 +31,6 @@ def resample_image(input_img, out_shape):
     target_shape  = np.append(target_shape, input_shape[3])
     scale         = np.divide(input_shape, target_shape)
 
-    print(scale)
-    print(input_shape)
-
     # Reconstruct the affine
     target_affine = target_affine @ np.diag(scale)
 

@@ -460,12 +460,13 @@ class DTI_Model():
             os.system('rm -rf ' + output_dir + '/exitcode.nii.gz')
 
 class FWEDTI_Model():
-    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, grad_nonlin=None, nthreads=1):
+    def __init__(self, dwi_img, sub_info, out_dir, fit_type='dipy-WLS', mask=None, bmax=None, grad_nonlin=None, nthreads=1):
         self._inputs = {}
         self._inputs['dwi_img']     = dwi_img
         self._inputs['out_dir']     = out_dir
         self._inputs['fit_type']    = fit_type
         self._inputs['mask']        = mask
+        self._inputs['bmax']        = bmax
         self._inputs['nthreads']    = nthreads
         self._inputs['grad_nonlin'] = grad_nonlin
    
@@ -523,6 +524,12 @@ class FWEDTI_Model():
         data = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
         gtab = gradient_table(bvals, bvecs)
+
+        if self._inputs['bmax'] != None:
+            jj = np.where(bvals >= self._inputs['bmax'])
+            bvals = np.delete(bvals, jj)
+            bvecs = np.delete(bvecs, jj, 0)
+            data = np.delete(data, jj , axis=3)
 
         #Loop over all voxels
         img_shape = data.shape[:-1]

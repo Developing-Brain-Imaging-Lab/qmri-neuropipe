@@ -308,6 +308,11 @@ class DiffusionProcessingPipeline:
                             help='Fitting Algorithm for Diffusion Tensor Imaging Model',
                             choices=['WLS', 'NLS'],
                             default=None)
+        
+       parser.add_argument('--fwe_bmax',
+                            type=float,
+                            help='Maximum B-value to use for FWE-DTI fitting',
+                            default=None)
 
         parser.add_argument('--dki_fit_method',
                             type=str,
@@ -780,6 +785,7 @@ class DiffusionProcessingPipeline:
                                             out_dir     = dmri_models_dir,
                                             fit_type    = args.fwe_fit_method,
                                             mask        = dmri_mask,
+                                            bmax        = args.fwe_bmax,
                                             grad_nonlin = gradnonlin_image,
                                             nthreads    = args.nthreads)
                 fwedti_model.fit()

@@ -6,3 +6,5 @@ testing/
 
 *.py[co]
 *DS_Store*
+.DS_Store?
+.DS_Store
