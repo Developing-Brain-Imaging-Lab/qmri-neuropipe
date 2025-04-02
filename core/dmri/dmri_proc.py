@@ -309,7 +309,7 @@ class DiffusionProcessingPipeline:
                             choices=['WLS', 'NLS'],
                             default=None)
         
-       parser.add_argument('--fwe_bmax',
+        parser.add_argument('--fwe_bmax',
                             type=float,
                             help='Maximum B-value to use for FWE-DTI fitting',
                             default=None)
