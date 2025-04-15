@@ -49,8 +49,8 @@ def prep_rawdata(bids_dir, preproc_dir,
         sidecar = layout.get(subject=id, session=session, datatype='dwi', suffix='dwi', extension='json', return_type='filename')[0]
         
         shutil.copy2(img, dwi_img.filename)
-        shutil.copy2(bvals, dwi_img.bvecs)
-        shutil.copy2(bvecs, dwi_img.bvals)
+        shutil.copy2(bvals, dwi_img.bvals)
+        shutil.copy2(bvecs, dwi_img.bvecs)
         shutil.copy2(sidecar, dwi_img.json)
 
     else:
