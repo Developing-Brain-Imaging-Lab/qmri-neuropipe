@@ -555,35 +555,36 @@ class DiffusionProcessingPipeline:
                                                  verbose                = args.verbose) 
             
             #Calculate Topup/SynB0-DISCO field maps
-            if (args.dist_correction[0:5]).lower() == 'topup' or (args.dist_correction).lower() == 'synb0-disco':
-                topup_base = os.path.join(dmri_preproc_dir, "rawdata", "topup", id+"_desc-Topup")
-            
-                if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
-                    #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
-                    #here and not for subsequent processing
-                    eddy_img = eddy_proc.perform_eddy(dwi_image         = dwi_img,
-                                                      working_dir       = os.path.join(dmri_preproc_dir, "rawdata", "tmp-eddy-correction/"),
-                                                      method            ='eddy',
-                                                      gpu               = args.gpu,
-                                                      cuda_device       = args.cuda_device,
-                                                      nthreads          = args.nthreads,
-                                                      fsl_eddy_options  = " --data_is_shelled",
-                                                      verbose           = args.verbose) 
-                                                      
-                    if args.dist_correction.lower()[0:5] == 'topup' :
-                        distort_proc.perform_topup(dwi_image    = eddy_img,
-                                                   topup_base   = topup_base,
-                                                   topup_config = args.topup_config,
-                                                   dist_corr    = 'Topup',
-                                                   verbose      = args.verbose)
+            if args.dist_correction != None:
+                if (args.dist_correction[0:5]).lower() == 'topup' or (args.dist_correction).lower() == 'synb0-disco':
+                    topup_base = os.path.join(dmri_preproc_dir, "rawdata", "topup", id+"_desc-Topup")
+                
+                    if not os.path.exists(f"{topup_base}_fieldcoef.nii.gz"):
+                        #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
+                        #here and not for subsequent processing
+                        eddy_img = eddy_proc.perform_eddy(dwi_image         = dwi_img,
+                                                        working_dir       = os.path.join(dmri_preproc_dir, "rawdata", "tmp-eddy-correction/"),
+                                                        method            ='eddy',
+                                                        gpu               = args.gpu,
+                                                        cuda_device       = args.cuda_device,
+                                                        nthreads          = args.nthreads,
+                                                        fsl_eddy_options  = " --data_is_shelled",
+                                                        verbose           = args.verbose) 
+                                                        
+                        if args.dist_correction.lower()[0:5] == 'topup' :
+                            distort_proc.perform_topup(dwi_image    = eddy_img,
+                                                    topup_base   = topup_base,
+                                                    topup_config = args.topup_config,
+                                                    dist_corr    = 'Topup',
+                                                    verbose      = args.verbose)
 
-                    if args.dist_correction.lower() == 'synb0-disco':
-                        #Run the Synb0 distortion correction'
-                        distcorr.run_synb0_disco(dwi_img        = eddy_img,
-                                                 t1w_img        = anat_img,
-                                                 topup_base     = topup_base,
-                                                 topup_config   = args.topup_config,
-                                                 nthreads       = args.nthreads)
+                        if args.dist_correction.lower() == 'synb0-disco':
+                            #Run the Synb0 distortion correction'
+                            distcorr.run_synb0_disco(dwi_img        = eddy_img,
+                                                    t1w_img        = anat_img,
+                                                    topup_base     = topup_base,
+                                                    topup_config   = args.topup_config,
+                                                    nthreads       = args.nthreads)
                 
 
 
