@@ -181,7 +181,7 @@ class DESPOTProcessingPipeline:
         parser.add_argument('--b1_method',
                             type=str,
                             help='B1 Field Inhomogeneity Correction Method',
-                            choices=['afi', 'hifi', 'none'],
+                            choices=['afi', 'hifi', 'afinet', 'none'],
                             default='afi')
 
         parser.add_argument('--despot1_fit_method',
@@ -315,8 +315,10 @@ class DESPOTProcessingPipeline:
             
             if not os.path.exists(fmap_preproc_dir):
                 os.makedirs(fmap_preproc_dir)
-        
-        
+
+        if args.b1_method.lower() == 'afinet':
+            afi_b1map = Image(filename = os.path.join(fmap_preproc_dir, id+"_TB1map.nii.gz"))
+            
         #IF performing HYBRID DESPOT, first, resample images to the higher resolution and then combine
         if args.despot_hybrid:
             spgr_highres_img = nib.load(spgr_highres.filename)
