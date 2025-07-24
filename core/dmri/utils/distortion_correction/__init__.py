@@ -646,6 +646,8 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                           algo     = mask_method)
     
 
+    print(t1w_img.filename)
+
     #Normalize T1w
     T1w_mgz = Image(filename = os.path.join(working_dir, "T1w.mgz"))
     CMD = f"mri_convert {t1w_img.filename} {T1w_mgz.filename}"
