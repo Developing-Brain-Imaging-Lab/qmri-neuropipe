@@ -7,6 +7,7 @@ from bids.layout import writing, parse_file_entities
 from dipy.nn.tf.synb0 import Synb0
 
 from core.utils.io import Image, DWImage
+from core.utils.cmd import run_cmd
 import core.utils.tools as img_tools
 import core.utils.mask as mask_tools
 import core.dmri.tools as dmri_tools
@@ -644,6 +645,28 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                           mask_img = T1w_brain, 
                           algo     = mask_method)
     
+
+    #Normalize T1w
+    T1w_mgz = Image(filename = os.path.join(working_dir, "T1w.mgz"))
+    CMD = f"mri_convert {t1w_img.filename} {T1w_mgz.filename}"
+    run_cmd(CMD)
+
+    T1w_N3_mgz = Image(filename = os.path.join(working_dir, "T1w_n3.mgz"))
+    CMD = f"mri_nu_correct.mni --i {T1w_mgz.filename} --o {T1w_N3_mgz.filename} --n2"
+    run_cmd(CMD)
+
+    T1w_norm_mgz = Image(filename = os.path.join(working_dir, "T1w_norm.mgz"))
+    CMD=f"mri_normalize -g 1 -mprage {T1w_N3_mgz.filename} {T1w_norm_mgz.filename}"
+    run_cmd(CMD)
+
+    T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
+    CMD=f"mri_convert {T1w_norm_mgz.filename} {T1w_norm.filename}"
+    run_cmd(CMD)
+
+    CMD=f"mri_convert {T1w_mgz.filename} {t1w_img.filename}"
+    run_cmd(CMD)
+
+
     # if wmseg_img == None:
     #     #Create WMseg
     #     wmseg_img = create_wmseg(input_img  = t1w_img,
@@ -680,30 +703,41 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     #REGISTER T1 to Atlas
     mni_atlas_img       = Image(filename = os.path.join(os.path.dirname(__file__), "data", "mni_icbm152_t1_tal_nlin_asym_09c_mask_2_5.nii.gz"))
     T1w_mni             = Image(filename = os.path.join(working_dir, "T1w_mni.nii.gz"))
-    dwi_2_mni_fslmat    = os.path.join(working_dir, "dwi_2_mni.mat")
-    dwi_2_mni_antsmat   = os.path.join(working_dir, "dwi_2_mni.txt")
-
-    linreg(input          = T1w_2_dwi,
+    T1w_2_mni_fslmat    = os.path.join(working_dir, "T1w_2_mni.mat")
+    T1w_2_mni_antsmat   = os.path.join(working_dir, "T1w_2_mni.txt")
+    
+    linreg(input          = t1w_img,
            ref            = mni_atlas_img,
            out            = T1w_mni,
-           out_mat        = dwi_2_mni_fslmat,
+           out_mat        = T1w_2_mni_fslmat,
            method         = 'fsl',
            dof            = 12,
            flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
     
-    convert_fsl2ants(input    = T1w_2_dwi,
+    convert_fsl2ants(input    = t1w_img,
                      ref      = mni_atlas_img,
-                     fsl_mat  = dwi_2_mni_fslmat,
-                     ants_mat = dwi_2_mni_antsmat)
-
+                     fsl_mat  = T1w_2_mni_fslmat,
+                     ants_mat = T1w_2_mni_antsmat)
 
     b0_in_mni         = Image(filename = os.path.join(working_dir, "b0_in_mni.nii.gz"))
     T1w_in_mni        = Image(filename = os.path.join(working_dir, "T1w_in_mni.nii.gz"))
-    T1w_2_mni_antsmat = os.path.join(working_dir, "T1w_2_mni.txt")
+    dwi_2_mni_antsmat = os.path.join(working_dir, "dwi_2_mni.txt")
+
+
+    #Apply linear registration to normalized T1w to get into Atlas space
+    T1w_norm_atlas = Image(filename = os.path.join(working_dir, "T1w_norm_mni.nii.gz"))
+    apply_transform(input        = T1w_norm,
+                    ref          = mni_atlas_img,
+                    out          = T1w_norm_atlas,
+                    transform    = T1w_2_mni_antsmat,
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
+
 
     create_composite_transform(ref        = mni_atlas_img,
-                               out        = T1w_2_mni_antsmat,
-                               transforms = [dwi_2_mni_antsmat, T1w_2_dwi_antsmat], 
+                               out        = dwi_2_mni_antsmat,
+                               transforms = [T1w_2_mni_antsmat, T1w_2_dwi_antsmat], 
                                linear     = True,
                                inverse    = 0)
     #WARP B0 TO MNI
@@ -716,7 +750,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                     ants_options = "-n BSpline")
 
     #WARP T1w TO MNI
-    apply_transform(input        = t1w_img,
+    apply_transform(input        = T1w_norm,
                     ref          = mni_atlas_img,
                     out          = T1w_in_mni,
                     transform    = T1w_2_mni_antsmat,
@@ -727,6 +761,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     #USE Synb0 to predict the reverse encoded image
     if verbose:
         print('Creating synthetic undistorted b0 images')
+
     SyNb0       = Synb0(verbose)
 
     b0_img  = nib.load(b0_in_mni.filename)
