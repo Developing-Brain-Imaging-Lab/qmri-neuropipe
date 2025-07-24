@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os, sys, subprocess, shutil
+from .cmd import run_cmd
 
 #Neuroimaging Modules
 import ants
@@ -16,7 +17,7 @@ def apply_mask(input, mask, output, debug=False):
         print("Applying mask image")
         print(CMD)
 
-    os.system(CMD)
+    run_cmd(CMD)
 
 def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gpu_device=0, ref_img=None, ref_mask=None, bet_options="", ants_lower_threshold=0.2, antspynet_modality="t1", debug=False, logfile=None):
 
@@ -26,33 +27,33 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
     input_dir  = os.path.dirname(input.filename)
     output_dir, img = os.path.split(mask.filename)
 
-    temp_img    = img_tools.calculate_mean_img(input, os.path.join(output_dir, "temp_img.nii.gz"), debug=debug)
+    temp_img = img_tools.calculate_mean_img(input, os.path.join(output_dir, "temp_img.nii.gz"), debug=debug)
     CMD=""
 
     if algo == "bet":
-        CMD = "bet " + temp_img.filename+ " " + mask.filename + " " + bet_options
+        CMD = f"bet {temp_img.filename} {mask.filename} {bet_options}"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
         mask = img_tools.binarize(mask, debug=debug)
 
     elif algo == "hd-bet":
         os.environ['MKL_THREADING_LAYER'] = 'GNU'
 
         temp_mask = os.path.join(output_dir, "temp_mask")
-        CMD = "hd-bet -i " + temp_img.filename + " -mode accurate -tta 0 -o " + temp_mask
+        CMD = f"hd-bet -i {temp_img.filename} -o {temp_mask}.nii.gz"
 
         if gpu:
             CMD+= f" -device {gpu_device}"
         else:
-            CMD+= " -device cpu"
+            CMD+= f" -device cpu --disable_tta"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
         os.rename(temp_mask+"_mask.nii.gz", mask.filename)
         os.remove(temp_mask+".nii.gz")
 
@@ -69,12 +70,12 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
 
     elif algo == "afni":
 
-        CMD = "3dSkullStrip -input " + temp_img.filename + " -prefix " + mask.filename
+        CMD = f"3dSkullStrip -input {temp_img.filename} -prefix {mask.filename}"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
         mask = img_tools.binarize(mask, debug=debug)
 
     elif algo == "mrtrix":
@@ -87,24 +88,22 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
             print('Need to specify B-vectors and B-values to use dwi2mask!')
             exit(-1)
 
-        CMD = "dwi2mask -quiet -force -fslgrad " + input.bvecs + " " + input.bvals + " " \
-            + input.filename + " " + mask.filename + " -nthreads " + str(nthreads)
+        CMD = f"dwi2mask -quiet -force -fslgrad {input.bvecs} {input.bvals} {input.filename} {mask.filename} -nthreads {str(nthreads)}"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
 
     elif algo == "mri_synthstrip":
 
-        CMD = "mri_synthstrip -i " + temp_img.filename + " -o " + mask.filename
+        CMD = f"mri_synthstrip -i {temp_img.filename} -o {mask.filename}"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
         mask = img_tools.binarize(mask, debug=debug)
-
 
     elif algo == 'ants':
 
@@ -115,25 +114,18 @@ def mask_image(input, mask, mask_img=None, algo="bet", nthreads=1, gpu=False, gp
             exit(-1)
 
         ants_output = output_dir + '/ants_'
-
-        CMD = "antsRegistrationSyN.sh -d 3 -j 1 -y 1 -n " + str(nthreads) \
-                 + " -f " + temp_img.filename \
-                 + " -m " + ref_img \
-                 + " -o " + ants_output
+        CMD = f"antsRegistrationSyN.sh -d 3 -j 1 -y 1 -n {str(nthreads)} -f {temp_img.filename} -m {ref_img} -o {ants_output}"
 
         if debug:
             print(CMD)
 
-        subprocess.run([CMD], shell=True, stdout=logfile)
-
+        run_cmd(CMD)
+       
         #Warp the mask
-        CMD = "antsApplyTransforms -d 3 -n NearestNeighbor" \
-                 + " -i " + ref_mask \
-                 + " -r " + temp_img.filename \
-                 + " -o " + mask.filename
+        CMD = f"antsApplyTransforms -d 3 -n NearestNeighbor -i {ref_mask} -r {temp_img.filename} -o {mask.filename}"
         if debug:
             print(CMD)
-        subprocess.run([CMD], shell=True, stdout=logfile)
+        run_cmd(CMD)
         os.system("rm -rf " + os.path.join(output_dir, "ants*"))
 
     elif algo == 'antspynet':

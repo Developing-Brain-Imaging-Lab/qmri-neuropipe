@@ -128,8 +128,7 @@ class DTI_Model():
         dwi_img = self._inputs['dwi_img']
         output_dir = os.path.dirname(self._inputs['out_dir'])
 
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
 
         if self._inputs['fit_type'][0:4]=='dipy':
             img = nib.load(dwi_img.filename)
@@ -137,7 +136,7 @@ class DTI_Model():
             ras_img = nib.as_closest_canonical(img)
             data = ras_img.get_fdata()
             
-            bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
+            bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)            
             bvecs = reorient_vectors(bvecs, axis_orient[0]+axis_orient[1]+axis_orient[2],'RAS',axis=1)
 
             if self._inputs['mask'] != None:
@@ -159,7 +158,9 @@ class DTI_Model():
             flat_params = np.empty((flat_data.shape[0], 12))
             flat_tensor = np.empty((flat_data.shape[0], 6))
             flat_mask   = mask_data.reshape(-1)
-            gtab = gradient_table(bvals, bvecs, atol=0.1)
+            gtab = gradient_table(bvals = bvals, 
+                                  bvecs = bvecs,
+                                  atol=0.1)
 
             grad_nonlin_data = None
             if self._inputs['grad_nonlin'] != None:
@@ -170,7 +171,9 @@ class DTI_Model():
 
                     if self._inputs['grad_nonlin'] != None:
                         corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
-                        gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+                        gtab = gradient_table(bvals = corr_bvals, 
+                                              bvecs = corr_bvecs, 
+                                              atol  = 0.1)
 
                     dti_model = None
                     if self._inputs['fit_type'] == 'dipy-RESTORE':
@@ -236,18 +239,18 @@ class DTI_Model():
             sphericity[np.isnan(sphericity)]            = 0
              # dti_mode[np.isnan(dti_mode)]                = 0
 
-            save_nifti(self._outputs['v1'], evecs[:,:,:,:,0], ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['v2'], evecs[:,:,:,:,1], ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['v3'], evecs[:,:,:,:,2], ras_img.affine, ras_img.header)
+            save_nifti(self._outputs['v1'], evecs[:,:,:,:,0], ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['v2'], evecs[:,:,:,:,1], ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['v3'], evecs[:,:,:,:,2], ras_img.affine, hdr=ras_img.header)
 
-            save_nifti(self._outputs['l1'], evals[:,:,:,0], ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['l2'], evals[:,:,:,1], ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['l3'], evals[:,:,:,2], ras_img.affine, ras_img.header)
+            save_nifti(self._outputs['l1'], evals[:,:,:,0], ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['l2'], evals[:,:,:,1], ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['l3'], evals[:,:,:,2], ras_img.affine, hdr=ras_img.header)
 
-            save_nifti(self._outputs['fa'], fa, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['md'], md, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['rd'], rd, ras_img.affine, ras_img.header)
-            save_nifti(self._outputs['ad'], ad, ras_img.affine, ras_img.header)
+            save_nifti(self._outputs['fa'], fa, ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['md'], md, ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['rd'], rd, ras_img.affine, hdr=ras_img.header)
+            save_nifti(self._outputs['ad'], ad, ras_img.affine, hdr=ras_img.header)
             
             self.create_param_json(Image(self._outputs['fa']))
             self.create_param_json(Image(self._outputs['md']))
@@ -261,11 +264,11 @@ class DTI_Model():
             self.create_param_json(Image(self._outputs['l3']))
 
             if self._inputs['full_output']:
-                save_nifti(self._outputs['ga'], ga, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['tr'], trace, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['pl'], planarity, ras_img.affine, ras_img.header)
-                save_nifti(self._outputs['sp'], sphericity, ras_img.affine, ras_img.header)
+                save_nifti(self._outputs['ga'], ga, ras_img.affine, hdr=ras_img.header)
+                save_nifti(self._outputs['cfa'], color_fa, ras_img.affine, hdr=ras_img.header)
+                save_nifti(self._outputs['tr'], trace, ras_img.affine, hdr=ras_img.header)
+                save_nifti(self._outputs['pl'], planarity, ras_img.affine, hdr=ras_img.header)
+                save_nifti(self._outputs['sp'], sphericity, ras_img.affine, hdr=ras_img.header)
                 #save_nifti(self._outputs['mo'], dti_mode, ras_img.affine, ras_img.header)
                 #save_nifti(self._outputs['res'], residuals, ras_img.affine, ras_img.header)
 
@@ -327,21 +330,21 @@ class DTI_Model():
             for i in range(0,2):
                 corr_fsl_v1[:,:,:,i] = sign_order[i]*corr_fsl_v1[:,:,:,i]
 
-            save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, fsl_v1.header)
+            save_nifti(self._outputs['v1'], corr_fsl_v1, fsl_v1.affine, hdr=fsl_v1.header)
 
             fsl_v2 = nib.load(self._outputs['v2'])
             corr_fsl_v2 = fsl_v2.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v2[:,:,:,i] = sign_order[i]*corr_fsl_v2[:,:,:,i]
 
-            save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, fsl_v2.header)
+            save_nifti(self._outputs['v2'], corr_fsl_v2, fsl_v2.affine, hdr=fsl_v2.header)
 
             fsl_v3 = nib.load(self._outputs['v3'])
             corr_fsl_v3 = fsl_v3.get_fdata()[:,:,:,vec_order]
             for i in range(0,2):
                 corr_fsl_v3[:,:,:,i] = sign_order[i]*corr_fsl_v3[:,:,:,i]
 
-            save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, fsl_v3.header)
+            save_nifti(self._outputs['v3'], corr_fsl_v3, fsl_v3.affine, hdr=fsl_v3.header)
 
         elif self._inputs['fit_type'][0:6] == 'mrtrix':
 
@@ -523,7 +526,8 @@ class FWEDTI_Model():
         img = nib.load(dwi_img.filename)
         data = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-        gtab = gradient_table(bvals, bvecs)
+        gtab = gradient_table(bvals = bvals, 
+                              bvecs = bvecs)
 
         if self._inputs['bmax'] != None:
             jj = np.where(bvals >= self._inputs['bmax'])
@@ -538,7 +542,9 @@ class FWEDTI_Model():
         flat_params = np.empty((flat_data.shape[0], 13))
         flat_tensor = np.empty((flat_data.shape[0], 6))
         flat_mask   = mask_data.reshape(-1)
-        gtab = gradient_table(bvals, bvecs, atol=0.1)
+        gtab = gradient_table(bvals = bvals, 
+                              bvecs = bvecs, 
+                              atol=0.1)
         bval_map    = np.empty(flat_data.shape)
         bvec_map    = np.empty((flat_data.shape + (3,))) 
 
@@ -550,11 +556,13 @@ class FWEDTI_Model():
             if flat_mask[vox] > 0:
                 if self._inputs['grad_nonlin'] != None:
                     corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
-                    gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+                    gtab = gradient_table(bvals = corr_bvals, 
+                                          bvecs = corr_bvecs , 
+                                          atol=0.1)
                     bval_map[vox] = corr_bvals
                     bvec_map[vox] = corr_bvecs
 
-                fwidtimodel = fwdti.FreeWaterTensorModel(gtab, self._inputs['fit_type'])
+                fwidtimodel = fwdti.FreeWaterTensorModel(gtab, fit_method=self._inputs['fit_type'])
                 fwidti_fit = fwidtimodel.fit(flat_data[vox])
                 flat_params[vox] = fwidti_fit.model_params
                 
@@ -576,16 +584,16 @@ class FWEDTI_Model():
         f[np.isnan(f)]   = 0    
 
         # #Calculate Parameters for FWDTI Model
-        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['f'],  f.astype(np.float32),  img.affine, img.header)
-        save_nifti(self._outputs['l1'], evals[:,:,:,0], img.affine, img.header)
-        save_nifti(self._outputs['l2'], evals[:,:,:,1], img.affine, img.header)
-        save_nifti(self._outputs['l3'], evals[:,:,:,2], img.affine, img.header)
+        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['f'],  f.astype(np.float32),  img.affine, hdr=img.header)
+        save_nifti(self._outputs['l1'], evals[:,:,:,0], img.affine, hdr=img.header)
+        save_nifti(self._outputs['l2'], evals[:,:,:,1], img.affine, hdr=img.header)
+        save_nifti(self._outputs['l3'], evals[:,:,:,2], img.affine, hdr=img.header)
 
-        save_nifti(self._outputs['bvals'], bval_map.reshape(data.shape), img.affine, img.header)
-        save_nifti(self._outputs['bvec_1'], bvec_map.reshape((data.shape+(3,)))[...,0], img.affine, img.header)
-        save_nifti(self._outputs['bvec_2'], bvec_map.reshape((data.shape+(3,)))[...,1], img.affine, img.header)
-        save_nifti(self._outputs['bvec_3'], bvec_map.reshape((data.shape+(3,)))[...,2], img.affine, img.header)
+        save_nifti(self._outputs['bvals'], bval_map.reshape(data.shape), img.affine, hdr=img.header)
+        save_nifti(self._outputs['bvec_1'], bvec_map.reshape((data.shape+(3,)))[...,0], img.affine, hdr=img.header)
+        save_nifti(self._outputs['bvec_2'], bvec_map.reshape((data.shape+(3,)))[...,1], img.affine, hdr=img.header)
+        save_nifti(self._outputs['bvec_3'], bvec_map.reshape((data.shape+(3,)))[...,2], img.affine, hdr=img.header)

@@ -66,7 +66,6 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
         os.system("gzip " + os.path.join(graddev_dir, "temp_img_graddev_c.nii"))
         os.system("cp " + os.path.join(graddev_dir, "temp_img_graddev_c.nii.gz") + " " + dmri_graddev_file)
 
-
     #Clean up Temporary Files
     # if temp_img.exists():
     #     os.remove(temp_img.filename)
@@ -83,6 +82,9 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
         file_path = os.path.join(working_dir, file_name)
         if os.path.exists(file_path):
             os.remove(file_path)
+
+
+    return dmri_graddev_file
 
 if __name__ == '__main__':
 

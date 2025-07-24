@@ -75,7 +75,8 @@ class DKI_Model():
         img          = nib.load(dwi_img.filename)
         data         = img.get_fdata()
         bvals, bvecs = read_bvals_bvecs(dwi_img.bvals, dwi_img.bvecs)
-        gtab         = gradient_table(bvals, bvecs)
+        gtab         = gradient_table(bvals=bvals, 
+                                      bvecs=bvecs)
 
         if self._inputs['mask'] != None:
             mask_data = nib.load(self._inputs['mask'].filename).get_fdata()
@@ -98,7 +99,9 @@ class DKI_Model():
         flat_data   = data_to_fit.reshape(-1, data_to_fit.shape[-1])
         flat_params = np.empty((flat_data.shape[0], npa))
         flat_mask   = mask_data.reshape(-1)
-        gtab        = gradient_table(bvals, bvecs, atol=0.1)
+        gtab        = gradient_table(bvals=bvals, 
+                                     bvecs=bvecs, 
+                                     atol=0.1)
 
         grad_nonlin_data = None
         if self._inputs['grad_nonlin'] != None:
@@ -108,10 +111,12 @@ class DKI_Model():
             if flat_mask[vox] > 0:
                 if self._inputs['grad_nonlin'] != None:
                     corr_bvals, corr_bvecs = correct_bvals_bvecs(bvals, bvecs, grad_nonlin_data[vox])
-                    gtab = gradient_table(corr_bvals, corr_bvecs, atol=0.1)
+                    gtab = gradient_table(bvals=corr_bvals, 
+                                          bvecs=corr_bvecs, 
+                                          atol=0.1)
 
                 fit_type = self._inputs['fit_type'].split('-')[1]
-                dkimodel = dki.DiffusionKurtosisModel(gtab, fit_type)
+                dkimodel = dki.DiffusionKurtosisModel(gtab, fit_method=fit_type)
                 dkifit   = dkimodel.fit(flat_data[vox])
                 flat_params[vox] = dkifit.model_params
 
@@ -149,16 +154,16 @@ class DKI_Model():
         mkt = dki.mean_kurtosis_tensor(params)
         #rtk = dki.radial_tensor_kurtosis(params)
   
-        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['mk'], mk.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['rk'], rk.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['ak'], ak.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['mkt'],mkt.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['fa'], fa.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['md'], md.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['rd'], rd.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['ad'], ad.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['mk'], mk.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['rk'], rk.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['ak'], ak.astype(np.float32), img.affine, hdr=img.header)
+        save_nifti(self._outputs['mkt'],mkt.astype(np.float32), img.affine, hdr=img.header)
         #save_nifti(self._outputs['rtk'],rtk.astype(np.float32), img.affine, img.header)
-        save_nifti(self._outputs['kfa'],kfa.astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['kfa'],kfa.astype(np.float32), img.affine, hdr=img.header)
 
         if self._inputs['micro']:
 
@@ -185,8 +190,8 @@ class DKI_Model():
             well_aligned_mask[np.isnan(cp)] = False
             well_aligned_mask[np.isnan(cs)] = False
 
-            dki_micro_model = dki_micro.KurtosisMicrostructureModel(gtab, fit_type)
+            dki_micro_model = dki_micro.KurtosisMicrostructureModel(gtab, fit_method=fit_type)
             dki_micro_fit = dki_micro_model.fit(data_to_fit, mask=well_aligned_mask)
 
-            save_nifti(self._outputs['awf'], dki_micro_fit.awf.astype(np.float32), img.affine, img.header)
-            save_nifti(self._outputs['tort'], dki_micro_fit.tortuosity.astype(np.float32), img.affine, img.header)
+            save_nifti(self._outputs['awf'], dki_micro_fit.awf.astype(np.float32), img.affine, hdr=img.header)
+            save_nifti(self._outputs['tort'], dki_micro_fit.tortuosity.astype(np.float32), img.affine, hdr=img.header)

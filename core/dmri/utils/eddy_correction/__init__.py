@@ -74,7 +74,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
               + ' --out='   + eddy_output_base
     
     if not cuda:
-        command += ' --nthr ' + str(nthreads)
+        command += ' --nthr=' + str(nthreads)
     if topup_base != None:
         command += ' --topup='+topup_base
     if external_b0 != None:
@@ -85,6 +85,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
     if debug:
         print(command)
         
+    print(command)
     os.system(command)
     #Rotate b-vecs after doing the eddy correction
     os.rename(eddy_output_base+'.eddy_rotated_bvecs', output_img.bvecs)

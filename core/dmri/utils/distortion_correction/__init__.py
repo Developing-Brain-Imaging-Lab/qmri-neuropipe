@@ -4,7 +4,7 @@ import numpy as np
 import nibabel as nib
 
 from bids.layout import writing, parse_file_entities
-from dipy.nn.synb0 import Synb0
+from dipy.nn.tf.synb0 import Synb0
 
 from core.utils.io import Image, DWImage
 import core.utils.tools as img_tools
@@ -47,6 +47,8 @@ def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False
 
 
     output_dir = os.path.dirname(output_topup_base)
+    os.makedirs(output_dir, exist_ok=True)
+    
     tmp_acqparams = os.path.join(output_dir, "tmp.acqparams.txt")
     tmp_b0 = os.path.join(output_dir, "tmp.B0.nii.gz")
 
@@ -642,19 +644,19 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                           mask_img = T1w_brain, 
                           algo     = mask_method)
     
-    if wmseg_img == None:
-        #Create WMseg
-        wmseg_img = create_wmseg(input_img  = t1w_img,
-                                 output_dir = os.path.join(working_dir), 
-                                 nthreads   = nthreads)
-    #Normalize the T1w image
-    T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
-    T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
-    os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + "  " + T1w_wm.filename)
+    # if wmseg_img == None:
+    #     #Create WMseg
+    #     wmseg_img = create_wmseg(input_img  = t1w_img,
+    #                              output_dir = os.path.join(working_dir), 
+    #                              nthreads   = nthreads)
+    # #Normalize the T1w image
+    # T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
+    # T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
+    # os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + "  " + T1w_wm.filename)
 
-    WM     = nib.load(T1w_wm.filename).get_fdata()
-    avg_wm = np.mean(WM[np.nonzero(WM)])
-    os.system("fslmaths " + t1w_img.filename + " -div " + str(avg_wm) + " -mul 110 " + T1w_norm.filename)
+    # WM     = nib.load(T1w_wm.filename).get_fdata()
+    # avg_wm = np.mean(WM[np.nonzero(WM)])
+    # os.system("fslmaths " + t1w_img.filename + " -div " + str(avg_wm) + " -mul 110 " + T1w_norm.filename)
 
     #Coregister the T1w to the DWI image
     T1w_2_dwi         = Image(filename = os.path.join(working_dir, "T1w_toDWI.nii.gz"))

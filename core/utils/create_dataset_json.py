@@ -53,10 +53,8 @@ def create_bids_sidecar_json(image, data):
      :type filename : str
     """
 
-    if not image.json:
-        image.json = image.filename.replace('.nii.gz', '.json')
+    image.json = image.filename.replace('.nii.gz', '.json')
         
-
     with open(image.json, 'w+') as outfile:
         json.dump(data, outfile, indent=2)
         

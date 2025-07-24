@@ -24,7 +24,7 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
     output_img.filename = output_file
     output_dir, tmp     = os.path.split(output_img.filename)
 
-    if mask==None:
+    if mask is None or not mask.exists():
         mask = Image(os.path.join(output_dir, 'temp_mask.nii.gz'))
         img_tools.calculate_mean_img(input_img, mask.filename)
         mask_image(input_img, mask, algo='bet', bet_options='-f 0.05', nthreads = nthreads)
@@ -41,7 +41,6 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
             print("Denoising image")
             print(CMD)
         
-        print(CMD)
         subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
     elif method=="ants":
@@ -93,7 +92,6 @@ def denoise_image(input_img, output_file, method='mrtrix', mask=None, noise_map=
         os.remove(os.path.join(output_dir, 'temp_mask.nii.gz'))
 
     return output_img
-
 
 
 if __name__ == '__main__':

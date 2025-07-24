@@ -39,8 +39,6 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
         if mask_img != None:
             CMD += " -x " + mask_img.filename
         
-        print(CMD)
-
     elif method == "fsl":
         tmp_dir = os.path.join(os.path.dirname(output_img.filename), "tmp_fast")
 
@@ -114,7 +112,7 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
                 exit()
 
             if debug:
-                print("Biasfield correction: Iteration " + str(iteration+1))
+                print("Biasfield correction: Iteration " + str(i+1))
                 print(CMD)
 
             subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)

@@ -1,9 +1,9 @@
 import os, shutil
-from core.utils.io import Image, DWImage
+from core.utils.io import Image
 
 import core.dmri.utils.eddy_correction as eddycorr
 import core.dmri.tools as dmri_tools
-from core.dmri.utils.rotate_fsl_bvecs import rotate_fsl_bvecs 
+from .rotate_fsl_bvecs import rotate_fsl_bvecs 
 
 from core.registration.linreg import linreg
 

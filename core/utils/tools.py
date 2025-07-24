@@ -5,6 +5,8 @@ import numpy as np
 import nibabel as nib
 from .io import Image
 
+from .cmd import run_cmd
+
 def binarize(input_img, debug=False):
     output_img = copy.deepcopy(input_img)
 
@@ -14,8 +16,7 @@ def binarize(input_img, debug=False):
         print("Binarize Image")
         print(CMD)
 
-    #os.system(CMD)
-    subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
+    run_cmd(CMD)
 
     return output_img
 
@@ -167,13 +168,19 @@ def check_isotropic_voxels(input_img, output_file, target_resolution=None, debug
 
         if not target_resolution:
             target_resolution = np.repeat(max(voxel_size), 3)
-            print(target_resolution)
-
+           
         return resample_image(input_img, output_file, target_resolution, debug=debug)
 
     elif target_resolution:
-        print ('Resampling Image Voxels')
-        return resample_image(input_img, output_file, np.fromstring(target_resolution, dtype=float, sep=' '), debug=debug)
+        if not np.allclose(voxel_size, target_resolution):
+            if debug:
+                print ('Resampling Image Voxels')
+            return resample_image(input_img, output_file, target_resolution, debug=debug)
+        else:
+            if debug:
+                print ('Voxel size matches target resolution')
+            return input_img
+                
     else:
         return input_img
 

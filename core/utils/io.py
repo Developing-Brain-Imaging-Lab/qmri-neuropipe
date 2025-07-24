@@ -48,11 +48,9 @@ class Image:
     def get_type(self):
         return "Image"
         
-        
 
 class DWImage(Image):
-
-    def __init__(self, filename=None, bvals=None, bvecs=None, json=None, index=None, acqparams=None, slspec=None):
+    def __init__(self, filename=None, bvals=None, bvecs=None, index=None, acqparams=None, slspec=None, json=None):
         Image.__init__(self, filename, json)
         self.bvals      = bvals        
         self.bvecs      = bvecs
@@ -98,8 +96,6 @@ class DWImage(Image):
                 os.remove(self.acqparams)
             if self.slspec != None:
                 os.remove(self.slspec)
-            if self.json != None:
-                os.remove(self.json)
     
     def get_type(self):
         return "DWImage"

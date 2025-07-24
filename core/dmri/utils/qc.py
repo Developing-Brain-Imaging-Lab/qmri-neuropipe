@@ -1,4 +1,4 @@
-import string, os, sys, subprocess, shutil, time, json, copy
+import os, subprocess, shutil, json, copy
 from glob import glob
 
 import nibabel as nib
@@ -13,7 +13,6 @@ from dipy.core.gradients import reorient_vectors
 
 from core.utils.io import Image, DWImage
 import core.utils.mask as mask
-import core.utils.tools as img_tools
 
 #from PNGViewer import PNGViewer
 
@@ -47,10 +46,9 @@ def merge_phase_encodes(DWI_pepolar0, DWI_pepolar1, output_base):
         bvecs_pepolar1 = np.delete(bvecs_pepolar1, indices_to_remove, 0)
 
     #Read in the DWI ACQPARAMS FILE, DETERMINE WHICH IMAGES CORRESPOND TO UP AND DOWN, AND MERGE INTO SEPARATE FILES
-    #img_tools.merge_images([DWI_pepolar0, DWI_pepolar1], DWI_out)
     merged_dwi = nib.funcs.concat_images((dwi_pepolar0, dwi_pepolar1), axis=3)
-    bvals = np.concatenate((bvals_pepolar0, bvals_pepolar1), axis=0)
-    bvecs = np.concatenate((bvecs_pepolar0, bvecs_pepolar1), axis=0)
+    bvals      = np.concatenate((bvals_pepolar0, bvals_pepolar1), axis=0)
+    bvecs      = np.concatenate((bvecs_pepolar0, bvecs_pepolar1), axis=0)
 
     acqparams = np.empty([2,4])
     acqparams_list = [DWI_pepolar0.json, DWI_pepolar1.json]
@@ -184,12 +182,12 @@ def rotate_bvecs(input_img, ref_img, output_bvec, transform, nthreads=1):
     os.remove(output_img)
 
 
-def create_index_acqparam_files(input_dwi, output_base):
+def create_index_acqparam_files(input_dwi, input_json, output_base):
 
     dwi_img = nib.load(input_dwi.filename)
     numberOfVolumes = dwi_img.header.get_data_shape()[3]
 
-    with open(input_dwi.json) as f:
+    with open(input_json) as f:
         dwi_json = json.load(f)
 
     phase_encode_dir = ''
@@ -264,12 +262,11 @@ def create_index_acqparam_files(input_dwi, output_base):
 
     return index_file, acqparams_file
 
-def create_slspec_file(input_dwi, output_base):
+def create_slspec_file(input_dwi, input_json, output_base):
 
-    from scipy.stats import rankdata
     slspec_file = output_base+"_desc-Slspec_dwi.txt"
 
-    with open(input_dwi.json) as f:
+    with open(input_json) as f:
         dwi_json = json.load(f)
 
         try:
@@ -337,7 +334,7 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
 
     numberOfVolumes = dwi_img.shape[3]
 
-    if method == "Manual":
+    if method.lower() == "manual":
         #Read the manual report
         imgs_to_remove = np.fromfile(manual_report_dir+"/imgs_to_remove.txt", sep=' ')
         vols_to_remove = []
@@ -353,7 +350,7 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
 
         report_data = np.loadtxt(input_report_file, skiprows=1) #Skip the first row in the file as it contains text information
 
-        if method == "Threshold":
+        if method.lower() == "threshold":
             numberOfSlices = report_data.shape[1] #Calculate the number of slices per volume
 
             #Calculate the threshold at which we will deem acceptable/unacceptable.
@@ -364,7 +361,7 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
             vols_to_remove = np.asarray(np.where(badVols)).flatten()
             vols_to_keep = np.asarray(np.where(goodVols)).flatten()
 
-        elif method == "EDDY-QUAD":
+        elif method.lower() == "eddy-quad":
             if os.path.exists(output_removed_imgs_dir+"/eddy-qc/"):
                 os.system('rm -rf ' + output_removed_imgs_dir+"/eddy-qc/")
 
