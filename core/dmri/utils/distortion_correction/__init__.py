@@ -652,7 +652,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     run_cmd(CMD)
 
     T1w_N3_mgz = Image(filename = os.path.join(working_dir, "T1w_n3.mgz"))
-    CMD = f"mri_nu_correct.mni --i {T1w_mgz.filename} --o {T1w_N3_mgz.filename} --n2"
+    CMD = f"mri_nu_correct.mni --i {T1w_mgz.filename} --o {T1w_N3_mgz.filename} --n 2"
     run_cmd(CMD)
 
     T1w_norm_mgz = Image(filename = os.path.join(working_dir, "T1w_norm.mgz"))
