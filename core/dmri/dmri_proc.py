@@ -995,7 +995,7 @@ class DiffusionProcessingPipeline:
             if self.preproc['run_topup'] or self.preproc['run_synb0'] or self.opts.dist_correction != None:
                 self.preproc["topup_base"] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
     
-                if not os.path.exists(f"{self.preproc["topup_base"]}_fieldcoef.nii.gz"):
+                if not os.path.exists(f'{self.preproc["topup_base"]}_fieldcoef.nii.gz'):
                     #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
                     #here and not for subsequent processing
                     eddy_img = self.EddyCurrentCorrection(DWI         = DWI,
