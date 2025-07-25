@@ -897,7 +897,7 @@ class DiffusionProcessingPipeline:
                 if not anat_masked.exists():
 
                     print(self.opts.mask_method)
-                    print(self.preproc['anat-mask'])
+                    print(self.preproc['anat-mask'].filename)
 
                     if self.preproc['anat-mask'].exists():
 
