@@ -1203,7 +1203,7 @@ class DiffusionProcessingPipeline:
             dirs_to_cleanup.append('biasfield-correction')
             dirs_to_cleanup.append('denoise-degibbs')
             dirs_to_cleanup.append('eddy-correction')
-            dirs_to_cleanup.append('coregister-to-anat')
+            dirs_to_cleanup.append('coregistered-to-anat')
 
             files_to_cleanup = []
             files_to_cleanup.append(self.bids_id + '_desc-acqparams_dwi.txt')
@@ -1215,6 +1215,9 @@ class DiffusionProcessingPipeline:
             files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.nii.gz')
             files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.bval')
             files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.bvec')
+            files_to_cleanup.append('img.mif')
+            files_to_cleanup.append('img_warped.mif')
+            
 
             outlier_files_to_cleanup = []
             outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved_dwi.bval')
