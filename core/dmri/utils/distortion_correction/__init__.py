@@ -653,7 +653,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     CMD=f"mri_convert {T1w_norm_mgz.filename} {T1w_norm.filename}"
     run_cmd(CMD)
 
-    CMD=f"mri_convert {T1w_mgz.filename} {T1w_img.filename}"
+    CMD=f"mri_convert {T1w_mgz.filename} {orig_T1w.filename}"
     run_cmd(CMD)
 
     #Extract the B0s from the DWI and compute mean                                     
