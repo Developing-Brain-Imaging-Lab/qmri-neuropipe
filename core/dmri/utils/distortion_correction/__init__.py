@@ -705,7 +705,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                      ants_mat = T1w_2_dwi_antsmat)
 
     #REGISTER T1 to Atlas
-    mni_atlas_img       = Image(filename = os.path.join(os.path.dirname(__file__), "data", "mni_icbm152_t1_tal_nlin_asym_09c_mask_2_5.nii.gz"))
+    mni_atlas_img       = Image(filename = os.path.join(os.path.dirname(__file__), "data", "mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz"))
     T1w_mni             = Image(filename = os.path.join(working_dir, "T1w_mni.nii.gz"))
     T1w_2_mni_fslmat    = os.path.join(working_dir, "T1w_2_mni.mat")
     T1w_2_mni_antsmat   = os.path.join(working_dir, "T1w_2_mni.txt")
