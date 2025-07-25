@@ -631,26 +631,14 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     output_img.filename = out_file
     output_img.bvecs    = out_bvec
 
-    #Extract the B0s from the DWI and compute mean                                     
-    mean_b0 = Image(filename = working_dir + '/mean_b0.nii.gz')
-    mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
-                                     output_b0     = mean_b0,
-                                     compute_mean  = True)
-
-    #Skull strip T1w
-    T1w_mask  = Image(filename = os.path.join(working_dir, "T1w_mask.nii.gz"))
-    T1w_brain = Image(filename = os.path.join(working_dir, "T1w_brain.nii.gz"))
-    mask_tools.mask_image(input    = t1w_img, 
-                          mask     = T1w_mask,
-                          mask_img = T1w_brain, 
-                          algo     = mask_method)
-    
-
     print(t1w_img.filename)
+
+    orig_T1w = Image(filename = os.path.join(working_dir, "T1w.nii.gz"))
+    orig_T1w.copy_image(t1w_img)
 
     #Normalize T1w
     T1w_mgz = Image(filename = os.path.join(working_dir, "T1w.mgz"))
-    CMD = f"mri_convert {t1w_img.filename} {T1w_mgz.filename}"
+    CMD = f"mri_convert {orig_T1w.filename} {T1w_mgz.filename}"
     run_cmd(CMD)
 
     T1w_N3_mgz = Image(filename = os.path.join(working_dir, "T1w_n3.mgz"))
@@ -665,9 +653,23 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     CMD=f"mri_convert {T1w_norm_mgz.filename} {T1w_norm.filename}"
     run_cmd(CMD)
 
-    CMD=f"mri_convert {T1w_mgz.filename} {t1w_img.filename}"
+    CMD=f"mri_convert {T1w_mgz.filename} {T1w_img.filename}"
     run_cmd(CMD)
 
+    #Extract the B0s from the DWI and compute mean                                     
+    mean_b0 = Image(filename = working_dir + '/mean_b0.nii.gz')
+    mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
+                                     output_b0     = mean_b0,
+                                     compute_mean  = True)
+
+    #Skull strip T1w
+    T1w_mask  = Image(filename = os.path.join(working_dir, "T1w_mask.nii.gz"))
+    T1w_brain = Image(filename = os.path.join(working_dir, "T1w_brain.nii.gz"))
+    mask_tools.mask_image(input    = T1w_norm, 
+                          mask     = T1w_mask,
+                          mask_img = T1w_brain, 
+                          algo     = mask_method)
+    
 
     # if wmseg_img == None:
     #     #Create WMseg
@@ -708,7 +710,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     T1w_2_mni_fslmat    = os.path.join(working_dir, "T1w_2_mni.mat")
     T1w_2_mni_antsmat   = os.path.join(working_dir, "T1w_2_mni.txt")
     
-    linreg(input          = t1w_img,
+    linreg(input          = T1w_norm,
            ref            = mni_atlas_img,
            out            = T1w_mni,
            out_mat        = T1w_2_mni_fslmat,
@@ -716,7 +718,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
            dof            = 12,
            flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
     
-    convert_fsl2ants(input    = t1w_img,
+    convert_fsl2ants(input    = T1w_norm,
                      ref      = mni_atlas_img,
                      fsl_mat  = T1w_2_mni_fslmat,
                      ants_mat = T1w_2_mni_antsmat)
@@ -751,14 +753,14 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
 
-    #WARP T1w TO MNI
-    apply_transform(input        = T1w_norm,
-                    ref          = mni_atlas_img,
-                    out          = T1w_in_mni,
-                    transform    = T1w_2_mni_antsmat,
-                    method       = "ants",
-                    nthreads     = nthreads,
-                    ants_options = "-n BSpline")
+    # #WARP T1w TO MNI
+    # apply_transform(input        = T1w_norm,
+    #                 ref          = mni_atlas_img,
+    #                 out          = T1w_in_mni,
+    #                 transform    = T1w_2_mni_antsmat,
+    #                 method       = "ants",
+    #                 nthreads     = nthreads,
+    #                 ants_options = "-n BSpline")
         
     #USE Synb0 to predict the reverse encoded image
     if verbose:
@@ -767,7 +769,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     SyNb0       = Synb0(verbose)
 
     b0_img  = nib.load(b0_in_mni.filename)
-    T1w_img = nib.load(T1w_in_mni.filename)
+    T1w_img = nib.load(T1w_norm_atlas.filename)
     rev_b0_data = SyNb0.predict(b0_img.get_fdata(), T1w_img.get_fdata())
 
     rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
@@ -796,6 +798,8 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     disco_acqparams = np.vstack((acqparams, syn_acqparams))
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
+
+    exit()
 
     #Run TOPUP
     synb0_config = os.path.join(os.path.dirname(__file__), "data", "synb0.cnf")
