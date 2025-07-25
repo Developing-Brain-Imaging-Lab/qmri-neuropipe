@@ -1206,15 +1206,21 @@ class DiffusionProcessingPipeline:
             dirs_to_cleanup.append('coregister-to-anat')
 
             files_to_cleanup = []
-            files_to_cleanup.append(id + '_desc-acqparams_dwi.txt')
-            files_to_cleanup.append(id + '_desc-slspec_dwi.txt')
-            files_to_cleanup.append(id + '_desc-index_dwi.txt')
+            files_to_cleanup.append(self.bids_id + '_desc-acqparams_dwi.txt')
+            files_to_cleanup.append(self.bids_id + '_desc-slspec_dwi.txt')
+            files_to_cleanup.append(self.bids_id + '_desc-index_dwi.txt')
+            files_to_cleanup.append(self.bids_id + '_desc-biascorrected_dwi.nii.gz')
+            files_to_cleanup.append(self.bids_id + '_desc-denoised_dwi.nii.gz')
+            files_to_cleanup.append(self.bids_id + '_desc-degibbs_dwi.nii.gz')
+            files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.nii.gz')
+            files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.bval')
+            files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.bvec')
 
             outlier_files_to_cleanup = []
-            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bval')
-            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bvec')
-            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.nii.gz')
-            outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved-Index_dwi.txt')
+            outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved_dwi.bval')
+            outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved_dwi.bvec')
+            outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved_dwi.nii.gz')
+            outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
 
             for dir in dirs_to_cleanup:
                 if os.path.exists(os.path.join(self.dmri_preproc_dir, dir,)):
