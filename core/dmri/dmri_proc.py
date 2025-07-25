@@ -487,12 +487,12 @@ class DiffusionProcessingPipeline:
                 self.preproc['run_topup'] = True
                 if self.opts.topup_config is None:
                     self.opts.topup_config = os.path.join(os.environ.get("FSLDIR"), "etc/flirtsch", "b02b0.cnf")          
-                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-topup')
+                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-Topup')
             elif self.opts.dist_correction.lower() == 'synb0-disco':
                 self.preproc['run_synb0'] = True
                 if self.opts.topup_config is None:
                     self.opts.topup_config = os.path.join(os.environ.get("FSLDIR"), "etc/flirtsch", "b02b0.cnf")
-                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-topup')
+                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-Topup')
 
     def AnatPrep(self):
 
