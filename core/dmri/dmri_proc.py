@@ -896,6 +896,9 @@ class DiffusionProcessingPipeline:
                 anat_masked = Image(filename = os.path.join(working_dir, "anat_masked.nii.gz"))
                 if not anat_masked.exists():
 
+                    print(self.opts.mask_method)
+                    print(self.preproc['anat-mask'])
+
                     if self.preproc['anat-mask'].exists():
 
                         mask.apply_mask(input       = self.preproc['anat-img'],
