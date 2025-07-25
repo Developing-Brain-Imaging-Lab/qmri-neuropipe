@@ -724,7 +724,6 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                      ants_mat = T1w_2_mni_antsmat)
 
     b0_in_mni         = Image(filename = os.path.join(working_dir, "b0_in_mni.nii.gz"))
-    T1w_in_mni        = Image(filename = os.path.join(working_dir, "T1w_in_mni.nii.gz"))
     dwi_2_mni_antsmat = os.path.join(working_dir, "dwi_2_mni.txt")
 
 
@@ -738,12 +737,14 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
 
+    CMD=f"antsApplyTransforms -d 3 -o Linear[{dwi_2_mni_antsmat},0] -r mni_atlas_img -t {T1w_2_mni_antsmat} -t [{T1w_2_dwi_antsmat},1]"
+    run_cmd(CMD)
 
-    create_composite_transform(ref        = mni_atlas_img,
-                               out        = dwi_2_mni_antsmat,
-                               transforms = [T1w_2_mni_antsmat, T1w_2_dwi_antsmat], 
-                               linear     = True,
-                               inverse    = 0)
+    # create_composite_transform(ref        = mni_atlas_img,
+    #                            out        = dwi_2_mni_antsmat,
+    #                            transforms = [T1w_2_mni_antsmat, T1w_2_dwi_antsmat], 
+    #                            linear     = True,
+    #                            inverse    = 0)
     #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
                     ref          = mni_atlas_img,
