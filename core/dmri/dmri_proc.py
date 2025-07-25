@@ -1181,7 +1181,6 @@ class DiffusionProcessingPipeline:
             self.preproc["dwi-img"].copy_image(DWI, datatype=np.float32)
 
 
-            
             if self.opts.gradnonlin_correction:
                 if self.opts.verbose:
                     print('Creating gradient deviation tensor map')
@@ -1191,6 +1190,45 @@ class DiffusionProcessingPipeline:
                                                                  coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
                                                                  gpu                    = self.opts.gpu,
                                                                  working_dir            = self.dmri_preproc_dir)
+                
+
+            if self.opts.cleanup:
+                if self.opts.verbose:
+                    print('Cleaning up DWI Preprocessing Files')
+
+                dirs_to_cleanup = []
+                dirs_to_cleanup.append('rawdata')
+                dirs_to_cleanup.append('anatomical-distortion-correction')
+                dirs_to_cleanup.append('fieldmap-distortion-correction')
+                dirs_to_cleanup.append('biasfield-correction')
+                dirs_to_cleanup.append('denoise-degibbs')
+                dirs_to_cleanup.append('eddy-correction')
+                dirs_to_cleanup.append('coregister-to-anat')
+
+                files_to_cleanup = []
+                files_to_cleanup.append(id + '_desc-acqparams_dwi.txt')
+                files_to_cleanup.append(id + '_desc-slspec_dwi.txt')
+                files_to_cleanup.append(id + '_desc-index_dwi.txt')
+
+                outlier_files_to_cleanup = []
+                outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bval')
+                outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.bvec')
+                outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved_dwi.nii.gz')
+                outlier_files_to_cleanup.append(id + '_desc-OutlierRemoved-Index_dwi.txt')
+
+                for dir in dirs_to_cleanup:
+                    if os.path.exists(os.path.join(self.dmri_preproc_dir, dir,)):
+                        shutil.rmtree(os.path.join(self.dmri_preproc_dir, dir,))
+
+                for file in files_to_cleanup:
+                    if os.path.exists(os.path.join(self.dmri_preproc_dir, file)):
+                        os.remove(os.path.join(self.dmri_preproc_dir, file))
+
+                for file in outlier_files_to_cleanup:
+                    if os.path.exists(os.path.join(self.dmri_preproc_dir, 'outlier-removed-images', file)):
+                        os.remove(os.path.join(self.dmri_preproc_dir, 'outlier-removed-images', file))
+                    
+            
 
     def ModelFit(self):
 
