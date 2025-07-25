@@ -896,9 +896,6 @@ class DiffusionProcessingPipeline:
                 anat_masked = Image(filename = os.path.join(working_dir, "anat_masked.nii.gz"))
                 if not anat_masked.exists():
 
-                    print(self.opts.mask_method)
-                    print(self.preproc['anat-mask'].filename)
-
                     if self.preproc['anat-mask'].exists():
 
                         mask.apply_mask(input       = self.preproc['anat-img'],
@@ -1239,64 +1236,65 @@ class DiffusionProcessingPipeline:
                 fwedti_model.fit()
 
 
-            if self.opts.noddi_fit_method != None:
-                
-                noddi_dir    = os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "NODDI",)
-                NODDImap_patterns = os.path.join(noddi_dir, "sub-{subject}[_ses-{session}]_model-NODDI_param-ICVF.nii.gz")
+        if self.opts.dki_fit_method != None:
+            dki_dir    = os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "DKI",)
+            DKImap_patterns = os.path.join(dki_dir, "sub-{subject}[_ses-{session}]_model-DKI_param-MK.nii.gz")
 
-                if not os.path.exists(writing.build_path(self.entities, NODDImap_patterns)):
-                    if self.opts.verbose:
-                        print('Fitting '+self.opts.noddi_fit_method+' model...')
+            if not os.path.exists( writing.build_path(self.entities, DKImap_patterns) ):
+                if self.opts.verbose:
+                    print('Fitting Diffusion Kurtosis Model')
 
-                    noddi_model = None
-                    if self.opts.noddi_fit_method.lower() == 'smt':
-
-                        fix_fiso = None
-                        if self.opts.constrain_noddi and os.path.exists(writing.build_path(self.entities, os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "FWE-DTI", "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz"))):
-                            fix_fiso = writing.build_path(self.entities, os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "FWE-DTI", "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz"))
-
-                        noddi_model = SMT_NODDI_Model(dwi_img               = self.preproc["dwi-img"],
-                                                      sub_info              = self.entities,
-                                                      out_dir               = writing.build_path(self.entities, noddi_dir),
-                                                      mask                  = self.preproc["dwi-mask"],
-                                                      grad_nonlin           = self.preproc["gradnonlin-img"],
-                                                      parallel_diffusivity  = self.opts.noddi_dpar,
-                                                      iso_diffusivity       = self.opts.noddi_diso,
-                                                      fix_fiso              = fix_fiso,
-                                                      solver                = self.opts.noddi_solver,
-                                                      threads               = self.opts.nthreads,
-                                                      verbose               = self.opts.verbose)
-                    else:
-                        noddi_model = NODDI_Model(dwi_img               = self.preproc["dwi-img"],
-                                                  sub_info              = self.entities,
-                                                  out_dir               = writing.build_path(self.entities, noddi_dir),
-                                                  fit_type              = self.opts.noddi_fit_method,
-                                                  mask                  = self.preproc["dwi-mask"],
-                                                  grad_nonlin           = self.preproc["gradnonlin-img"],
-                                                  parallel_diffusivity  = self.opts.noddi_dpar,
-                                                  iso_diffusivity       = self.opts.noddi_diso,
-                                                  solver                = self.opts.noddi_solver,
-                                                  nthreads              = self.opts.nthreads,
-                                                  verbose               = self.opts.verbose)
-                    noddi_model.fit()
-
-
-            if self.opts.dki_fit_method != None:
-                dki_dir    = os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "DKI",)
-                DKImap_patterns = os.path.join(dki_dir, "sub-{subject}[_ses-{session}]_model-DKI_param-MK.nii.gz")
-
-                if not os.path.exists( writing.build_path(self.entities, DKImap_patterns) ):
-                    if self.opts.verbose:
-                        print('Fitting Diffusion Kurtosis Model')
-
-                    dki_model = DKI_Model(dwi_img   = self.preproc["dwi-img"],
+                dki_model = DKI_Model(dwi_img   = self.preproc["dwi-img"],
                                         sub_info    = self.entities,
                                         out_dir     = writing.build_path(self.entities, dki_dir),
                                         fit_type    = self.opts.dki_fit_method,
                                         mask        = self.preproc["dwi-mask"],
                                         smooth_data = self.opts.dki_smooth_input,
                                         fwhm        = self.opts.dki_smooth_fwhm)
-                    dki_model.fit()
+                dki_model.fit()
+
+        if self.opts.noddi_fit_method != None:
+            
+            noddi_dir    = os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "NODDI",)
+            NODDImap_patterns = os.path.join(noddi_dir, "sub-{subject}[_ses-{session}]_model-NODDI_param-ICVF.nii.gz")
+
+            if not os.path.exists(writing.build_path(self.entities, NODDImap_patterns)):
+                if self.opts.verbose:
+                    print('Fitting '+self.opts.noddi_fit_method+' model...')
+
+                noddi_model = None
+                if self.opts.noddi_fit_method.lower() == 'smt':
+
+                    fix_fiso = None
+                    if self.opts.constrain_noddi and os.path.exists(writing.build_path(self.entities, os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "FWE-DTI", "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz"))):
+                        fix_fiso = writing.build_path(self.entities, os.path.join(dmri_models_dir, "sub-{subject}[/ses-{session}]", "dwi", "FWE-DTI", "sub-{subject}[_ses-{session}]_model-FWE-DTI_param-F.nii.gz"))
+
+                    noddi_model = SMT_NODDI_Model(dwi_img               = self.preproc["dwi-img"],
+                                                    sub_info              = self.entities,
+                                                    out_dir               = writing.build_path(self.entities, noddi_dir),
+                                                    mask                  = self.preproc["dwi-mask"],
+                                                    grad_nonlin           = self.preproc["gradnonlin-img"],
+                                                    parallel_diffusivity  = self.opts.noddi_dpar,
+                                                    iso_diffusivity       = self.opts.noddi_diso,
+                                                    fix_fiso              = fix_fiso,
+                                                    solver                = self.opts.noddi_solver,
+                                                    threads               = self.opts.nthreads,
+                                                    verbose               = self.opts.verbose)
+                else:
+                    noddi_model = NODDI_Model(dwi_img               = self.preproc["dwi-img"],
+                                                sub_info              = self.entities,
+                                                out_dir               = writing.build_path(self.entities, noddi_dir),
+                                                fit_type              = self.opts.noddi_fit_method,
+                                                mask                  = self.preproc["dwi-mask"],
+                                                grad_nonlin           = self.preproc["gradnonlin-img"],
+                                                parallel_diffusivity  = self.opts.noddi_dpar,
+                                                iso_diffusivity       = self.opts.noddi_diso,
+                                                solver                = self.opts.noddi_solver,
+                                                nthreads              = self.opts.nthreads,
+                                                verbose               = self.opts.verbose)
+                noddi_model.fit()
+
+
 
 
     #     if args.csd_fod_algo != None:
