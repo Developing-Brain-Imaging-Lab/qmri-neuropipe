@@ -1,4 +1,4 @@
-import os, json, copy, glob
+import os, shutil, json, copy, glob
 
 import numpy as np
 import nibabel as nib
@@ -634,7 +634,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     print(t1w_img.filename)
 
     orig_T1w = Image(filename = os.path.join(working_dir, "T1w.nii.gz"))
-    orig_T1w.copy_image(t1w_img)
+    shutil.copy2(t1w_img.filename, orig_T1w.filename)
 
     #Normalize T1w
     T1w_mgz = Image(filename = os.path.join(working_dir, "T1w.mgz"))
