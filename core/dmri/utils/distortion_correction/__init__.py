@@ -631,8 +631,6 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     output_img.filename = out_file
     output_img.bvecs    = out_bvec
 
-    print(t1w_img.filename)
-
     orig_T1w = Image(filename = os.path.join(working_dir, "T1w.nii.gz"))
     shutil.copy2(t1w_img.filename, orig_T1w.filename)
 
@@ -740,11 +738,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     CMD=f"antsApplyTransforms -d 3 -o Linear[{dwi_2_mni_antsmat},0] -r mni_atlas_img -t {T1w_2_mni_antsmat} -t [{T1w_2_dwi_antsmat},1]"
     run_cmd(CMD)
 
-    # create_composite_transform(ref        = mni_atlas_img,
-    #                            out        = dwi_2_mni_antsmat,
-    #                            transforms = [T1w_2_mni_antsmat, T1w_2_dwi_antsmat], 
-    #                            linear     = True,
-    #                            inverse    = 0)
+   
     #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
                     ref          = mni_atlas_img,
@@ -799,8 +793,6 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     disco_acqparams = np.vstack((acqparams, syn_acqparams))
     disco_acqparams_path = working_dir + '/tmp_acqparams.txt'
     np.savetxt(disco_acqparams_path, disco_acqparams, fmt='%.8f')
-
-    exit()
 
     #Run TOPUP
     synb0_config = os.path.join(os.path.dirname(__file__), "data", "synb0.cnf")
