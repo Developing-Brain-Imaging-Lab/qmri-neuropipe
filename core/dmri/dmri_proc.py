@@ -707,7 +707,7 @@ class DiffusionProcessingPipeline:
                                                                    output_base              = f"{outlier_detection_dir}/{self.bids_id}_desc-OutlierRemoved_dwi.nii.gz", 
                                                                    output_removed_imgs_dir  = outlier_detection_dir,
                                                                    method                   = self.opts.outlier_detection,    
-                                                                   manual_report_dir        = f"{self.bids_dir}/{self.bids_id}/dwi")
+                                                                   manual_report_dir        = f"{self.rawdata_dir}/{self.bids_id}/dwi")
             
         if self.opts.reorient:
             dmri_reorient(in_dwi  = self.rawdata['dwi-img'],
