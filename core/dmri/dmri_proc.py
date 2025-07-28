@@ -604,6 +604,11 @@ class DiffusionProcessingPipeline:
             shutil.copy2(bvecs, self.rawdata['dwi-img'].bvecs)
             shutil.copy2(sidecar, self.rawdata['dwi-img'].json)
 
+            if self.opts.dist_correction.lower()[0:5] == 'topup':
+                print("Only one DWI image found, using SynB0-Disco instead")
+                self.run_topup = False
+                self.run_synb0 = True
+
         else:      
 
             imgs_to_merge = []
@@ -1217,7 +1222,7 @@ class DiffusionProcessingPipeline:
             files_to_cleanup.append(self.bids_id + '_desc-CoregisteredToAnatomy_dwi.bvec')
             files_to_cleanup.append('img.mif')
             files_to_cleanup.append('img_warped.mif')
-            
+
 
             outlier_files_to_cleanup = []
             outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved_dwi.bval')
