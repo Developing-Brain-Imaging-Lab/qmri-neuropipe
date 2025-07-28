@@ -704,7 +704,7 @@ class DiffusionProcessingPipeline:
                 print('Removing DWIs from manual selection')
 
             self.rawdata['dwi-img'] =  dmri_qc.remove_outlier_imgs(input_dwi                = self.rawdata['dwi-img'],  
-                                                                   output_base              = f"{outlier_detection_dir}/{self.bids_id}_desc-OutlierRemoved_dwi.nii.gz", 
+                                                                   output_base              = f"{outlier_detection_dir}/{self.bids_id}", 
                                                                    output_removed_imgs_dir  = outlier_detection_dir,
                                                                    method                   = self.opts.outlier_detection,    
                                                                    manual_report_dir        = f"{self.rawdata_dir}/dwi")
