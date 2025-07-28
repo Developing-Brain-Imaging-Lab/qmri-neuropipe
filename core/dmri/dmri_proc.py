@@ -697,17 +697,17 @@ class DiffusionProcessingPipeline:
                                                                         input_json       = self.rawdata['dwi-img'].json,
                                                                         output_base      = f"{proc_dir}/{self.bids_id}")
 
-        if self.opts.outlier_detection == 'Manual':
+        if self.opts.outlier_detection.lower() == 'manual':
             outlier_detection_dir = os.path.join(self.preproc_dir, 'outlier-removed-images/')
 
             if self.opts.verbose:
                 print('Removing DWIs from manual selection')
 
-            self.rawdata['dwi-img'] = eddy_proc.perform_outlier_detection(dwi_image         = self.rawdata['dwi-img'],
-                                                                          working_dir       = outlier_detection_dir,
-                                                                          method            = self.opts.outlier_detection,
-                                                                          manual_report_dir = f"{self.bids_dir}/{self.bids_id}/dwi",
-                                                                          verbose           = self.opts.verbose )
+            self.rawdata['dwi-img'] =  dmri_qc.remove_outlier_imgs(input_dwi                = self.rawdata['dwi-img'],  
+                                                                   output_base              = f"{outlier_detection_dir}/{self.bids_id}_desc-OutlierRemoved_dwi.nii.gz", 
+                                                                   output_removed_imgs_dir  = outlier_detection_dir,
+                                                                   method                   = self.opts.outlier_detection,    
+                                                                   manual_report_dir        = f"{self.bids_dir}/{self.bids_id}/dwi")
             
         if self.opts.reorient:
             dmri_reorient(in_dwi  = self.rawdata['dwi-img'],
