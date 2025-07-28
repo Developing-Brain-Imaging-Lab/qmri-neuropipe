@@ -698,7 +698,7 @@ class DiffusionProcessingPipeline:
                                                                         output_base      = f"{proc_dir}/{self.bids_id}")
 
         if self.opts.outlier_detection.lower() == 'manual':
-            outlier_detection_dir = os.path.join(self.preproc_dir, 'outlier-removed-images/')
+            outlier_detection_dir = os.path.join(self.dmri_preproc_dir, 'outlier-removed-images/')
 
             if self.opts.verbose:
                 print('Removing DWIs from manual selection')
