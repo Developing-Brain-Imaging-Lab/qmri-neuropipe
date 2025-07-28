@@ -333,6 +333,7 @@ def remove_outlier_imgs(input_dwi, output_base, output_removed_imgs_dir, mask_im
     dwi_data        = dwi_img.get_fdata()
 
     numberOfVolumes = dwi_img.shape[3]
+    os.makedirs(output_removed_imgs_dir, exist_ok=True)
 
     if method.lower() == "manual":
         #Read the manual report
