@@ -440,6 +440,10 @@ class AnatomicalProcessingPipeline:
                                             json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
 
             self.rawdata['t1w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
+
+            CMD="fslreorient2std {0} {1}".format(self.rawdata['t1w-img'].filename, self.rawdata['t1w-img'].filename)
+            run_cmd(CMD)
+            
             
         elif self.opts.t1w_type.lower() == 'mpnrage':
             if self.opts.mpnrage_derivatives_dir == '':
@@ -474,6 +478,9 @@ class AnatomicalProcessingPipeline:
                                             json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
 
             self.rawdata['t2w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
+
+            CMD="fslreorient2std {0} {1}".format(self.rawdata['t2w-img'].filename, self.rawdata['t2w-img'].filename)
+            run_cmd(CMD)
 
         else:
             self.rawdata['t2w-img'] = None
