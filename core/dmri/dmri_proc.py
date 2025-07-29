@@ -636,12 +636,9 @@ class DiffusionProcessingPipeline:
                 bvals   = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='bval', return_type='filename')
                 bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='bvec', return_type='filename')
                 sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='json', return_type='filename')
-
                     
                 for img_desc in dwi_desc:
-                    print(img_desc)
-                    for i in range(len(img)):
-                        print(img[i])
+                    for i in range(len(img)):    
                         if img_desc in img[i]:
                             if self.opts.verbose:
                                 print(f"Found DWI image with description '{img_desc}'")
