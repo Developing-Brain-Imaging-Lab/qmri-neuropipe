@@ -637,13 +637,14 @@ class DiffusionProcessingPipeline:
                 bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='bvec', return_type='filename')
                 sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='json', return_type='filename')
 
-                print(img)
                     
                 for img_desc in dwi_desc:
                     for i in range(len(img)):
                         if img_desc in img[i]:
+                            if self.opts.verbose:
+                                print(f"Found DWI image with description '{img_desc}'")
                             imgs_to_merge.append(DWImage(filename=img[i], bvals=bvals[i], bvecs=bvecs[i],json= sidecar[i]))
-                            break
+                            continue
             else:
                 print("Please provide a valid BIDS filter")
                 exit(-1)      
