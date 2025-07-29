@@ -632,14 +632,18 @@ class DiffusionProcessingPipeline:
             elif "description" in dwi_filter:          
                 dwi_desc = dwi_filter['description']
 
-                for desc in dwi_desc:
-                    img     = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='nii.gz', return_type='filename')[0]
-                    bvals   = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='bval', return_type='filename')[0]
-                    bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='bvec', return_type='filename')[0]
-                    sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='json', return_type='filename')[0]
+                img     = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='nii.gz', return_type='filename')
+                bvals   = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='bval', return_type='filename')
+                bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='bvec', return_type='filename')
+                sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', suffix='dwi', extension='json', return_type='filename')
 
-                    imgs_to_merge.append(DWImage(filename=img, bvals=bvals, bvecs=bvecs,json=sidecar))
+                print(img)
                     
+                for img_desc in dwi_desc:
+                    for i in range(len(img)):
+                        if img_desc in img[i]:
+                            imgs_to_merge.append(DWImage(filename=img[i], bvals=bvals[i], bvecs=bvecs[i],json= sidecar[i]))
+                            break
             else:
                 print("Please provide a valid BIDS filter")
                 exit(-1)      
