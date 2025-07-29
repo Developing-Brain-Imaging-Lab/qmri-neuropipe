@@ -633,10 +633,10 @@ class DiffusionProcessingPipeline:
                 dwi_desc = dwi_filter['description']
 
                 for desc in dwi_desc:
-                    img     = layout.get(subject=self.id, session=self.ses, datatype='dwi', desc=desc, suffix='dwi', extension='nii.gz', return_type='filename')[0]
-                    bvals   = layout.get(subject=self.id, session=self.ses, datatype='dwi', desc=desc, suffix='dwi', extension='bval', return_type='filename')[0]
-                    bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', desc=desc, suffix='dwi', extension='bvec', return_type='filename')[0]
-                    sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', desc=desc, suffix='dwi', extension='json', return_type='filename')[0]
+                    img     = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='nii.gz', return_type='filename')[0]
+                    bvals   = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='bval', return_type='filename')[0]
+                    bvecs   = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='bvec', return_type='filename')[0]
+                    sidecar = layout.get(subject=self.id, session=self.ses, datatype='dwi', SeriesDescription=desc, suffix='dwi', extension='json', return_type='filename')[0]
 
                     imgs_to_merge.append(DWImage(filename=img, bvals=bvals, bvecs=bvecs,json=sidecar))
                     
