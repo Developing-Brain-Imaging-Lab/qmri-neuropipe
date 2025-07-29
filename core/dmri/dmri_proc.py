@@ -548,18 +548,21 @@ class DiffusionProcessingPipeline:
                         #If we have a T1w image only, create a synthetic T2w using T1w
                         from core.anat.utils.compute_synthetic_t2w import compute_synthetic_t2w
                         
-                        self.preproc['anat-mask'] = anat_proc['t1w-mask']
+                        self.preproc['t2w-mask'] = anat_proc['t1w-mask']
 
                         if not os.path.exists(os.path.join(self.anat_preproc_dir, self.bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz")):
                             if self.opts.verbose or self.opts.debug:
                                 print('Creating Synthetic T2w Image')
 
-                            self.preproc['anat-img']   = compute_synthetic_t2w(input_t1w    = self.preproc['t1w-img'],
+                            self.preproc['t2w-img']   = compute_synthetic_t2w(input_t1w    = self.preproc['t1w-img'],
                                                                                output_dir   = self.anat_preproc_dir,
                                                                                cmd_args     = self.opts,
                                                                                syn_t2w      = self.bids_id+"_desc-SyntheticFromT1w_T2w.nii.gz", 
                                                                                t1w_mask     = self.preproc['t1w-mask'], 
                                                                                debug        = self.opts.debug)
+                            
+                        self.preproc['anat-img']  = self.preproc['t2w-img']
+                        self.preproc['anat-mask'] = self.preproc['t2w-mask']
                                 
                 elif self.opts.coregister_dwi_to_anat_modality.lower() == 't1w' and self.preproc['t1w-img'] is not None:
                     self.preproc['anat-img']  = anat_proc['t1w-img']
@@ -1025,7 +1028,7 @@ class DiffusionProcessingPipeline:
                     if self.preproc['run_synb0'] or self.opts.dist_correction.lower() == 'synb0-disco':
                         #Run the Synb0 distortion correction'
                         distcorr.run_synb0_disco(dwi_img        = eddy_img,
-                                                 t1w_img        = self.preproc['anat-img'],
+                                                 t1w_img        = self.preproc['t1w-img'],
                                                  mask_method    = self.opts.mask_method,
                                                  topup_base     = self.preproc["topup_base"],
                                                  topup_config   = self.opts.topup_config,
