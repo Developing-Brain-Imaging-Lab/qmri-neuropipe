@@ -639,7 +639,9 @@ class DiffusionProcessingPipeline:
 
                     
                 for img_desc in dwi_desc:
+                    print(img_desc)
                     for i in range(len(img)):
+                        print(img[i])
                         if img_desc in img[i]:
                             if self.opts.verbose:
                                 print(f"Found DWI image with description '{img_desc}'")
