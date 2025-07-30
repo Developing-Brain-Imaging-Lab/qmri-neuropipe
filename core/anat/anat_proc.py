@@ -463,8 +463,8 @@ class AnatomicalProcessingPipeline:
             print("VFA!")
 
             #SPGR-VFA
-            spgr_vfa_img = Image(filename = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_acq-SPGR_VFA.nii.gz"),
-                                 json     = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_acq-SPGR_VFA.json"))
+            spgr_vfa_img = Image(filename = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_desc-SPGR_VFA.nii.gz"),
+                                 json     = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_desc-SPGR_VFA.json"))
             
             if spgr_vfa_img.exists():
                 #Extract the T1w image from the SPGR-VFA
