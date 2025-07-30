@@ -694,7 +694,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
            out_mat        = T1w_2_dwi_fslmat,
            method         = 'fsl',
            dof            = 6,
-           flirt_options  = '-cost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+           flirt_options  = '-cost normmi -usesqform')
 
     #CONVERT FSL TO ANTS
     convert_fsl2ants(input    = T1w_brain,
@@ -714,7 +714,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
            out_mat        = T1w_2_mni_fslmat,
            method         = 'fsl',
            dof            = 12,
-           flirt_options  = '-cost normmi')
+           flirt_options  = '-cost normmi -usesqform')
     
     convert_fsl2ants(input    = T1w_norm,
                      ref      = mni_atlas_img,
