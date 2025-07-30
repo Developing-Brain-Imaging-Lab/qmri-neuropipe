@@ -1014,6 +1014,9 @@ class DiffusionProcessingPipeline:
                                                           method      ='eddy') 
                     
                     self.preproc["topup_base"] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
+
+                    print(self.run_topup)
+                    print(self.run_synb0)
                                                     
                     if self.preproc['run_topup'] or self.opts.dist_correction.lower()[0:5] == 'topup':
                         if self.preproc['run_topup']:
