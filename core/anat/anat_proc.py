@@ -469,8 +469,8 @@ class AnatomicalProcessingPipeline:
             if spgr_vfa_img.exists():
                 #Extract the T1w image from the SPGR-VFA
                 #Create target image and coregister images to the target
-                self.rawdata['t1w-img'] = Image(filename = os.path.join(self.preproc_dir, os.path.basename(subj_data[0])),
-                                                json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
+                self.rawdata['t1w-img'] = Image(filename = os.path.join(self.preproc_dir, f"{self.bids_id}_desc-SPGR_T1w.nii.gz"),
+                                                json     = os.path.join(self.preproc_dir, f"{self.bids_id}_desc-SPGR_T1w.json"))
                 if self.opts.verbose:
                     print("Creating Target Image for DESPOT-VFA")
 
