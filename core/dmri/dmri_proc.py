@@ -1019,7 +1019,9 @@ class DiffusionProcessingPipeline:
                     print(self.run_synb0)
                                                     
                     if self.preproc['run_topup'] or self.opts.dist_correction.lower()[0:5] == 'topup':
+
                         if self.preproc['run_topup']:
+                            print("RUNNING TOPUP")
                             distcorr.topup_fsl(input_dwi            = eddy_img,
                                                output_topup_base    = self.preproc["topup_base"],
                                                config_file          = self.opts.topup_config,
