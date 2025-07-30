@@ -1017,6 +1017,8 @@ class DiffusionProcessingPipeline:
 
                     print(self.run_topup)
                     print(self.run_synb0)
+
+                    print(self.run_topup.type())
                                                     
                     if self.preproc['run_topup'] or self.opts.dist_correction.lower()[0:5] == 'topup':
 
