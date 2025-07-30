@@ -1,4 +1,5 @@
 import os, sys, shutil, copy, json, argparse, subprocess
+import nibabel as nib
 from bids.layout import writing
 
 from core.utils.io import Image
@@ -457,6 +458,26 @@ class AnatomicalProcessingPipeline:
         elif self.opts.t1w_type.lower() == 'mp2rage':
             self.rawdata['t1w-img'] = Image(filename = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_inv-2_part-mag_MP2RAGE.nii.gz"),
                                             json     = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_inv-2_MP2RAGE.json"))
+        elif self.opts.t1w_type.lower() == 'spgr-vfa':
+
+            #SPGR-VFA
+            spgr_vfa_img = Image(filename = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_acq-SPGR_VFA.nii.gz"),
+                                 json     = os.path.join(self.rawdata_dir, "anat", f"{self.bids_id}_acq-SPGR_VFA.json"))
+            
+            if spgr_vfa_img.exists():
+                #Extract the T1w image from the SPGR-VFA
+                #Create target image and coregister images to the target
+                self.rawdata['t1w-img'] = Image(filename = os.path.join(self.preproc_dir, os.path.basename(subj_data[0])),
+                                                json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
+                if self.opts.verbose:
+                    print("Creating Target Image for DESPOT-VFA")
+
+                spgr_img = nib.load(spgr_vfa_img.filename)
+                num_spgr = spgr_img.shape[3]
+
+                ref_img = nib.Nifti1Image(spgr_img.get_fdata()[:,:,:,num_spgr-1], spgr_img.affine)
+                ref_img.to_filename(self.rawdata['t1w-img'].filename)
+            
         else:   
             self.rawdata['t1w-img'] = None
             if self.opts.verbose:
