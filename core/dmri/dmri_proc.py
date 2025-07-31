@@ -773,21 +773,21 @@ class DiffusionProcessingPipeline:
                 if self.opts.verbose:
                     print('Running a Two-stage Eddy/Motion correction with FSL EDDY and Eddy-Correct')
 
-                print('Running EDDY')
-                eddy_corr_img = ecc.eddy_fsl(input_dwi        = DWI,
-                                             output_base      = output_base,
-                                             topup_base       = self.preproc['topup_base'],
-                                             cuda             = self.opts.gpu,
-                                             cuda_device      = self.opts.cuda_device,
-                                             fsl_eddy_options = self.opts.fsl_eddy_options,
-                                             nthreads         = self.opts.nthreads,
-                                             debug            = self.opts.verbose)
-                
-                                                    
                 print('Running EDDY-CORRECT')
-                ECC = ecc.eddy_correct_fsl(input_dwi   = eddy_corr_img,
-                                           output_base = output_base)
-        
+                eddy_corr_img = ecc.eddy_correct_fsl(input_dwi   = DWI,
+                                                     output_base = output_base)
+
+                print('Running EDDY')
+                ECC = ecc.eddy_fsl(input_dwi        = eddy_corr_img,
+                                   output_base      = output_base,
+                                   topup_base       = self.preproc['topup_base'],
+                                   cuda             = self.opts.gpu,
+                                   cuda_device      = self.opts.cuda_device,
+                                   fsl_eddy_options = self.opts.fsl_eddy_options,
+                                   nthreads         = self.opts.nthreads,
+                                   debug            = self.opts.verbose)
+                
+                                            
             elif method == 'tortoise-diffprep':
                 if self.opts.verbose:
                     print('Running TORTOISE DIFFPREP')
