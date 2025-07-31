@@ -713,8 +713,8 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
            out            = T1w_mni,
            out_mat        = T1w_2_mni_fslmat,
            method         = 'fsl',
-           dof            = 6,
-           flirt_options  = '-cost normmi -usesqform -searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+           dof            = 12,
+           flirt_options  = '-cost normmi -usesqform')
     
     convert_fsl2ants(input    = T1w_norm,
                      ref      = mni_atlas_img,
@@ -738,7 +738,6 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     CMD=f"antsApplyTransforms -d 3 -o Linear[{dwi_2_mni_antsmat},0] -r mni_atlas_img -t {T1w_2_mni_antsmat} -t [{T1w_2_dwi_antsmat},1]"
     run_cmd(CMD)
 
-   
     #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
                     ref          = mni_atlas_img,
