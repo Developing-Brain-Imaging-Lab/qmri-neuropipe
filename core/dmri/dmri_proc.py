@@ -609,8 +609,8 @@ class DiffusionProcessingPipeline:
 
             if self.opts.dist_correction.lower()[0:5] == 'topup':
                 print("Only one DWI image found, using SynB0-Disco instead")
-                self.run_topup = False
-                self.run_synb0 = True
+                self.preproc['run_topup'] = False
+                self.preproc['run_synb0'] = True
 
         else:      
 
@@ -656,8 +656,8 @@ class DiffusionProcessingPipeline:
                     self.rawdata['dwi-img'] = dmri_qc.merge_phase_encodes(DWI_pepolar0 = self.rawdata['dwi-img'], 
                                                                           DWI_pepolar1 = imgs_to_merge[i], 
                                                                           output_base  = f"{proc_dir}/{self.bids_id}")
-            self.run_topup  = True
-            self.run_synb0  = False
+            self.preproc['run_topup']  = True
+            self.preproc['run_synb0']  = False
 
         
         #Ensure ISOTROPIC voxels prior to processing
@@ -1002,7 +1002,7 @@ class DiffusionProcessingPipeline:
         if not self.preproc['dwi-img'].exists():
         
             #Calculate Topup/SynB0-DISCO field maps
-            if self.run_topup or self.run_synb0 or self.opts.dist_correction != None:
+            if self.preproc['run_topup'] or self.preproc['run_synb0'] or self.opts.dist_correction != None:
                     
                 if not os.path.exists(os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup_fieldcoef.nii.gz")):
                     #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
@@ -1016,21 +1016,21 @@ class DiffusionProcessingPipeline:
                     self.preproc["topup_base"] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
 
                                                     
-                    if self.run_topup or self.opts.dist_correction.lower()[0:5] == 'topup':
+                    if self.preproc['run_topup'] or self.opts.dist_correction.lower()[0:5] == 'topup':
 
-                        if self.run_topup:
+                        if self.preproc['run_topup']:
                             print("RUNNING TOPUP")
                             distcorr.topup_fsl(input_dwi            = eddy_img,
                                                output_topup_base    = self.preproc["topup_base"],
                                                config_file          = self.opts.topup_config,
                                                field_output         = True)
 
-                        elif not self.run_topup and self.run_synb0:
+                        elif not self.preproc['run_topup'] and self.preproc['run_synb0']:
                             print('No reverse phase encoded images found for TOPUP, switching to Synb0-DISCO distortion correction')
                             self.opts.dist_correction = 'synb0-disco'
-                            self.run_synb0 = True
+                            self.preproc['run_synb0'] = True
 
-                    if self.run_synb0 or self.opts.dist_correction.lower() == 'synb0-disco':
+                    if self.preproc['run_synb0'] or self.opts.dist_correction.lower() == 'synb0-disco':
                         #Run the Synb0 distortion correction'
                         distcorr.run_synb0_disco(dwi_img        = eddy_img,
                                                  t1w_img        = self.preproc['t1w-img'],
