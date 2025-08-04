@@ -1201,6 +1201,7 @@ class DiffusionProcessingPipeline:
                 self.preproc["gradnonlin-img"] = grad_dev_tensor(dwi_img                = self.preproc["dwi-img"],
                                                                  gw_coils               = self.opts.gw_coils_dat,
                                                                  coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
+                                                                 coreg_dir              = os.path.join(self.dmri_preproc_dir, 'coregistered-to-anat',),
                                                                  gpu                    = self.opts.gpu,
                                                                  working_dir            = self.dmri_preproc_dir)
                 

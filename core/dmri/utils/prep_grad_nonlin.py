@@ -9,7 +9,7 @@ import core.utils.tools as img_tools
 import core.utils.mask as mask
 
 
-def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False, gpu=False, debug=False, logfile=None):
+def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False, coreg_dir=None, gpu=False, debug=False, logfile=None):
 
     if logfile:
         sys.stdout = logfile
@@ -34,9 +34,9 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
 
     if coregister_dwi_to_anat:
         
-        mean_dwi    = Image(filename=os.path.join(working_dir, "coregister-to-anatomy", "mean_dwi.nii.gz")) 
-        temp_brain  = Image(filename=os.path.join(working_dir, "coregister-to-anatomy", "mean_dwi_brain.nii.gz"))  
-        temp_mask   = Image(filename=os.path.join(working_dir, "coregister-to-anatomy", "mean_dwi_mask.nii.gz"))                 
+        mean_dwi    = Image(filename=os.path.join(coreg_dir, "mean_dwi.nii.gz")) 
+        temp_brain  = Image(filename=os.path.join(coreg_dir, "mean_dwi_brain.nii.gz"))  
+        temp_mask   = Image(filename=os.path.join(coreg_dir, "mean_dwi_mask.nii.gz"))                 
         os.environ['MKL_THREADING_LAYER'] = 'GNU'
         mask.mask_image(input    = mean_dwi,
                         mask     = temp_mask,
