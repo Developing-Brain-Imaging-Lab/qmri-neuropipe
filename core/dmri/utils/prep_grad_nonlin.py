@@ -31,12 +31,9 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
     filename_patterns = os.path.join(working_dir, 'sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}')
     dmri_graddev_file = writing.build_path(entities, filename_patterns)
 
-    print("Calcuating MEAN DWI Image")
-    print("DWI Image: ", dwi_img.filename)
-    final_img         = img_tools.calculate_mean_img(dwi_img, os.path.join(graddev_dir, "temp_img.nii.gz"), debug=debug)
+    final_img         = img_tools.calculate_mean_img(dwi_img, os.path.join(graddev_dir, "dwi_img.nii.gz"), debug=debug)
 
     if coregister_dwi_to_anat:
-        print("MASKING DWI")
         mean_dwi    = Image(filename=os.path.join(coreg_dir, "mean_dwi.nii.gz")) 
         temp_brain  = Image(filename=os.path.join(graddev_dir, "mean_dwi_brain.nii.gz"))  
         temp_mask   = Image(filename=os.path.join(graddev_dir, "mean_dwi_mask.nii.gz"))                 
