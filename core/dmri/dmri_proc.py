@@ -1189,24 +1189,24 @@ class DiffusionProcessingPipeline:
                 print('Creating Preprocessed DWI')
 
             dmri_qc.check_gradient_directions(input_dwi   = DWI,
-                                            nthreads    = self.opts.nthreads)
+                                              nthreads    = self.opts.nthreads)
             
             self.preproc["dwi-img"].copy_image(DWI, datatype=np.float32)
 
 
-            if self.opts.gradnonlin_correction:
-                if self.opts.verbose:
-                    print('Creating gradient deviation tensor map')
+        if self.opts.gradnonlin_correction:
+            if self.opts.verbose:
+                print('Creating gradient deviation tensor map')
 
-                
-                print(self.preproc["dwi-img"].filename)
-                self.preproc["gradnonlin-img"] = grad_dev_tensor(dwi_img                = self.preproc["dwi-img"],
-                                                                 gw_coils               = self.opts.gw_coils_dat,
-                                                                 coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
-                                                                 coreg_dir              = os.path.join(self.dmri_preproc_dir, 'coregistered-to-anat',),
-                                                                 gpu                    = self.opts.gpu,
-                                                                 working_dir            = self.dmri_preproc_dir)
-                
+            
+            print(self.preproc["dwi-img"].filename)
+            self.preproc["gradnonlin-img"] = grad_dev_tensor(dwi_img                = self.preproc["dwi-img"],
+                                                                gw_coils               = self.opts.gw_coils_dat,
+                                                                coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
+                                                                coreg_dir              = os.path.join(self.dmri_preproc_dir, 'coregistered-to-anat',),
+                                                                gpu                    = self.opts.gpu,
+                                                                working_dir            = self.dmri_preproc_dir)
+            
 
         if self.opts.cleanup:
             if self.opts.verbose:
