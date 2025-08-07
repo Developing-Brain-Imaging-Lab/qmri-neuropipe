@@ -1198,6 +1198,8 @@ class DiffusionProcessingPipeline:
                 if self.opts.verbose:
                     print('Creating gradient deviation tensor map')
 
+                
+                print(self.preproc["dwi-img"].filename)
                 self.preproc["gradnonlin-img"] = grad_dev_tensor(dwi_img                = self.preproc["dwi-img"],
                                                                  gw_coils               = self.opts.gw_coils_dat,
                                                                  coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
