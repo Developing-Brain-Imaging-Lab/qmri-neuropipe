@@ -65,8 +65,8 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
 
         else:
             os.system(f"CreateGradientNonlinearityBMatrix -f {final_img.filename}  -g {gw_coils} --isGE 1")
-            os.system("gzip " + os.path.join(graddev_dir, "temp_img_graddev_c.nii"))
-            os.system("cp " + os.path.join(graddev_dir, "temp_img_graddev_c.nii.gz") + " " + dmri_graddev_file)
+            os.system("gzip " + os.path.join(graddev_dir, "dwi_img_graddev_c.nii"))
+            os.system("cp " + os.path.join(graddev_dir, "dwi_img_graddev_c.nii.gz") + " " + dmri_graddev_file)
 
         #Clean up Temporary Files
         # if temp_img.exists():
