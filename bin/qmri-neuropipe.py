@@ -47,6 +47,9 @@ if args.proc_json:
         args, unknown = parser.parse_known_args(namespace=t_args)
 
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+
 ##################################
 ##################################
 ##### PROCESSING STARTS HERE #####
