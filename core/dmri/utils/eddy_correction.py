@@ -37,7 +37,7 @@ def eddy_correct_fsl(input_dwi, output_base):
 
     return output_img
 
-def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, cuda=False, cuda_device=None, nthreads=1, fsl_eddy_options='', debug=False):
+def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0=None, cuda=False, cuda_device='0', nthreads=1, fsl_eddy_options='', debug=False):
 
     output_dir = os.path.dirname(output_base)
 
@@ -56,10 +56,7 @@ def eddy_fsl(input_dwi, output_base, mask_img=None, topup_base=None, external_b0
 
     exe = ''
     if cuda:
-        if cuda_device:
-            exe = 'CUDA_VISIBLE_DEVICES='+str(cuda_device)+ ' ' + eddy_cuda
-        else:
-            exe = eddy_cuda
+        exe = 'CUDA_VISIBLE_DEVICES='+str(cuda_device)+ ' ' + eddy_cuda
     else:
         os.environ["OMP_NUM_THREADS"] = str(nthreads)
         exe = 'OMP_NUM_THREADS='+str(nthreads)+ " " + eddy
