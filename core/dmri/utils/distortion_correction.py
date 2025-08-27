@@ -1,4 +1,4 @@
-import os, shutil, json, copy, glob
+import os, shutil, json, copy, glob, gc
 
 import numpy as np
 import nibabel as nib
@@ -19,6 +19,7 @@ from core.registration.create_composite_transform import create_composite_transf
 
 from core.segmentation.segmentation import create_wmseg
 
+from numba import cuda  # Import Numba CUDA module to clear GPU memory allocated by Synb0
 
 def topup_fsl(input_dwi, output_topup_base, config_file=None, field_output=False, verbose=False):
 
@@ -765,6 +766,12 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     b0_img  = nib.load(b0_in_mni.filename)
     T1w_img = nib.load(T1w_norm_atlas.filename)
     rev_b0_data = SyNb0.predict(b0_img.get_fdata(), T1w_img.get_fdata())
+
+    # Release GPU memory
+    del SyNb0
+    gc.collect()
+    device = cuda.get_current_device()
+    device.reset()
 
     rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
     nib.save(nib.Nifti1Image(rev_b0_data.astype(b0_img.get_data_dtype()), b0_img.affine), rev_b0_mni.filename)
