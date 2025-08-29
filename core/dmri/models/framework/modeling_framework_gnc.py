@@ -33,6 +33,8 @@ from dmipy.utils.utils import (
 from ...utils.correct_bvals_bvecs import correct_bvals_bvecs
 from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
 
+from tqdm import tqdm
+
 pathos, have_pathos, _ = optional_package("pathos")
 numba, have_numba, _ = optional_package("numba")
 graphviz, have_graphviz, _ = optional_package("graphviz")
@@ -1281,7 +1283,8 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
             self.grad_nonlin_data = np.atleast_2d(grad_nonlin)
   
         start = time()
-        for idx, pos in enumerate(zip(*mask_pos)):
+        positions = list(zip(*mask_pos))
+        for idx, pos in enumerate(tqdm(positions, desc="Loop over all voxel positions to fit the model parameters for each voxel", unit='pos')):
             voxel_E = data_[pos] / S0[pos]
             voxel_x0_vector = x0_[pos]
             #print('working on voxel # {} and position {}'.format(idx,pos))
@@ -1322,7 +1325,7 @@ class MultiCompartmentModel(MultiCompartmentModelProperties):
                 fitted_parameters_lin[idx] = fit_func(*fit_args)
         if use_parallel_processing:
             fitted_parameters_lin = np.array(
-                [p.get() for p in fitted_parameters_lin])
+                [p.get() for p in tqdm(fitted_parameters_lin, desc="Fitting model parameters per voxel")])
             pool.close()
             pool.join()
             pool.clear()
