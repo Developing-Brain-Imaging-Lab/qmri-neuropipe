@@ -8,3 +8,17 @@ testing/
 *DS_Store*
 .DS_Store?
 .DS_Store
+
+# macOS artifacts
+.DS_Store
+._*
+# Python caches
+__pycache__/
+*.py[cod]
+
+# macOS artifacts
+.DS_Store
+._*
+# Python caches
+__pycache__/
+*.py[cod]

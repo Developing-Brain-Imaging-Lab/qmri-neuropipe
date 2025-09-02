@@ -13,7 +13,7 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
             method = "fsl"
         else:
             method = "ants"
-        
+
         CMD = "dwibiascorrect " + method + " " \
                 + input_img.filename + " " \
                 + output_img.filename \
@@ -34,11 +34,20 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
 
         CMD = "N4BiasFieldCorrection -d " + str(dim) + " " \
                 + "-i " + input_img.filename + " " \
-                + "-o " + output_img.filename
+                + "-o " + output_img.filename + " -v 1 "
 
         if mask_img != None:
+            if mask_img != None:
+                os.system("fslmaths " + input_img.filename + " -mas " + mask_img.filename + " -bin " + mask_img.filename)
             CMD += " -x " + mask_img.filename
+<<<<<<< HEAD
         
+=======
+
+        print(CMD)
+
+
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__)
     elif method == "fsl":
         tmp_dir = os.path.join(os.path.dirname(output_img.filename), "tmp_fast")
 
@@ -58,6 +67,9 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
 
     subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)
 
+
+    os.remove(mask_img.filename)
+    
     if method == "fsl":
         os.rename(tmp_dir+"/fast_restore.nii.gz", output_img.filename)
         shutil.rmtree(tmp_dir)
@@ -72,7 +84,7 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
                     method = "fsl"
                 else:
                     method = "ants"
-                
+
                 CMD = "dwibiascorrect " + method + " " \
                         + output_img.filename + " " \
                         + output_img.filename \
@@ -125,37 +137,37 @@ def biasfield_correction(input_img, output_file, method="ants", mask_img=None, n
 
 
 if __name__ == '__main__':
-   
+
    import argparse
    from core.utils.io import Image, DWImage
-   
+
    parser = argparse.ArgumentParser(description='QMRI-Neuropipe Bias-field correction function')
-   
+
    parser.add_argument('--input',
                        type=str,
                        help="Input image",
                        default=None)
-   
+
    parser.add_argument('--output',
                        type=str,
                        help="Biasfield corrected image",
                        default=None)
-   
+
    parser.add_argument('--bvals',
                        type=str,
                        help="B-values of DWI input",
                        default=None)
-   
+
    parser.add_argument('--bvecs',
                        type=str,
                        help="B-bvectors of DWI input",
                        default=None)
-   
+
    parser.add_argument('--mask',
                        type=str,
                        help="Binary mask",
                        default=None)
-   
+
    parser.add_argument('--method',
                        type=str,
                        help="Biasfield correction algorithm",
@@ -171,12 +183,12 @@ if __name__ == '__main__':
                        type=int,
                        help="Number of threads",
                        default=1)
-   
+
    parser.add_argument("--debug",
                        type=bool,
                        help="Print debugging statements",
                        default=False)
-   
+
    args, unknown = parser.parse_known_args()
 
    if args.bvals and args.bvecs:
@@ -185,11 +197,11 @@ if __name__ == '__main__':
                            bvecs    = args.bvecs)
    else:
        input_img = Image(filename = args.input)
-       
+
    biasfield_correction(input_img      = input_img,
                         output_file    = args.output,
                         method         = args.method,
-                        mask_img       = Image(filename=args.mask), 
+                        mask_img       = Image(filename=args.mask),
                         nthreads       = args.nthreads,
                         iterations     = args.iterations,
                         debug          = args.debug)

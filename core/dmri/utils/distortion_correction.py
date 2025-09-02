@@ -469,7 +469,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
         fmap_base = fmap_image.filename[0:len(fmap_image.filename)-4]
     else:
         fmap_base = fmap_image.filename[0:len(fmap_image.filename)-7]
-        
+
 
     parsed_filename = parse_file_entities(dwi_image.filename)
     entities = {
@@ -482,11 +482,11 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     filename_patterns   = working_dir + '/sub-{subject}[_ses-{session}][_desc-{desc}]_{suffix}{extension}'
 
     out_file = writing.build_path(entities, filename_patterns)
-    
+
     output_img = copy.deepcopy(dwi_image)
     output_img._set_filename(out_file)
-  
-        
+
+
     #Determine the Phase Encode Direction
     #Read the JSON file and get the
     with open(dwi_image.json) as f:
@@ -509,7 +509,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
     else:
         print('Incorrect Phase Encoding Data')
         exit()
-        
+
     #Skull-strip the reference
     mask_img=Image(filename = working_dir + '/mask.nii.gz')
     os.system('N4BiasFieldCorrection -d 3 -i ' + fmap_ref_image.filename + ' -o ' + mask_img.filename)
@@ -556,7 +556,7 @@ def fugue_fsl(dwi_image, fmap_image, fmap_ref_image, working_dir):
 
     #Now, undistort the image
     os.system('fugue -i ' + dwi_image.filename + ' --icorr --unwarpdir='+str(unwarpdir) + ' --dwell='+str(dwell_time) + ' --loadfmap='+fm_rads_warp+' -u ' + output_img.filename)
-    
+
     return output_img
 
 
@@ -632,6 +632,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     output_img.filename = out_file
     output_img.bvecs    = out_bvec
 
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
     orig_T1w = Image(filename = os.path.join(working_dir, "T1w.nii.gz"))
     shutil.copy2(t1w_img.filename, orig_T1w.filename)
 
@@ -656,6 +657,9 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     run_cmd(CMD)
 
     #Extract the B0s from the DWI and compute mean                                     
+=======
+    #Extract the B0s from the DWI and compute mean
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
     mean_b0 = Image(filename = working_dir + '/mean_b0.nii.gz')
     mean_b0 = dmri_tools.extract_b0s(input_dwi     = dwi_img,
                                      output_b0     = mean_b0,
@@ -664,11 +668,28 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     #Skull strip T1w
     T1w_mask  = Image(filename = os.path.join(working_dir, "T1w_mask.nii.gz"))
     T1w_brain = Image(filename = os.path.join(working_dir, "T1w_brain.nii.gz"))
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
     mask_tools.mask_image(input    = T1w_norm, 
+=======
+    mask_tools.mask_image(input    = t1w_img,
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
                           mask     = T1w_mask,
-                          mask_img = T1w_brain, 
+                          mask_img = T1w_brain,
                           algo     = mask_method)
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
     
+=======
+
+    if wmseg_img == None:
+        #Create WMseg
+        wmseg_img = create_wmseg(input_img  = t1w_img,
+                                 output_dir = os.path.join(working_dir),
+                                 nthreads   = nthreads)
+    #Normalize the T1w image
+    T1w_wm   = Image(filename = os.path.join(working_dir, "T1w_wm.nii.gz"))
+    T1w_norm = Image(filename = os.path.join(working_dir, "T1w_norm.nii.gz"))
+    os.system("fslmaths " + t1w_img.filename + " -mas " + wmseg_img.filename + "  " + T1w_wm.filename)
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
 
     # if wmseg_img == None:
     #     #Create WMseg
@@ -715,9 +736,15 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
            out_mat        = T1w_2_mni_fslmat,
            method         = 'fsl',
            dof            = 12,
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
            flirt_options  = '-cost normmi -usesqform')
     
     convert_fsl2ants(input    = T1w_norm,
+=======
+           flirt_options  = '-searchrx -180 180 -searchry -180 180 -searchrz -180 180')
+
+    convert_fsl2ants(input    = T1w_2_dwi,
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
                      ref      = mni_atlas_img,
                      fsl_mat  = T1w_2_mni_fslmat,
                      ants_mat = T1w_2_mni_antsmat)
@@ -739,6 +766,14 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     CMD=f"antsApplyTransforms -d 3 -o Linear[{dwi_2_mni_antsmat},0] -r mni_atlas_img -t {T1w_2_mni_antsmat} -t [{T1w_2_dwi_antsmat},1]"
     run_cmd(CMD)
 
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
+=======
+    create_composite_transform(ref        = mni_atlas_img,
+                               out        = T1w_2_mni_antsmat,
+                               transforms = [dwi_2_mni_antsmat, T1w_2_dwi_antsmat],
+                               linear     = True,
+                               inverse    = 0)
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
     #WARP B0 TO MNI
     apply_transform(input        = mean_b0,
                     ref          = mni_atlas_img,
@@ -748,6 +783,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
                     nthreads     = nthreads,
                     ants_options = "-n BSpline")
 
+<<<<<<< HEAD:core/dmri/utils/distortion_correction.py
     # #WARP T1w TO MNI
     # apply_transform(input        = T1w_norm,
     #                 ref          = mni_atlas_img,
@@ -757,6 +793,17 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
     #                 nthreads     = nthreads,
     #                 ants_options = "-n BSpline")
         
+=======
+    #WARP T1w TO MNI
+    apply_transform(input        = t1w_img,
+                    ref          = mni_atlas_img,
+                    out          = T1w_in_mni,
+                    transform    = T1w_2_mni_antsmat,
+                    method       = "ants",
+                    nthreads     = nthreads,
+                    ants_options = "-n BSpline")
+
+>>>>>>> e2565b7 (dmri: fixes to dmri_proc and biascorrect; update distortion_correction __init__):core/dmri/utils/distortion_correction/__init__.py
     #USE Synb0 to predict the reverse encoded image
     if verbose:
         print('Creating synthetic undistorted b0 images')
@@ -775,12 +822,12 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
 
     rev_b0_mni = Image(filename = os.path.join(working_dir, "b0_u_mni.nii.gz"))
     nib.save(nib.Nifti1Image(rev_b0_data.astype(b0_img.get_data_dtype()), b0_img.affine), rev_b0_mni.filename)
-    
+
     #Inverse warp the image
     rev_b0 = Image(filename = os.path.join(working_dir, "b0_u.nii.gz"))
     os.system('antsApplyTransforms -d 3 -i ' + rev_b0_mni.filename + ' -r ' + mean_b0.filename + ' -t ['+dwi_2_mni_antsmat+',1] -o ' +  rev_b0.filename)
 
-    
+
     #Smooth original b0 slightly
     b0_d = Image(filename = os.path.join(working_dir, "b0_d.nii.gz"))
     os.system('fslmaths ' + mean_b0.filename + ' -s 1.15 ' + b0_d.filename)
@@ -812,7 +859,7 @@ def run_synb0_disco(dwi_img, t1w_img, topup_base, mask_method="mri_synthstrip", 
 
     if verbose:
         print(topup_command)
-        
+
     os.system(topup_command)
 
     if cleanup_files:
