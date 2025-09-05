@@ -1341,7 +1341,7 @@ class DiffusionProcessingPipeline:
                                                     iso_diffusivity       = self.opts.noddi_diso,
                                                     fix_fiso              = fix_fiso,
                                                     solver                = self.opts.noddi_solver,
-                                                    threads               = self.opts.nthreads,
+                                                    nthreads              = self.opts.nthreads,
                                                     verbose               = self.opts.verbose)
                 else:
                     noddi_model = NODDI_Model(dwi_img               = self.preproc["dwi-img"],
