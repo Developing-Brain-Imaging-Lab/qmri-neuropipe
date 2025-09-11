@@ -300,6 +300,9 @@ class SMT_NODDI_Model():
         vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_0'])
         vf_iso   = fitted_parameters['partial_volume_1']
 
+        #vf_extra = ((1 - fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
+                
+
         #Save the images
         save_nifti(self._outputs['ficvf'], vf_intra.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['exvf'], vf_extra.astype(np.float32), img.affine, img.header)
