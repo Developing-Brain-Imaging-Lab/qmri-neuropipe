@@ -82,6 +82,10 @@ def parse_cmdline():
     parser.add_argument('--models_derivative_dir',
                         type=str, help='BIDS PIPELINE Name',
                         default='dmri-neuropipe-models')
+    
+    parser.add_argument('--preproc_scratch_dir',
+                        type=str, help="Scratch Directory for Preprocessing",
+                        default=None)
 
     parser.add_argument('--nthreads',
                         type=int,
@@ -436,6 +440,21 @@ class DiffusionProcessingPipeline:
         self.rawdata_dir = writing.build_path(self.entities, os.path.join(self.bids_dir, self.opts.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",))
         self.preproc_dir = writing.build_path(self.entities, os.path.join(self.bids_dir, "derivatives", self.opts.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",))
         
+        self.scratch_dir = None
+        
+        if self.opts.preproc_scratch_dir is not None:
+            self.scratch_dir = writing.build_path(self.entities, os.path.join(self.opts.preproc_scratch_dir, "derivatives", self.opts.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",))
+            os.makedirs(self.scratch_dir, exist_ok=True)
+
+        self.working_dir = None
+        self.dmri_working_dir = None
+        self.anat_working_dir = None
+        if self.scratch_dir is not None:
+            self.working_dir = self.scratch_dir
+        else:
+            self.working_dir = self.preproc_dir
+
+
         self.anat_preproc_dir = None  
         self.dmri_preproc_dir = os.path.join(self.preproc_dir, "dwi",)
         os.makedirs(self.dmri_preproc_dir, exist_ok=True)
@@ -463,7 +482,7 @@ class DiffusionProcessingPipeline:
                                           acqparams   = writing.build_path(acqp_ent, txt_pattern),
                                           index       = writing.build_path(index_ent, txt_pattern),
                                           slspec      = writing.build_path(slspec_ent, txt_pattern),
-                                          json = writing.build_path(self.entities, self.dmri_img_pattern.replace('.nii.gz', '.json')))
+                                          json        = writing.build_path(self.entities, self.dmri_img_pattern.replace('.nii.gz', '.json')))
         
         self.preproc['dwi-mask'] = Image(filename = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-brain_mask.nii.gz'))
 

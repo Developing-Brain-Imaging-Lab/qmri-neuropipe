@@ -227,6 +227,12 @@ class SMT_NODDI_Model():
         self._outputs['fiso']             = writing.build_path(map_entities, map_pattern)
         map_entities['map']               = "EXVF"
         self._outputs['exvf']             = writing.build_path(map_entities, map_pattern)
+
+        map_entities['map']               = "PartialVolume0"
+        self._outputs['pv0']             = writing.build_path(map_entities, map_pattern)
+        map_entities['map']               = "PartialVolume1"
+        self._outputs['pv1']             = writing.build_path(map_entities, map_pattern)
+
  
 
     def fit(self):
@@ -244,8 +250,6 @@ class SMT_NODDI_Model():
         from dmipy.signal_models import cylinder_models, gaussian_models
         from dmipy.distributions.distribute_models import BundleModel
         from dmipy.core import modeling_framework
-        #from dmipy.core.modeling_framework import MultiCompartmentModel
-        #from .framework.modeling_framework_gnc import MultiCompartmentModel 
         from dmipy.core.acquisition_scheme import acquisition_scheme_from_bvalues
         from dipy.io import read_bvals_bvecs
         from dipy.io.image import load_nifti, save_nifti
@@ -297,7 +301,7 @@ class SMT_NODDI_Model():
         fitted_parameters = SMT_NODDI_fit.fitted_parameters
 
         vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_0'])
-        vf_extra = ((1 - fitted_parameters['BundleModel_1_partial_volume_0'])*fitted_parameters['partial_volume_0'])
+        vf_extra = ((1.0 - fitted_parameters['BundleModel_1_partial_volume_0']))*fitted_parameters['partial_volume_0']
         vf_iso   = fitted_parameters['partial_volume_1']
 
         #vf_extra = ((1 - fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
@@ -307,6 +311,10 @@ class SMT_NODDI_Model():
         save_nifti(self._outputs['ficvf'], vf_intra.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['exvf'], vf_extra.astype(np.float32), img.affine, img.header)
         save_nifti(self._outputs['fiso'], vf_iso.astype(np.float32), img.affine, img.header)
+
+        save_nifti(self._outputs['pv0'], fitted_parameters['partial_volume_0'].astype(np.float32), img.affine, img.header)
+        save_nifti(self._outputs['pv1'], fitted_parameters['BundleModel_1_partial_volume_0'].astype(np.float32), img.affine, img.header)
+        
 
 
 
