@@ -51,7 +51,6 @@ if args.gpu == True:
         args.cuda_device = 0
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-    print(f"Using GPU device {args.cuda_device} for processing.")
 
 ##################################
 ##################################

@@ -443,50 +443,6 @@ class DiffusionProcessingPipeline:
         self.dmri_preproc_dir = os.path.join(self.preproc_dir, "dwi",)
         os.makedirs(self.dmri_preproc_dir, exist_ok=True)
 
- 
-        self.dmri_img_pattern = os.path.join(self.dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.nii.gz")
-        txt_pattern      = os.path.join(self.dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.txt")
-        
-        acqp_ent   = self.entities.copy()
-        index_ent  = self.entities.copy() 
-        slspec_ent = self.entities.copy()
-        log_ent    = self.entities.copy()
-        acqp_ent['desc']   = 'preproc-acqparams'
-        index_ent['desc']  = 'preproc-index'
-        slspec_ent['desc'] = 'preproc-slspec'
-        log_ent['desc']    = 'preproc-logfile'
-
-        self.rawdata = {}
-        self.rawdata['dwi-img'] = None
-        self.rawdata['dwi-mask'] = None
-
-        self.preproc = {}
-        self.preproc['dwi-img'] = DWImage(filename    = writing.build_path(self.entities, self.dmri_img_pattern),
-                                          bvecs       = writing.build_path(self.entities, self.dmri_img_pattern.replace('.nii.gz', '.bvec')),
-                                          bvals       = writing.build_path(self.entities, self.dmri_img_pattern.replace('.nii.gz', '.bval')),
-                                          acqparams   = writing.build_path(acqp_ent, txt_pattern),
-                                          index       = writing.build_path(index_ent, txt_pattern),
-                                          slspec      = writing.build_path(slspec_ent, txt_pattern),
-                                          json        = writing.build_path(self.entities, self.dmri_img_pattern.replace('.nii.gz', '.json')))
-        
-        self.preproc['dwi-mask'] = Image(filename = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-brain_mask.nii.gz'))
-
-        self.preproc['t1w-img']  = None
-        self.preproc['t2w-img']  = None
-        self.preproc['anat-img'] = None
-
-        self.preproc['fmap-img'] = None
-        self.preproc['fmap-ref'] = None
-
-        self.preproc['gradnonlin-img'] = None
-        self.preproc['topup_base'] = None
-
-        self.preproc['log-file'] = writing.build_path(log_ent, txt_pattern)
-
-        self.preproc['run_topup'] = False
-        self.preproc['run_synb0'] = False
-
-
         #Setup the working directory
         self.scratch_dir = None
         self.anat_working_dir = None
@@ -503,7 +459,54 @@ class DiffusionProcessingPipeline:
         else:
             self.working_dir = self.preproc_dir
             self.dmri_working_dir = self.dmri_preproc_dir
-            self.anat_working_dir = self.anat_preproc_dirx
+            self.anat_working_dir = self.anat_preproc_dir
+
+ 
+        self.dmri_img_pattern = os.path.join(self.dmri_working_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.nii.gz")
+        self.dmri_preproc_pattern = os.path.join(self.dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.nii.gz")
+        
+
+        acqp_ent   = self.entities.copy()
+        index_ent  = self.entities.copy() 
+        slspec_ent = self.entities.copy()
+        log_ent    = self.entities.copy()
+        acqp_ent['desc']   = 'preproc-acqparams'
+        index_ent['desc']  = 'preproc-index'
+        slspec_ent['desc'] = 'preproc-slspec'
+        log_ent['desc']    = 'preproc-logfile'
+
+        self.rawdata = {}
+        self.rawdata['dwi-img'] = None
+        self.rawdata['dwi-mask'] = None
+
+        self.preproc = {}
+        self.preproc['dwi-img'] = DWImage(filename    = writing.build_path(self.entities,self.dmri_preproc_pattern),
+                                          bvecs       = writing.build_path(self.entities, self.dmri_preproc_pattern.replace('.nii.gz', '.bvec')),
+                                          bvals       = writing.build_path(self.entities, self.dmri_preproc_pattern.replace('.nii.gz', '.bval')),
+                                          acqparams   = writing.build_path(acqp_ent, self.dmri_preproc_pattern.replace('.nii.gz', '.txt')),
+                                          index       = writing.build_path(index_ent, self.dmri_preproc_pattern.replace('.nii.gz', '.txt')),
+                                          slspec      = writing.build_path(slspec_ent, self.dmri_preproc_pattern.replace('.nii.gz', '.txt')),
+                                          json        = writing.build_path(self.entities, self.dmri_preproc_pattern.replace('.nii.gz', '.json')))
+        
+        self.preproc['dwi-mask'] = Image(filename = os.path.join(self.dmri_preproc_dir, f'{self.bids_id}_desc-brain_mask.nii.gz'))
+
+        self.preproc['t1w-img']  = None
+        self.preproc['t2w-img']  = None
+        self.preproc['anat-img'] = None
+
+        self.preproc['fmap-img'] = None
+        self.preproc['fmap-ref'] = None
+
+        self.preproc['gradnonlin-img'] = None
+        self.preproc['topup_base'] = None
+
+        self.preproc['log-file'] = writing.build_path(log_ent, self.dmri_preproc_pattern.replace('.nii.gz', '.log'))
+
+        self.preproc['run_topup'] = False
+        self.preproc['run_synb0'] = False
+
+
+
 
 
         if self.opts.dist_correction is not None:
@@ -598,11 +601,8 @@ class DiffusionProcessingPipeline:
         
     def RawDataPrep(self):
 
-        print(self.bids_dir)
-
         layout    = BIDSLayout(self.bids_dir, validate=False)
         proc_dir  = os.path.join(self.dmri_working_dir, "rawdata/")
-          
         os.makedirs(proc_dir, exist_ok=True)
 
         #Get the subject's diffusion data
@@ -614,7 +614,6 @@ class DiffusionProcessingPipeline:
                                return_type='filename')
         
         num_dwis  = len(subj_data)
-        print(num_dwis)
 
         self.rawdata['dwi-img'] = DWImage(filename  = f"{proc_dir}/{self.bids_id}_dwi.nii.gz",
                                           bvals     = f"{proc_dir}/{self.bids_id}_dwi.bval",
