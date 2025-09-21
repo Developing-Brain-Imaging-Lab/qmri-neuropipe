@@ -526,7 +526,7 @@ class DiffusionProcessingPipeline:
             self.opts.dist_correction == 'anatomical-coregistration' or 
             self.opts.eddy_current_correction == 'tortoise-diffprep'):
         
-            self.anat_preproc_dir = os.path.join(self.preproc_dir, "anat",)
+            self.anat_preproc_dir = self.anat_working_dir
             os.makedirs(self.anat_preproc_dir, exist_ok=True)
 
             if self.opts.use_freesurfer:
@@ -612,6 +612,7 @@ class DiffusionProcessingPipeline:
                                return_type='filename')
         
         num_dwis  = len(subj_data)
+        print(num_dwis)
 
         self.rawdata['dwi-img'] = DWImage(filename  = f"{proc_dir}/{self.bids_id}_dwi.nii.gz",
                                           bvals     = f"{proc_dir}/{self.bids_id}_dwi.bval",
