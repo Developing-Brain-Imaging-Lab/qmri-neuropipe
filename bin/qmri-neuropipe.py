@@ -47,8 +47,11 @@ if args.proc_json:
         args, unknown = parser.parse_known_args(namespace=t_args)
 
 if args.gpu == True:
+    if args.cuda_device is None:
+        args.cuda_device = 0
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda_device)
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+    print(f"Using GPU device {args.cuda_device} for processing.")
 
 ##################################
 ##################################
