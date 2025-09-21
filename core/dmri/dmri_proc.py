@@ -598,6 +598,8 @@ class DiffusionProcessingPipeline:
         
     def RawDataPrep(self):
 
+        print(self.bids_dir)
+
         layout    = BIDSLayout(self.bids_dir, validate=False)
         proc_dir  = os.path.join(self.dmri_working_dir, "rawdata/")
           
