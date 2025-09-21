@@ -439,25 +439,10 @@ class DiffusionProcessingPipeline:
         self.bids_id     = writing.build_path(self.entities, "sub-{subject}[_ses-{session}]")
         self.rawdata_dir = writing.build_path(self.entities, os.path.join(self.bids_dir, self.opts.bids_rawdata_dir, "sub-{subject}[/ses-{session}]",))
         self.preproc_dir = writing.build_path(self.entities, os.path.join(self.bids_dir, "derivatives", self.opts.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",))
-        
-        self.scratch_dir = None
-        
-        if self.opts.preproc_scratch_dir is not None:
-            self.scratch_dir = writing.build_path(self.entities, os.path.join(self.opts.preproc_scratch_dir, "derivatives", self.opts.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",))
-            os.makedirs(self.scratch_dir, exist_ok=True)
-
-        self.working_dir = None
-        self.dmri_working_dir = None
-        self.anat_working_dir = None
-        if self.scratch_dir is not None:
-            self.working_dir = self.scratch_dir
-        else:
-            self.working_dir = self.preproc_dir
-
-
-        self.anat_preproc_dir = None  
+        self.anat_preproc_dir = os.path.join(self.preproc_dir, "anat",)  
         self.dmri_preproc_dir = os.path.join(self.preproc_dir, "dwi",)
         os.makedirs(self.dmri_preproc_dir, exist_ok=True)
+
  
         self.dmri_img_pattern = os.path.join(self.dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.nii.gz")
         txt_pattern      = os.path.join(self.dmri_preproc_dir, "sub-{subject}[_ses-{session}][_acq-{acq}][_dir-{dir}][_desc-{desc}]_{modality}.txt")
@@ -501,17 +486,37 @@ class DiffusionProcessingPipeline:
         self.preproc['run_topup'] = False
         self.preproc['run_synb0'] = False
 
+
+        #Setup the working directory
+        self.scratch_dir = None
+        self.anat_working_dir = None
+        self.dmri_working_dir = None
+        if self.opts.preproc_scratch_dir is not None:
+            self.scratch_dir = writing.build_path(self.entities, os.path.join(self.opts.preproc_scratch_dir, self.opts.preproc_derivative_dir, "sub-{subject}[/ses-{session}]",))
+            os.makedirs(self.scratch_dir, exist_ok=True)
+        if self.scratch_dir is not None:
+            self.working_dir = self.scratch_dir
+            self.anat_working_dir = os.path.join(self.working_dir, "anat",)
+            self.dmri_working_dir = os.path.join(self.working_dir, "dwi",)
+            os.makedirs(self.anat_working_dir, exist_ok=True)
+            os.makedirs(self.dmri_working_dir, exist_ok=True)
+        else:
+            self.working_dir = self.preproc_dir
+            self.dmri_working_dir = self.dmri_preproc_dir
+            self.anat_working_dir = self.anat_preproc_dirx
+
+
         if self.opts.dist_correction is not None:
             if self.opts.dist_correction.lower()[0:5] == 'topup':
                 self.preproc['run_topup'] = True
                 if self.opts.topup_config is None:
                     self.opts.topup_config = os.path.join(os.environ.get("FSLDIR"), "etc/flirtsch", "b02b0.cnf")          
-                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
+                self.preproc['topup_base'] = os.path.join(self.dmri_working_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
             elif self.opts.dist_correction.lower() == 'synb0-disco':
                 self.preproc['run_synb0'] = True
                 if self.opts.topup_config is None:
                     self.opts.topup_config = os.path.join(os.environ.get("FSLDIR"), "etc/flirtsch", "b02b0.cnf")
-                self.preproc['topup_base'] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
+                self.preproc['topup_base'] = os.path.join(self.dmri_working_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
 
     def AnatPrep(self):
 
@@ -594,7 +599,7 @@ class DiffusionProcessingPipeline:
     def RawDataPrep(self):
 
         layout    = BIDSLayout(self.bids_dir, validate=False)
-        proc_dir  = os.path.join(self.dmri_preproc_dir, "rawdata/")
+        proc_dir  = os.path.join(self.dmri_working_dir, "rawdata/")
           
         os.makedirs(proc_dir, exist_ok=True)
 
@@ -722,7 +727,7 @@ class DiffusionProcessingPipeline:
                                                                         output_base      = f"{proc_dir}/{self.bids_id}")
 
         if self.opts.outlier_detection.lower() == 'manual':
-            outlier_detection_dir = os.path.join(self.dmri_preproc_dir, 'outlier-removed-images/')
+            outlier_detection_dir = os.path.join(self.dmri_working_dir, 'outlier-removed-images/')
 
             if self.opts.verbose:
                 print('Removing DWIs from manual selection')
@@ -1023,16 +1028,16 @@ class DiffusionProcessingPipeline:
             #Calculate Topup/SynB0-DISCO field maps
             if self.preproc['run_topup'] or self.preproc['run_synb0'] or self.opts.dist_correction != None:
                     
-                if not os.path.exists(os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup_fieldcoef.nii.gz")):
+                if not os.path.exists(os.path.join(self.dmri_working_dir, "rawdata", "topup", self.bids_id+"_desc-Topup_fieldcoef.nii.gz")):
                     #First going to run eddy_correct in order to perform an initial motion-correction to ensure images are aligned prior to estimating fields. Data are only used
                     #here and not for subsequent processing
                     
                     self.preproc["topup_base"] = None
                     eddy_img = self.EddyCurrentCorrection(DWI         = DWI,
-                                                          working_dir = os.path.join(self.dmri_preproc_dir, "rawdata", "tmp-eddy-correction",),
+                                                          working_dir = os.path.join(self.dmri_working_dir, "rawdata", "tmp-eddy-correction",),
                                                           method      ='eddy') 
                     
-                    self.preproc["topup_base"] = os.path.join(self.dmri_preproc_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
+                    self.preproc["topup_base"] = os.path.join(self.dmri_working_dir, "rawdata", "topup", self.bids_id+"_desc-Topup")
 
                                                     
                     if self.preproc['run_topup'] or self.opts.dist_correction.lower()[0:5] == 'topup':
@@ -1102,14 +1107,14 @@ class DiffusionProcessingPipeline:
                 
             ##EDDY CURRENT CORRECTION ###
             DWI = self.EddyCurrentCorrection(DWI         = DWI, 
-                                             working_dir = os.path.join(self.dmri_preproc_dir, 'eddy-correction',),
+                                             working_dir = os.path.join(self.dmri_working_dir, 'eddy-correction',),
                                              method      = self.opts.eddy_current_correction,
                                              struct_img  = self.preproc['anat-img'])
 
 
             if self.opts.outlier_detection != None and self.opts.outlier_detection != 'Manual':
                 
-                working_dir = os.path.join(self.dmri_preproc_dir, 'outlier-removed-images',)
+                working_dir = os.path.join(self.dmri_working_dir, 'outlier-removed-images',)
                 os.makedirs(working_dir, exist_ok=True)
 
                 if self.opts.verbose:
@@ -1179,7 +1184,7 @@ class DiffusionProcessingPipeline:
             if self.opts.coregister_dwi_to_anat:
 
                 DWI = self.CoregisterDWItoAnat(DWI         = DWI,
-                                               working_dir = os.path.join(self.dmri_preproc_dir, 'coregistered-to-anat',))
+                                               working_dir = os.path.join(self.dmri_working_dir, 'coregistered-to-anat',))
 
         
 
@@ -1220,11 +1225,11 @@ class DiffusionProcessingPipeline:
             
             print(self.preproc["dwi-img"].filename)
             self.preproc["gradnonlin-img"] = grad_dev_tensor(dwi_img                = self.preproc["dwi-img"],
-                                                                gw_coils               = self.opts.gw_coils_dat,
-                                                                coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
-                                                                coreg_dir              = os.path.join(self.dmri_preproc_dir, 'coregistered-to-anat',),
-                                                                gpu                    = self.opts.gpu,
-                                                                working_dir            = self.dmri_preproc_dir)
+                                                             gw_coils               = self.opts.gw_coils_dat,
+                                                             coregister_dwi_to_anat = self.opts.coregister_dwi_to_anat,
+                                                             coreg_dir              = os.path.join(self.dmri_working_dir, 'coregistered-to-anat',),
+                                                             gpu                    = self.opts.gpu,
+                                                             working_dir            = self.dmri_working_dir)
             
 
         if self.opts.cleanup:
@@ -1261,16 +1266,16 @@ class DiffusionProcessingPipeline:
             outlier_files_to_cleanup.append(self.bids_id + '_desc-OutlierRemoved-Index_dwi.txt')
 
             for dir in dirs_to_cleanup:
-                if os.path.exists(os.path.join(self.dmri_preproc_dir, dir,)):
-                    shutil.rmtree(os.path.join(self.dmri_preproc_dir, dir,))
+                if os.path.exists(os.path.join(self.dmri_working_dir, dir,)):
+                    shutil.rmtree(os.path.join(self.dmri_working_dir, dir,))
 
             for file in files_to_cleanup:
-                if os.path.exists(os.path.join(self.dmri_preproc_dir, file)):
-                    os.remove(os.path.join(self.dmri_preproc_dir, file))
+                if os.path.exists(os.path.join(self.dmri_working_dir, file)):
+                    os.remove(os.path.join(self.dmri_working_dir, file))
 
             for file in outlier_files_to_cleanup:
-                if os.path.exists(os.path.join(self.dmri_preproc_dir, 'outlier-removed-images', file)):
-                    os.remove(os.path.join(self.dmri_preproc_dir, 'outlier-removed-images', file))
+                if os.path.exists(os.path.join(self.dmri_working_dir, 'outlier-removed-images', file)):
+                    os.remove(os.path.join(self.dmri_working_dir, 'outlier-removed-images', file))
                     
             
 

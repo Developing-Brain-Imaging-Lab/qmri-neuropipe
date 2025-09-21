@@ -192,7 +192,7 @@ class SMT_NODDI_Model():
                  solver='brute2fine', 
                  parallel_diffusivity=1.7e-9, 
                  iso_diffusivity=3e-9,
-                 fix_fiso = None, 
+                 fix_fiso=None, 
                  nthreads=1, 
                  verbose=False):
         
@@ -284,13 +284,13 @@ class SMT_NODDI_Model():
         bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
         bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', self._inputs['dpar'])
 
-        SMT_NODDI_mod = modeling_framework.MultiCompartmentSphericalMeanModel(models=[bundle, ball])
+        SMT_NODDI_mod = modeling_framework.MultiCompartmentSphericalMeanModel(models=[ball, bundle])
         SMT_NODDI_mod.set_fixed_parameter('G1Ball_1_lambda_iso', self._inputs['diso'])
 
         #Fix fiso based on other estiamte
         if self._inputs['fix_fiso'] is not None:
             fiso = nib.load(self._inputs['fix_fiso'].filename).get_fdata()
-            SMT_NODDI_mod.set_fixed_parameter('partial_volume_1', fiso)
+            SMT_NODDI_mod.set_fixed_parameter('partial_volume_0', fiso)
 
         SMT_NODDI_fit = SMT_NODDI_mod.fit(acq_scheme, 
                                           data, 
@@ -300,9 +300,12 @@ class SMT_NODDI_Model():
 
         fitted_parameters = SMT_NODDI_fit.fitted_parameters
 
-        vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_0'])
-        vf_extra = ((1.0 - fitted_parameters['BundleModel_1_partial_volume_0']))*fitted_parameters['partial_volume_0']
-        vf_iso   = fitted_parameters['partial_volume_1']
+        vf_intra = (fitted_parameters['BundleModel_1_partial_volume_0'] * fitted_parameters['partial_volume_1'])
+        vf_extra = ((1.0 - fitted_parameters['BundleModel_1_partial_volume_0']))*fitted_parameters['partial_volume_1']
+        vf_iso   = fitted_parameters['partial_volume_0']
+
+
+        #Second fit stage
 
         #vf_extra = ((1 - fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'])*fitted_parameters['partial_volume_1'])
                 
