@@ -53,13 +53,12 @@ def grad_dev_tensor(dwi_img, gw_coils, working_dir, coregister_dwi_to_anat=False
                             mask_img = final_img_brain,
                             algo     = 'mri_synthstrip',
                             gpu      = gpu)
-            
-            os.system(f"CreateGradientNonlinearityBMatrix -f {final_img_brain.filename} -i {temp_brain.filename} -g {gw_coils} --isGE 1")
-            os.system("gzip " + os.path.join(graddev_dir, "temp_img_brain_graddev_c.nii"))
-        
             if debug:
                 print(f"CreateGradientNonlinearityBMatrix -f {final_img_brain.filename} -i {temp_brain.filename} -g {gw_coils} --isGE 1")
 
+            print(f"CreateGradientNonlinearityBMatrix -f {final_img_brain.filename} -i {temp_brain.filename} -g {gw_coils} --isGE 1")
+            os.system(f"CreateGradientNonlinearityBMatrix -f {final_img_brain.filename} -i {temp_brain.filename} -g {gw_coils} --isGE 1")
+            os.system("gzip " + os.path.join(graddev_dir, "temp_img_brain_graddev_c.nii"))
             os.system("cp " + os.path.join(graddev_dir, "temp_img_brain_graddev_c.nii.gz") + " " + dmri_graddev_file)
             
 
