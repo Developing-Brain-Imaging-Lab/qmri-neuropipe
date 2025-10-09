@@ -131,6 +131,17 @@ def parse_cmdline():
                         help='Skull-stripping Algorithm',
                         choices=['bet', 'hd-bet', 'mrtrix', 'ants', 'antspynet', 'mri_synthstrip'],
                         default='bet')
+    parser.add_argument('--t1w_size',
+                        type=int,
+                        nargs='+',
+                        help='Crop/Pad T1w to this image size',
+                        default=None)
+    
+    parser.add_argument('--t2w_size',
+                        type=int,
+                        nargs='+',
+                        help='Crop/Pad T2w to this image size',
+                        default=None)
 
     parser.add_argument('--t1w_mask_template',
                         type=str,
@@ -440,11 +451,19 @@ class AnatomicalProcessingPipeline:
             self.rawdata['t1w-img'] = Image(filename = os.path.join(self.preproc_dir, os.path.basename(subj_data[0])),
                                             json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
 
+            print(subj_data[0])
             self.rawdata['t1w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
 
             CMD="fslreorient2std {0} {1}".format(self.rawdata['t1w-img'].filename, self.rawdata['t1w-img'].filename)
             run_cmd(CMD)
-            
+
+            if self.opts.t1w_size is not None:
+                if self.opts.verbose:
+                    print("Cropping/Padding T1w to size: " + str(self.opts.t1w_size), flush=True)
+                img_tools.crop_or_pad_image(input_img    = self.rawdata['t1w-img'],
+                                            output_file  = self.rawdata['t1w-img'].filename,
+                                            target_size  = self.opts.t1w_size,
+                                            debug        = self.opts.verbose)
             
         elif self.opts.t1w_type.lower() == 'mpnrage':
             if self.opts.mpnrage_derivatives_dir == '':
@@ -505,6 +524,13 @@ class AnatomicalProcessingPipeline:
             CMD="fslreorient2std {0} {1}".format(self.rawdata['t2w-img'].filename, self.rawdata['t2w-img'].filename)
             run_cmd(CMD)
 
+            if self.opts.t2w_size is not None:
+                if self.opts.verbose:
+                    print("Cropping/Padding T2w to size: " + str(self.opts.t2w_size), flush=True)
+                img_tools.crop_or_pad_image(input_img    = self.rawdata['t2w-img'],
+                                            output_file  = self.rawdata['t2w-img'].filename,
+                                            target_size  = self.opts.t2w_size,
+                                            debug        = self.opts.verbose)
         else:
             self.rawdata['t2w-img'] = None
             if self.opts.verbose:
