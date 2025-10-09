@@ -453,6 +453,7 @@ class AnatomicalProcessingPipeline:
 
             print(subj_data[0])
             self.rawdata['t1w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
+            print(self.rawdata['t1w-img'].filename )
 
             CMD="fslreorient2std {0} {1}".format(self.rawdata['t1w-img'].filename, self.rawdata['t1w-img'].filename)
             run_cmd(CMD)
