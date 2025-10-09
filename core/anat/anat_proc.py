@@ -452,8 +452,9 @@ class AnatomicalProcessingPipeline:
                                             json     = os.path.join(self.preproc_dir, os.path.basename(subj_data[0].replace('.nii.gz', '.json'))))
 
             print(subj_data[0])
-            self.rawdata['t1w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
             print(self.rawdata['t1w-img'].filename )
+            self.rawdata['t1w-img'].copy_image(img2copy=Image(filename = subj_data[0]))
+            
 
             CMD="fslreorient2std {0} {1}".format(self.rawdata['t1w-img'].filename, self.rawdata['t1w-img'].filename)
             run_cmd(CMD)
