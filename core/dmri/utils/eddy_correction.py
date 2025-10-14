@@ -5,7 +5,7 @@ from core.utils.io import Image, DWImage
 import core.utils.mask as mask
 
 
-eddy='eddy_cpu'
+eddy='eddy'
 eddy_cuda='eddy_cuda10.2'
 
 def eddy_correct_fsl(input_dwi, output_base):
