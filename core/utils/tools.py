@@ -83,6 +83,61 @@ def resample_image(input_img, output_file, target_resolution, debug=False):
     return output_img 
 
 
+def crop_or_pad_image(input_img, output_file, target_size, debug=False):
+    output_img          = copy.deepcopy(input_img)
+    output_img.filename = output_file
+
+    tmp_img = Image(filename = os.path.join(os.path.dirname(output_file), "cropped_padded.nii.gz"))
+
+    input_nib = nib.load(input_img.filename)
+    input_size = input_nib.shape
+
+    # If the image is already the target size, just copy it
+    if input_size[0:3] == tuple(target_size):   
+        if debug:
+            print("Image is already the target size: " + str(target_size))
+        os.system('cp ' + input_img.filename + ' ' + output_img.filename)
+        return output_img
+    else:
+        if debug:
+            print("Cropping/Padding image to target size: " + str(target_size))
+        
+        #CENTER CROP OR PAD
+        xdiff = input_size[0] - target_size[0]
+        ydiff = input_size[1] - target_size[1]
+        zdiff = input_size[2] - target_size[2]
+        xstart = int(np.floor(xdiff/2))
+        ystart = int(np.floor(ydiff/2))
+        zstart = int(np.floor(zdiff/2))
+
+        CMD = "fslroi " + input_img.filename + " " + tmp_img.filename + " " \
+            + str(max(0,xstart)) + " " + str(target_size[0]) + " " \
+            + str(max(0,ystart)) + " " + str(target_size[1]) + " " \
+            + str(max(0,zstart)) + " " + str(target_size[2])
+
+        subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)    
+
+        if xdiff < 0 or ydiff < 0 or zdiff < 0:
+            pad_x_before = int(np.ceil(-xdiff/2))
+            pad_y_before = int(np.ceil(-ydiff/2))
+            pad_z_before = int(np.ceil(-zdiff/2))
+            pad_x_after = int(np.floor(-xdiff/2))
+            pad_y_after = int(np.floor(-ydiff/2))
+            pad_z_after = int(np.floor(-zdiff/2))
+
+            CMD = "fslmaths " + tmp_img.filename + " -add 0 -pad " \
+                + str(pad_x_before) + " " + str(pad_x_after) + " " \
+                + str(pad_y_before) + " " + str(pad_y_after) + " " \
+                + str(pad_z_before) + " " + str(pad_z_after) + " " \
+                + output_img.filename
+            subprocess.run([CMD], shell=True, stderr=subprocess.STDOUT)    
+            os.remove(tmp_img.filename)
+        else:
+            os.rename(tmp_img.filename, output_img.filename)
+
+    return output_img
+        
+
 def calculate_mean_img(input_img, output_file, debug=False):
 
     img = nib.load(input_img.filename)
