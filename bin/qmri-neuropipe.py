@@ -30,6 +30,16 @@ parser.add_argument('--segmentation_pipeline',
                     help='Run Structural Segmentation',
                     default=False)
 
+parser.add_argument('--gpu',
+                    type=bool,
+                    help='Use GPU for processing if available',
+                    default=False)
+
+parser.add_argument('--cuda_device',
+                    type=int,
+                    help='CUDA Device number to use if running on GPU',
+                    default=False)
+
 parser.add_argument('--verbose',
                     type=bool,
                     help='Print out information meassages and progress status',
