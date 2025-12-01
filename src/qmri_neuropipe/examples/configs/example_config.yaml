@@ -1,0 +1,163 @@
+# qmri-neuropipe Configuration File (YAML)
+# 
+# This file demonstrates all available configuration options.
+# Required fields: bids_dir, output_dir
+# All other fields are optional and have defaults.
+
+# ============================================================================
+# CORE PATHS (REQUIRED)
+# ============================================================================
+bids_dir: /path/to/bids/dataset
+output_dir: /path/to/output/derivatives
+
+# Optional: Working directory for temporary files
+# If not specified, defaults to output_dir/work
+work_dir: /path/to/work
+
+# ============================================================================
+# SUBJECT/SESSION SELECTION
+# ============================================================================
+# Process specific participants (leave empty for all)
+# Can be single value or list
+participant_label:
+  - sub-01
+  - sub-02
+  - sub-03
+
+# Process specific sessions (leave empty for all)
+# session_label:
+#   - ses-01
+#   - ses-baseline
+
+# ============================================================================
+# COMPUTATIONAL RESOURCES
+# ============================================================================
+n_cpus: 8                  # Number of CPUs to use
+memory_gb: 16.0            # Memory limit in GB
+use_gpu: false             # Enable GPU acceleration (if available)
+
+# ============================================================================
+# EXECUTION CONTROL
+# ============================================================================
+skip_existing: true        # Skip already-processed subjects
+stop_on_error: false       # Stop pipeline on first error (true) or continue (false)
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+log_level: INFO            # DEBUG, INFO, WARNING, ERROR
+debug: false               # Enable debug mode
+verbose: true              # Enable verbose output
+
+# ============================================================================
+# DMRI PIPELINE CONFIGURATION
+# ============================================================================
+dmri:
+  # Preprocessing steps
+  preprocessing:
+    # Denoising
+    denoising:
+      enabled: true
+      method: mppca          # Options: mppca, nlmeans
+      parameters:
+        patch_radius: 2
+        
+    # Gibbs ringing removal
+    degibbs:
+      enabled: true
+      
+    # Eddy current and motion correction
+    eddy:
+      enabled: true
+      use_gpu: false         # Use GPU-accelerated eddy if available
+      parameters:
+        repol: true          # Replace outliers
+        data_is_shelled: true
+        
+    # Bias field correction
+    bias_correction:
+      enabled: true
+      method: ants           # Options: ants, fsl
+      
+    # Susceptibility distortion correction
+    sdc:
+      enabled: true
+      method: topup          # Options: topup, syn
+      
+  # Modeling steps
+  modeling:
+    # Diffusion tensor imaging
+    tensor:
+      enabled: true
+      metrics:
+        - fa                 # Fractional anisotropy
+        - md                 # Mean diffusivity
+        - rd                 # Radial diffusivity
+        - ad                 # Axial diffusivity
+        
+    # Constrained spherical deconvolution
+    csd:
+      enabled: true
+      method: msmt_csd       # Options: csd, msmt_csd
+      lmax: 8                # Maximum spherical harmonic degree
+      
+    # NODDI (Neurite Orientation Dispersion and Density Imaging)
+    noddi:
+      enabled: false
+      
+    # Tractography
+    tractography:
+      enabled: false
+      algorithm: iFOD2       # Options: iFOD2, SD_Stream, Tensor_Det
+      n_streamlines: 10000000
+      
+  # Quality control
+  qc:
+    enabled: true
+    generate_reports: true
+    compute_snr: true
+    motion_threshold: 2.0    # mm of motion to flag as problematic
+
+# ============================================================================
+# FMRI PIPELINE CONFIGURATION (if needed)
+# ============================================================================
+# fmri:
+#   preprocessing:
+#     slice_timing:
+#       enabled: true
+#     motion_correction:
+#       enabled: true
+#       reference: mean
+#     distortion_correction:
+#       enabled: true
+#     smoothing:
+#       enabled: true
+#       fwhm: 6.0
+#     temporal_filtering:
+#       enabled: true
+#       highpass: 0.01
+#       lowpass: 0.1
+#   qc:
+#     enabled: true
+#     compute_tsnr: true
+#     generate_reports: true
+
+# ============================================================================
+# ANATOMICAL PIPELINE CONFIGURATION (if needed)
+# ============================================================================
+# anat:
+#   preprocessing:
+#     brain_extraction:
+#       enabled: true
+#       method: synthstrip
+#     bias_correction:
+#       enabled: true
+#     segmentation:
+#       enabled: true
+#       method: fast
+#   surface_reconstruction:
+#     enabled: false
+#     run_freesurfer: false
+#   qc:
+#     enabled: true
+#     generate_reports: true

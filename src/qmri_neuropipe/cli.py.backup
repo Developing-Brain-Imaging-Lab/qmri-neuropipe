@@ -1,0 +1,103 @@
+from __future__ import annotations
+import json
+from pathlib import Path
+from typing import List, Optional
+import typer
+from rich.console import Console
+from rich.table import Table
+
+from qmri_neuropipe.core import PipelineConfig
+from qmri_neuropipe.io import DataLoader
+from workflows.pipelines.dmri import DMRIPipeline
+
+app = typer.Typer(add_completion=False, help="qmri-neuropipe (BIDS App skeleton)")
+
+def _print_args(bids_dir, output_dir, level, **kwargs):
+    console = Console(); table = Table(title="qmri-neuropipe arguments")
+    table.add_column("arg"); table.add_column("value", style="cyan")
+    for k, v in [("bids_dir", bids_dir), ("output_dir", output_dir), ("level", level), *kwargs.items()]:
+        table.add_row(k, str(v))
+    console.print(table)
+
+@app.command()
+def main(
+    bids_dir: Path = typer.Option(None, file_okay=False, dir_okay=True, readable=True),
+    output_dir: Path = typer.Option(None, file_okay=False, dir_okay=True, writable=True),
+    pipeline: str = typer.Option("dmri", help="Pipeline to run (e.g., dmri)"),
+    level: str = typer.Option("participant", help="BIDS App level: participant (only)"),
+    cfg: Optional[Path] = typer.Option(None, "--config", help="JSON/YAML advanced config"),
+    participant_label: str = typer.Option(None, "--participant-label", "-p"),
+    session_label:str = typer.Option(None, "--session-label", "-s"),
+    
+    work_dir: Optional[Path] = typer.Option(None, "--work-dir"),
+    n_cpus: int = typer.Option(1, "--n-cpus"),
+    omp_nthreads: int = typer.Option(1, "--omp-nthreads"),
+    skip_bids_validation: bool = typer.Option(False, "--skip-bids-validation"),
+    
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    
+    # Load config / user supplied options
+    if cfg:
+        config = PipelineConfig.from_file(cfg)
+
+    #Create parent output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "derivatives" / "qmri-neuropipe").mkdir(parents=True, exist_ok=True)
+    (output_dir / "work").mkdir(parents=True, exist_ok=True)
+    if work_dir is None: work_dir = output_dir / "work"
+    
+    if verbose:
+        _print_args(bids_dir, output_dir, level, pipeline=pipeline, n_cpus=n_cpus, omp_nthreads=omp_nthreads, work_dir=str(work_dir), dry_run=dry_run)
+
+
+
+    # Load in data for participant/session labels
+    loader = DataLoader(bids_dir)
+    #subject_data = loader.load_subject(subject=participant_label, 
+    #                                   session=session_label)
+    
+    # Create and run pipeline
+    pipeline = DMRIPipeline(config)
+    pipeline.run(subjects=participant_label)  # Processes all subjects automatically!
+
+
+    
+    # log = init_logging(log_dir=output_dir / "logs", verbose=verbose)
+    # progress_path = work_dir / "progress" / f"sub-{participant_label}" / (f"ses-{session_label}" if session_label else "nosession") / "progress.jsonl"
+    # init_progress(progress_path, verbose=verbose)
+    # log.info(f"Progress log: {progress_path}")
+
+    # items = select_participants_sessions(bids_dir=bids_dir, participants=participant_label, sessions=session_label, skip_validation=skip_bids_validation)
+    # if not items:
+    #     typer.echo("No participants/sessions selected. Exiting."); raise typer.Exit(1)
+
+    # cfg = {}
+    # if config:
+    #     cpath = Path(config)
+    #     if cpath.suffix.lower() in {".yaml",".yml"}:
+    #         import yaml; cfg = yaml.safe_load(cpath.read_text())
+    #     else:
+    #         cfg = json.loads(cpath.read_text())
+
+    # ledger = RunLedger(base=output_dir / "derivatives" / "qmri-neuropipe" / "logs"); ledger.start_run()
+    # try:
+    #     for sub, ses in items:
+    #         log.info({"event": "begin_participant", "sub": sub, "ses": ses, "pipeline": pipeline})
+    #         if pipeline == "dmri-dti":
+    #             wf = build_dmri_preproc_workflow(bids_dir=bids_dir, output_dir=output_dir, work_dir=work_dir, sub=sub, ses=ses, n_cpus=n_cpus, omp_nthreads=omp_nthreads, config=cfg, dry_run=dry_run)
+    #         else:
+    #             raise RuntimeError(f"Unsupported pipeline: {pipeline}")
+    #         if not dry_run:
+    #             from pydra import Submitter
+    #             with Submitter(plugin="cf", n_procs=n_cpus) as subm:
+    #                 subm(wf); _ = wf.result()
+    #         ledger.mark_subject(sub=sub, ses=ses, status="ok")
+    # except Exception as e:
+    #     log.exception("pipeline_failed"); ledger.mark_subject(sub=sub, ses=ses, status="error", error=str(e)); raise
+    # finally:
+    #     ledger.finish_run()
+
+if __name__ == "__main__":
+    app()

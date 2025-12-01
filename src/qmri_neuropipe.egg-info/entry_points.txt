@@ -1,0 +1,2 @@
+[console_scripts]
+qmri-neuropipe = qmri_neuropipe.cli:app

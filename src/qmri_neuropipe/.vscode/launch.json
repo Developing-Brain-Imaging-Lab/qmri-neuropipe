@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug qmri-neuropipe (module)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "qmri_neuropipe.cli",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+
+      // If you haven't done `pip install -e .`, set PYTHONPATH to pick up the src/ layout.
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" },
+
+      "args": [
+        "--config", "/Users/deaniii/Developer/testing/bids_dir/code/dmri/preproc.yaml", // avoid '~'
+        "--verbose"
+      ],
+      "justMyCode": true
+    }
+  ]
+}

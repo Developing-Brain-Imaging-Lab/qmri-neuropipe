@@ -1,0 +1,74 @@
+{
+  "bids_dir": "/path/to/bids/dataset",
+  "output_dir": "/path/to/output/derivatives",
+  "work_dir": "/path/to/work",
+  
+  "participant_label": ["sub-01", "sub-02", "sub-03"],
+  
+  "n_cpus": 8,
+  "memory_gb": 16.0,
+  "use_gpu": false,
+  
+  "skip_existing": true,
+  "stop_on_error": false,
+  
+  "log_level": "INFO",
+  "debug": false,
+  "verbose": true,
+  
+  "dmri": {
+    "preprocessing": {
+      "denoising": {
+        "enabled": true,
+        "method": "mppca",
+        "parameters": {
+          "patch_radius": 2
+        }
+      },
+      "degibbs": {
+        "enabled": true
+      },
+      "eddy": {
+        "enabled": true,
+        "use_gpu": false,
+        "parameters": {
+          "repol": true,
+          "data_is_shelled": true
+        }
+      },
+      "bias_correction": {
+        "enabled": true,
+        "method": "ants"
+      },
+      "sdc": {
+        "enabled": true,
+        "method": "topup"
+      }
+    },
+    "modeling": {
+      "tensor": {
+        "enabled": true,
+        "metrics": ["fa", "md", "rd", "ad"]
+      },
+      "csd": {
+        "enabled": true,
+        "method": "msmt_csd",
+        "lmax": 8
+      },
+      "noddi": {
+        "enabled": false
+      },
+      "tractography": {
+        "enabled": false,
+        "algorithm": "iFOD2",
+        "n_streamlines": 10000000
+      }
+    },
+    "qc": {
+      "enabled": true,
+      "generate_reports": true,
+      "compute_snr": true,
+      "motion_threshold": 2.0
+    }
+  }
+}
