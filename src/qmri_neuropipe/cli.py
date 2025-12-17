@@ -20,7 +20,8 @@ from rich.table import Table
 from qmri_neuropipe.core import PipelineConfig
 from qmri_neuropipe.core.exceptions import ConfigurationError
 from qmri_neuropipe.io import DataLoader
-from workflows.pipelines.dmri import DMRIPipeline
+from .workflows.pipelines.dmri import DMRIPipeline
+from .workflows.pipelines.anat import AnatPipeline
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
 console = Console()
@@ -408,10 +409,12 @@ def main(
         console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
         if pipeline_name == 'dmri':
             pipeline_obj = DMRIPipeline(config)
+        elif pipeline_name == 'anat':
+            pipeline_obj = AnatPipeline(config)
         else:
             raise ConfigurationError(
                 f"Unsupported pipeline: {pipeline_name}",
-                details=f"Available pipelines: dmri"
+                details=f"Available pipelines: dmri, anat"
             )
         
         # Run pipeline

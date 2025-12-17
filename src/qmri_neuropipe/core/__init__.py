@@ -87,6 +87,12 @@ from qmri_neuropipe.core.exceptions import (
     error_context
 )
 
+from qmri_neuropipe.core.utils import (
+    ensure_path,
+    ensure_dir,
+    extract_image_path
+)
+
 
 # Define public API
 __all__ = [
@@ -117,7 +123,13 @@ __all__ = [
     'FileWriteError',
     'ResourceError',
     'DependencyError',
+    'DependencyError',
     'error_context',
+    
+    # Utils
+    'ensure_path',
+    'ensure_dir',
+    'extract_image_path',
 ]
 
 

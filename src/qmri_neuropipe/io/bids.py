@@ -147,6 +147,8 @@ def parse_bids_filename(path):
     
     return entities
 
+extract_bids_entities = parse_bids_filename
+
 def bids_find(root, suffix=None, extension=None):
     """
     Recursively find BIDS-like files under root.

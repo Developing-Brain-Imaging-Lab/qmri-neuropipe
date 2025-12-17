@@ -4,6 +4,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Dict, Iterable
 import json
+import nibabel as nib
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
@@ -86,14 +87,22 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | Non
     if not json_path or not json_path.exists():
         return None, None
 
-    meta = json.loads(json_path.read_text())
-    pe = meta.get("PhaseEncodingDirection", "j")   # fallback
-    trt = meta.get("TotalReadoutTime", 0.05)       # seconds
+    try:
+        meta = json.loads(json_path.read_text())
+    except Exception:
+        return None, None
+
+    pe = meta.get("PhaseEncodingDirection")
+    if pe is None:
+        return None, None
+
+    trt = meta.get("TotalReadoutTime", 0.05)  # seconds
 
     acqp_dir = dwi_path.parent / "eddy"
     acqp_dir.mkdir(parents=True, exist_ok=True)
-    acqp = acqp_dir / "acqp.txt"
-    index = acqp_dir / "index.txt"
+    stem = dwi_path.stem.replace(".nii", "")
+    acqp = acqp_dir / f"{stem}_acqp.txt"
+    index = acqp_dir / f"{stem}_index.txt"
 
     # Map BIDS PE to FSL acqp (i/j/k with +/-). Using j as default example:
     # Columns are: dx dy dz readout_time
@@ -107,10 +116,27 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | Non
     }.get(pe, "0 1 0")
 
     acqp.write_text(f"{line} {trt:.6f}\n", encoding="utf-8")
-    # Single line index for all volumes (adjust for multi-acqp scenarios)
-    # Count volumes by reading bvals:
-    nvols = len([x for x in Path(dwi_path.parent).glob("*_dwi.bval")][0].read_text().split())
-    index.write_text(("1\n" * nvols), encoding="utf-8")
+
+    # Determine number of volumes either from bval or by loading the image
+    nvols: Optional[int] = None
+    bval_candidates = list(Path(dwi_path.parent).glob("*_dwi.bval"))
+    if bval_candidates:
+        try:
+            nvols = len(bval_candidates[0].read_text().split())
+        except Exception:
+            nvols = None
+    if nvols is None:
+        try:
+            nvols = nib.load(str(dwi_path)).shape[-1]
+        except Exception:
+            nvols = None
+
+    if nvols:
+        index.write_text(("1\n" * nvols), encoding="utf-8")
+    else:
+        # Cannot construct a valid index file
+        acqp.unlink(missing_ok=True)
+        return None, None
 
     return acqp, index
 
@@ -162,58 +188,4 @@ def find_reversed_phase_groups(dwi_files: list[DWIFile], group_by: tuple[str, ..
     return combined_groups
 
 
-    """
-    Group DWI files that appear to be reversed phase encoding pairs for TOPUP/EDDY.
 
-    Strategy:
-    - Group by "matching" BIDS entities except for 'dir' and 'run'.
-    - Within each group, pair files that have opposite PhaseEncodingDirection.
-    - Return a list of groups; each group is a list of DWIFile instances.
-    """
-    dwi_files = list(dwi_files)
-    buckets: Dict[tuple, list[DWIFile]] = defaultdict(list)
-
-    # Define which entities we *ignore* for pairing
-    ignore_keys = {"dir", "run"}
-
-    for d in dwi_files:
-        # Build a key from entities that should match across phase-encoding pairs
-        key_items = []
-        for k, v in sorted(d.entities.items()):
-            if k in ignore_keys:
-                continue
-            key_items.append((k, v))
-        key = tuple(key_items)
-        buckets[key].append(d)
-
-    groups: list[list[DWIFile]] = []
-
-    for key, files in buckets.items():
-        used = set()
-        n = len(files)
-
-        for i in range(n):
-            if i in used:
-                continue
-
-            pe_i = _load_json_field(files[i].json, "PhaseEncodingDirection")
-            if pe_i is None:
-                # No PE info; treat as its own group
-                groups.append([files[i]])
-                used.add(i)
-                continue
-
-            # Try to find a reversed partner
-            pair = [files[i]]
-            for j in range(i + 1, n):
-                if j in used:
-                    continue
-                pe_j = _load_json_field(files[j].json, "PhaseEncodingDirection")
-                if _is_pe_reversed(pe_i, pe_j):
-                    pair.append(files[j])
-                    used.add(j)
-
-            used.add(i)
-            groups.append(pair)
-
-    return groups

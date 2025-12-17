@@ -26,7 +26,6 @@ from ...interfaces import dipy, ants, mrtrix
 from ...io.bids import build_bids_name
 
 
-
 class DenoisingStep(BaseProcessingStep):
     """
     General denoising step that works for multiple modalities.
@@ -116,23 +115,7 @@ class DenoisingStep(BaseProcessingStep):
 
         # --- Helper to get an image from either context or direct ImageLike ---
     
-    def _extract_image(self, first_arg) -> ImageLike:
-        """
-        Support both:
-        - pipeline mode: first_arg is context dict
-        - standalone mode: first_arg is an ImageLike
-        """
-        if isinstance(first_arg, dict):
-            ctx = first_arg
-            img = ctx.get("current_image")
-            if img is None:
-                raise ValidationError(
-                    "DenoisingStep expects context['current_image'] to be set"
-                )
-            return img
-        else:
-            # Old behavior: first_arg is already an ImageLike
-            return first_arg
+    # _extract_image logic replaced by self.unpack_input in base class
 
     def _validate_image(self, image: ImageLike) -> None:
         """Your existing validate_inputs logic, moved here."""
@@ -185,22 +168,10 @@ class DenoisingStep(BaseProcessingStep):
     def validate_inputs(self, first_arg, output_dir: Path, **kwargs) -> None:
         """
         Validate denoising inputs.
-        
-        Args:
-            input_image: Image Object
-            output_dir: Output directory
-            **kwargs: Additional arguments
-        
-        Raises:
-            ValidationError: If inputs are invalid
         """
-
-        """
-        first_arg can be:
-        - context dict (pipeline mode)
-        - ImageLike (standalone denoise_image convenience)
-        """
-        image = self._extract_image(first_arg)
+        context, image = self.unpack_input(first_arg)
+        if image is None:
+             raise ValidationError("Input image is None (or not found in context)")
         self._validate_image(image)
 
     def validate_outputs(self, result) -> None:
@@ -233,89 +204,94 @@ class DenoisingStep(BaseProcessingStep):
     def run(self, first_arg, output_dir: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, **kwargs) -> Tuple[Path, Optional[Path]]:
         """
         Run denoising on input image.
-        
-        Args:
-            input_img: ImageLike object to input NIfTI file
-            output_dir: Path to output NIfTI file for denoised image
-            mask: Optional brain mask (speeds up processing)
-            **kwargs: Method-specific parameters
-        
-        Returns:
-            Path to denoised image
-            Path to noise map: (Optional)
-        
-        Raises:
-            ProcessingError: If denoising fails
         """
+        context, input_img = self.unpack_input(first_arg)
+        if input_img is None:
+             raise ProcessingError("No input image provided")
 
-        """
-        Pipeline mode:
-            first_arg: dict with 'current_image' (ImageLike)
-            returns:   updated dict with 'current_image' replaced by denoised ImageLike,
-                       and optionally appends to 'preprocessed_dwis'
+        output_dir = self.get_step_output_dir(output_dir)
+        output_img_path = output_dir / build_bids_name({**input_img.entities, "desc": "denoised"})
+        noise_map_path  = output_dir / build_bids_name({**input_img.entities, "desc": "NoiseMap"})
         
-        Standalone mode (denoise_image helper):
-            first_arg: ImageLike
-            returns:   ImageLike
-        """
-        is_context = isinstance(first_arg, dict)
-        if is_context:
-            context = dict(first_arg)  # shallow copy to avoid in-place surprises
-            input = self._extract_image(context)
-        else:
-            context = None
-            input = first_arg
-
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_img = output_dir / build_bids_name({**input.entities, "desc": "denoised"})
-        noise_map  = output_dir / build_bids_name({**input.entities, "desc": "NoiseMap"})
+        # Check if output exists
+        if output_img_path.exists():
+             self.logger.info(f"Skipping {self.method} denoising (Output exists: {output_img_path.name})")
+             # Reconstruct result object
+             if isinstance(input_img, DWIFile):
+                 result_img = DWIFile(
+                    entities=input_img.entities,
+                    img=output_img_path,
+                    json=input_img.json,
+                    bval=input_img.bval,
+                    bvec=input_img.bvec
+                 )
+             else:
+                 result_img = ImageFile(entities=input_img.entities, img=output_img_path, json=input_img.json)
+                 
+             if context is not None:
+                context["current_image"] = result_img
+                if isinstance(result_img, DWIFile):
+                    pre_list = context.setdefault("preprocessed_dwis", [])
+                    if result_img not in pre_list:
+                        pre_list.append(result_img)
+                return context
+             else:
+                return result_img
         
         # Run denoising based on method
         self.logger.info(f"Running {self.method} denoising...")
         
+        # Get nthreads from kwargs or config
+        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+
+        from threadpoolctl import threadpool_limits
+
         try:
             if self.method == 'mrtrix':
-                denoised, noise = mrtrix.dwidenoise(in_img=input.img,
-                                                    out=output_img, 
+                denoised, noise = mrtrix.dwidenoise(in_file=input_img.img,
+                                                    out_file=output_img_path, 
                                                     mask=mask,
-                                                    noise_map=noise_map,
-                                                    nthreads=kwargs.get('nthreads', 2),
+                                                    noise_map=noise_map_path,
+                                                    nthreads=nthreads,
                                                     force=bool(kwargs.get('force', False)))
             elif self.method == 'ants':
-                denoised, noise = ants.denoise_image(in_img=input.img,
-                                                     out=output_img,
+                denoised, noise = ants.denoise_image(in_file=input_img.img,
+                                                     out_file=output_img_path,
                                                      noise_model=kwargs.get('noise_model', 'Rician'),
                                                      mask=mask,
-                                                     noise_map=noise_map,
-                                                     nthreads=kwargs.get('nthreads', 2))
-            elif self.method == 'mppca':
-                denoised, noise = dipy.mppca(in_img=input.img, 
-                                             out=output_img, 
-                                             mask=mask,
-                                             noise_map=noise_map,
-                                             patch_radius=self.patch_radius,
-                                             block_radius=self.block_radius, 
-                                             **kwargs)
-            elif self.method == 'nlmeans':
-                denoised = dipy.nlmeans(in_img=input.img, 
-                                        out=output_img, 
-                                        mask=mask, 
-                                        **kwargs)
-            elif self.method == 'wavelets':
-                denoised = self._run_wavelets(
-                    nib.load(str(input.img)).get_fdata(),
-                    mask=nib.load(str(mask)).get_fdata() if mask else None,
-                    **kwargs
-                )
-            elif self.method == 'gaussian':
-                denoised = self._run_gaussian(
-                    nib.load(str(input.img)).get_fdata(),
-                    mask=nib.load(str(mask)).get_fdata() if mask else None,
-                    **kwargs
-                )
+                                                     noise_map=noise_map_path,
+                                                     nthreads=nthreads)
             else:
-                raise ValueError(f"Unknown denoising method: {self.method}")
+                # Python-based methods (mppca, nlmeans, wavelets, gaussian)
+                # Limit threads for BLAS/OpenMP operations
+                with threadpool_limits(limits=nthreads):
+                    if self.method == 'mppca':
+                        denoised, noise = dipy.mppca(in_file=input_img.img, 
+                                                     out_file=output_img_path, 
+                                                     mask=mask,
+                                                     noise_map=noise_map_path,
+                                                     patch_radius=self.patch_radius,
+                                                     block_radius=self.block_radius, 
+                                                     **kwargs)
+                    elif self.method == 'nlmeans':
+                        denoised = dipy.nlmeans(in_file=input_img.img, 
+                                                out_file=output_img_path, 
+                                                mask=mask, 
+                                                **kwargs)
+                    elif self.method == 'wavelets':
+                        denoised = self._run_wavelets(
+                            nib.load(str(input_img.img)).get_fdata(),
+                            mask=nib.load(str(mask)).get_fdata() if mask else None,
+                            **kwargs
+                        )
+                    elif self.method == 'gaussian':
+                        denoised = self._run_gaussian(
+                            nib.load(str(input_img.img)).get_fdata(),
+                            mask=nib.load(str(mask)).get_fdata() if mask else None,
+                            **kwargs
+                        )
+                    else:
+                        raise ValueError(f"Unknown denoising method: {self.method}")
             
         except Exception as e:
             raise ProcessingError(
@@ -324,26 +300,39 @@ class DenoisingStep(BaseProcessingStep):
                 details=str(e)
             )
         
-        # Save denoised image
-        self.logger.info(f"Denoised image saved to: {output_img}")
+        # Check if denoised is an array (from internal python methods) and save it
+        if isinstance(denoised, np.ndarray):
+             self.logger.info(f"Saving {self.method} result to {output_img_path}")
+             original = nib.load(str(input_img.img))
+             # Ensure header matches data shape if needed, strictly we just want affine/header
+             # If headers are stricter about dimensions (e.g. 4D vs 3D), Nifti1Image might handle or we clean header
+             new_img = nib.Nifti1Image(denoised, original.affine, original.header)
+             nib.save(new_img, str(output_img_path))
+             denoised = output_img_path
+
+        # Save denoised image log
+        self.logger.info(f"Denoised image saved to: {output_img_path}")
         
         # Also save noise map if MP-PCA
         if noise_map is not None:
-            self.logger.debug(f"Noise map saved to: {noise_map}")
+             # Logic fix: noise_map arg was meant to be input path or boolean? 
+             # In run arg it is Optional[Path]. If passed, we use it.
+             # but check if we actually created it.
+             self.logger.debug(f"Noise map saved to: {noise_map_path}")
 
-        if isinstance(input, DWIFile):
-            result_img = DWIFile(entities=input.entities,
+        if isinstance(input_img, DWIFile):
+            result_img = DWIFile(entities=input_img.entities,
                                  img=denoised,
-                                 json=input.json,
-                                 bval=input.bval,
-                                 bvec=input.bvec)
+                                 json=input_img.json,
+                                 bval=input_img.bval,
+                                 bvec=input_img.bvec)
         else:
-            result_img = ImageFile(entities=input.entities,
+            result_img = ImageFile(entities=input_img.entities,
                                    img=denoised,
-                                   json=input.json)
+                                   json=input_img.json)
         
         # ---- Return shape depends on input shape ----
-        if is_context:
+        if context is not None:
             context["current_image"] = result_img
 
             # If this is DWI, you might want to maintain a list of preprocessed DWIs:

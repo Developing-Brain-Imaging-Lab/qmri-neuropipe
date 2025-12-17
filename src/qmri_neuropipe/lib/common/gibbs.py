@@ -94,23 +94,7 @@ class GibbsUnringingStep(BaseProcessingStep):
                 "DIPY not available. Install with: pip install dipy"
             )
         
-    def _extract_image(self, first_arg) -> ImageLike:
-        """
-        Support both:
-        - pipeline mode: first_arg is context dict
-        - standalone mode: first_arg is an ImageLike
-        """
-        if isinstance(first_arg, dict):
-            ctx = first_arg
-            img = ctx.get("current_image")
-            if img is None:
-                raise ValidationError(
-                    "DenoisingStep expects context['current_image'] to be set"
-                )
-            return img
-        else:
-            # Old behavior: first_arg is already an ImageLike
-            return first_arg
+    # _extract_image logic replaced by self.unpack_input in base class
 
     def _validate_image(self, image: ImageLike) -> None:
         """Your existing validate_inputs logic, moved here."""
@@ -167,17 +151,10 @@ class GibbsUnringingStep(BaseProcessingStep):
     def validate_inputs(self, first_arg, **kwargs) -> None:
         """
         Validate gibbs ringing inputs.
-        
-        Args:
-            input: Input image object
-            output_dir: Output directory
-            **kwargs: Additional arguments
-        
-        Raises:
-            ValidationError: If inputs are invalid
         """
-
-        image = self._extract_image(first_arg)
+        context, image = self.unpack_input(first_arg)
+        if image is None:
+             raise ValidationError("Input image is None (or not found in context)")
         self._validate_image(image)
 
     def validate_outputs(self, result: ImageLike) -> None:
@@ -210,43 +187,29 @@ class GibbsUnringingStep(BaseProcessingStep):
     def run(self, first_arg, output_dir: Path, mask: Optional[Path]=None, **kwargs) -> Path:
         """
         Run gibbs unringing on input image.
-        
-        Args:
-            input_image: Path to input NIfTI file
-            output_dir: Output directory for denoised image
-            mask: Optional brain mask (speeds up processing)
-            **kwargs: Method-specific parameters
-        
-        Returns:
-            Path to corrected image
-        
-        Raises:
-            ProcessingError: If gibbs unringing fails
         """
-
-        is_context = isinstance(first_arg, dict)
-        if is_context:
-            context = dict(first_arg)  # shallow copy to avoid in-place surprises
-            input = self._extract_image(context)
-        else:
-            context = None
-            input = first_arg
+        context, input_img = self.unpack_input(first_arg)
+        if input_img is None:
+             raise ProcessingError("No input image provided")
         
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_img = output_dir / build_bids_name({**input.entities, "desc": "gibbs-corrected"})
+        output_dir = self.get_step_output_dir(output_dir)
+        output_img = output_dir / build_bids_name({**input_img.entities, "desc": "gibbs-corrected"})
                
         # Run denoising based on method
         self.logger.info(f"Running {self.method} gibbs unringing...")
         
+        # Get nthreads from kwargs or config
+        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        
         try:
             if self.method == 'dipy':
-                corrected = dipy.gibbs_ringing_correction(in_img=input.img, 
-                                                          out=output_img,
-                                                          nthreads=kwargs.get('nthreads', 2))
+                corrected = dipy.gibbs_ringing_correction(in_file=input_img.img, 
+                                                          out_file=output_img,
+                                                          nthreads=nthreads)
             elif self.method == 'mrtrix':
-                corrected = mrtrix.mrdegibbs(in_img=input.img, 
-                                             out=output_img, 
-                                             nthreads=kwargs.get('nthreads', 2),
+                corrected = mrtrix.mrdegibbs(in_file=input_img.img, 
+                                             out_file=output_img, 
+                                             nthreads=nthreads,
                                              force=bool(kwargs.get('force', False)))
             else:
                 raise ValueError(f"Unknown denoising method: {self.method}")
@@ -260,19 +223,19 @@ class GibbsUnringingStep(BaseProcessingStep):
                 
         self.logger.info(f"Gibbs corrected image saved to: {output_img}")
         
-        if isinstance(input, DWIFile):
-            result_img = DWIFile(entities=input.entities,
+        if isinstance(input_img, DWIFile):
+            result_img = DWIFile(entities=input_img.entities,
                                  img=corrected,
-                                 json=input.json,
-                                 bval=input.bval,
-                                 bvec=input.bvec)
+                                 json=input_img.json,
+                                 bval=input_img.bval,
+                                 bvec=input_img.bvec)
         else:
-            result_img = ImageFile(entities=input.entities,
+            result_img = ImageFile(entities=input_img.entities,
                                    img=corrected,
-                                   json=input.json)
+                                   json=input_img.json)
         
         # ---- Return shape depends on input shape ----
-        if is_context:
+        if context is not None:
             context["current_image"] = result_img
 
             # If this is DWI, you might want to maintain a list of preprocessed DWIs:

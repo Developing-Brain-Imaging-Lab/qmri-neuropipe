@@ -1,0 +1,26 @@
+Welcome to qmri-neuropipe's documentation!
+============================================
+
+`qmri-neuropipe` is a comprehensive processing pipeline for quantitative MRI, specifically designed for diffusion MRI (dMRI) and anatomical data.
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+   installation
+   data_organization
+   usage
+   hosting
+   workflows/anatomical
+   workflows/diffusion
+   modules/core
+   modules/interfaces
+   modules/lib
+   modules/workflows
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

@@ -1,0 +1,623 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qmri-neuropipe: Configuration and CLI Usage Guide &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=51b770b3"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/interfaces.html">Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/lib.html">Processing Library</a></li>
+<li class="toctree-l1"><a class="reference internal" href="modules/workflows.html">Workflows</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">qmri-neuropipe: Configuration and CLI Usage Guide</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/CLI_USAGE_GUIDE.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="qmri-neuropipe-configuration-and-cli-usage-guide">
+<h1>qmri-neuropipe: Configuration and CLI Usage Guide<a class="headerlink" href="#qmri-neuropipe-configuration-and-cli-usage-guide" title="Link to this heading"></a></h1>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The improved CLI system provides flexible configuration through:</p>
+<ul class="simple">
+<li><p><strong>Config files</strong> (YAML or JSON)</p></li>
+<li><p><strong>Command line arguments</strong></p></li>
+<li><p><strong>Intelligent merging</strong> (CLI overrides config file values)</p></li>
+<li><p><strong>Comprehensive validation</strong> with clear error messages</p></li>
+</ul>
+</section>
+<section id="quick-start">
+<h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading"></a></h2>
+<section id="using-a-config-file-only">
+<h3>1. Using a Config File Only<a class="headerlink" href="#using-a-config-file-only" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml
+</pre></div>
+</div>
+</section>
+<section id="using-cli-arguments-only">
+<h3>2. Using CLI Arguments Only<a class="headerlink" href="#using-cli-arguments-only" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--bids-dir<span class="w"> </span>/data/bids<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>/data/derivatives<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--n-cpus<span class="w"> </span><span class="m">8</span>
+</pre></div>
+</div>
+</section>
+<section id="mixed-approach-recommended">
+<h3>3. Mixed Approach (Recommended)<a class="headerlink" href="#mixed-approach-recommended" title="Link to this heading"></a></h3>
+<p>Use a config file for stable settings, override specific values via CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--n-cpus<span class="w"> </span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01
+</pre></div>
+</div>
+</section>
+</section>
+<section id="required-arguments">
+<h2>Required Arguments<a class="headerlink" href="#required-arguments" title="Link to this heading"></a></h2>
+<p>These arguments <strong>must</strong> be provided either via config file or command line:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Argument</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--bids-dir</span></code></p></td>
+<td><p>Path to BIDS dataset directory</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--output-dir</span></code></p></td>
+<td><p>Path to output directory for derivatives</p></td>
+</tr>
+</tbody>
+</table>
+<p>If either is missing, the pipeline will exit with a clear error message showing what’s needed.</p>
+</section>
+<section id="configuration-priority">
+<h2>Configuration Priority<a class="headerlink" href="#configuration-priority" title="Link to this heading"></a></h2>
+<p>When the same parameter is specified in multiple places, priority is:</p>
+<ol class="arabic simple">
+<li><p><strong>Command line arguments</strong> (highest priority)</p></li>
+<li><p><strong>Config file values</strong></p></li>
+<li><p><strong>Default values</strong> (lowest priority)</p></li>
+</ol>
+<section id="example">
+<h3>Example:<a class="headerlink" href="#example" title="Link to this heading"></a></h3>
+<p><strong>config.yaml:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">n_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<span class="nt">memory_gb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span>
+<span class="nt">participant_label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub-01</span>
+</pre></div>
+</div>
+<p><strong>Command:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--n-cpus<span class="w"> </span><span class="m">16</span><span class="w"> </span>--participant-label<span class="w"> </span>sub-02
+</pre></div>
+</div>
+<p><strong>Result:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">n_cpus</span></code>: 16 (from CLI)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">memory_gb</span></code>: 8.0 (from config)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">participant_label</span></code>: sub-02 (from CLI)</p></li>
+</ul>
+</section>
+</section>
+<section id="complete-parameter-reference">
+<h2>Complete Parameter Reference<a class="headerlink" href="#complete-parameter-reference" title="Link to this heading"></a></h2>
+<section id="core-paths">
+<h3>Core Paths<a class="headerlink" href="#core-paths" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--bids-dir</span></code></p></td>
+<td><p>Path</p></td>
+<td><p><strong>Yes</strong></p></td>
+<td><p>BIDS dataset directory</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--output-dir</span></code></p></td>
+<td><p>Path</p></td>
+<td><p><strong>Yes</strong></p></td>
+<td><p>Output directory for derivatives</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--work-dir</span></code></p></td>
+<td><p>Path</p></td>
+<td><p>No</p></td>
+<td><p>Working directory (default: output_dir/work)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--config</span></code>, <code class="docutils literal notranslate"><span class="pre">-c</span></code></p></td>
+<td><p>Path</p></td>
+<td><p>No</p></td>
+<td><p>Path to YAML/JSON config file</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="pipeline-selection">
+<h3>Pipeline Selection<a class="headerlink" href="#pipeline-selection" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--pipeline</span></code></p></td>
+<td><p>str</p></td>
+<td><p>dmri</p></td>
+<td><p>Pipeline to run (dmri, fmri, anat)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--level</span></code></p></td>
+<td><p>str</p></td>
+<td><p>participant</p></td>
+<td><p>Analysis level (participant, group)</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="subject-session-selection">
+<h3>Subject/Session Selection<a class="headerlink" href="#subject-session-selection" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--participant-label</span></code>, <code class="docutils literal notranslate"><span class="pre">-p</span></code></p></td>
+<td><p>str</p></td>
+<td><p>None</p></td>
+<td><p>Participant ID(s) to process</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--session-label</span></code>, <code class="docutils literal notranslate"><span class="pre">-s</span></code></p></td>
+<td><p>str</p></td>
+<td><p>None</p></td>
+<td><p>Session ID(s) to process</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="computational-resources">
+<h3>Computational Resources<a class="headerlink" href="#computational-resources" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--n-cpus</span></code></p></td>
+<td><p>int</p></td>
+<td><p>1</p></td>
+<td><p>Number of CPUs to use</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--memory-gb</span></code></p></td>
+<td><p>float</p></td>
+<td><p>8.0</p></td>
+<td><p>Memory limit in GB</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--use-gpu</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-gpu</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Enable GPU acceleration</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--omp-nthreads</span></code></p></td>
+<td><p>int</p></td>
+<td><p>1</p></td>
+<td><p>Number of OpenMP threads</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="execution-control">
+<h3>Execution Control<a class="headerlink" href="#execution-control" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-existing</span></code> / <code class="docutils literal notranslate"><span class="pre">--no-skip-existing</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>True</p></td>
+<td><p>Skip already-processed subjects</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--stop-on-error</span></code> / <code class="docutils literal notranslate"><span class="pre">--continue-on-error</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Stop on first error</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-bids-validation</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Skip BIDS dataset validation</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Validate config without running</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="logging">
+<h3>Logging<a class="headerlink" href="#logging" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Parameter</p></th>
+<th class="head"><p>Type</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--log-level</span></code></p></td>
+<td><p>str</p></td>
+<td><p>INFO</p></td>
+<td><p>Logging level (DEBUG, INFO, WARNING, ERROR)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--verbose</span></code>, <code class="docutils literal notranslate"><span class="pre">-v</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Enable verbose output</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--debug</span></code></p></td>
+<td><p>bool</p></td>
+<td><p>False</p></td>
+<td><p>Enable debug mode</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="usage-examples">
+<h2>Usage Examples<a class="headerlink" href="#usage-examples" title="Link to this heading"></a></h2>
+<section id="example-1-process-all-subjects-with-config-file">
+<h3>Example 1: Process All Subjects with Config File<a class="headerlink" href="#example-1-process-all-subjects-with-config-file" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml
+</pre></div>
+</div>
+<p><strong>config.yaml:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bids_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/study/bids</span>
+<span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/study/derivatives</span>
+<span class="nt">n_cpus</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8</span>
+<span class="nt">memory_gb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16.0</span>
+</pre></div>
+</div>
+</section>
+<section id="example-2-process-specific-subject">
+<h3>Example 2: Process Specific Subject<a class="headerlink" href="#example-2-process-specific-subject" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--session-label<span class="w"> </span>ses-baseline
+</pre></div>
+</div>
+</section>
+<section id="example-3-high-performance-processing">
+<h3>Example 3: High-Performance Processing<a class="headerlink" href="#example-3-high-performance-processing" title="Link to this heading"></a></h3>
+<p>Override config to use more resources:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--n-cpus<span class="w"> </span><span class="m">32</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--memory-gb<span class="w"> </span><span class="m">64</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--use-gpu
+</pre></div>
+</div>
+</section>
+<section id="example-4-development-testing">
+<h3>Example 4: Development/Testing<a class="headerlink" href="#example-4-development-testing" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Dry run to validate configuration</span>
+qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--dry-run<span class="w"> </span>--verbose
+
+<span class="c1"># Process one subject with debug output</span>
+qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--debug<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--verbose
+</pre></div>
+</div>
+</section>
+<section id="example-5-no-config-file">
+<h3>Example 5: No Config File<a class="headerlink" href="#example-5-no-config-file" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--bids-dir<span class="w"> </span>/data/bids<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-dir<span class="w"> </span>/data/derivatives<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--n-cpus<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--memory-gb<span class="w"> </span><span class="m">16</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--verbose
+</pre></div>
+</div>
+</section>
+<section id="example-6-batch-processing-with-different-settings">
+<h3>Example 6: Batch Processing with Different Settings<a class="headerlink" href="#example-6-batch-processing-with-different-settings" title="Link to this heading"></a></h3>
+<p>Process multiple subjects with different resource allocations:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># First batch - standard resources</span>
+qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-01,sub-02,sub-03
+
+<span class="c1"># Second batch - high memory subjects</span>
+qmri-neuropipe<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--participant-label<span class="w"> </span>sub-04,sub-05<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--memory-gb<span class="w"> </span><span class="m">32</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="configuration-file-examples">
+<h2>Configuration File Examples<a class="headerlink" href="#configuration-file-examples" title="Link to this heading"></a></h2>
+<section id="minimal-config-yaml">
+<h3>Minimal Config (YAML)<a class="headerlink" href="#minimal-config-yaml" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bids_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/bids</span>
+<span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/derivatives</span>
+</pre></div>
+</div>
+</section>
+<section id="comprehensive-config-yaml">
+<h3>Comprehensive Config (YAML)<a class="headerlink" href="#comprehensive-config-yaml" title="Link to this heading"></a></h3>
+<p>See <code class="docutils literal notranslate"><span class="pre">example_config.yaml</span></code> for a fully documented configuration file with all available options.</p>
+</section>
+<section id="json-format">
+<h3>JSON Format<a class="headerlink" href="#json-format" title="Link to this heading"></a></h3>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;bids_dir&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/data/bids&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;output_dir&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/data/derivatives&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;n_cpus&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;participant_label&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;sub-01&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sub-02&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading"></a></h2>
+<p>The new system provides clear error messages for common issues:</p>
+<section id="missing-required-arguments">
+<h3>Missing Required Arguments<a class="headerlink" href="#missing-required-arguments" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>qmri-neuropipe<span class="w"> </span>--n-cpus<span class="w"> </span><span class="m">8</span>
+
+Configuration<span class="w"> </span>Error:<span class="w"> </span>Missing<span class="w"> </span>required<span class="w"> </span>arguments.<span class="w"> </span>Please<span class="w"> </span>provide<span class="w"> </span>them<span class="w"> </span>via<span class="w"> </span>config<span class="w"> </span>file<span class="w"> </span>or<span class="w"> </span><span class="nb">command</span><span class="w"> </span>line:
+
+<span class="w">  </span>--bids-dir<span class="w"> </span>:<span class="w"> </span>Input<span class="w"> </span>BIDS<span class="w"> </span>dataset<span class="w"> </span>directory
+<span class="w">  </span>--output-dir<span class="w"> </span>:<span class="w"> </span>Output<span class="w"> </span>directory<span class="w"> </span><span class="k">for</span><span class="w"> </span>derivatives
+
+Examples:
+<span class="w">  </span><span class="m">1</span>.<span class="w"> </span>Via<span class="w"> </span><span class="nb">command</span><span class="w"> </span>line:
+<span class="w">     </span>qmri-neuropipe<span class="w"> </span>--bids-dir<span class="w"> </span>/data/bids<span class="w"> </span>--output-dir<span class="w"> </span>/data/derivatives
+
+<span class="w">  </span><span class="m">2</span>.<span class="w"> </span>Via<span class="w"> </span>config<span class="w"> </span>file:
+<span class="w">     </span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml
+
+<span class="w">  </span><span class="m">3</span>.<span class="w"> </span>Mixed<span class="w"> </span><span class="o">(</span>CLI<span class="w"> </span>overrides<span class="w"> </span>config<span class="o">)</span>:
+<span class="w">     </span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--n-cpus<span class="w"> </span><span class="m">16</span>
+</pre></div>
+</div>
+</section>
+<section id="invalid-config-file">
+<h3>Invalid Config File<a class="headerlink" href="#invalid-config-file" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>nonexistent.yaml
+
+Configuration<span class="w"> </span>Error:<span class="w"> </span>Configuration<span class="w"> </span>file<span class="w"> </span>not<span class="w"> </span>found:<span class="w"> </span>nonexistent.yaml
+Details:<span class="w"> </span>Please<span class="w"> </span>check<span class="w"> </span>the<span class="w"> </span>path<span class="w"> </span>and<span class="w"> </span>try<span class="w"> </span>again.
+</pre></div>
+</div>
+</section>
+<section id="invalid-bids-directory">
+<h3>Invalid BIDS Directory<a class="headerlink" href="#invalid-bids-directory" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>qmri-neuropipe<span class="w"> </span>--bids-dir<span class="w"> </span>/invalid/path<span class="w"> </span>--output-dir<span class="w"> </span>/data/out
+
+Configuration<span class="w"> </span>Error:<span class="w"> </span>BIDS<span class="w"> </span>directory<span class="w"> </span>does<span class="w"> </span>not<span class="w"> </span>exist:<span class="w"> </span>/invalid/path
+Details:<span class="w"> </span>Please<span class="w"> </span>check<span class="w"> </span>the<span class="w"> </span>path<span class="w"> </span>and<span class="w"> </span>ensure<span class="w"> </span>it<span class="err">&#39;</span>s<span class="w"> </span>accessible.
+</pre></div>
+</div>
+</section>
+</section>
+<section id="environment-variables">
+<h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
+<p>Config files support environment variable expansion:</p>
+<p><strong>config.yaml:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bids_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${DATA_DIR}/bids</span>
+<span class="nt">output_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${DATA_DIR}/derivatives</span>
+<span class="nt">work_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SCRATCH_DIR}/work</span>
+</pre></div>
+</div>
+<p><strong>Usage:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DATA_DIR</span><span class="o">=</span>/mnt/storage/study01
+<span class="nb">export</span><span class="w"> </span><span class="nv">SCRATCH_DIR</span><span class="o">=</span>/scratch/user
+qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml
+</pre></div>
+</div>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Use config files for stable settings</strong>: Store dataset paths, standard resource allocations, and pipeline configurations in a config file.</p></li>
+<li><p><strong>Override via CLI for variations</strong>: Use command line arguments for subject selection, resource adjustments, and testing.</p></li>
+<li><p><strong>Version control your configs</strong>: Keep config files in git to track pipeline parameter changes.</p></li>
+<li><p><strong>Use dry-run for validation</strong>: Always test new configurations with <code class="docutils literal notranslate"><span class="pre">--dry-run</span> <span class="pre">--verbose</span></code> before processing.</p></li>
+<li><p><strong>Document custom settings</strong>: Add comments to YAML configs explaining non-standard choices.</p></li>
+</ol>
+</section>
+<section id="integration-with-existing-code">
+<h2>Integration with Existing Code<a class="headerlink" href="#integration-with-existing-code" title="Link to this heading"></a></h2>
+<p>The improved CLI is <strong>backward compatible</strong> with existing code:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">PipelineConfig</span></code> class remains unchanged</p></li>
+<li><p>All existing config file formats work</p></li>
+<li><p>Pipeline classes receive the same <code class="docutils literal notranslate"><span class="pre">PipelineConfig</span></code> objects</p></li>
+</ul>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h2>
+<section id="q-how-do-i-see-what-configuration-will-be-used">
+<h3>Q: How do I see what configuration will be used?<a class="headerlink" href="#q-how-do-i-see-what-configuration-will-be-used" title="Link to this heading"></a></h3>
+<p>A: Use <code class="docutils literal notranslate"><span class="pre">--dry-run</span> <span class="pre">--verbose</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span>--n-cpus<span class="w"> </span><span class="m">16</span><span class="w"> </span>--dry-run<span class="w"> </span>--verbose
+</pre></div>
+</div>
+<p>This displays the merged configuration without running the pipeline.</p>
+</section>
+<section id="q-can-i-use-both-yaml-and-json">
+<h3>Q: Can I use both YAML and JSON?<a class="headerlink" href="#q-can-i-use-both-yaml-and-json" title="Link to this heading"></a></h3>
+<p>A: Yes! The system automatically detects the format from the file extension.</p>
+</section>
+<section id="q-what-if-i-specify-the-same-parameter-in-both-config-and-cli">
+<h3>Q: What if I specify the same parameter in both config and CLI?<a class="headerlink" href="#q-what-if-i-specify-the-same-parameter-in-both-config-and-cli" title="Link to this heading"></a></h3>
+<p>A: CLI always wins. This is intentional to allow easy overrides.</p>
+</section>
+<section id="q-can-i-use-relative-paths">
+<h3>Q: Can I use relative paths?<a class="headerlink" href="#q-can-i-use-relative-paths" title="Link to this heading"></a></h3>
+<p>A: Yes, but absolute paths are recommended for clarity and reliability.</p>
+</section>
+</section>
+<section id="migration-from-old-cli">
+<h2>Migration from Old CLI<a class="headerlink" href="#migration-from-old-cli" title="Link to this heading"></a></h2>
+<p>If you’re upgrading from an older version:</p>
+<ol class="arabic">
+<li><p><strong>Old style</strong> (direct arguments):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>/data/bids<span class="w"> </span>/data/derivatives<span class="w"> </span>participant
+</pre></div>
+</div>
+</li>
+<li><p><strong>New style</strong> (named arguments):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>qmri-neuropipe<span class="w"> </span>--bids-dir<span class="w"> </span>/data/bids<span class="w"> </span>--output-dir<span class="w"> </span>/data/derivatives
+</pre></div>
+</div>
+</li>
+</ol>
+<p>The new style is more explicit and allows flexible ordering and config file integration.</p>
+</section>
+<section id="getting-help">
+<h2>Getting Help<a class="headerlink" href="#getting-help" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Show all available options</span>
+qmri-neuropipe<span class="w"> </span>--help
+
+<span class="c1"># Show version</span>
+qmri-neuropipe<span class="w"> </span>--version
+</pre></div>
+</div>
+</section>
+<section id="contributing">
+<h2>Contributing<a class="headerlink" href="#contributing" title="Link to this heading"></a></h2>
+<p>When adding new parameters:</p>
+<ol class="arabic simple">
+<li><p>Add to <code class="docutils literal notranslate"><span class="pre">PipelineConfig</span></code> dataclass in <code class="docutils literal notranslate"><span class="pre">core/config.py</span></code></p></li>
+<li><p>Add CLI option in <code class="docutils literal notranslate"><span class="pre">cli.py</span></code> <code class="docutils literal notranslate"><span class="pre">main()</span></code> function</p></li>
+<li><p>Add to <code class="docutils literal notranslate"><span class="pre">cli_args</span></code> dict in <code class="docutils literal notranslate"><span class="pre">main()</span></code> for merging</p></li>
+<li><p>Update example config files</p></li>
+<li><p>Update this documentation</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

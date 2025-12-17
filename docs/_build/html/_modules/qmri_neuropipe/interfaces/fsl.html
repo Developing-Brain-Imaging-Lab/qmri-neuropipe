@@ -1,0 +1,597 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qmri_neuropipe.interfaces.fsl &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=51b770b3"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/interfaces.html">Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/lib.html">Processing Library</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/workflows.html">Workflows</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">qmri_neuropipe.interfaces.fsl</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for qmri_neuropipe.interfaces.fsl</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">nibabel</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">..core.run</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_cmd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..core.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">DWIFile</span><span class="p">,</span> <span class="n">ImageLike</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..io.dmri.bids</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_acqp_index</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">..core.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">ensure_path</span><span class="p">,</span> <span class="n">ensure_dir</span><span class="p">,</span> <span class="n">extract_image_path</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_format_extra_opts</span><span class="p">(</span><span class="n">extra_opts</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+    <span class="n">opts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">extra_opts</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">opts</span>
+    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">extra_opts</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">bool</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">val</span><span class="p">:</span>
+                <span class="n">opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">val</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">opts</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_ensure_acqp_index</span><span class="p">(</span><span class="n">in_dwi</span><span class="p">:</span> <span class="n">DWIFile</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create acqp/index files if possible from BIDS metadata.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">build_acqp_index</span><span class="p">(</span><span class="n">in_dwi</span><span class="o">.</span><span class="n">json</span><span class="p">,</span> <span class="n">in_dwi</span><span class="o">.</span><span class="n">img</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="bet">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.bet">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">bet</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">frac</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">robust</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL BET. Accepts ImageLike or Path.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">img_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+
+    <span class="n">robust_arg</span> <span class="o">=</span> <span class="s2">&quot;-R&quot;</span> <span class="k">if</span> <span class="n">robust</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">bet_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;bet </span><span class="si">{</span><span class="n">img_p</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2"> -f </span><span class="si">{</span><span class="n">frac</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">robust_arg</span><span class="si">}</span><span class="s2"> &quot;</span> <span class="o">+</span> <span class="p">(</span><span class="s2">&quot;-m&quot;</span> <span class="k">if</span> <span class="n">mask</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">run_cmd</span><span class="p">(</span><span class="n">bet_cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;bet&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">mask</span><span class="p">:</span>
+        <span class="c1"># Standard BET mask naming: &lt;output&gt;_mask.nii.gz </span>
+        <span class="c1"># (assuming output has .nii.gz extension)</span>
+        <span class="c1"># If out_p is &quot;foo.nii.gz&quot;, mask is &quot;foo_mask.nii.gz&quot;</span>
+        <span class="n">mask_suffix</span> <span class="o">=</span> <span class="s2">&quot;_mask&quot;</span> <span class="o">+</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out_p</span><span class="o">.</span><span class="n">suffixes</span><span class="p">)</span>
+        <span class="c1"># Actually fsl simply inserts _mask before the FIRST extension? </span>
+        <span class="c1"># Or before .nii.gz?</span>
+        <span class="c1"># bet &quot;foo.nii.gz&quot; &quot;bar.nii.gz&quot; -m  -&gt; bar_mask.nii.gz</span>
+        
+        <span class="c1"># Robust handling using string replacement on name if standard extension</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">out_p</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.nii.gz&quot;</span><span class="p">):</span>
+            <span class="n">mask_name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;.nii.gz&quot;</span><span class="p">,</span> <span class="s2">&quot;_mask.nii.gz&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.nii&quot;</span><span class="p">):</span>
+            <span class="n">mask_name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;.nii&quot;</span><span class="p">,</span> <span class="s2">&quot;_mask.nii&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mask_name</span> <span class="o">=</span> <span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_mask&quot;</span>
+            
+        <span class="n">mask_p</span> <span class="o">=</span> <span class="n">out_p</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">mask_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="n">mask_p</span>
+        
+    <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="flirt">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.flirt">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">flirt</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">ref_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">omat</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">dof</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span> <span class="n">cost</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;normmi&quot;</span><span class="p">,</span> <span class="n">extra_args</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL FLIRT.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">in_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="n">ref_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">ref_file</span><span class="p">)</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    
+    <span class="n">omat_cmd</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">omat</span><span class="p">:</span>
+        <span class="n">omat_p</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">omat</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">omat_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="n">omat_p</span>
+        <span class="n">omat_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;-omat </span><span class="si">{</span><span class="n">omat_p</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">elif</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+         <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="kc">None</span>
+        
+    <span class="n">cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;flirt -in </span><span class="si">{</span><span class="n">in_p</span><span class="si">}</span><span class="s2"> -ref </span><span class="si">{</span><span class="n">ref_p</span><span class="si">}</span><span class="s2"> -out </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">omat_cmd</span><span class="si">}</span><span class="s2"> -dof </span><span class="si">{</span><span class="n">dof</span><span class="si">}</span><span class="s2"> -cost </span><span class="si">{</span><span class="n">cost</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">extra_args</span><span class="si">}</span><span class="s2">&quot;</span>
+    
+    <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">omat</span> <span class="ow">or</span> <span class="n">Path</span><span class="p">(</span><span class="n">omat</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()):</span>
+        <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="n">omat</span> <span class="k">if</span> <span class="n">omat</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="n">run_cmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;flirt&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out_p</span><span class="p">,</span> <span class="n">omat</span> <span class="k">if</span> <span class="n">omat</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="applywarp">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.applywarp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">applywarp</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">ref_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">warp</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">premat</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">interp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;spline&quot;</span><span class="p">,</span> <span class="n">extra_args</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL applywarp.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">in_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="n">ref_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">ref_file</span><span class="p">)</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">out_p</span>
+
+    <span class="n">warp_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;-w </span><span class="si">{</span><span class="n">warp</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">warp</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">premat_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;--premat=</span><span class="si">{</span><span class="n">premat</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">premat</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    
+    <span class="n">cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;applywarp -i </span><span class="si">{</span><span class="n">in_p</span><span class="si">}</span><span class="s2"> -r </span><span class="si">{</span><span class="n">ref_p</span><span class="si">}</span><span class="s2"> -o </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">warp_cmd</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">premat_cmd</span><span class="si">}</span><span class="s2"> --interp=</span><span class="si">{</span><span class="n">interp</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">extra_args</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">run_cmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;applywarp&quot;</span><span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">out_p</span></div>
+
+
+
+<div class="viewcode-block" id="topup">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.topup">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">topup</span><span class="p">(</span>
+    <span class="n">in_dwis</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">DWIFile</span><span class="p">],</span>
+    <span class="n">out_base</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">field_output</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">acqp</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">index</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">nthreads</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run FSL topup using the mean B0 images from a group of reversed PE DWIs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">out_base</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_base</span><span class="p">)</span>
+
+    <span class="n">b0_vols</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">aff</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">hdr</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">acqp_lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">dwi</span> <span class="ow">in</span> <span class="n">in_dwis</span><span class="p">:</span>
+        <span class="n">acqp_path</span><span class="p">,</span> <span class="n">index_path</span> <span class="o">=</span> <span class="p">(</span><span class="n">acqp</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span> <span class="k">if</span> <span class="n">acqp</span> <span class="ow">and</span> <span class="n">index</span> <span class="k">else</span> <span class="n">_ensure_acqp_index</span><span class="p">(</span><span class="n">dwi</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">acqp_path</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">index_path</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">bvals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="n">dwi</span><span class="o">.</span><span class="n">bval</span><span class="p">)</span> <span class="k">if</span> <span class="n">dwi</span><span class="o">.</span><span class="n">bval</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">bvals</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">bvals</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">bvals</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">continue</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">nib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">dwi</span><span class="o">.</span><span class="n">img</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">atleast_1d</span><span class="p">(</span><span class="n">bvals</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">vols</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get_fdata</span><span class="p">()[</span><span class="o">...</span><span class="p">,</span> <span class="n">idx</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">aff</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">aff</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">affine</span>
+            <span class="n">hdr</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">header</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">acqp_entries</span> <span class="o">=</span> <span class="n">acqp_path</span><span class="o">.</span><span class="n">read_text</span><span class="p">()</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span>
+            <span class="n">index_entries</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">index_path</span><span class="o">.</span><span class="n">read_text</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">()]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="c1"># Default to first acqp line if lengths mismatch</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">vol_i</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idx</span><span class="p">):</span>
+            <span class="n">b0_vols</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vols</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+            <span class="n">acqp_idx</span> <span class="o">=</span> <span class="n">index_entries</span><span class="p">[</span><span class="n">vol_i</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">vol_i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_entries</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">acqp_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">acqp_entries</span><span class="p">[</span><span class="n">acqp_idx</span><span class="p">]</span> <span class="k">if</span> <span class="n">acqp_entries</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">b0_vols</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">acqp_lines</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;No B0 volumes found for topup input.&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Check if outputs exist</span>
+    <span class="n">movpar</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">out_base</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_movpar.txt&quot;</span><span class="p">)</span>
+    <span class="n">fieldcoef</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">out_base</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_fieldcoef.nii.gz&quot;</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">movpar</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">fieldcoef</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">out_base</span>
+
+    <span class="n">imain</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">out_base</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_topup_imain.nii.gz&quot;</span><span class="p">)</span>
+    <span class="n">datain</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">out_base</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_topup_datain.txt&quot;</span><span class="p">)</span>
+
+    <span class="n">topup_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">b0_vols</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">nib</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">nib</span><span class="o">.</span><span class="n">Nifti1Image</span><span class="p">(</span><span class="n">topup_data</span><span class="p">,</span> <span class="n">aff</span><span class="p">,</span> <span class="n">hdr</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">imain</span><span class="p">))</span>
+    <span class="n">datain</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">acqp_lines</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Apply smoothing to input (user requested -s 1.15)</span>
+    <span class="n">imain_smoothed</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">out_base</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_topup_imain_smoothed.nii.gz&quot;</span><span class="p">)</span>
+    <span class="n">run_cmd</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fslmaths </span><span class="si">{</span><span class="n">imain</span><span class="si">}</span><span class="s2"> -s 1.15 </span><span class="si">{</span><span class="n">imain_smoothed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;topup_smooth&quot;</span><span class="p">)</span>
+
+    <span class="n">cmd_parts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;topup&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--imain=</span><span class="si">{</span><span class="n">imain_smoothed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--datain=</span><span class="si">{</span><span class="n">datain</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--out=</span><span class="si">{</span><span class="n">out_base</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+    <span class="k">if</span> <span class="n">config</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--config=</span><span class="si">{</span><span class="n">config</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">field_output</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--fout=</span><span class="si">{</span><span class="n">out_base</span><span class="si">}</span><span class="s2">_field.nii.gz&quot;</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">nthreads</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--nthr=</span><span class="si">{</span><span class="n">nthreads</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">run_cmd</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cmd_parts</span><span class="p">),</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;topup&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out_base</span></div>
+
+
+
+<div class="viewcode-block" id="eddy_correct">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.eddy_correct">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">eddy_correct</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">DWIFile</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DWIFile</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Legacy eddy_correct wrapper.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    <span class="n">out_base</span> <span class="o">=</span> <span class="n">out_p</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">out_bvec</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+    <span class="n">ecclog</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.ecclog&quot;</span><span class="p">)</span>
+
+    <span class="n">ecc_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;eddy_correct </span><span class="si">{</span><span class="n">in_file</span><span class="o">.</span><span class="n">img</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2"> 0&quot;</span>
+    <span class="n">fdt_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;fdt_rotate_bvecs </span><span class="si">{</span><span class="n">in_file</span><span class="o">.</span><span class="n">bvec</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">out_bvec</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">ecclog</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">run_cmd</span><span class="p">(</span><span class="n">ecc_cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;eddy_correct&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">in_file</span><span class="o">.</span><span class="n">bvec</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">out_bvec</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">run_cmd</span><span class="p">(</span><span class="n">fdt_cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;fdt_rotate_bvecs&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">DWIFile</span><span class="p">(</span>
+        <span class="n">entities</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">entities</span><span class="p">,</span>
+        <span class="n">img</span><span class="o">=</span><span class="n">out_p</span><span class="p">,</span>
+        <span class="n">json</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">json</span><span class="p">,</span>
+        <span class="n">bval</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">bval</span><span class="p">,</span>
+        <span class="n">bvec</span><span class="o">=</span><span class="n">out_bvec</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="eddy">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.eddy">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">eddy</span><span class="p">(</span>
+    <span class="n">in_file</span><span class="p">:</span> <span class="n">DWIFile</span><span class="p">,</span>
+    <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">topup_base</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">external_field</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cuda</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">cuda_device</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">nthreads</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">acqp</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">index</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">extra_opts</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DWIFile</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run FSL eddy or eddy_cuda with optional topup output.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    <span class="n">out_base</span> <span class="o">=</span> <span class="n">out_p</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>  <span class="c1"># remove .nii.gz or .nii</span>
+    <span class="n">out_bvec</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">out_bvec</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">DWIFile</span><span class="p">(</span>
+            <span class="n">entities</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">entities</span><span class="p">,</span>
+            <span class="n">img</span><span class="o">=</span><span class="n">out_p</span><span class="p">,</span>
+            <span class="n">json</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">json</span><span class="p">,</span>
+            <span class="n">bval</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">bval</span><span class="p">,</span>
+            <span class="n">bvec</span><span class="o">=</span><span class="n">out_bvec</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="c1"># We must ensure we have a valid input path</span>
+    <span class="c1"># in_dwi.img is a Path object or similar</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">mask</span><span class="p">:</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">out_p</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="s2">&quot;tmp_mask.nii.gz&quot;</span><span class="p">)</span>
+        <span class="n">bet</span><span class="p">(</span><span class="n">in_file</span><span class="o">=</span><span class="n">in_file</span><span class="p">,</span> <span class="n">out_file</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+
+    <span class="n">acqp_path</span><span class="p">,</span> <span class="n">index_path</span> <span class="o">=</span> <span class="p">(</span><span class="n">acqp</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span> <span class="k">if</span> <span class="n">acqp</span> <span class="ow">and</span> <span class="n">index</span> <span class="k">else</span> <span class="n">_ensure_acqp_index</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">acqp_path</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">index_path</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;acqparams/index files are required for eddy.&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">in_file</span><span class="o">.</span><span class="n">bvec</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">in_file</span><span class="o">.</span><span class="n">bval</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;bvec and bval files are required for eddy.&quot;</span><span class="p">)</span>
+
+    <span class="n">eddy_bin</span> <span class="o">=</span> <span class="s2">&quot;eddy_cuda&quot;</span> <span class="k">if</span> <span class="n">cuda</span> <span class="k">else</span> <span class="s2">&quot;eddy&quot;</span>
+    <span class="n">env_parts</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;CUDA_VISIBLE_DEVICES=</span><span class="si">{</span><span class="n">cuda_device</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">cuda</span> <span class="k">else</span> <span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;OMP_NUM_THREADS=</span><span class="si">{</span><span class="n">nthreads</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+
+    <span class="n">cmd_parts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="o">*</span><span class="n">env_parts</span><span class="p">,</span>
+        <span class="n">eddy_bin</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--imain=</span><span class="si">{</span><span class="n">in_file</span><span class="o">.</span><span class="n">img</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--mask=</span><span class="si">{</span><span class="n">mask</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--index=</span><span class="si">{</span><span class="n">index_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--acqp=</span><span class="si">{</span><span class="n">acqp_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--bvecs=</span><span class="si">{</span><span class="n">in_file</span><span class="o">.</span><span class="n">bvec</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--bvals=</span><span class="si">{</span><span class="n">in_file</span><span class="o">.</span><span class="n">bval</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">&quot;--out=</span><span class="si">{</span><span class="n">out_base</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">cuda</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--nthr=</span><span class="si">{</span><span class="n">nthreads</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">topup_base</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--topup=</span><span class="si">{</span><span class="n">topup_base</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">external_field</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;--field=</span><span class="si">{</span><span class="n">external_field</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">cmd_parts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">_format_extra_opts</span><span class="p">(</span><span class="n">extra_opts</span><span class="p">))</span>
+
+    <span class="n">run_cmd</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cmd_parts</span><span class="p">),</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;eddy&quot;</span><span class="p">)</span>
+
+    <span class="n">rotated_bvec</span> <span class="o">=</span> <span class="n">out_base</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.eddy_rotated_bvecs&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">rotated_bvec</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">move</span><span class="p">(</span><span class="n">rotated_bvec</span><span class="p">,</span> <span class="n">out_bvec</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">DWIFile</span><span class="p">(</span>
+        <span class="n">entities</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">entities</span><span class="p">,</span>
+        <span class="n">img</span><span class="o">=</span><span class="n">out_p</span><span class="p">,</span>
+        <span class="n">json</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">json</span><span class="p">,</span>
+        <span class="n">bval</span><span class="o">=</span><span class="n">in_file</span><span class="o">.</span><span class="n">bval</span><span class="p">,</span>
+        <span class="n">bvec</span><span class="o">=</span><span class="n">out_bvec</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="convert_xfm">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.convert_xfm">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_xfm</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">inverse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">concat_mat</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL convert_xfm.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">out_p</span>
+
+    <span class="n">cmd_parts</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;convert_xfm&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;-omat </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">inverse</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;-inverse </span><span class="si">{</span><span class="n">in_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">concat_mat</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;-concat </span><span class="si">{</span><span class="n">concat_mat</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">in_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">in_file</span><span class="p">))</span>
+        
+    <span class="n">run_cmd</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cmd_parts</span><span class="p">),</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;convert_xfm&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out_p</span></div>
+
+
+<div class="viewcode-block" id="reorient2std">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.reorient2std">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">reorient2std</span><span class="p">(</span><span class="n">in_file</span><span class="p">:</span> <span class="n">ImageLike</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL fslreorient2std.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">in_p</span> <span class="o">=</span> <span class="n">extract_image_path</span><span class="p">(</span><span class="n">in_file</span><span class="p">)</span>
+    <span class="n">out_p</span> <span class="o">=</span> <span class="n">ensure_dir</span><span class="p">(</span><span class="n">out_file</span><span class="p">)</span>
+    
+    <span class="k">if</span> <span class="n">out_p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">out_p</span>
+        
+    <span class="n">cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;fslreorient2std </span><span class="si">{</span><span class="n">in_p</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">out_p</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">run_cmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;fslreorient2std&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out_p</span></div>
+
+<div class="viewcode-block" id="eddy_quad">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.eddy_quad">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">eddy_quad</span><span class="p">(</span>
+    <span class="n">eddy_base</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">idx</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">par</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">mask</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">bvals</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">bvecs</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">field</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">slspec</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Wrapper for FSL eddy_quad (QC for eddy).</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        eddy_base: Basename of eddy output (including path, without extensions)</span>
+<span class="sd">        idx: Path to index file</span>
+<span class="sd">        par: Path to acqparams file</span>
+<span class="sd">        mask: Path to brain mask</span>
+<span class="sd">        bvals: Path to bvals</span>
+<span class="sd">        bvecs: Path to bvecs</span>
+<span class="sd">        output_dir: Output directory</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">out_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span> <span class="c1"># ensure_dir creates it, which eddy_quad dislikes</span>
+    
+    <span class="c1"># eddy_quad &lt;eddyBase&gt; -idx &lt;eddyIndex&gt; -par &lt;eddyAcqParams&gt; -m &lt;nodifMask&gt; -b &lt;bvals&gt; -g &lt;bvecs&gt; -o &lt;outputDir&gt;</span>
+    
+    <span class="n">cmd_parts</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="s2">&quot;eddy_quad&quot;</span><span class="p">,</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">eddy_base</span><span class="p">),</span>
+        <span class="s2">&quot;-idx&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">idx</span><span class="p">),</span>
+        <span class="s2">&quot;-par&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">par</span><span class="p">),</span>
+        <span class="s2">&quot;-m&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask</span><span class="p">),</span>
+        <span class="s2">&quot;-b&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">bvals</span><span class="p">),</span>
+        <span class="s2">&quot;-g&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">bvecs</span><span class="p">),</span>
+        <span class="s2">&quot;-o&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">out_dir</span><span class="p">)</span>
+    <span class="p">]</span>
+    
+    <span class="k">if</span> <span class="n">field</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;-f&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">field</span><span class="p">)])</span>
+        
+    <span class="k">if</span> <span class="n">slspec</span><span class="p">:</span>
+         <span class="n">cmd_parts</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">slspec</span><span class="p">)])</span>
+         
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">cmd_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">)</span>
+        
+    <span class="n">run_cmd</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cmd_parts</span><span class="p">),</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;eddy_quad&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out_dir</span></div>
+
+
+<div class="viewcode-block" id="rotate_bvecs">
+<a class="viewcode-back" href="../../../modules/interfaces.html#qmri_neuropipe.interfaces.fsl.rotate_bvecs">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">rotate_bvecs</span><span class="p">(</span><span class="n">bvecs</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">mat</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">out_bvecs</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Rotate b-vectors using a rigid/affine matrix.</span>
+<span class="sd">    Uses &#39;fdt_rotate_bvecs&#39; if available, or manual numpy calculation.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Prefer FSL tool if widely available (part of FSL &gt;= 6.0?)</span>
+    <span class="c1"># Usually fdt_rotate_bvecs needs &#39;bvecs&#39; &#39;rotated_bvecs&#39; &#39;mat_file&#39;</span>
+    <span class="c1"># But FSL&#39;s tool is often not in path or named differently depending on version.</span>
+    
+    <span class="c1"># Robust Implementation using Numpy:</span>
+    <span class="c1"># 1. Load bvecs (3xN)</span>
+    <span class="c1"># 2. Load transform (FLIRT matrix 4x4)</span>
+    <span class="c1"># 3. Apply rotation (upper 3x3) to bvecs</span>
+    <span class="c1"># 4. Save</span>
+    
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># Load bvecs</span>
+        <span class="n">bv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="n">bvecs</span><span class="p">)</span>
+        <span class="c1"># Handle shape (3, N) or (N, 3). FSL is usually (3, N)</span>
+        <span class="n">transposed</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="n">bv</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">3</span> <span class="ow">and</span> <span class="n">bv</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">bv</span> <span class="o">=</span> <span class="n">bv</span><span class="o">.</span><span class="n">T</span>
+            <span class="n">transposed</span> <span class="o">=</span> <span class="kc">True</span>
+            
+        <span class="c1"># Load matrix</span>
+        <span class="n">aff</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="n">mat</span><span class="p">)</span> <span class="c1"># 4x4</span>
+        <span class="n">rot</span> <span class="o">=</span> <span class="n">aff</span><span class="p">[:</span><span class="mi">3</span><span class="p">,</span> <span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+        
+        <span class="c1"># Apply rotation: v&#39; = R * v</span>
+        <span class="c1"># Ensure normalization?</span>
+        
+        <span class="c1"># But wait, FLIRT matrix applies to coordinates.</span>
+        <span class="c1"># For gradients, we usually need the INVERSE transpose of the affine?</span>
+        <span class="c1"># For rotation matrix R, inv(R).T == R. So R is fine.</span>
+        <span class="c1"># However, if there&#39;s shear/scale... FLIRT matrices are usually rigid/affine.</span>
+        
+        <span class="c1"># NOTE: bvecs should be unit vectors.</span>
+        <span class="c1"># Apply rotation</span>
+        <span class="n">new_bv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">rot</span><span class="p">,</span> <span class="n">bv</span><span class="p">)</span>
+        
+        <span class="c1"># Renormalize</span>
+        <span class="n">norms</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">new_bv</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="c1"># Avoid divide by zero</span>
+        <span class="n">norms</span><span class="p">[</span><span class="n">norms</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">new_bv</span> <span class="o">=</span> <span class="n">new_bv</span> <span class="o">/</span> <span class="n">norms</span>
+        
+        <span class="k">if</span> <span class="n">transposed</span><span class="p">:</span>
+            <span class="n">new_bv</span> <span class="o">=</span> <span class="n">new_bv</span><span class="o">.</span><span class="n">T</span>
+            
+        <span class="c1"># Use explicit delimiter and padding for readability</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">savetxt</span><span class="p">(</span><span class="n">out_bvecs</span><span class="p">,</span> <span class="n">new_bv</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s1">&#39;</span><span class="si">% .8f</span><span class="s1">&#39;</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39; &#39;</span><span class="p">)</span>
+        
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># Fallback to fsl command if numpy fails?</span>
+        <span class="c1"># Ideally numpy is safer than relying on shell script</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to rotate bvecs: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

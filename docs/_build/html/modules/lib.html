@@ -1,0 +1,594 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Processing Library &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=51b770b3"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Workflows" href="workflows.html" />
+    <link rel="prev" title="Interfaces" href="interfaces.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="interfaces.html">Interfaces</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Processing Library</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-qmri_neuropipe.lib.common.registration">Common</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep"><code class="docutils literal notranslate"><span class="pre">CoregistrationStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.run"><code class="docutils literal notranslate"><span class="pre">CoregistrationStep.run()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_inputs"><code class="docutils literal notranslate"><span class="pre">CoregistrationStep.validate_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_outputs"><code class="docutils literal notranslate"><span class="pre">CoregistrationStep.validate_outputs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep"><code class="docutils literal notranslate"><span class="pre">NonlinearRegistrationStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep.run"><code class="docutils literal notranslate"><span class="pre">NonlinearRegistrationStep.run()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.common.mask.BrainMaskingStep"><code class="docutils literal notranslate"><span class="pre">BrainMaskingStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.mask.BrainMaskingStep.run"><code class="docutils literal notranslate"><span class="pre">BrainMaskingStep.run()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.common.mask.mask_brain"><code class="docutils literal notranslate"><span class="pre">mask_brain()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.common.sharpen.SharpeningStep"><code class="docutils literal notranslate"><span class="pre">SharpeningStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.common.sharpen.SharpeningStep.run"><code class="docutils literal notranslate"><span class="pre">SharpeningStep.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-qmri_neuropipe.lib.dmri.eddy">Diffusion (dMRI)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep"><code class="docutils literal notranslate"><span class="pre">EddyCorrectionStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.method"><code class="docutils literal notranslate"><span class="pre">EddyCorrectionStep.method</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.run"><code class="docutils literal notranslate"><span class="pre">EddyCorrectionStep.run()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_inputs"><code class="docutils literal notranslate"><span class="pre">EddyCorrectionStep.validate_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_outputs"><code class="docutils literal notranslate"><span class="pre">EddyCorrectionStep.validate_outputs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.eddy.eddy_current_correction"><code class="docutils literal notranslate"><span class="pre">eddy_current_correction()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep"><code class="docutils literal notranslate"><span class="pre">TortoiseGradNonlinCorrectStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.run"><code class="docutils literal notranslate"><span class="pre">TortoiseGradNonlinCorrectStep.run()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_inputs"><code class="docutils literal notranslate"><span class="pre">TortoiseGradNonlinCorrectStep.validate_inputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_outputs"><code class="docutils literal notranslate"><span class="pre">TortoiseGradNonlinCorrectStep.validate_outputs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep"><code class="docutils literal notranslate"><span class="pre">OutlierRemovalStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep.run"><code class="docutils literal notranslate"><span class="pre">OutlierRemovalStep.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#module-qmri_neuropipe.lib.anat.recon">Anatomical (Anat)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.lib.anat.recon.ReconAllStep"><code class="docutils literal notranslate"><span class="pre">ReconAllStep</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#qmri_neuropipe.lib.anat.recon.ReconAllStep.run"><code class="docutils literal notranslate"><span class="pre">ReconAllStep.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="workflows.html">Workflows</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Processing Library</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/lib.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="processing-library">
+<h1>Processing Library<a class="headerlink" href="#processing-library" title="Link to this heading"></a></h1>
+<p>Processing steps organized by modality.</p>
+<section id="module-qmri_neuropipe.lib.common.registration">
+<span id="common"></span><h2>Common<a class="headerlink" href="#module-qmri_neuropipe.lib.common.registration" title="Link to this heading"></a></h2>
+<p>Registration module for generic coregistration.</p>
+<p>Supports coregistration of any two images using ANTs, FSL, or FreeSurfer.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.CoregistrationStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.common.registration.</span></span><span class="sig-name descname"><span class="pre">CoregistrationStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'ants'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'fsl'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'freesurfer'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'ants'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#CoregistrationStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Coregistration step (Moving &lt;-&gt; Fixed).</p>
+<p>Methods:
+- ‘ants’: Uses ANTs registration (Rigid).
+- ‘fsl’: Uses FSL FLIRT.
+- ‘freesurfer’: Uses FreeSurfer bbregister (for B0/T1w scenarios mostly).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.CoregistrationStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#CoregistrationStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the processing step.</p>
+<p>This is the core processing method that subclasses must implement.
+It should contain the actual processing logic without validation
+or logging (which is handled by __call__).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Step-specific positional arguments</p></li>
+<li><p><strong>**kwargs</strong> – Step-specific keyword arguments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processing results (step-specific type)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method should focus only on processing logic.
+Input/output validation should be in validate_inputs/outputs.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_inputs">
+<span class="sig-name descname"><span class="pre">validate_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#CoregistrationStep.validate_inputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_inputs" title="Link to this definition"></a></dt>
+<dd><p>Validate inputs before processing.</p>
+<p>Override in subclass to add specific validation logic.
+Should raise ValidationError if inputs are invalid.</p>
+<p>Default implementation does nothing (no validation).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Positional arguments to validate</p></li>
+<li><p><strong>**kwargs</strong> – Keyword arguments to validate</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ValidationError" title="qmri_neuropipe.core.ValidationError"><strong>ValidationError</strong></a> – If inputs are invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">validate_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="ow">not</span> <span class="n">input_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input not found: </span><span class="si">{</span><span class="n">input_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">input_file</span><span class="o">.</span><span class="n">suffix</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;.nii&#39;</span><span class="p">,</span> <span class="s1">&#39;.nii.gz&#39;</span><span class="p">]:</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="s2">&quot;Input must be NIfTI format&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_outputs">
+<span class="sig-name descname"><span class="pre">validate_outputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">result</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#CoregistrationStep.validate_outputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_outputs" title="Link to this definition"></a></dt>
+<dd><p>Validate outputs after processing.</p>
+<p>Override in subclass to add specific validation logic.
+Should raise ProcessingError if outputs are invalid.</p>
+<p>Default implementation does nothing (no validation).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>result</strong> – Output from run() method to validate</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ProcessingError" title="qmri_neuropipe.core.ProcessingError"><strong>ProcessingError</strong></a> – If outputs are invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">validate_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output not created: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="s2">&quot;Output file is empty&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.common.registration.</span></span><span class="sig-name descname"><span class="pre">NonlinearRegistrationStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">template</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#NonlinearRegistrationStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Nonlinear registration (SyN) to a template.
+output: warped image and warp field.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">template</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/registration.html#NonlinearRegistrationStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the processing step.</p>
+<p>This is the core processing method that subclasses must implement.
+It should contain the actual processing logic without validation
+or logging (which is handled by __call__).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Step-specific positional arguments</p></li>
+<li><p><strong>**kwargs</strong> – Step-specific keyword arguments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processing results (step-specific type)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method should focus only on processing logic.
+Input/output validation should be in validate_inputs/outputs.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-qmri_neuropipe.lib.common.mask">Brain masking / skull‑stripping utilities.</p>
+<p>This module provides a flexible <code class="docutils literal notranslate"><span class="pre">BrainMaskingStep</span></code> that can be used in a
+pipeline and a <code class="docutils literal notranslate"><span class="pre">mask_brain</span></code> convenience function for ad‑hoc usage.</p>
+<p>Supported tools (selected via the <code class="docutils literal notranslate"><span class="pre">method</span></code> argument):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">fsl</span></code> – <code class="docutils literal notranslate"><span class="pre">bet</span></code> (Brain Extraction Tool)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mrtrix</span></code> – <code class="docutils literal notranslate"><span class="pre">dwi2mask</span></code> (works for diffusion data)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ants</span></code> – <code class="docutils literal notranslate"><span class="pre">antsBrainExtraction.sh</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">freesurfer</span></code> – <code class="docutils literal notranslate"><span class="pre">mri_watershed</span></code> (via the FreeSurfer interface)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">synthstrip</span></code> – <code class="docutils literal notranslate"><span class="pre">mri_synthstrip</span></code></p></li>
+</ul>
+<p>The step validates inputs, runs the chosen tool, and returns an <code class="docutils literal notranslate"><span class="pre">ImageFile</span></code>
+containing the brain‑masked image.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.mask.BrainMaskingStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.common.mask.</span></span><span class="sig-name descname"><span class="pre">BrainMaskingStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'fsl'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'mrtrix'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'ants'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'freesurfer'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'synthstrip'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'fsl'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_threads</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/mask.html#BrainMaskingStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.mask.BrainMaskingStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Skull‑strip a structural or diffusion image.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>config</strong> (<em>dict</em>) – Pipeline configuration.</p></li>
+<li><p><strong>method</strong> (<em>Literal</em><em>[</em><em>'fsl'</em><em>, </em><em>'mrtrix'</em><em>, </em><em>'ants'</em><em>, </em><em>'freesurfer'</em><em>, </em><em>'synthstrip'</em><em>]</em>) – Which external tool to use for brain extraction.</p></li>
+<li><p><strong>logger</strong> (<em>Optional</em><em>[</em><em>logging.Logger</em><em>]</em>) – Logger instance; a default logger is created if <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+<li><p><strong>provenance</strong> (<em>optional</em>) – Provenance tracking object passed to <code class="docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code>.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.mask.BrainMaskingStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_mask</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/mask.html#BrainMaskingStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.mask.BrainMaskingStep.run" title="Link to this definition"></a></dt>
+<dd><p>Run the selected brain‑extraction tool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>first_arg</strong> (<em>dict</em><em> | </em><em>ImageLike</em><em> | </em><em>Path</em>) – Context dict or Image to be skull‑stripped.</p></li>
+<li><p><strong>output_dir</strong> (<em>Path</em>) – Directory where the masked image will be written.</p></li>
+<li><p><strong>return_mask</strong> (<em>bool</em>) – If True, returns a tuple (brain_image, binary_mask) in standalone mode,
+or properly populates context.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>updated_context or result_image(s)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.mask.mask_brain">
+<span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.common.mask.</span></span><span class="sig-name descname"><span class="pre">mask_brain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input_image</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ImageFile</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">DWIFile</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'fsl'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'mrtrix'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'ants'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'freesurfer'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'synthstrip'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'fsl'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_threads</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_mask</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ImageFile</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">ImageFile</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ImageFile</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/mask.html#mask_brain"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.mask.mask_brain" title="Link to this definition"></a></dt>
+<dd><p>Quick brain‑masking without building a full pipeline.</p>
+<p>This mirrors the pattern used by <code class="docutils literal notranslate"><span class="pre">denoise_image</span></code> and <code class="docutils literal notranslate"><span class="pre">gibbs_unring</span></code> –
+it creates a temporary <code class="docutils literal notranslate"><span class="pre">BrainMaskingStep</span></code> instance, runs it, and returns
+the resulting <code class="docutils literal notranslate"><span class="pre">ImageFile</span></code>.</p>
+</dd></dl>
+
+<p id="module-qmri_neuropipe.lib.common.sharpen">Image Sharpening Step</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.sharpen.SharpeningStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.common.sharpen.</span></span><span class="sig-name descname"><span class="pre">SharpeningStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'ants'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/sharpen.html#SharpeningStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.sharpen.SharpeningStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Step to sharpen image using ANTs iMath SharpenImage.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.common.sharpen.SharpeningStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">options</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/common/sharpen.html#SharpeningStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.common.sharpen.SharpeningStep.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the processing step.</p>
+<p>This is the core processing method that subclasses must implement.
+It should contain the actual processing logic without validation
+or logging (which is handled by __call__).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Step-specific positional arguments</p></li>
+<li><p><strong>**kwargs</strong> – Step-specific keyword arguments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processing results (step-specific type)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method should focus only on processing logic.
+Input/output validation should be in validate_inputs/outputs.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-qmri_neuropipe.lib.dmri.eddy">
+<span id="diffusion-dmri"></span><h2>Diffusion (dMRI)<a class="headerlink" href="#module-qmri_neuropipe.lib.dmri.eddy" title="Link to this heading"></a></h2>
+<p>Eddy Current correction module for diffusion MRI data.</p>
+<p>This module provides eddy correction methods that work across dMRI data:
+- dMRI: MP-PCA (Marchenko-Pastur PCA)</p>
+<p>All eddy steps inherit from BaseProcessingStep for automatic
+validation, logging, and provenance tracking.</p>
+<dl class="simple">
+<dt>Classes:</dt><dd><p>EddyCorrectionStep: Main eddy current class with multiple methods
+eddy_current_correction: Convenience function for quick eddy current correction without full pipeline setup.</p>
+</dd>
+</dl>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.dmri.eddy.</span></span><span class="sig-name descname"><span class="pre">EddyCorrectionStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Literal</span><span class="p"><span class="pre">[</span></span><span class="s"><span class="pre">'eddy-correct'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'eddy'</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="s"><span class="pre">'two-pass'</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'eddy'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/eddy.html#EddyCorrectionStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>General eddy current correction step for dMRI.</p>
+<p>Supports multiple eddy correction methods:
+- ‘eddy-correct’: FSL eddy-correct
+- ‘eddy’: FSL eddy
+- ‘two-pass’: Combined eddy-correct and eddy correction for large motions</p>
+<p>Used by:
+- dMRI</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.method">
+<span class="sig-name descname"><span class="pre">method</span></span><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.method" title="Link to this definition"></a></dt>
+<dd><p>Eddy correction method to use</p>
+</dd></dl>
+
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># For dMRI</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">corrected</span> <span class="o">=</span> <span class="n">EddyCorrectionStep</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;eddy&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">corrected</span> <span class="o">=</span> <span class="n">eddy_current_correction</span><span class="p">(</span><span class="n">dwi_file</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Path</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/eddy.html#EddyCorrectionStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.run" title="Link to this definition"></a></dt>
+<dd><p>Run eddy-current correction on input image.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_inputs">
+<span class="sig-name descname"><span class="pre">validate_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/eddy.html#EddyCorrectionStep.validate_inputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_inputs" title="Link to this definition"></a></dt>
+<dd><p>Validate denoising inputs.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_outputs">
+<span class="sig-name descname"><span class="pre">validate_outputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">result</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/eddy.html#EddyCorrectionStep.validate_outputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.EddyCorrectionStep.validate_outputs" title="Link to this definition"></a></dt>
+<dd><p>Validate denoising outputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>result</strong> – ImageLike object of denoised image</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ProcessingError" title="qmri_neuropipe.core.ProcessingError"><strong>ProcessingError</strong></a> – If output validation fails</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.eddy.eddy_current_correction">
+<span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.dmri.eddy.</span></span><span class="sig-name descname"><span class="pre">eddy_current_correction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ImageFile</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">DWIFile</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ImageFile</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">DWIFile</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'eddy'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mask</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">DWIFile</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/eddy.html#eddy_current_correction"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.eddy.eddy_current_correction" title="Link to this definition"></a></dt>
+<dd><p>Convenience wrapper to run eddy without constructing a pipeline.
+Validation is intentionally skipped here; callers should ensure inputs exist.</p>
+</dd></dl>
+
+<dl class="py class" id="module-qmri_neuropipe.lib.dmri.grad_nonlin">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.dmri.grad_nonlin.</span></span><span class="sig-name descname"><span class="pre">TortoiseGradNonlinCorrectStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grad_coeffs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/grad_nonlin.html#TortoiseGradNonlinCorrectStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Gradient Nonlinearity Correction using TORTOISE.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/grad_nonlin.html#TortoiseGradNonlinCorrectStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the processing step.</p>
+<p>This is the core processing method that subclasses must implement.
+It should contain the actual processing logic without validation
+or logging (which is handled by __call__).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Step-specific positional arguments</p></li>
+<li><p><strong>**kwargs</strong> – Step-specific keyword arguments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processing results (step-specific type)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method should focus only on processing logic.
+Input/output validation should be in validate_inputs/outputs.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_inputs">
+<span class="sig-name descname"><span class="pre">validate_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/grad_nonlin.html#TortoiseGradNonlinCorrectStep.validate_inputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_inputs" title="Link to this definition"></a></dt>
+<dd><p>Validate inputs before processing.</p>
+<p>Override in subclass to add specific validation logic.
+Should raise ValidationError if inputs are invalid.</p>
+<p>Default implementation does nothing (no validation).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Positional arguments to validate</p></li>
+<li><p><strong>**kwargs</strong> – Keyword arguments to validate</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ValidationError" title="qmri_neuropipe.core.ValidationError"><strong>ValidationError</strong></a> – If inputs are invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">validate_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="ow">not</span> <span class="n">input_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input not found: </span><span class="si">{</span><span class="n">input_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">input_file</span><span class="o">.</span><span class="n">suffix</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;.nii&#39;</span><span class="p">,</span> <span class="s1">&#39;.nii.gz&#39;</span><span class="p">]:</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="s2">&quot;Input must be NIfTI format&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_outputs">
+<span class="sig-name descname"><span class="pre">validate_outputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">result</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/grad_nonlin.html#TortoiseGradNonlinCorrectStep.validate_outputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.grad_nonlin.TortoiseGradNonlinCorrectStep.validate_outputs" title="Link to this definition"></a></dt>
+<dd><p>Validate outputs after processing.</p>
+<p>Override in subclass to add specific validation logic.
+Should raise ProcessingError if outputs are invalid.</p>
+<p>Default implementation does nothing (no validation).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>result</strong> – Output from run() method to validate</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ProcessingError" title="qmri_neuropipe.core.ProcessingError"><strong>ProcessingError</strong></a> – If outputs are invalid</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="k">def</span><span class="w"> </span><span class="nf">validate_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Path</span><span class="p">):</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Output not created: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+<span class="gp">... </span>        <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="s2">&quot;Output file is empty&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-qmri_neuropipe.lib.dmri.outliers">dMRI Outlier Removal Step</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.dmri.outliers.</span></span><span class="sig-name descname"><span class="pre">OutlierRemovalStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'manual'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threshold</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">manual_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/outliers.html#OutlierRemovalStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Identifies and removes outlier volumes from DWI data.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/dmri/outliers.html#OutlierRemovalStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.dmri.outliers.OutlierRemovalStep.run" title="Link to this definition"></a></dt>
+<dd><p>Run outlier removal.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="module-qmri_neuropipe.lib.anat.recon">
+<span id="anatomical-anat"></span><h2>Anatomical (Anat)<a class="headerlink" href="#module-qmri_neuropipe.lib.anat.recon" title="Link to this heading"></a></h2>
+<p>FreeSurfer Recon-all step.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.anat.recon.ReconAllStep">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.lib.anat.recon.</span></span><span class="sig-name descname"><span class="pre">ReconAllStep</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/anat/recon.html#ReconAllStep"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.anat.recon.ReconAllStep" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseProcessingStep" title="qmri_neuropipe.core.base.BaseProcessingStep"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseProcessingStep</span></code></a></p>
+<p>Run FreeSurfer recon-all.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.lib.anat.recon.ReconAllStep.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">first_arg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/lib/anat/recon.html#ReconAllStep.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.lib.anat.recon.ReconAllStep.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the processing step.</p>
+<p>This is the core processing method that subclasses must implement.
+It should contain the actual processing logic without validation
+or logging (which is handled by __call__).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Step-specific positional arguments</p></li>
+<li><p><strong>**kwargs</strong> – Step-specific keyword arguments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Processing results (step-specific type)</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This method should focus only on processing logic.
+Input/output validation should be in validate_inputs/outputs.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="interfaces.html" class="btn btn-neutral float-left" title="Interfaces" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="workflows.html" class="btn btn-neutral float-right" title="Workflows" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

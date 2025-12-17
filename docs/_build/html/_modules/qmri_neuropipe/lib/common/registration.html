@@ -1,0 +1,540 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qmri_neuropipe.lib.common.registration &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=51b770b3"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../modules/core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../modules/interfaces.html">Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../modules/lib.html">Processing Library</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../modules/workflows.html">Workflows</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">qmri_neuropipe.lib.common.registration</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for qmri_neuropipe.lib.common.registration</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Registration module for generic coregistration.</span>
+
+<span class="sd">Supports coregistration of any two images using ANTs, FSL, or FreeSurfer.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">nibabel</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">nib</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">...core</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseProcessingStep</span><span class="p">,</span> <span class="n">ValidationError</span><span class="p">,</span> <span class="n">ProcessingError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">...core.run</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_cmd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">...core.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImageLike</span><span class="p">,</span> <span class="n">DWIFile</span><span class="p">,</span> <span class="n">ImageFile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">...interfaces</span><span class="w"> </span><span class="kn">import</span> <span class="n">ants</span><span class="p">,</span> <span class="n">fsl</span><span class="p">,</span> <span class="n">freesurfer</span><span class="p">,</span> <span class="n">c3d</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">...io.bids</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_bids_name</span>
+
+
+<div class="viewcode-block" id="NonlinearRegistrationStep">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">NonlinearRegistrationStep</span><span class="p">(</span><span class="n">BaseProcessingStep</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Nonlinear registration (SyN) to a template.</span>
+<span class="sd">    output: warped image and warp field.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">logger</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">provenance</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">template</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">provenance</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">template</span> <span class="o">=</span> <span class="n">template</span> <span class="c1"># If None, must be in config or passed in run</span>
+
+<div class="viewcode-block" id="NonlinearRegistrationStep.run">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.NonlinearRegistrationStep.run">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">first_arg</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">template</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        <span class="n">context</span><span class="p">,</span> <span class="n">input_image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unpack_input</span><span class="p">(</span><span class="n">first_arg</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">input_image</span><span class="p">:</span>
+             <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="s2">&quot;No input image for nonlinear registration.&quot;</span><span class="p">)</span>
+
+        <span class="n">target</span> <span class="o">=</span> <span class="n">template</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">template</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;template&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span><span class="p">:</span>
+             <span class="c1"># Default to MNI?</span>
+             <span class="c1"># For now require explicit template</span>
+             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;No template specified for NonlinearRegistration. Skipping.&quot;</span><span class="p">)</span>
+             <span class="k">return</span> <span class="n">context</span> <span class="k">if</span> <span class="n">context</span> <span class="k">else</span> <span class="n">input_image</span>
+             
+        <span class="n">target</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+              <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Template not found: </span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_step_output_dir</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+        <span class="n">entities</span> <span class="o">=</span> <span class="n">input_image</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="s1">&#39;entities&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+        
+        <span class="c1"># New name</span>
+        <span class="c1"># MNI or template space?</span>
+        <span class="c1"># Usually &#39;space-MNI152NLin2009cAsym&#39; etc.</span>
+        <span class="c1"># Let&#39;s assume generic &#39;space-template&#39; or just update desc.</span>
+        <span class="c1"># &quot;anat_proc&quot; usually produces &#39;..._space-MNI..._desc-preproc_T1w.nii.gz&#39;</span>
+        
+        <span class="c1"># We&#39;ll rely on config to enforce naming if strict, else generic:</span>
+        <span class="n">new_desc</span> <span class="o">=</span> <span class="s2">&quot;std&quot;</span> <span class="c1"># standardized space</span>
+        <span class="k">if</span> <span class="s1">&#39;space&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">entities</span><span class="p">:</span>
+             <span class="n">entities</span><span class="p">[</span><span class="s1">&#39;space&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;Standard&#39;</span> 
+        
+        <span class="n">output_img</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="s2">&quot;norm&quot;</span><span class="p">})</span>
+        <span class="n">output_transform</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="s2">&quot;norm&quot;</span><span class="p">,</span> <span class="s2">&quot;suffix&quot;</span><span class="p">:</span> <span class="s2">&quot;transform&quot;</span><span class="p">})</span>
+        
+        <span class="k">if</span> <span class="n">output_img</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Skipping nonlinear registration (exists): </span><span class="si">{</span><span class="n">output_img</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+             <span class="n">in_p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_path</span><span class="p">(</span><span class="n">input_image</span><span class="p">)</span>
+             <span class="n">ants</span><span class="o">.</span><span class="n">registration</span><span class="p">(</span>
+                 <span class="n">fixed_file</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                 <span class="n">moving_file</span><span class="o">=</span><span class="n">in_p</span><span class="p">,</span>
+                 <span class="n">out_prefix</span><span class="o">=</span><span class="n">output_transform</span><span class="p">,</span>
+                 <span class="n">transform_type</span><span class="o">=</span><span class="s2">&quot;SyN&quot;</span> <span class="c1"># Nonlinear</span>
+             <span class="p">)</span>
+             
+             <span class="c1"># ANTs outputs:</span>
+             <span class="c1"># prefixWarped.nii.gz -&gt; output_img</span>
+             <span class="c1"># prefix1Warp.nii.gz -&gt; forward warp</span>
+             <span class="c1"># prefix0GenericAffine.mat -&gt; affine</span>
+             
+             <span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+             <span class="n">warped</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="p">(</span><span class="n">output_transform</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;Warped.nii.gz&quot;</span><span class="p">)</span>
+             <span class="k">if</span> <span class="n">warped</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                 <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">warped</span><span class="p">,</span> <span class="n">output_img</span><span class="p">)</span>
+             <span class="k">else</span><span class="p">:</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;ANTs SyN completed but warped image not found?&quot;</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ImageFile</span><span class="p">(</span><span class="n">img</span><span class="o">=</span><span class="n">output_img</span><span class="p">,</span> <span class="n">entities</span><span class="o">=</span><span class="n">entities</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">context</span><span class="p">:</span>
+             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;current_image&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+             <span class="n">context</span><span class="p">[</span><span class="s2">&quot;template_transform&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">output_transform</span> <span class="c1"># Store prefix for applying later?</span>
+             <span class="k">return</span> <span class="n">context</span>
+        <span class="k">return</span> <span class="n">result</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CoregistrationStep">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.CoregistrationStep">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CoregistrationStep</span><span class="p">(</span><span class="n">BaseProcessingStep</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Coregistration step (Moving &lt;-&gt; Fixed).</span>
+<span class="sd">    </span>
+<span class="sd">    Methods:</span>
+<span class="sd">    - &#39;ants&#39;: Uses ANTs registration (Rigid).</span>
+<span class="sd">    - &#39;fsl&#39;: Uses FSL FLIRT.</span>
+<span class="sd">    - &#39;freesurfer&#39;: Uses FreeSurfer bbregister (for B0/T1w scenarios mostly).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">config</span><span class="p">,</span>
+        <span class="n">logger</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">provenance</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">method</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s1">&#39;ants&#39;</span><span class="p">,</span> <span class="s1">&#39;fsl&#39;</span><span class="p">,</span> <span class="s1">&#39;freesurfer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;ants&#39;</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">provenance</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">=</span> <span class="n">method</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Initialized CoregistrationStep with method: </span><span class="si">{</span><span class="n">method</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CoregistrationStep.validate_inputs">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_inputs">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">first_arg</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="CoregistrationStep.validate_outputs">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.CoregistrationStep.validate_outputs">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="CoregistrationStep.run">
+<a class="viewcode-back" href="../../../../modules/lib.html#qmri_neuropipe.lib.common.registration.CoregistrationStep.run">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">first_arg</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+        
+        <span class="c1"># Unpack input</span>
+        <span class="n">context</span><span class="p">,</span> <span class="n">input_image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unpack_input</span><span class="p">(</span><span class="n">first_arg</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">input_image</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+             <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="s2">&quot;No input image provided for coregistration.&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="s1">&#39;img&#39;</span><span class="p">):</span>
+            <span class="n">in_path</span> <span class="o">=</span> <span class="n">input_image</span><span class="o">.</span><span class="n">img</span>
+            <span class="c1"># Check if this is DWIFile to preserve type later</span>
+            <span class="n">is_dwi</span> <span class="o">=</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="n">DWIFile</span><span class="p">)</span>
+            <span class="n">entities</span> <span class="o">=</span> <span class="n">input_image</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="s1">&#39;entities&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">in_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_path</span><span class="p">(</span><span class="n">input_image</span><span class="p">)</span>
+            <span class="n">is_dwi</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">entities</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">in_path</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">in_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+             <span class="k">raise</span> <span class="n">ValidationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input image not found: </span><span class="si">{</span><span class="n">in_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Try to infer target from context if not provided</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span> <span class="ow">and</span> <span class="n">context</span><span class="p">:</span>
+             <span class="c1"># Heuristic: look for &#39;t1w_file&#39; or &#39;structural_reference&#39;</span>
+             <span class="n">t1w</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;t1w_files&#39;</span><span class="p">,</span> <span class="p">[])</span>
+             <span class="k">if</span> <span class="n">t1w</span><span class="p">:</span>
+                  <span class="n">target</span> <span class="o">=</span> <span class="n">t1w</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">img</span>
+             <span class="c1"># Add other lookups here if needed</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">target</span><span class="p">:</span>
+             <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="s2">&quot;CoregistrationStep requires a target image (reference).&quot;</span><span class="p">)</span>
+
+        <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_step_output_dir</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span>
+        
+        <span class="n">options</span> <span class="o">=</span> <span class="n">options</span> <span class="ow">or</span> <span class="p">{}</span>
+        
+        <span class="c1"># Suffix handling</span>
+        <span class="n">new_desc</span> <span class="o">=</span> <span class="s2">&quot;coreg&quot;</span>
+        <span class="n">output_img</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">})</span>
+        
+        <span class="c1"># For transform filename:</span>
+        <span class="n">transform_name_full</span> <span class="o">=</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="s2">&quot;coreg&quot;</span><span class="p">,</span> <span class="s2">&quot;suffix&quot;</span><span class="p">:</span> <span class="s2">&quot;transform&quot;</span><span class="p">})</span>
+        
+        <span class="n">output_transform</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">transform_name_full</span>
+        <span class="k">if</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">suffix</span><span class="p">:</span> <span class="c1"># if it has extension</span>
+             <span class="n">output_transform</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="c1"># handle .nii.gz</span>
+             <span class="c1"># If .nii only, one with_suffix is enough.</span>
+             <span class="c1"># Safe remove:</span>
+             <span class="k">while</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">suffix</span><span class="p">:</span>
+                  <span class="n">output_transform</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Skip if exists?</span>
+        <span class="n">should_run</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="n">output_img</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+             <span class="c1"># Check timestamps: if input is newer than output, we MUST re-run</span>
+             <span class="n">in_mtime</span> <span class="o">=</span> <span class="n">in_path</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_mtime</span>
+             <span class="n">out_mtime</span> <span class="o">=</span> <span class="n">output_img</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_mtime</span>
+             
+             <span class="c1"># Check dimensions consistency (especially for Outlier Removal re-runs)</span>
+             <span class="n">dims_consistent</span> <span class="o">=</span> <span class="kc">True</span>
+             <span class="k">try</span><span class="p">:</span>
+                 <span class="n">in_shape</span> <span class="o">=</span> <span class="n">nib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">in_path</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span>
+                 <span class="n">out_shape</span> <span class="o">=</span> <span class="n">nib</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">output_img</span><span class="p">)</span><span class="o">.</span><span class="n">shape</span>
+                 <span class="c1"># For 4D DWI, check 4th dim. For 3D, check all?</span>
+                 <span class="c1"># Main issue is num volumes.</span>
+                 <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">in_shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">out_shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+                     <span class="k">if</span> <span class="n">in_shape</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="n">out_shape</span><span class="p">[</span><span class="mi">3</span><span class="p">]:</span>
+                         <span class="n">dims_consistent</span> <span class="o">=</span> <span class="kc">False</span>
+                         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dimension mismatch (In: </span><span class="si">{</span><span class="n">in_shape</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">, Out: </span><span class="si">{</span><span class="n">out_shape</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">). Re-running.&quot;</span><span class="p">)</span>
+             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                 <span class="c1"># If read fails, assume incompatible/bad output</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not check dimensions: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">. Re-running.&quot;</span><span class="p">)</span>
+                 <span class="n">dims_consistent</span> <span class="o">=</span> <span class="kc">False</span>
+
+             <span class="k">if</span> <span class="ow">not</span> <span class="n">dims_consistent</span> <span class="ow">or</span> <span class="n">in_mtime</span> <span class="o">&gt;</span> <span class="n">out_mtime</span><span class="p">:</span>
+                 <span class="k">if</span> <span class="n">in_mtime</span> <span class="o">&gt;</span> <span class="n">out_mtime</span><span class="p">:</span>
+                      <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Input (</span><span class="si">{</span><span class="n">in_path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">) is newer than output. Re-running coregistration.&quot;</span><span class="p">)</span>
+                      <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Debug: Input mtime=</span><span class="si">{</span><span class="n">in_mtime</span><span class="si">}</span><span class="s2">, Output mtime=</span><span class="si">{</span><span class="n">out_mtime</span><span class="si">}</span><span class="s2">, Diff=</span><span class="si">{</span><span class="n">in_mtime</span><span class="o">-</span><span class="n">out_mtime</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+                 <span class="k">else</span><span class="p">:</span>
+                      <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Dimension mismatch (or read error). Re-running coregistration.&quot;</span><span class="p">)</span>
+                 <span class="n">should_run</span> <span class="o">=</span> <span class="kc">True</span>
+             <span class="k">else</span><span class="p">:</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Skipping coregistration (output exists and is up-to-date): </span><span class="si">{</span><span class="n">output_img</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Debug: Input mtime=</span><span class="si">{</span><span class="n">in_mtime</span><span class="si">}</span><span class="s2">, Output mtime=</span><span class="si">{</span><span class="n">out_mtime</span><span class="si">}</span><span class="s2">, In Shape=</span><span class="si">{</span><span class="n">in_shape</span><span class="si">}</span><span class="s2">, Out Shape=</span><span class="si">{</span><span class="n">out_shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                 <span class="n">should_run</span> <span class="o">=</span> <span class="kc">False</span>
+                 
+        <span class="k">if</span> <span class="n">should_run</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">method</span><span class="si">}</span><span class="s2"> coregistration...&quot;</span><span class="p">)</span>
+            
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;ants&#39;</span><span class="p">:</span>
+                    <span class="c1"># ANTs registration</span>
+                    <span class="n">transform_type</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;transform_type&quot;</span><span class="p">,</span> <span class="s2">&quot;Rigid&quot;</span><span class="p">)</span>
+                    <span class="n">interpolator</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;interpolation&quot;</span><span class="p">,</span> <span class="s2">&quot;linear&quot;</span><span class="p">)</span>
+                    
+                    <span class="c1"># Ensure moving image is 3D for ANTs if it&#39;s 4D (DWI)</span>
+                    <span class="c1"># Use a temporary b0 or mean b0</span>
+                    <span class="n">moving_for_reg</span> <span class="o">=</span> <span class="n">in_path</span>
+                    
+                    <span class="c1"># Simple check: if is_dwi or just check dims</span>
+                    <span class="c1"># We can use nibabel to check dims, or trust is_dwi</span>
+                    <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                         <span class="c1"># Extract b0 or mean b0</span>
+                         <span class="c1"># For efficiency, let&#39;s use the &#39;current_image&#39; object which might have info</span>
+                         <span class="c1"># Or just load and average first volume</span>
+                         <span class="c1"># Using a temp file for registration</span>
+                         <span class="n">b0_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="s2">&quot;temp_b0_ref.nii.gz&quot;</span>
+                         
+                         <span class="c1"># Use fsl roi to get first volume (assuming it&#39;s b0)</span>
+                         <span class="c1"># Or we could be smarter if we had bvals.</span>
+                         <span class="c1"># For now, volume 0 is standard reference.</span>
+                         <span class="n">run_cmd</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fslroi </span><span class="si">{</span><span class="n">in_path</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">b0_path</span><span class="si">}</span><span class="s2"> 0 1&quot;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;extract_b0_ref&quot;</span><span class="p">)</span>
+                         <span class="n">moving_for_reg</span> <span class="o">=</span> <span class="n">b0_path</span>
+                    
+                    <span class="n">warped</span><span class="p">,</span> <span class="n">prefix</span> <span class="o">=</span> <span class="n">ants</span><span class="o">.</span><span class="n">registration</span><span class="p">(</span>
+                        <span class="n">fixed_file</span><span class="o">=</span><span class="n">target</span><span class="p">,</span> 
+                        <span class="n">moving_file</span><span class="o">=</span><span class="n">moving_for_reg</span><span class="p">,</span> 
+                        <span class="n">out_prefix</span><span class="o">=</span><span class="n">output_transform</span><span class="p">,</span> 
+                        <span class="n">transform_type</span><span class="o">=</span><span class="n">transform_type</span><span class="p">,</span>
+                        <span class="n">interpolator</span><span class="o">=</span><span class="n">interpolator</span><span class="p">,</span>
+                        <span class="o">**</span><span class="p">{</span><span class="n">k</span><span class="p">:</span><span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="n">options</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;transform_type&#39;</span><span class="p">,</span> <span class="s1">&#39;interpolation&#39;</span><span class="p">]}</span>
+                    <span class="p">)</span>
+
+                    <span class="c1"># Now we have the transform. We must apply it to the FULL 4D image.</span>
+                    <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                         <span class="c1"># Apply transform to 4D input</span>
+                         <span class="c1"># ants.apply_transform wrapper? Or manually.</span>
+                         <span class="c1"># ants.registration wrapper returns &#39;warped&#39; 3D image.</span>
+                         <span class="c1"># We need to warp the 4D input using the generated transform.</span>
+                         
+                         <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Applying transform to full 4D DWI (interpolation=</span><span class="si">{</span><span class="n">interpolator</span><span class="si">}</span><span class="s2">)...&quot;</span><span class="p">)</span>
+                         <span class="n">ants</span><span class="o">.</span><span class="n">apply_transforms</span><span class="p">(</span>
+                             <span class="n">fixed_file</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+                             <span class="n">moving_file</span><span class="o">=</span><span class="n">in_path</span><span class="p">,</span>
+                             <span class="n">out_file</span><span class="o">=</span><span class="n">output_img</span><span class="p">,</span>
+                             <span class="n">transforms</span><span class="o">=</span><span class="n">prefix</span><span class="p">,</span> <span class="c1"># Now prefix IS the list of transforms</span>
+                             <span class="n">interpolator</span><span class="o">=</span><span class="n">interpolator</span><span class="p">,</span> 
+                             <span class="n">imagetype</span><span class="o">=</span><span class="mi">3</span> <span class="c1"># 3 = Time Series (4D)</span>
+                         <span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c1"># Standard 3D copy</span>
+                        <span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+                        <span class="k">if</span> <span class="n">warped</span> <span class="ow">and</span> <span class="n">Path</span><span class="p">(</span><span class="n">warped</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                             <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">warped</span><span class="p">,</span> <span class="n">output_img</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;ANTs registration reported success but warped file not found?&quot;</span><span class="p">)</span>
+                
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;fsl&#39;</span><span class="p">:</span>
+                    <span class="c1"># FSL FLIRT</span>
+                    <span class="n">output_mat</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.mat&quot;</span><span class="p">)</span>
+                    <span class="n">dof</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;dof&quot;</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+                    <span class="n">cost</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;cost&quot;</span><span class="p">,</span> <span class="s2">&quot;normmi&quot;</span><span class="p">)</span>
+                    <span class="n">extra_args</span> <span class="o">=</span> <span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;extra_args&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                    
+                    <span class="n">moving_for_reg</span> <span class="o">=</span> <span class="n">in_path</span>
+                    <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                         <span class="c1"># Use b0 for registration (same strategy as ANTs)</span>
+                         <span class="n">b0_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="s2">&quot;temp_b0_ref.nii.gz&quot;</span>
+                         <span class="k">if</span> <span class="ow">not</span> <span class="n">b0_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                             <span class="n">run_cmd</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fslroi </span><span class="si">{</span><span class="n">in_path</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">b0_path</span><span class="si">}</span><span class="s2"> 0 1&quot;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;extract_b0_ref&quot;</span><span class="p">)</span>
+                         <span class="n">moving_for_reg</span> <span class="o">=</span> <span class="n">b0_path</span>
+                    
+                    <span class="c1"># Calculate transform</span>
+                    <span class="n">fsl</span><span class="o">.</span><span class="n">flirt</span><span class="p">(</span><span class="n">in_file</span><span class="o">=</span><span class="n">moving_for_reg</span><span class="p">,</span> <span class="n">ref_file</span><span class="o">=</span><span class="n">target</span><span class="p">,</span> <span class="n">out_file</span><span class="o">=</span><span class="n">output_img</span><span class="p">,</span> <span class="n">omat</span><span class="o">=</span><span class="n">output_mat</span><span class="p">,</span> <span class="n">dof</span><span class="o">=</span><span class="n">dof</span><span class="p">,</span> <span class="n">cost</span><span class="o">=</span><span class="n">cost</span><span class="p">,</span> <span class="n">extra_args</span><span class="o">=</span><span class="n">extra_args</span><span class="p">)</span>
+                    
+                    <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                        <span class="c1"># FLIRT produced a 3D output (resampled B0).</span>
+                        <span class="c1"># We need to apply the matrix to the full 4D DWI.</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Applying FLIRT transform to full 4D DWI...&quot;</span><span class="p">)</span>
+                        <span class="c1"># flirt -applyxfm -init &lt;mat&gt; -in &lt;4D&gt; -ref &lt;target&gt; -out &lt;4D_out&gt;</span>
+                        
+                        <span class="n">apply_cmd</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;flirt -applyxfm -init </span><span class="si">{</span><span class="n">output_mat</span><span class="si">}</span><span class="s2"> -in </span><span class="si">{</span><span class="n">in_path</span><span class="si">}</span><span class="s2"> -ref </span><span class="si">{</span><span class="n">target</span><span class="si">}</span><span class="s2"> -out </span><span class="si">{</span><span class="n">output_img</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="c1"># Note: We overwrite the 3D output from the first flirt call with the 4D output</span>
+                        <span class="n">run_cmd</span><span class="p">(</span><span class="n">apply_cmd</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;flirt_apply_4d&quot;</span><span class="p">)</span>
+                    
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;freesurfer&#39;</span><span class="p">:</span>
+                    <span class="c1"># FreeSurfer BBRegister</span>
+                    <span class="n">output_dat</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.dat&quot;</span><span class="p">)</span>
+                    <span class="n">freesurfer</span><span class="o">.</span><span class="n">bbregister</span><span class="p">(</span>
+                        <span class="n">in_file</span><span class="o">=</span><span class="n">in_path</span><span class="p">,</span> 
+                        <span class="n">target_file</span><span class="o">=</span><span class="n">target</span><span class="p">,</span> 
+                        <span class="n">out_reg_file</span><span class="o">=</span><span class="n">output_dat</span><span class="p">,</span> 
+                        <span class="n">contrast_type</span><span class="o">=</span><span class="s2">&quot;t2&quot;</span>
+                    <span class="p">)</span>
+                    
+                    <span class="c1"># NOTE: bbregister does NOT produce a resampled image by default. </span>
+                    <span class="c1"># For now we duplicate input to output to allow pipeline continuation,</span>
+                    <span class="c1"># but log a clear warning.</span>
+                    <span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+                    <span class="n">shutil</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">in_path</span><span class="p">,</span> <span class="n">output_img</span><span class="p">)</span> 
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;Freesurfer bbregister only calculates transform. Image not resampled.&quot;</span><span class="p">)</span>
+
+                <span class="k">else</span><span class="p">:</span>
+                     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown coregistration method: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">method</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                 <span class="k">raise</span> <span class="n">ProcessingError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Coregistration failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">step_name</span><span class="o">=</span><span class="s2">&quot;coregistration&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+
+            <span class="c1"># Rotation (Run only if coreg ran)</span>
+            <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                 <span class="c1"># Standard Rigid/Affine registration of dMRI requires bvec rotation.</span>
+                 <span class="n">rotated_bvecs</span> <span class="o">=</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span> <span class="c1"># Default</span>
+                 
+                 <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;fsl&#39;</span><span class="p">:</span>
+                     <span class="c1"># Rotate bvecs for FSL</span>
+                     <span class="n">mat_file</span> <span class="o">=</span> <span class="n">output_transform</span><span class="o">.</span><span class="n">with_suffix</span><span class="p">(</span><span class="s2">&quot;.mat&quot;</span><span class="p">)</span>
+                     <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="s1">&#39;bvec&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span> <span class="ow">and</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="n">mat_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                         <span class="n">new_bvec_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">},</span> <span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;bvec&quot;</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+                         <span class="k">try</span><span class="p">:</span>
+                             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Rotating b-vectors...&quot;</span><span class="p">)</span>
+                             <span class="n">fsl</span><span class="o">.</span><span class="n">rotate_bvecs</span><span class="p">(</span><span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span><span class="p">,</span> <span class="n">mat_file</span><span class="p">,</span> <span class="n">new_bvec_path</span><span class="p">)</span>
+                             <span class="n">rotated_bvecs</span> <span class="o">=</span> <span class="n">new_bvec_path</span>
+                         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to rotate b-vectors: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                 
+                 <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;ants&#39;</span><span class="p">:</span>
+                     <span class="c1"># ANTs rotation logic</span>
+                     <span class="c1"># Need to recover or find affine mat.</span>
+                     <span class="c1"># In &#39;should_run&#39; block, we have local variables but might be tricky.</span>
+                     <span class="c1"># Re-find best affine candidate</span>
+                     <span class="n">ants_affine</span> <span class="o">=</span> <span class="kc">None</span>
+                     
+                     <span class="c1"># Check locals for &#39;prefix&#39; (transform list)</span>
+                     <span class="n">transform_list</span> <span class="o">=</span> <span class="nb">locals</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;prefix&#39;</span><span class="p">,</span> <span class="p">[])</span>
+                     <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">transform_list</span><span class="p">:</span>
+                         <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">t</span><span class="p">)</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">&quot;.mat&quot;</span><span class="p">):</span>
+                             <span class="n">ants_affine</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+                             <span class="k">break</span>
+                     
+                     <span class="k">if</span> <span class="ow">not</span> <span class="n">ants_affine</span><span class="p">:</span>
+                          <span class="n">potential_mat</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_transform</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;0GenericAffine.mat&quot;</span><span class="p">)</span>
+                          <span class="k">if</span> <span class="n">potential_mat</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                               <span class="n">ants_affine</span> <span class="o">=</span> <span class="n">potential_mat</span>
+                     
+                     <span class="k">if</span> <span class="n">ants_affine</span> <span class="ow">and</span> <span class="n">ants_affine</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                         <span class="n">fsl_mat</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">},</span> <span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;fsl_affine&quot;</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="s2">&quot;.mat&quot;</span><span class="p">)</span>
+                         <span class="k">try</span><span class="p">:</span>
+                             <span class="c1"># C3d ants2fsl needs refs. </span>
+                             <span class="c1"># &#39;moving_for_reg&#39; is defined in this block above.</span>
+                             <span class="n">ref_moving</span> <span class="o">=</span> <span class="nb">locals</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;moving_for_reg&#39;</span><span class="p">)</span>
+                             <span class="k">if</span> <span class="ow">not</span> <span class="n">ref_moving</span><span class="p">:</span>
+                                  <span class="n">ref_moving</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="s2">&quot;temp_b0_ref.nii.gz&quot;</span> <span class="k">if</span> <span class="n">is_dwi</span> <span class="k">else</span> <span class="n">in_path</span>
+                             
+                             <span class="k">if</span> <span class="n">ref_moving</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                                 <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Converting ANTs transform to FSL format for bvec rotation...&quot;</span><span class="p">)</span>
+                                 <span class="n">c3d</span><span class="o">.</span><span class="n">ants2fsl</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">ref_moving</span><span class="p">,</span> <span class="n">ants_affine</span><span class="p">,</span> <span class="n">fsl_mat</span><span class="p">)</span>
+                                 
+                                 <span class="k">if</span> <span class="n">fsl_mat</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span> <span class="s1">&#39;bvec&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span> <span class="ow">and</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                                     <span class="n">new_bvec_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">},</span> <span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;bvec&quot;</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+                                     <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Rotating b-vectors (ANTs -&gt; FSL)...&quot;</span><span class="p">)</span>
+                                     <span class="n">fsl</span><span class="o">.</span><span class="n">rotate_bvecs</span><span class="p">(</span><span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span><span class="p">,</span> <span class="n">fsl_mat</span><span class="p">,</span> <span class="n">new_bvec_path</span><span class="p">)</span>
+                                     <span class="n">rotated_bvecs</span> <span class="o">=</span> <span class="n">new_bvec_path</span>
+                         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                             <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error during ANTs bvec rotation: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span> <span class="c1"># should_run = False (Skipped)</span>
+            <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+                <span class="n">rotated_bvecs</span> <span class="o">=</span> <span class="n">input_image</span><span class="o">.</span><span class="n">bvec</span> <span class="c1"># Default</span>
+                <span class="c1"># Just check if rotated file exists</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;fsl&#39;</span><span class="p">:</span>
+                    <span class="n">new_bvec_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">},</span> <span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;bvec&quot;</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s1">&#39;ants&#39;</span><span class="p">:</span>
+                    <span class="n">new_bvec_path</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="o">/</span> <span class="n">build_bids_name</span><span class="p">({</span><span class="o">**</span><span class="n">entities</span><span class="p">,</span> <span class="s2">&quot;desc&quot;</span><span class="p">:</span> <span class="n">new_desc</span><span class="p">},</span> <span class="n">suffix</span><span class="o">=</span><span class="s2">&quot;bvec&quot;</span><span class="p">,</span> <span class="n">extension</span><span class="o">=</span><span class="s2">&quot;.bvec&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">new_bvec_path</span> <span class="o">=</span> <span class="kc">None</span>
+
+                <span class="k">if</span> <span class="n">new_bvec_path</span> <span class="ow">and</span> <span class="n">new_bvec_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found existing rotated b-vecs: </span><span class="si">{</span><span class="n">new_bvec_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="n">rotated_bvecs</span> <span class="o">=</span> <span class="n">new_bvec_path</span>
+
+        <span class="c1"># Wrap output matching result_img construction</span>
+        <span class="k">if</span> <span class="n">is_dwi</span><span class="p">:</span>
+             <span class="c1"># Ensure rotated_bvecs is available (it is defined in both branches above)</span>
+             <span class="c1"># But if loop variables leaking was relied upon, we must be careful.</span>
+             <span class="c1"># &#39;rotated_bvecs&#39; is definitely set in if/else above for is_dwi.</span>
+             
+             <span class="n">result_img</span> <span class="o">=</span> <span class="n">DWIFile</span><span class="p">(</span>
+                 <span class="n">entities</span><span class="o">=</span><span class="n">entities</span><span class="p">,</span>
+                 <span class="n">img</span><span class="o">=</span><span class="n">output_img</span><span class="p">,</span>
+                 <span class="n">json</span><span class="o">=</span><span class="n">input_image</span><span class="o">.</span><span class="n">json</span><span class="p">,</span>
+                 <span class="n">bval</span><span class="o">=</span><span class="n">input_image</span><span class="o">.</span><span class="n">bval</span><span class="p">,</span>
+                 <span class="n">bvec</span><span class="o">=</span><span class="n">rotated_bvecs</span>
+             <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+             <span class="n">result_img</span> <span class="o">=</span> <span class="n">ImageFile</span><span class="p">(</span><span class="n">entities</span><span class="o">=</span><span class="n">entities</span><span class="p">,</span> <span class="n">img</span><span class="o">=</span><span class="n">output_img</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">input_image</span><span class="o">.</span><span class="n">json</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">input_image</span><span class="p">,</span><span class="s1">&#39;json&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Coregistered image saved: </span><span class="si">{</span><span class="n">output_img</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">context</span><span class="p">[</span><span class="s2">&quot;current_image&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">result_img</span>
+            <span class="k">return</span> <span class="n">context</span>
+        
+        <span class="k">return</span> <span class="n">result_img</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

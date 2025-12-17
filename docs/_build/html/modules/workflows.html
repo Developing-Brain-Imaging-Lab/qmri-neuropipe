@@ -1,0 +1,275 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workflows &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=51b770b3"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Processing Library" href="lib.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="interfaces.html">Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="lib.html">Processing Library</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Workflows</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline"><code class="docutils literal notranslate"><span class="pre">DMRIPipeline</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.name"><code class="docutils literal notranslate"><span class="pre">DMRIPipeline.name</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.process_subject"><code class="docutils literal notranslate"><span class="pre">DMRIPipeline.process_subject()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.version"><code class="docutils literal notranslate"><span class="pre">DMRIPipeline.version</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow"><code class="docutils literal notranslate"><span class="pre">PreprocessingWorkflow</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.build_pipeline"><code class="docutils literal notranslate"><span class="pre">PreprocessingWorkflow.build_pipeline()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.run"><code class="docutils literal notranslate"><span class="pre">PreprocessingWorkflow.run()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline"><code class="docutils literal notranslate"><span class="pre">AnatPipeline</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.name"><code class="docutils literal notranslate"><span class="pre">AnatPipeline.name</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.process_subject"><code class="docutils literal notranslate"><span class="pre">AnatPipeline.process_subject()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.version"><code class="docutils literal notranslate"><span class="pre">AnatPipeline.version</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow"><code class="docutils literal notranslate"><span class="pre">AnatPreprocessingWorkflow</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.run"><code class="docutils literal notranslate"><span class="pre">AnatPreprocessingWorkflow.run()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.save_results"><code class="docutils literal notranslate"><span class="pre">AnatPreprocessingWorkflow.save_results()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Workflows</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/modules/workflows.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="workflows">
+<h1>Workflows<a class="headerlink" href="#workflows" title="Link to this heading"></a></h1>
+<p>High-level pipelines.</p>
+<dl class="py class" id="module-qmri_neuropipe.workflows.pipelines.dmri">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.workflows.pipelines.dmri.</span></span><span class="sig-name descname"><span class="pre">DMRIPipeline</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.config.PipelineConfig" title="qmri_neuropipe.core.config.PipelineConfig"><span class="pre">PipelineConfig</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/dmri.html#DMRIPipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BasePipeline" title="qmri_neuropipe.core.base.BasePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasePipeline</span></code></a></p>
+<p>Diffusion MRI Processing pipeline.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.name">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.name" title="Link to this definition"></a></dt>
+<dd><p>Pipeline name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Pipeline name (e.g., ‘dmri-pipeline’)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.process_subject">
+<span class="sig-name descname"><span class="pre">process_subject</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">subject</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">session</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/dmri.html#DMRIPipeline.process_subject"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.process_subject" title="Link to this definition"></a></dt>
+<dd><p>Process a single subject.</p>
+<p>This is the main processing method that subclasses must implement.
+It should contain the complete processing pipeline for one subject.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>subject</strong> – Subject ID (e.g., ‘sub-01’)</p></li>
+<li><p><strong>session</strong> – Optional session ID (e.g., ‘ses-01’)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="core.html#qmri_neuropipe.core.ProcessingError" title="qmri_neuropipe.core.ProcessingError"><strong>ProcessingError</strong></a> – If processing fails</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.version">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">version</span></span><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline.version" title="Link to this definition"></a></dt>
+<dd><p>Pipeline version.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Version string (e.g., ‘2.0.0’)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.workflows.pipelines.dmri.</span></span><span class="sig-name descname"><span class="pre">PreprocessingWorkflow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.config.PipelineConfig" title="qmri_neuropipe.core.config.PipelineConfig"><span class="pre">PipelineConfig</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.ProvenanceTracker" title="qmri_neuropipe.core.provenance.ProvenanceTracker"><span class="pre">ProvenanceTracker</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/dmri.html#PreprocessingWorkflow"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseWorkflow" title="qmri_neuropipe.core.base.BaseWorkflow"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseWorkflow</span></code></a></p>
+<p>Preprocessing workflow for DWI:
+- Takes a context dict (DWI files, topup groups, etc.)
+- Applies configurable steps in sequence.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.build_pipeline">
+<span class="sig-name descname"><span class="pre">build_pipeline</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/dmri.html#PreprocessingWorkflow.build_pipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.build_pipeline" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reporter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/dmri.html#PreprocessingWorkflow.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.dmri.PreprocessingWorkflow.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the workflow on a list of DWI files.</p>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-qmri_neuropipe.workflows.pipelines.anat">Anatomical Processing Pipeline (anat_proc).</p>
+<ol class="arabic simple">
+<li><p>Resample/resize</p></li>
+<li><p>Reorient to standard</p></li>
+<li><p>Denoise</p></li>
+<li><p>Gibbs correction</p></li>
+<li><p>Bias correction</p></li>
+<li><p>Coregistration (T1w &lt;-&gt; T2w)</p></li>
+<li><p>Brain Mask</p></li>
+<li><p>FreeSurfer Recon-all (optional)</p></li>
+<li><p>Nonlinear Registration (to template)</p></li>
+</ol>
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPipeline">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.workflows.pipelines.anat.</span></span><span class="sig-name descname"><span class="pre">AnatPipeline</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.config.PipelineConfig" title="qmri_neuropipe.core.config.PipelineConfig"><span class="pre">PipelineConfig</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/anat.html#AnatPipeline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BasePipeline" title="qmri_neuropipe.core.base.BasePipeline"><code class="xref py py-class docutils literal notranslate"><span class="pre">BasePipeline</span></code></a></p>
+<p>Top-level Anatomical Pipeline.
+Finds T1w/T2w files and runs AnatPreprocessingWorkflow.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.name">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.name" title="Link to this definition"></a></dt>
+<dd><p>Pipeline name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Pipeline name (e.g., ‘dmri-pipeline’)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.process_subject">
+<span class="sig-name descname"><span class="pre">process_subject</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">subject</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">session</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/anat.html#AnatPipeline.process_subject"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.process_subject" title="Link to this definition"></a></dt>
+<dd><p>Process a single subject/session.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.version">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">version</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPipeline.version" title="Link to this definition"></a></dt>
+<dd><p>Pipeline version.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Version string (e.g., ‘2.0.0’)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">qmri_neuropipe.workflows.pipelines.anat.</span></span><span class="sig-name descname"><span class="pre">AnatPreprocessingWorkflow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.config.PipelineConfig" title="qmri_neuropipe.core.config.PipelineConfig"><span class="pre">PipelineConfig</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">logger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Logger</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">provenance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="core.html#qmri_neuropipe.core.ProvenanceTracker" title="qmri_neuropipe.core.provenance.ProvenanceTracker"><span class="pre">ProvenanceTracker</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/anat.html#AnatPreprocessingWorkflow"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="core.html#qmri_neuropipe.core.base.BaseWorkflow" title="qmri_neuropipe.core.base.BaseWorkflow"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseWorkflow</span></code></a></p>
+<p>Workflow for preprocessing T1w (and optionally T2w) images.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">final_output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reporter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/anat.html#AnatPreprocessingWorkflow.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.run" title="Link to this definition"></a></dt>
+<dd><p>Execute workflow.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.save_results">
+<span class="sig-name descname"><span class="pre">save_results</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/qmri_neuropipe/workflows/pipelines/anat.html#AnatPreprocessingWorkflow.save_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow.save_results" title="Link to this definition"></a></dt>
+<dd><p>Save final anatomical outputs to output_dir.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="lib.html" class="btn btn-neutral float-left" title="Processing Library" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

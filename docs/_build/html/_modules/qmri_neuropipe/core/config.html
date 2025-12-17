@@ -1,0 +1,759 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>qmri_neuropipe.core.config &mdash; qmri-neuropipe 2.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=51b770b3"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            qmri-neuropipe
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data_organization.html">Data Organization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../workflows/anatomical.html">Anatomical Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../workflows/diffusion.html">Diffusion Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/core.html">Core Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/interfaces.html">Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/lib.html">Processing Library</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules/workflows.html">Workflows</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">qmri-neuropipe</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">qmri_neuropipe.core.config</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for qmri_neuropipe.core.config</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Configuration management for qMRI neuroimaging pipelines.</span>
+
+<span class="sd">This module provides a flexible configuration system that supports:</span>
+<span class="sd">- YAML and JSON configuration files</span>
+<span class="sd">- Environment variable expansion</span>
+<span class="sd">- Configuration validation</span>
+<span class="sd">- Hierarchical configuration merging</span>
+<span class="sd">- Type-safe access to configuration values</span>
+
+<span class="sd">Classes:</span>
+<span class="sd">    PipelineConfig: Main configuration class</span>
+<span class="sd">    ConfigLoader: Utility for loading and merging configurations</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">yaml</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">asdict</span>
+
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="PipelineConfig">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PipelineConfig</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configuration container for pipeline execution.</span>
+<span class="sd">    </span>
+<span class="sd">    This class stores all configuration parameters for a pipeline.</span>
+<span class="sd">    It supports:</span>
+<span class="sd">    - Loading from YAML/JSON files</span>
+<span class="sd">    - Environment variable expansion</span>
+<span class="sd">    - Hierarchical key access with dot notation</span>
+<span class="sd">    - Validation of required fields</span>
+<span class="sd">    - Merging multiple configuration sources</span>
+<span class="sd">    </span>
+<span class="sd">    Attributes:</span>
+<span class="sd">        bids_dir: Path to BIDS dataset</span>
+<span class="sd">        output_dir: Path to output directory</span>
+<span class="sd">        work_dir: Path to working directory (temporary files)</span>
+<span class="sd">        participant_label: Optional list of subject IDs to process</span>
+<span class="sd">        session_label: Optional list of session IDs to process</span>
+<span class="sd">        n_cpus: Number of CPUs to use</span>
+<span class="sd">        memory_gb: Memory limit in GB</span>
+<span class="sd">        skip_existing: Whether to skip already-processed subjects</span>
+<span class="sd">        stop_on_error: Whether to stop pipeline on first error</span>
+<span class="sd">        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)</span>
+<span class="sd">        debug: Enable debug mode</span>
+<span class="sd">        config_data: Dictionary containing all configuration data</span>
+<span class="sd">    </span>
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; # From file</span>
+<span class="sd">        &gt;&gt;&gt; config = PipelineConfig.from_file(&#39;config.yaml&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; </span>
+<span class="sd">        &gt;&gt;&gt; # Programmatic creation</span>
+<span class="sd">        &gt;&gt;&gt; config = PipelineConfig(</span>
+<span class="sd">        ...     bids_dir=&#39;/data/bids&#39;,</span>
+<span class="sd">        ...     output_dir=&#39;/data/derivatives&#39;,</span>
+<span class="sd">        ...     n_cpus=8</span>
+<span class="sd">        ... )</span>
+<span class="sd">        &gt;&gt;&gt; </span>
+<span class="sd">        &gt;&gt;&gt; # Access nested values</span>
+<span class="sd">        &gt;&gt;&gt; denoising_method = config.get(&#39;dmri.preprocessing.denoising.method&#39;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># Core paths</span>
+    <span class="n">bids_dir</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">output_dir</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">work_dir</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    
+    <span class="c1"># Subject/session selection</span>
+    <span class="n">participant_label</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">session_label</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    
+    <span class="c1"># Computational resources</span>
+    <span class="n">n_cpus</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">memory_gb</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">8.0</span>
+    <span class="n">use_gpu</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    
+    <span class="c1"># Execution control</span>
+    <span class="n">skip_existing</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">stop_on_error</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    
+    <span class="c1"># Logging</span>
+    <span class="n">log_level</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;INFO&#39;</span>
+    <span class="n">debug</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">verbose</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    
+    <span class="c1"># Additional configuration</span>
+    <span class="n">config_data</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert string paths to Path objects.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span><span class="p">)</span>
+        
+        <span class="c1"># Set work_dir to output_dir/work if not specified</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">/</span> <span class="s1">&#39;work&#39;</span>
+    
+<div class="viewcode-block" id="PipelineConfig.from_file">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.from_file">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_file</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">config_file</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span>
+        <span class="n">overrides</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;PipelineConfig&#39;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Load configuration from YAML or JSON file.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            config_file: Path to configuration file</span>
+<span class="sd">            overrides: Optional dictionary of values to override</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            PipelineConfig instance</span>
+<span class="sd">        </span>
+<span class="sd">        Raises:</span>
+<span class="sd">            FileNotFoundError: If config file doesn&#39;t exist</span>
+<span class="sd">            ValueError: If config file format is invalid</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; config = PipelineConfig.from_file(&#39;config.yaml&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; </span>
+<span class="sd">            &gt;&gt;&gt; # With overrides</span>
+<span class="sd">            &gt;&gt;&gt; config = PipelineConfig.from_file(</span>
+<span class="sd">            ...     &#39;config.yaml&#39;,</span>
+<span class="sd">            ...     overrides={&#39;n_cpus&#39;: 16}</span>
+<span class="sd">            ... )</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">config_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">config_file</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Config file not found: </span><span class="si">{</span><span class="n">config_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Load file</span>
+        <span class="n">loader</span> <span class="o">=</span> <span class="n">ConfigLoader</span><span class="p">()</span>
+        <span class="n">config_data</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+        
+        <span class="c1"># Merge overrides</span>
+        <span class="k">if</span> <span class="n">overrides</span><span class="p">:</span>
+            <span class="n">config_data</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">merge_configs</span><span class="p">(</span><span class="n">config_data</span><span class="p">,</span> <span class="n">overrides</span><span class="p">)</span>
+        
+        <span class="c1"># Extract standard fields</span>
+        <span class="n">standard_fields</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;bids_dir&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;bids_dir&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;output_dir&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;output_dir&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;work_dir&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;work_dir&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;participant_label&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;participant_label&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;session_label&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;session_label&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;n_cpus&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;n_cpus&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="s1">&#39;memory_gb&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;memory_gb&#39;</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">),</span>
+            <span class="s1">&#39;use_gpu&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;use_gpu&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+            <span class="s1">&#39;skip_existing&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;skip_existing&#39;</span><span class="p">,</span> <span class="kc">True</span><span class="p">),</span>
+            <span class="s1">&#39;stop_on_error&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;stop_on_error&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+            <span class="s1">&#39;log_level&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;log_level&#39;</span><span class="p">,</span> <span class="s1">&#39;INFO&#39;</span><span class="p">),</span>
+            <span class="s1">&#39;debug&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;debug&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+            <span class="s1">&#39;verbose&#39;</span><span class="p">:</span> <span class="n">config_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;verbose&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+        <span class="p">}</span>
+        
+        <span class="c1"># Store everything in config_data</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="o">**</span><span class="n">standard_fields</span><span class="p">,</span> <span class="n">config_data</span><span class="o">=</span><span class="n">config_data</span><span class="p">)</span>
+        
+        <span class="c1"># Validate</span>
+        <span class="n">config</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
+        
+        <span class="k">return</span> <span class="n">config</span></div>
+
+    
+<div class="viewcode-block" id="PipelineConfig.from_dict">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.from_dict">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_dict</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="s1">&#39;PipelineConfig&#39;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create configuration from dictionary.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            config_dict: Configuration dictionary</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            PipelineConfig instance</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_file</span><span class="o">.</span><span class="vm">__func__</span><span class="p">(</span>
+            <span class="bp">cls</span><span class="p">,</span>
+            <span class="n">config_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+            <span class="n">overrides</span><span class="o">=</span><span class="n">config_dict</span>
+        <span class="p">)</span> <span class="k">if</span> <span class="n">config_dict</span> <span class="k">else</span> <span class="bp">cls</span><span class="p">()</span></div>
+
+    
+<div class="viewcode-block" id="PipelineConfig.get">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.get">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get configuration value with dot notation support.</span>
+<span class="sd">        </span>
+<span class="sd">        Supports nested key access using dot notation.</span>
+<span class="sd">        First checks standard fields, then searches config_data.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            key: Configuration key (supports dot notation)</span>
+<span class="sd">            default: Default value if key not found</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            Configuration value or default</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; config.get(&#39;n_cpus&#39;)  # Standard field</span>
+<span class="sd">            8</span>
+<span class="sd">            &gt;&gt;&gt; config.get(&#39;dmri.preprocessing.denoising.method&#39;)  # Nested</span>
+<span class="sd">            &#39;mppca&#39;</span>
+<span class="sd">            &gt;&gt;&gt; config.get(&#39;nonexistent&#39;, &#39;default_value&#39;)</span>
+<span class="sd">            &#39;default_value&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Check standard fields first</span>
+        <span class="k">if</span> <span class="s1">&#39;.&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">key</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        
+        <span class="c1"># Search in config_data</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_nested</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_data</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="PipelineConfig.set">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.set">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set configuration value with dot notation support.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            key: Configuration key (supports dot notation)</span>
+<span class="sd">            value: Value to set</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; config.set(&#39;n_cpus&#39;, 16)</span>
+<span class="sd">            &gt;&gt;&gt; config.set(&#39;dmri.preprocessing.denoising.enabled&#39;, True)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s1">&#39;.&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">key</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_set_nested</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_data</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+    
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_nested</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d</span><span class="p">:</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get nested dictionary value using dot notation.&quot;&quot;&quot;</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">)</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">d</span>
+        
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">current</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">current</span><span class="p">:</span>
+                <span class="n">current</span> <span class="o">=</span> <span class="n">current</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">default</span>
+        
+        <span class="k">return</span> <span class="n">current</span>
+    
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set_nested</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">d</span><span class="p">:</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Set nested dictionary value using dot notation.&quot;&quot;&quot;</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">)</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">d</span>
+        
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">current</span><span class="p">:</span>
+                <span class="n">current</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">current</span> <span class="o">=</span> <span class="n">current</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+        
+        <span class="n">current</span><span class="p">[</span><span class="n">keys</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="n">value</span>
+    
+<div class="viewcode-block" id="PipelineConfig.validate">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.validate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Validate configuration.</span>
+<span class="sd">        </span>
+<span class="sd">        Checks:</span>
+<span class="sd">        - Required fields are present</span>
+<span class="sd">        - Paths exist (if they should)</span>
+<span class="sd">        - Values are in valid ranges</span>
+<span class="sd">        </span>
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If configuration is invalid</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">errors</span> <span class="o">=</span> <span class="p">[]</span>
+        
+        <span class="c1"># Check required fields</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;bids_dir is required&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;bids_dir does not exist: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;output_dir is required&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Validate resource limits</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_cpus</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;n_cpus must be &gt;= 1, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">n_cpus</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">memory_gb</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;memory_gb must be &gt;= 1, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">memory_gb</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># Validate log level</span>
+        <span class="n">valid_levels</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;DEBUG&#39;</span><span class="p">,</span> <span class="s1">&#39;INFO&#39;</span><span class="p">,</span> <span class="s1">&#39;WARNING&#39;</span><span class="p">,</span> <span class="s1">&#39;ERROR&#39;</span><span class="p">,</span> <span class="s1">&#39;CRITICAL&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">valid_levels</span><span class="p">:</span>
+            <span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;log_level must be one of </span><span class="si">{</span><span class="n">valid_levels</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">log_level</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">errors</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Configuration validation failed:</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> 
+                <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  - </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">errors</span><span class="p">)</span>
+            <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="PipelineConfig.to_dict">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert configuration to dictionary.</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            Dictionary representation of configuration</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Start with standard fields</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;bids_dir&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bids_dir</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;output_dir&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;work_dir&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">work_dir</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;participant_label&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">participant_label</span><span class="p">,</span>
+            <span class="s1">&#39;session_label&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">session_label</span><span class="p">,</span>
+            <span class="s1">&#39;n_cpus&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_cpus</span><span class="p">,</span>
+            <span class="s1">&#39;memory_gb&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">memory_gb</span><span class="p">,</span>
+            <span class="s1">&#39;use_gpu&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_gpu</span><span class="p">,</span>
+            <span class="s1">&#39;skip_existing&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">skip_existing</span><span class="p">,</span>
+            <span class="s1">&#39;stop_on_error&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">stop_on_error</span><span class="p">,</span>
+            <span class="s1">&#39;log_level&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_level</span><span class="p">,</span>
+            <span class="s1">&#39;debug&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">,</span>
+            <span class="s1">&#39;verbose&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">,</span>
+        <span class="p">}</span>
+        
+        <span class="c1"># Merge with config_data</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_data</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">result</span></div>
+
+    
+<div class="viewcode-block" id="PipelineConfig.save">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.PipelineConfig.save">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_file</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">],</span> <span class="nb">format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;yaml&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Save configuration to file.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            output_file: Output file path</span>
+<span class="sd">            format: File format (&#39;yaml&#39; or &#39;json&#39;)</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; config.save(&#39;config.yaml&#39;)</span>
+<span class="sd">            &gt;&gt;&gt; config.save(&#39;config.json&#39;, format=&#39;json&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">output_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output_file</span><span class="p">)</span>
+        <span class="n">output_file</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        
+        <span class="n">config_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
+        
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">output_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">format</span> <span class="o">==</span> <span class="s1">&#39;yaml&#39;</span><span class="p">:</span>
+                <span class="n">yaml</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">default_flow_style</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">format</span> <span class="o">==</span> <span class="s1">&#39;json&#39;</span><span class="p">:</span>
+                <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">config_dict</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown format: </span><span class="si">{</span><span class="nb">format</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved configuration to </span><span class="si">{</span><span class="n">output_file</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ConfigLoader">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.ConfigLoader">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ConfigLoader</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Utility class for loading and merging configurations.</span>
+<span class="sd">    </span>
+<span class="sd">    Supports:</span>
+<span class="sd">    - Loading YAML and JSON files</span>
+<span class="sd">    - Environment variable expansion</span>
+<span class="sd">    - Merging multiple configurations</span>
+<span class="sd">    - Validation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="ConfigLoader.load">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.ConfigLoader.load">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">load</span><span class="p">(</span><span class="n">config_file</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Load configuration from file.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            config_file: Path to configuration file</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            Configuration dictionary</span>
+<span class="sd">        </span>
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If file format is unknown</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">suffix</span> <span class="o">=</span> <span class="n">config_file</span><span class="o">.</span><span class="n">suffix</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">suffix</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;.yaml&#39;</span><span class="p">,</span> <span class="s1">&#39;.yml&#39;</span><span class="p">]:</span>
+                <span class="n">config</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">suffix</span> <span class="o">==</span> <span class="s1">&#39;.json&#39;</span><span class="p">:</span>
+                <span class="n">config</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Unknown config format: </span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s2">. &quot;</span>
+                    <span class="s2">&quot;Supported: .yaml, .yml, .json&quot;</span>
+                <span class="p">)</span>
+        
+        <span class="c1"># Expand environment variables</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">ConfigLoader</span><span class="o">.</span><span class="n">_expand_env_vars</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">config</span></div>
+
+    
+<div class="viewcode-block" id="ConfigLoader.merge_configs">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.ConfigLoader.merge_configs">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">merge_configs</span><span class="p">(</span><span class="n">base</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">override</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Recursively merge two configuration dictionaries.</span>
+<span class="sd">        </span>
+<span class="sd">        Override values take precedence over base values.</span>
+<span class="sd">        Nested dictionaries are merged recursively.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            base: Base configuration</span>
+<span class="sd">            override: Override configuration</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            Merged configuration</span>
+<span class="sd">        </span>
+<span class="sd">        Example:</span>
+<span class="sd">            &gt;&gt;&gt; base = {&#39;a&#39;: 1, &#39;b&#39;: {&#39;c&#39;: 2}}</span>
+<span class="sd">            &gt;&gt;&gt; override = {&#39;b&#39;: {&#39;d&#39;: 3}}</span>
+<span class="sd">            &gt;&gt;&gt; merge_configs(base, override)</span>
+<span class="sd">            {&#39;a&#39;: 1, &#39;b&#39;: {&#39;c&#39;: 2, &#39;d&#39;: 3}}</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">merged</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">override</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="ow">in</span> <span class="n">merged</span> <span class="ow">and</span> 
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">merged</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> 
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)):</span>
+                <span class="c1"># Recursively merge nested dictionaries</span>
+                <span class="n">merged</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">ConfigLoader</span><span class="o">.</span><span class="n">merge_configs</span><span class="p">(</span><span class="n">merged</span><span class="p">[</span><span class="n">key</span><span class="p">],</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># Override value</span>
+                <span class="n">merged</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        
+        <span class="k">return</span> <span class="n">merged</span></div>
+
+    
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_expand_env_vars</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Recursively expand environment variables in configuration.</span>
+<span class="sd">        </span>
+<span class="sd">        Supports ${VAR_NAME} syntax.</span>
+<span class="sd">        </span>
+<span class="sd">        Args:</span>
+<span class="sd">            config: Configuration dictionary</span>
+<span class="sd">        </span>
+<span class="sd">        Returns:</span>
+<span class="sd">            Configuration with expanded variables</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span>
+                <span class="n">k</span><span class="p">:</span> <span class="n">ConfigLoader</span><span class="o">.</span><span class="n">_expand_env_vars</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="p">}</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">ConfigLoader</span><span class="o">.</span><span class="n">_expand_env_vars</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">config</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expandvars</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">config</span></div>
+
+
+
+<div class="viewcode-block" id="create_default_config">
+<a class="viewcode-back" href="../../../modules/core.html#qmri_neuropipe.core.create_default_config">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_default_config</span><span class="p">(</span><span class="n">modality</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;dmri&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create default configuration for a modality.</span>
+<span class="sd">    </span>
+<span class="sd">    Args:</span>
+<span class="sd">        modality: Modality name (&#39;dmri&#39;, &#39;fmri&#39;, &#39;anat&#39;)</span>
+<span class="sd">    </span>
+<span class="sd">    Returns:</span>
+<span class="sd">        Default configuration dictionary</span>
+<span class="sd">    </span>
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; config_dict = create_default_config(&#39;dmri&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; config = PipelineConfig.from_dict(config_dict)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">modality</span> <span class="o">==</span> <span class="s1">&#39;dmri&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s1">&#39;bids_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># Must be set by user</span>
+            <span class="s1">&#39;output_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># Must be set by user</span>
+            <span class="s1">&#39;n_cpus&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+            <span class="s1">&#39;memory_gb&#39;</span><span class="p">:</span> <span class="mf">16.0</span><span class="p">,</span>
+            <span class="s1">&#39;skip_existing&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s1">&#39;log_level&#39;</span><span class="p">:</span> <span class="s1">&#39;INFO&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;dmri&#39;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s1">&#39;preprocessing&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;denoising&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;mppca&#39;</span><span class="p">,</span>
+                        <span class="s1">&#39;parameters&#39;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s1">&#39;patch_radius&#39;</span><span class="p">:</span> <span class="mi">2</span>
+                        <span class="p">}</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;degibbs&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;eddy&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;use_gpu&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                        <span class="s1">&#39;parameters&#39;</span><span class="p">:</span> <span class="p">{</span>
+                            <span class="s1">&#39;repol&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                            <span class="s1">&#39;data_is_shelled&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                        <span class="p">}</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;bias_correction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;ants&#39;</span>
+                    <span class="p">}</span>
+                <span class="p">},</span>
+                <span class="s1">&#39;modeling&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;tensor&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;metrics&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;fa&#39;</span><span class="p">,</span> <span class="s1">&#39;md&#39;</span><span class="p">,</span> <span class="s1">&#39;rd&#39;</span><span class="p">,</span> <span class="s1">&#39;ad&#39;</span><span class="p">]</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;csd&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;msmt_csd&#39;</span><span class="p">,</span>
+                        <span class="s1">&#39;lmax&#39;</span><span class="p">:</span> <span class="mi">8</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;tractography&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                        <span class="s1">&#39;algorithm&#39;</span><span class="p">:</span> <span class="s1">&#39;iFOD2&#39;</span><span class="p">,</span>
+                        <span class="s1">&#39;n_streamlines&#39;</span><span class="p">:</span> <span class="mi">10000000</span>
+                    <span class="p">}</span>
+                <span class="p">},</span>
+                <span class="s1">&#39;qc&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s1">&#39;generate_reports&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    
+    <span class="k">elif</span> <span class="n">modality</span> <span class="o">==</span> <span class="s1">&#39;fmri&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s1">&#39;bids_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;output_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;n_cpus&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+            <span class="s1">&#39;memory_gb&#39;</span><span class="p">:</span> <span class="mf">16.0</span><span class="p">,</span>
+            <span class="s1">&#39;skip_existing&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s1">&#39;log_level&#39;</span><span class="p">:</span> <span class="s1">&#39;INFO&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;fmri&#39;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s1">&#39;preprocessing&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;slice_timing&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;motion_correction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;reference&#39;</span><span class="p">:</span> <span class="s1">&#39;mean&#39;</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;distortion_correction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;smoothing&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;fwhm&#39;</span><span class="p">:</span> <span class="mf">6.0</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;temporal_filtering&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;highpass&#39;</span><span class="p">:</span> <span class="mf">0.01</span><span class="p">,</span>
+                        <span class="s1">&#39;lowpass&#39;</span><span class="p">:</span> <span class="mf">0.1</span>
+                    <span class="p">}</span>
+                <span class="p">},</span>
+                <span class="s1">&#39;qc&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s1">&#39;compute_tsnr&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s1">&#39;generate_reports&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    
+    <span class="k">elif</span> <span class="n">modality</span> <span class="o">==</span> <span class="s1">&#39;anat&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s1">&#39;bids_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;output_dir&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s1">&#39;n_cpus&#39;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+            <span class="s1">&#39;memory_gb&#39;</span><span class="p">:</span> <span class="mf">16.0</span><span class="p">,</span>
+            <span class="s1">&#39;skip_existing&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s1">&#39;log_level&#39;</span><span class="p">:</span> <span class="s1">&#39;INFO&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;anat&#39;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s1">&#39;preprocessing&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;brain_extraction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;synthstrip&#39;</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;bias_correction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                    <span class="p">},</span>
+                    <span class="s1">&#39;segmentation&#39;</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                        <span class="s1">&#39;method&#39;</span><span class="p">:</span> <span class="s1">&#39;fast&#39;</span>
+                    <span class="p">}</span>
+                <span class="p">},</span>
+                <span class="s1">&#39;surface_reconstruction&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                    <span class="s1">&#39;run_freesurfer&#39;</span><span class="p">:</span> <span class="kc">False</span>
+                <span class="p">},</span>
+                <span class="s1">&#39;qc&#39;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">&#39;enabled&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+                    <span class="s1">&#39;generate_reports&#39;</span><span class="p">:</span> <span class="kc">True</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown modality: </span><span class="si">{</span><span class="n">modality</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># Module version</span>
+<span class="n">__version__</span> <span class="o">=</span> <span class="s1">&#39;2.0.0&#39;</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Developing Brain Imaging Lab.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

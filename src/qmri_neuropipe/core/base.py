@@ -16,7 +16,7 @@ Classes:
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, List, Optional, Union, Type
+from typing import Any, List, Optional, Union, Type, Tuple, Dict
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -28,6 +28,16 @@ from qmri_neuropipe.core.exceptions import (
     ProcessingError,
     PipelineError
 )
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+    
+try:
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+except ImportError:
+    Progress = None
+
 from qmri_neuropipe.io import DataLoader
 
 
@@ -244,6 +254,58 @@ class BaseProcessingStep(ABC):
                 duration=(self.end_time - self.start_time).total_seconds()
             )
 
+    def get_step_output_dir(self, output_dir: Path) -> Path:
+        """
+        Get and create the specific output directory for this step.
+        
+        Args:
+            output_dir: Base output directory.
+            
+        Returns:
+            Path to the step-specific output directory.
+        """
+        # Default strategy: use step name suffix (e.g. DenoisingStep -> denoise)
+        # But some steps might want "denoising"?
+        # Current pattern seems to be "denoise", "gibbs", "bias", "eddy"
+        # Most are StepName - "Step" -> lower.
+        suffix = self.step_name.replace("Step", "").lower()
+        if suffix == "biascorrection": suffix = "bias"
+        if suffix == "gibbsunringing": suffix = "gibbs"
+        if suffix == "eddycorrection": suffix = "eddy"
+        if suffix == "coregistration": suffix = "registration"
+        
+        path = output_dir / suffix
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def unpack_input(self, first_arg: Any) -> Tuple[Optional[Dict], Any]:
+        """
+        Unpack the first argument to separate context from direct input.
+        
+        Args:
+            first_arg: The first positional argument passed to run().
+            
+        Returns:
+            Tuple containing:
+            - context (dict | None): Copy of the context dictionary if input was a dict, else None.
+            - input_data (Any): The 'current_image' from context, or the first_arg itself.
+        """
+        if isinstance(first_arg, dict):
+            context = dict(first_arg)
+            input_data = context.get("current_image")
+            return context, input_data
+        return None, first_arg
+
+    def _extract_path(self, item: Any) -> Path:
+        """
+        Helper to extract Path from input item (ImageFile, DWIFile, Path, string).
+        """
+        if hasattr(item, 'img'):
+            return Path(item.img)
+        if hasattr(item, 'path'):
+            return Path(item.path)
+        return Path(item)
+
 class BaseWorkflow(ABC):
     """
     Abstract base class for processing workflows.
@@ -458,27 +520,70 @@ class BaseWorkflow(ABC):
         
         result = args
         
-        for i, step in enumerate(self.steps, 1):
-            step_name = step.__class__.__name__
-            self.logger.info(f"Step {i}/{len(self.steps)}: {step_name}")
-            
-            try:
-                # Execute step (result becomes input for next step)
-                if isinstance(result, tuple):
-                    result = step(*result, **kwargs)
-                else:
-                    result = step(result, **kwargs)
+        # Use rich progress if available, else fallback
+        if Progress:
+             with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                transient=True # Clear bar after completion
+             ) as progress:
+                 
+                 task_id = progress.add_task(f"[cyan]Running {self.workflow_name}...", total=len(self.steps))
+                 
+                 for i, step in enumerate(self.steps, 1):
+                    step_name = step.__class__.__name__
+                    progress.update(task_id, description=f"[cyan]Step {i}/{len(self.steps)}: {step_name}")
                     
-            except Exception as e:
-                self.logger.error(
-                    f"{self.workflow_name} failed at step {i} ({step_name}): {e}"
-                )
-                raise ProcessingError(
-                    f"Workflow failed at step {step_name}"
-                ) from e
+                    self.logger.info(f"Step {i}/{len(self.steps)}: {step_name}")
+                    
+                    try:
+                        # Execute step (result becomes input for next step)
+                        if isinstance(result, tuple):
+                            result = step(*result, **kwargs)
+                        else:
+                            result = step(result, **kwargs)
+                        
+                        progress.advance(task_id)
+                            
+                    except Exception as e:
+                        self.logger.error(
+                            f"{self.workflow_name} failed at step {i} ({step_name}): {e}"
+                        )
+                        raise ProcessingError(
+                            f"Workflow failed at step {step_name}"
+                        ) from e
+        else:
+            # Fallback for no rich
+            for i, step in enumerate(self.steps, 1):
+                step_name = step.__class__.__name__
+                self.logger.info(f"Step {i}/{len(self.steps)}: {step_name}")
+                
+                try:
+                    # Execute step (result becomes input for next step)
+                    if isinstance(result, tuple):
+                        result = step(*result, **kwargs)
+                    else:
+                        result = step(result, **kwargs)
+                        
+                except Exception as e:
+                    self.logger.error(
+                        f"{self.workflow_name} failed at step {i} ({step_name}): {e}"
+                    )
+                    raise ProcessingError(
+                        f"Workflow failed at step {step_name}"
+                    ) from e
         
         self.logger.info(f"{self.workflow_name} completed successfully")
         return result
+
+    def get_progress_bar(self, iterable=None, total=None, desc=None):
+        """Get a progress bar (tqdm) if available, otherwise return iterable/range."""
+        if tqdm:
+            return tqdm(iterable, total=total, desc=desc, leave=False)
+        return iterable if iterable is not None else range(total)
 
 class BasePipeline(ABC):
     """
@@ -683,16 +788,6 @@ class BasePipeline(ABC):
                 if self.config.get('stop_on_error', False):
                     self.logger.error("Stopping pipeline due to error")
                     break
-        
-        # # Process each subject
-        # for subject, session in subjects:
-        #     # Get sessions for this subject
-        #     data = loader.load_subject(subject=subject,
-        #                                session=sessions)
-        
-        #     try:
-        #         # Check if already processed
-        #         if self._should_skip(subject, sessions):
         #             self.logger.info(
         #                 f"Skipping {subject}{sessions} "
         #                 "(outputs already exist)"
@@ -774,24 +869,27 @@ class BasePipeline(ABC):
         fh = logging.FileHandler(log_file)
         fh.setLevel(logging.DEBUG)
         
-        # Console handler (user-friendly output)
-        ch = logging.StreamHandler()
-        log_level = self.config.get('log_level', 'INFO')
-        ch.setLevel(getattr(logging, log_level))
-        
-        # Detailed format for file
+        # Create file formatter
         file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - '
-            '%(filename)s:%(lineno)d - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         fh.setFormatter(file_formatter)
         
-        # Simple format for console
-        console_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%H:%M:%S'
-        )
-        ch.setFormatter(console_formatter)
+        # Get log level from config
+        log_level = self.config.get('log_level', 'INFO')
+        
+        # Console Handler
+        console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+        
+        try:
+            from rich.logging import RichHandler
+            # Use RichHandler unless it confuses DEBUG output (optional preference)
+            ch = RichHandler(rich_tracebacks=True, markup=True)
+        except ImportError:
+            ch = logging.StreamHandler()
+            ch.setFormatter(console_formatter)
+        
+        ch.setLevel(getattr(logging, log_level))
         
         # Add handlers
         logger.addHandler(fh)

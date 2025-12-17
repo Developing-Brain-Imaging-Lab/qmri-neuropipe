@@ -91,23 +91,7 @@ class EddyCorrectionStep(BaseProcessingStep):
 
         # --- Helper to get an image from either context or direct ImageLike ---
     
-    def _extract_image(self, first_arg) -> ImageLike:
-        """
-        Support both:
-        - pipeline mode: first_arg is context dict
-        - standalone mode: first_arg is an ImageLike
-        """
-        if isinstance(first_arg, dict):
-            ctx = first_arg
-            img = ctx.get("current_image")
-            if img is None:
-                raise ValidationError(
-                    "DenoisingStep expects context['current_image'] to be set"
-                )
-            return img
-        else:
-            # Old behavior: first_arg is already an ImageLike
-            return first_arg
+    # _extract_image logic replaced by self.unpack_input in base class
 
     def _validate_image(self, image: ImageLike) -> None:
         """Your existing validate_inputs logic, moved here."""
@@ -156,22 +140,10 @@ class EddyCorrectionStep(BaseProcessingStep):
     def validate_inputs(self, first_arg, output_dir: Path, **kwargs) -> None:
         """
         Validate denoising inputs.
-        
-        Args:
-            input_image: Image Object
-            output_dir: Output directory
-            **kwargs: Additional arguments
-        
-        Raises:
-            ValidationError: If inputs are invalid
         """
-
-        """
-        first_arg can be:
-        - context dict (pipeline mode)
-        - ImageLike (standalone denoise_image convenience)
-        """
-        image = self._extract_image(first_arg)
+        context, image = self.unpack_input(first_arg)
+        if image is None:
+             raise ValidationError("Input image is None (or not found in context)")
         self._validate_image(image)
 
     def validate_outputs(self, result) -> None:
@@ -204,55 +176,129 @@ class EddyCorrectionStep(BaseProcessingStep):
     def run(self, first_arg, output_dir: Path, mask: Optional[Path]=None, **kwargs) -> Tuple[Path, Optional[Path]]:
         """
         Run eddy-current correction on input image.
-        
-        Args:
-            input_img: ImageLike object to input NIfTI file
-            output_dir: Path to output NIfTI file for denoised image
-            mask: Optional brain mask (speeds up processing)
-            **kwargs: Method-specific parameters
-        
-        Returns:
-            Path to eddy-corrected image
-            Path to eddy-corrected bvecs
-        
-        Raises:
-            ProcessingError: If eddy correction fails
         """
+        context, input_img = self.unpack_input(first_arg)
+        if input_img is None:
+             raise ProcessingError("No input image provided")
 
-        """
-        Pipeline mode:
-            first_arg: dict with 'current_image' (ImageLike)
-            returns:   updated dict with 'current_image' replaced by eddy corrected ImageLike,
-                       and optionally appends to 'preprocessed_dwis'
+        output_dir = self.get_step_output_dir(output_dir)
+        output_img = output_dir / build_bids_name({**input_img.entities, "desc": "eddycorrected"})
         
-        Standalone mode (denoise_image helper):
-            first_arg: ImageLike
-            returns:   ImageLike
-        """
-        is_context = isinstance(first_arg, dict)
-        if is_context:
-            context = dict(first_arg)  # shallow copy to avoid in-place surprises
-            input = self._extract_image(context)
-        else:
-            context = None
-            input = first_arg
-
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_img = output_dir / build_bids_name({**input.entities, "desc": "eddycorrected"})
+        # Check if output exists (User request: skip if exists)
+        # We must also ensure sidecars exist if they are expected (bvecs)
+        out_base = output_img.with_suffix("").with_suffix("")
+        out_bvec = out_base.with_suffix(".bvec")
         
+        outputs_exist = output_img.exists()
+        if input_img.bvec and not out_bvec.exists():
+            outputs_exist = False
+            
+        if outputs_exist:
+             self.logger.info(f"Skipping Eddy correction (Output exists: {output_img.name})")
+
+             result_img = DWIFile(
+                entities=input_img.entities,
+                img=output_img,
+                json=input_img.json,
+                bval=input_img.bval,
+                bvec=out_bvec if out_bvec.exists() else input_img.bvec # Fallback to input bvec if rotated missing? 
+             )
+             
+             if context is not None:
+                context["current_image"] = result_img
+                
+                # Ensure mask is available for downstream steps (e.g., QC)
+                if "current_mask" not in context or not context["current_mask"]:
+                     # Look for expected mask
+                     possible_mask = output_dir / "eddy_mask.nii.gz"
+                     
+                     if not possible_mask.exists():
+                         # If mask doesn't exist (legacy run), generate it!
+                         self.logger.info("Output exists but mask missing. Generating temporary BET mask for QC...")
+                         # We use the corrected output for the mask
+                         fsl.bet(in_file=output_img, out_file=possible_mask)
+                     
+                     if possible_mask.exists():
+                         context["current_mask"] = possible_mask
+                         self.logger.debug(f"Recovered/Generated mask: {possible_mask}")
+
+                # Optional: maintain preprocessed list
+                if isinstance(result_img, DWIFile):
+                    pre_list = context.setdefault("preprocessed_dwis", [])
+                    if result_img not in pre_list:
+                        pre_list.append(result_img)
+                return context
+             else:
+                return result_img
+
         # Run denoising based on method
         self.logger.info(f"Running {self.method} eddy current correction...")
+        topup_base = kwargs.pop("topup_base", None)
+        acqp = kwargs.pop("acqp", None)
+        index = kwargs.pop("index", None)
+        extra_opts = kwargs.pop("extra_opts", {})
+        if extra_opts is None:
+            extra_opts = {}
+
+        # Merge with config options
+        # Retrieve 'dmri.preprocessing.eddy' config if available
+        dmri_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('eddy', {})
+        # Assuming extra options might be top level keys in 'eddy' config or nested in 'options'?
+        # Let's assume users might put other flags in the 'eddy' dict that are not 'enabled' or 'method'.
+        # Or specifically look for an 'options' key.
+        config_opts = dmri_cfg.get('options', {})
+        if config_opts:
+             extra_opts.update(config_opts)
+
+        if context is not None:
+            # Retrieve topup_base from map if available
+            topup_map = context.get("topup_map", {})
+            # Try exact match or string match
+            if input_img.img in topup_map:
+                topup_base = topup_map[input_img.img]
+            elif str(input_img.img) in topup_map:
+                topup_base = topup_map[str(input_img.img)]
+            else:
+                # Fallback
+                topup_base = context.get("topup_base", topup_base)
+
+            acqp = context.get("acqp", acqp)
+            index = context.get("index", index)
+            
+            # Ensure mask exists for eddy and subsequent QC
+            if not mask:
+                mask = context.get("current_mask")
+                if mask and hasattr(mask, 'img'):
+                     mask = mask.img
+                
+                if not mask:
+                     self.logger.info("No mask provided for eddy. Generating temporary BET mask...")
+                     mask_path = output_dir / "eddy_mask.nii.gz"
+                     # Use fsl.bet
+                     # Note: fsl.bet expects ImageLike or Path
+                     fsl.bet(in_file=input_img, out_file=mask_path)
+                     mask = mask_path
+                     
+                     # Persist for QC
+                     context["current_mask"] = mask
         
         try:
             if self.method == 'eddy-correct':
-                ecc = fsl.eddy_correct(in_dwi=input,
-                                       out=output_img)
+                ecc = fsl.eddy_correct(in_file=input_img, 
+                                       out_file=output_img
+                                       )
             elif self.method == 'eddy':
-                ecc = fsl.eddy(in_dwi=input,
-                               out=output_img,
-                               mask=mask,
-                               **kwargs)         
+                ecc = fsl.eddy(
+                    in_file=input_img,
+                    out_file=output_img,
+                    mask=mask,
+                    topup_base=topup_base,
+                    acqp=acqp,
+                    index=index,
+                    extra_opts=extra_opts,
+                    nthreads=self.config.n_cpus,
+                    **kwargs,
+                )
             elif self.method == 'two-pass':
                 #Need to implement
                 pass
@@ -270,17 +316,16 @@ class EddyCorrectionStep(BaseProcessingStep):
         # Save denoised image
         self.logger.info(f"Eddy current corrected image saved to: {output_img}")
                
-        #Result image is a DWIFile
-        result_img = DWIFile(entities=input.entities,
-                             img=ecc,
-                             json=input.json,
-                             bval=ecc.bval,
-                             bvec=ecc.bvec)
+        # ecc is a DWIFile
+        result_img = ecc
 
         
         # ---- Return shape depends on input shape ----
-        if is_context:
+        if context is not None:
             context["current_image"] = result_img
+            # Ensure mask is updated in return context if we generated it
+            if mask and "current_mask" not in context:
+                context["current_mask"] = mask
 
             # If this is DWI, you might want to maintain a list of preprocessed DWIs:
             if isinstance(result_img, DWIFile):
@@ -324,7 +369,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         }
 
         self.provenance.log_step(
-            step_name="denoising",
+            step_name="eddy_current_correction",
             inputs=inputs,
             outputs=outputs,
             parameters=parameters,
@@ -336,57 +381,33 @@ class EddyCorrectionStep(BaseProcessingStep):
         )
     
 
-# Convenience function for quick denoising
-def eddy_current_correction(input: ImageLike, output: ImageLike, method: str = 'mrtrix', mask: Optional[Path] = None, **kwargs) -> Path:
+def eddy_current_correction(
+    input: ImageLike,
+    output: ImageLike,
+    method: str = "eddy",
+    mask: Optional[Path] = None,
+    **kwargs,
+) -> DWIFile:
     """
-    Convenience function for quick denoising without full pipeline setup.
-    
-    Args:
-        input: Input image path
-        output: Output image path
-        method: Denoising method ('mrtrix', 'ants', 'mppca', 'nlmeans', etc.)
-        mask: Optional mask path
-        **kwargs: Method-specific parameters
-    
-    Returns:
-        Path to denoised image
-    
-    Example:
-        >>> from qmri_neuropipe.processing.common.denoising import denoise_image
-        >>> 
-        >>> denoised = denoise_image(
-        ...     input=Path('dwi.nii.gz'),
-        ...     output=Path('denoised.nii.gz'),
-        ...     method='mppca'
-        ... )
+    Convenience wrapper to run eddy without constructing a pipeline.
+    Validation is intentionally skipped here; callers should ensure inputs exist.
     """
-    # Create minimal config
     from qmri_neuropipe.core import PipelineConfig
-    
+
+    out_dir = output.img.parent if hasattr(output, "img") else Path(output).parent
+
     config = PipelineConfig(
-        bids_dir=Path('/tmp'),  # Dummy value
-        output_dir=output.img.parent
+        bids_dir=Path("/tmp"),  # Dummy
+        output_dir=out_dir,
     )
-    
-    # # Run denoising
-    # denoiser = DenoisingStep(config, method=method)
-    
-    # # Temporarily disable validation for standalone use
-    # denoiser.validate_inputs = lambda *args, **kwargs: None
-    
-    # result = denoiser.run(
-    #     input,
-    #     output.img.parent,
-    #     mask=mask,
-    #     **kwargs
-    # )
-    
-    # return result
+    step = EddyCorrectionStep(config, method=method)
+    step.validate_inputs = lambda *a, **k: None
+    step.validate_outputs = lambda *a, **k: None
+    return step.run(input, out_dir, mask=mask, **kwargs)
 
 
-# Module version and metadata
 __version__ = '2.0.0'
 __all__ = [
-    'DenoisingStep',
-    'denoise_image'
+    'EddyCorrectionStep',
+    'eddy_current_correction'
 ]

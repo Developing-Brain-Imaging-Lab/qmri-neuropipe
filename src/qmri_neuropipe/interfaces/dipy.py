@@ -16,7 +16,7 @@ except ImportError:
     DIPY_AVAILABLE = False
 
 
-def patch2self(in_img: Path, out: Path, patch_radius: int = 1, model: str = "ridge"):
+def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str = "ridge"):
     """
         Run Patch2Self denoising.
         
@@ -31,16 +31,16 @@ def patch2self(in_img: Path, out: Path, patch_radius: int = 1, model: str = "rid
             Tuple of (denoised_data, sigma_map)
         """
     
-    img = nib.load(in_img)
+    img = nib.load(in_file)
 
-    if out.exists():
-        return out
+    if out_file.exists():
+        return out_file
 
     den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model)
-    nib.Nifti1Image(den, img.affine, img.header).to_filename(out)
-    return out
+    nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
+    return out_file
 
-def mppca(in_img: Path, out: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, patch_radius: int=2, **kwargs)-> Tuple[Path, Optional[Path]]:
+def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, patch_radius: int=2, **kwargs)-> Tuple[Path, Optional[Path]]:
         """
         Run Marchenko-Pastur PCA denoising.
         
@@ -58,13 +58,13 @@ def mppca(in_img: Path, out: Path, mask: Optional[Path]=None, noise_map: Optiona
         #     f"Running MP-PCA with patch_radius={self.patch_radius}"
         # )
 
-        if out.exists() and (not noise_map or noise_map.exists()):
-            return out, (noise_map if noise_map else None)
+        if out_file.exists() and (not noise_map or noise_map.exists()):
+            return out_file, (noise_map if noise_map else None)
         
         # Get patch radius from kwargs or use default
         patch_radius = kwargs.get('patch_radius', patch_radius)
 
-        img = nib.load(in_img)
+        img = nib.load(in_file)
         data = img.get_fdata()
 
         if mask is not None:
@@ -92,15 +92,15 @@ def mppca(in_img: Path, out: Path, mask: Optional[Path]=None, noise_map: Optiona
         # )
 
         denoised_img = nib.Nifti1Image(denoised_arr, img.affine, img.header)
-        nib.save(denoised_img, str(out))
+        nib.save(denoised_img, str(out_file))
 
         if noise_map is not None:
             sigma_img = nib.Nifti1Image(sigma, img.affine, img.header)
             nib.save(sigma_img, noise_map)
             
-        return out, noise_map
+        return out_file, noise_map
 
-def nlmeans(in_img: str, out: str, mask: Optional[str]=None, patch_radius: int=1, block_radius: int=5, **kwargs) -> np.ndarray:
+def nlmeans(in_file: str, out_file: str, mask: Optional[str]=None, patch_radius: int=1, block_radius: int=5, **kwargs) -> np.ndarray:
         """
         Run non-local means denoising.
         
@@ -120,8 +120,8 @@ def nlmeans(in_img: str, out: str, mask: Optional[str]=None, patch_radius: int=1
         #     f"block_radius={self.block_radius}"
         # )
 
-        if out.exists():
-            return out
+        if out_file.exists():
+            return out_file
         
         # Estimate noise level
         sigma = estimate_sigma(data, N=0)
@@ -131,7 +131,7 @@ def nlmeans(in_img: str, out: str, mask: Optional[str]=None, patch_radius: int=1
         patch_radius = kwargs.get('patch_radius', patch_radius)
         block_radius = kwargs.get('block_radius', block_radius)
 
-        img = nib.load(in_img)
+        img = nib.load(in_file)
         data = img.get_fdata()
 
         if mask is not None:
@@ -163,19 +163,108 @@ def nlmeans(in_img: str, out: str, mask: Optional[str]=None, patch_radius: int=1
        #logger.info(f"NLMeans reduced noise by {noise_reduction:.1f}%")
 
         denoised_img = nib.Nifti1Image(denoised_arr, img.affine, img.header)
-        nib.save(denoised_img, str(out))
+        nib.save(denoised_img, str(out_file))
         
-        return out
+        return out_file
 
-def gibbs_ringing_correction(in_img: str, out: str, nthreads: int = 2):
+def gibbs_ringing_correction(in_file: str, out_file: str, nthreads: int = 2):
     import nibabel as nib
     from dipy.denoise.gibbs import gibbs_removal
 
-    if out.exists():
-        return out
+    if out_file.exists():
+        return out_file
 
-    img = nib.load(in_img)
+    img = nib.load(in_file  )
     corrected = gibbs_removal(img.get_fdata(), num_processes=nthreads)
-    nib.Nifti1Image(corrected, img.affine, img.header).to_filename(out)
+    nib.Nifti1Image(corrected, img.affine, img.header).to_filename(out_file)
+
+    return out_file
+
+
+def pca_noise_estimate(in_file: str, out_file: str, nthreads: int = 2):
+    import nibabel as nib
+    from dipy.denoise.pca_noise_estimate import pca_noise_estimate
+
+    if out_file.exists():
+        return out_file
+
+    img = nib.load(in_file)
+    corrected = pca_noise_estimate(img.get_fdata(), num_processes=nthreads)
+    nib.Nifti1Image(corrected, img.affine, img.header).to_filename(out_file)
+
+    return out_file
+
+def estimate_sigma(in_file: str, out_file: str, nthreads: int = 2):
+    import nibabel as nib
+    from dipy.denoise.noise_estimate import estimate_sigma
+
+    if out_file.exists():
+        return out_file
+
+    img = nib.load(in_file)
+    corrected = estimate_sigma(img.get_fdata(), num_processes=nthreads)
+    nib.Nifti1Image(corrected, img.affine, img.header).to_filename(out_file)
+
+    return out_file
 
     return out
+
+
+def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path: Optional[Path] = None, t1_mask_path: Optional[Path] = None) -> Path:
+    """
+    Estimate synthetic b0 with reversed phase encoding using DIPY's Deep Learning Synb0.
+    
+    Args:
+        b0_path: Path to b0 image
+        t1_path: Path to T1w image
+        out_path: Path to save synthetic b0
+        b0_mask_path: Optional path to b0 brain mask
+        t1_mask_path: Optional path to T1 brain mask
+        
+    Returns:
+        Path to the generated synthetic b0 file.
+    """
+    import gc
+    import nibabel as nib
+    import numpy as np
+    
+    # Import inside function to avoid heavy TF import if not used
+    try:
+        from dipy.nn.tf.synb0 import Synb0
+    except ImportError:
+        # Fallback or error if module structure is different than expected
+        # User specified dipy.nn.tf.synb0
+        try:
+             import dipy.nn.synb0 as synb0_module
+             synb0 = synb0_module.synb0
+        except ImportError:
+             raise ImportError("Could not import dipy.nn.tf.synb0. Ensure DIPY and TensorFlow are installed correctly.")
+
+    if out_file.exists():
+        return out_file
+
+    # Load images
+    b0_img = nib.load(str(in_file))
+    t1_img = nib.load(str(t1_file))
+    
+    b0_data = b0_img.get_fdata()
+    t1_data = t1_img.get_fdata()
+    
+    # Run prediction
+    # Assuming synb0 signature: synb0(b0, t1, b0_mask=None, t1_mask=None) -> synthetic_b0_data
+    # Note: We might need to handle 3D/4D shapes. b0 should be 3D.
+    if b0_data.ndim == 4:
+        b0_data = b0_data[..., 0]
+
+    SyNb0       = Synb0(False)
+    rev_b0_data = SyNb0.predict(b0_data, t1_data)
+
+    # Release GPU memory
+    del SyNb0
+    gc.collect()
+
+    # Save output
+    nib.Nifti1Image(rev_b0_data, b0_img.affine, b0_img.header).to_filename(out_file)
+    
+    return out_file
+
