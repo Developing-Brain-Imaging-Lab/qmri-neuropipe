@@ -68,26 +68,13 @@ class EddyCorrectionStep(BaseProcessingStep):
         
         self.method = method
         
-        # Check dependencies
-        self._check_dependencies()
+
         
         self.logger.info(f"Initialized eddy current correction with method: {method}")
     
-    def _check_dependencies(self) -> None:
-        """Check that required dependencies are available."""
-        if self.method == 'eddy':
-            # Assume MRtrix3 is installed and in PATH
-            pass
 
-        # if self.method == 'mppca' and not DIPY_AVAILABLE:
-        #     raise ProcessingError(
-        #         "DIPY not available. Install with: pip install dipy"
-        #     )
-        
-        # if self.method == 'nlmeans' and not NLMEANS_AVAILABLE:
-        #     raise ProcessingError(
-        #         "DIPY nlmeans not available. Install with: pip install dipy"
-        #     )
+
+
 
         # --- Helper to get an image from either context or direct ImageLike ---
     
@@ -156,11 +143,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         Raises:
             ProcessingError: If output validation fails
         """
-        """
-        result can be:
-        - context dict (pipeline mode) with context['current_image']
-        - ImageLike (standalone mode)
-        """
+
         if isinstance(result, dict):
             image = result.get("current_image")
             if image is None:
@@ -300,8 +283,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                     **kwargs,
                 )
             elif self.method == 'two-pass':
-                #Need to implement
-                pass
+                raise NotImplementedError("Two-pass eddy correction is not yet implemented.")
 
             else:
                 raise ValueError(f"Unknown eddy current correction method: {self.method}")
@@ -381,33 +363,8 @@ class EddyCorrectionStep(BaseProcessingStep):
         )
     
 
-def eddy_current_correction(
-    input: ImageLike,
-    output: ImageLike,
-    method: str = "eddy",
-    mask: Optional[Path] = None,
-    **kwargs,
-) -> DWIFile:
-    """
-    Convenience wrapper to run eddy without constructing a pipeline.
-    Validation is intentionally skipped here; callers should ensure inputs exist.
-    """
-    from qmri_neuropipe.core import PipelineConfig
-
-    out_dir = output.img.parent if hasattr(output, "img") else Path(output).parent
-
-    config = PipelineConfig(
-        bids_dir=Path("/tmp"),  # Dummy
-        output_dir=out_dir,
-    )
-    step = EddyCorrectionStep(config, method=method)
-    step.validate_inputs = lambda *a, **k: None
-    step.validate_outputs = lambda *a, **k: None
-    return step.run(input, out_dir, mask=mask, **kwargs)
-
 
 __version__ = '2.0.0'
 __all__ = [
-    'EddyCorrectionStep',
-    'eddy_current_correction'
+    'EddyCorrectionStep'
 ]

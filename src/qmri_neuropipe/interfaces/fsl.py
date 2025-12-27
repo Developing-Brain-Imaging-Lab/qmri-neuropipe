@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+import json
 
 import nibabel as nib
 import numpy as np
@@ -77,18 +78,19 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     omat_cmd = ""
     if omat:
         omat_p = Path(omat)
-        if out_p.exists() and omat_p.exists():
-            return out_p, omat_p
         omat_cmd = f"-omat {omat_p}"
+        # Skip only if BOTH exist
+        if out_p.exists() and omat_p.exists():
+             return out_p, omat_p
+             
     elif out_p.exists():
+         # If no omat requested and output exists, skip
          return out_p, None
         
     cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args}"
-    
-    if out_p.exists() and (not omat or Path(omat).exists()):
-        return out_p, omat if omat else None
-
     run_cmd(cmd, label="flirt")
+
+    
     return out_p, omat if omat else None
 
 
@@ -349,6 +351,7 @@ def reorient2std(in_file: ImageLike | Path, out_file: Path):
     cmd = f"fslreorient2std {in_p} {out_p}"
     run_cmd(cmd, label="fslreorient2std")
     return out_p
+
 def eddy_quad(
     eddy_base: Path,
     idx: Path,
@@ -405,14 +408,10 @@ def rotate_bvecs(bvecs: Path, mat: Path, out_bvecs: Path):
     Rotate b-vectors using a rigid/affine matrix.
     Uses 'fdt_rotate_bvecs' if available, or manual numpy calculation.
     """
-    # Prefer FSL tool if widely available (part of FSL >= 6.0?)
-    # Usually fdt_rotate_bvecs needs 'bvecs' 'rotated_bvecs' 'mat_file'
-    # But FSL's tool is often not in path or named differently depending on version.
-    
     # Robust Implementation using Numpy:
     # 1. Load bvecs (3xN)
     # 2. Load transform (FLIRT matrix 4x4)
-    # 3. Apply rotation (upper 3x3) to bvecs
+    # 3. Apply rotation (upper 3x3) to bvecs: v' = R * v
     # 4. Save
     
     try:
@@ -428,15 +427,6 @@ def rotate_bvecs(bvecs: Path, mat: Path, out_bvecs: Path):
         aff = np.loadtxt(mat) # 4x4
         rot = aff[:3, :3]
         
-        # Apply rotation: v' = R * v
-        # Ensure normalization?
-        
-        # But wait, FLIRT matrix applies to coordinates.
-        # For gradients, we usually need the INVERSE transpose of the affine?
-        # For rotation matrix R, inv(R).T == R. So R is fine.
-        # However, if there's shear/scale... FLIRT matrices are usually rigid/affine.
-        
-        # NOTE: bvecs should be unit vectors.
         # Apply rotation
         new_bv = np.dot(rot, bv)
         
@@ -456,3 +446,108 @@ def rotate_bvecs(bvecs: Path, mat: Path, out_bvecs: Path):
         # Fallback to fsl command if numpy fails?
         # Ideally numpy is safer than relying on shell script
         raise RuntimeError(f"Failed to rotate bvecs: {e}")
+
+
+def fit_dti(
+    in_file: Union[Path, ImageLike],
+    out_dir: Path,
+    mask_file: Path,
+    bval_file: Optional[Path] = None,
+    bvec_file: Optional[Path] = None,
+    save_tensor: bool = False
+) -> Dict[str, Path]:
+    """
+    Fit DTI using FSL dtifit.
+    """
+    import subprocess
+    from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
+    
+    out_dir = ensure_dir(out_dir)
+    in_path = extract_image_path(in_file)
+
+    if bval_file is None or bvec_file is None:
+        if isinstance(in_file, DWIFile):
+            bval_file = bval_file or in_file.bval
+            bvec_file = bvec_file or in_file.bvec
+            
+    if not bval_file or not bvec_file:
+         raise ValueError("Gradient files (bval/bvec) are required but not provided or found in input DWIFile.")
+         
+    ent_base = get_entities_from_path(in_path)
+    if 'desc' in ent_base: del ent_base['desc']
+    ent_base['model'] = 'DTI'
+    
+    # prefix
+    # Use build_bids_name with implicit suffix? No, dtifit adds suffixes.
+    # We want base to be ..._model-DT
+    # build_bids_name requires suffix? 
+    # If we pass suffix, we get ..._model-DT_suffix.nii.gz
+    # We want ..._model-DT as the prefix string.
+    # We can assume build_bids_name works if we strip the extension.
+    # But build_bids_name raises if no suffix.
+    # So pass a dummy suffix like 'dti' and strip it?
+    # Or construct manually? 
+    # Better: use suffix='dwi' (which is probably present) but we want the prefix for dtifit which appends _FA etc.
+    # If prefix is "sub-01_model-DT", dtifit makes "sub-01_model-DT_FA.nii.gz".
+    # This matches BIDS if suffix is FA.
+    
+    # So we need to construct "sub-01_model-DT".
+    # build_bids_name(..., suffix='param') -> sub-01_model-DT_param.nii.gz
+    # strip _param.nii.gz?
+    
+    temp_name = build_bids_name({**ent_base, 'suffix': 'placeholder'})
+    prefix_name = temp_name.replace('_placeholder.nii.gz', '').replace('_placeholder.nii', '')
+    prefix_path = out_dir / prefix_name
+    
+    cmd = [
+        'dtifit',
+        f'--data={in_path}',
+        f'--out={prefix_path}',
+        f'--mask={mask_file}',
+        f'--bvecs={bvec_file}',
+        f'--bvals={bval_file}'
+    ]
+    
+    if save_tensor:
+        cmd.append('--save_tensor')
+        
+    run_cmd(" ".join(cmd), label="dtifit")
+    
+    # Map outputs
+    prefix_str = str(prefix_path)
+    output_files = {}
+    output_files['fa'] = Path(f"{prefix_str}_FA.nii.gz")
+    output_files['md'] = Path(f"{prefix_str}_MD.nii.gz")
+    output_files['ad'] = Path(f"{prefix_str}_L1.nii.gz") # L1 is AD
+    
+    # Note: RD is not directly output by dtifit (L2, L3 are separate)
+    
+    return output_files
+
+
+def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike | Path, out_file: Path, interpolator: str = "trilinear") -> Path:
+    """
+    Resample source_file to reference_file grid using FLIRT.
+    Uses -applyxfm -usesqform to align based on header information (identity transform assumption).
+    """
+    src_p = extract_image_path(source_file)
+    ref_p = extract_image_path(reference_file)
+    out_p = ensure_dir(out_file)
+    
+    if out_p.exists():
+        return out_p
+        
+    # flirt -in <src> -ref <ref> -applyxfm -usesqform -out <out> -interp <interp>
+    cmd_parts = [
+        "flirt",
+        f"-in {src_p}",
+        f"-ref {ref_p}",
+        "-applyxfm",
+        "-usesqform",
+        f"-out {out_p}",
+        f"-interp {interpolator}"
+    ]
+    
+    run_cmd(" ".join(cmd_parts), label="flirt_resample")
+    return out_p
+

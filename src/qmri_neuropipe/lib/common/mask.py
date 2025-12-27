@@ -138,7 +138,19 @@ class BrainMaskingStep(BaseProcessingStep):
         mask_out_path = output_dir / f"{stem}_mask.nii.gz" if return_mask else None
         
         # Skip if outputs exist
+        # Skip if outputs exist AND input is not newer
+        should_skip = False
         if masked_path.exists() and (not return_mask or (mask_out_path and mask_out_path.exists())):
+             # Check timestamps
+             in_mtime = in_path.stat().st_mtime
+             out_mtime = masked_path.stat().st_mtime
+             if in_mtime > out_mtime:
+                 self.logger.info(f"Input ({in_path.name}) is newer than output. Re-running brain masking.")
+                 should_skip = False
+             else:
+                 should_skip = True
+        
+        if should_skip:
              self.logger.info(f"Skipping brain masking (outputs exist): {masked_path}")
              if is_dwi:
                  brain_obj = DWIFile(
@@ -167,6 +179,11 @@ class BrainMaskingStep(BaseProcessingStep):
         # Then we apply that mask to the 4D series.
         temp_b0 = None
         mask_generated_path = output_dir / f"{stem}_mask_generated.nii.gz"
+        tool_brain_out = output_dir / f"{stem}_tool_brain.nii.gz"
+        
+        # Cleanup Pre-Run to ensure fresh generation (avoids wrappers skipping if output exists)
+        if mask_generated_path.exists(): mask_generated_path.unlink()
+        if tool_brain_out.exists(): tool_brain_out.unlink()
         
         # Determine what file to pass to the tool
         if is_dwi:

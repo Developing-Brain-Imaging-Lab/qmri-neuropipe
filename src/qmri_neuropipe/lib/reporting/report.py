@@ -1,164 +1,217 @@
-"""
-Report Generation Module
-"""
 from pathlib import Path
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 import logging
 from datetime import datetime
 import base64
+import os
+import contextlib
 
 try:
-    from jinja2 import Template
+    from jinja2 import Environment, FileSystemLoader
 except ImportError:
-    Template = None
+    Environment = None
 
+# WeasyPrint check
 try:
-    import weasyprint
-except Exception: # ImportError or OSError (dll missing)
+    with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
+        import weasyprint
+except Exception as e:
+    # Log the reason why valid import failed (e.g. missing libraries)
+    logging.getLogger("ReportGenerator").warning(f"WeasyPrint import failed/unavailable (PDF generation will be disabled): {e}")
     weasyprint = None
 
 class ReportGenerator:
     """
-    Generates HTML and PDF reports for pipeline execution.
+    Generates HTML and PDF reports using Jinja2 templates.
+    Supports structured hierarchical data.
     """
     
     def __init__(self, output_dir: Path, title: str = "Pipeline Report"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.title = title
-        self.sections = []
         self.logger = logging.getLogger("ReportGenerator")
+        
+        # Structured Data Storage
+        self.data = {
+            "header": {
+                "title": title,
+                "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "subject": "N/A",
+                "session": "",
+                "bids_dir": "N/A",
+                "work_dir": "N/A"
+            },
+            "anat": {
+                "inputs": [],
+                "steps": [],
+                "summary_table": None,
+                "outputs": []
+            },
+            "dmri": {
+                "inputs": {"summary": "", "figures": []},
+                "steps": [],
+                "summary_table": None,
+                "outputs": []
+            }
+        }
+        
+        # Template Setup
+        if Environment:
+            template_dir = Path(__file__).parent
+            self.env = Environment(loader=FileSystemLoader(str(template_dir)))
+            try:
+                self.template = self.env.get_template("report_template.html")
+            except Exception as e:
+                self.logger.error(f"Failed to load report_template.html: {e}")
+                self.template = None
+        else:
+            self.logger.error("Jinja2 not installed. Reporting will use fallback (not implemented) or fail.")
+            self.template = None
 
-    def add_section(self, title: str, content: str = ""):
-        """Add a text section."""
-        self.sections.append({
-            "type": "text",
-            "title": title,
-            "content": content
-        })
+    def set_header_info(self, subject: str, session: Optional[str] = None, bids_dir: str = "", work_dir: str = ""):
+        """Update header information."""
+        self.data["header"]["subject"] = subject
+        self.data["header"]["session"] = session or ""
+        self.data["header"]["bids_dir"] = bids_dir
+        self.data["header"]["work_dir"] = work_dir
 
-    def add_figure(self, title: str, image_path: Path, caption: str = ""):
-        """Add a figure section."""
-        if not Path(image_path).exists():
-             self.logger.warning(f"Figure not found: {image_path}")
-             return
-             
-        self.sections.append({
-            "type": "figure",
-            "title": title,
-            "path": Path(image_path), # absolute path needed? or relative to report?
-            # Browser needs relative or accessible path. 
-            # Ideally verify readability.
-            "caption": caption
-        })
+    # --- Anatomical Reporting Methods ---
+    
+    def add_anat_input(self, modality: str, path: Path, figure_path: Optional[Path] = None, caption: str = ""):
+        """Add anatomical input image info."""
+        item = {
+            "modality": modality,
+            "path": str(path)
+        }
+        if figure_path and figure_path.exists():
+            item["figure"] = self._create_figure_obj(figure_path, f"{modality} Input", caption)
+        self.data["anat"]["inputs"].append(item)
 
-    def add_summary_table(self, title: str, data: List[Dict[str, str]]):
+    def add_anat_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None):
         """
-        Add a summary table section.
-        data: List of dicts, e.g. [{"Step": "Denoise", "Status": "Done", "Duration": "10s"}]
+        Add an anatomical processing step.
+        figures: List of dicts with keys 'path', 'title', 'caption'
         """
-        self.sections.append({
-            "type": "table",
-            "title": title,
-            "data": data
-        })
+        step = {
+            "name": step_name,
+            "details": details,
+            "figures": []
+        }
+        if figures:
+            for fig in figures:
+                path = Path(fig["path"])
+                if path.exists():
+                    step["figures"].append(self._create_figure_obj(path, fig.get("title", ""), fig.get("caption", "")))
+        
+        self.data["anat"]["steps"].append(step)
 
-    def _render_html(self) -> str:
-        """Render the report to HTML string."""
-        
-        # Simple CSS
-        css = """
-        body { font-family: sans-serif; margin: 40px; color: #333; }
-        h1 { color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        h2 { color: #34495e; margin-top: 30px; }
-        .section { margin-bottom: 20px; }
-        .figure { text-align: center; margin: 20px 0; border: 1px solid #eee; padding: 10px; background: #fafafa; }
-        img { max-width: 70%; height: auto; border-radius: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        .caption { margin-top: 10px; font-style: italic; color: #666; font-size: 0.9em; }
-        .footer { margin-top: 50px; font-size: 0.8em; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
+    def add_anat_summary(self, title: str, data: List[Dict[str, str]]):
+        """Add anatomical summary table."""
+        if not data: return
+        self.data["anat"]["summary_table"] = {
+            "title": title,
+            "columns": list(data[0].keys()),
+            "rows": data
+        }
+
+    # --- dMRI Reporting Methods ---
+    
+    def set_dmri_input_summary(self, summary_text: str):
+        self.data["dmri"]["inputs"]["summary"] = summary_text
+
+    def add_dmri_input_figure(self, path: Path, caption: str):
+        if path.exists():
+             self.data["dmri"]["inputs"]["figures"].append(self._create_figure_obj(path, "dMRI Input", caption))
+
+    def add_dmri_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None, tables: List[Dict[str, Any]] = None):
         """
+        Add a dMRI processing step.
+        tables: List of dicts {title: str, data: List[Dict]}
+        """
+        step = {
+            "name": step_name,
+            "details": details,
+            "figures": [],
+            "tables": []
+        }
+        if figures:
+            for fig in figures:
+                path = Path(fig["path"])
+                if path.exists():
+                    step["figures"].append(self._create_figure_obj(path, fig.get("title", ""), fig.get("caption", "")))
         
-        html_parts = [
-            f"<!DOCTYPE html><html><head><title>{self.title}</title><style>{css}</style></head><body>",
-            f"<h1>{self.title}</h1>",
-            f"<p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
-        ]
+        if tables:
+            for tbl in tables:
+                if tbl.get("data"):
+                     step["tables"].append({
+                         "title": tbl.get("title", ""),
+                         "columns": list(tbl["data"][0].keys()),
+                         "rows": tbl["data"]
+                     })
         
-        for section in self.sections:
-            if section["type"] == "text":
-                html_parts.append(f"<div class='section'><h2>{section['title']}</h2><p>{section['content']}</p></div>")
-            elif section["type"] == "figure":
-                # Handle image path logic: 
-                # If render locally, absolute path might work in some browsers via file:// but forbidden in others.
-                # Embedding as base64 is safest for portable single-file HTML/PDF.
-                img_path = section["path"]
-                try:
-                    with open(img_path, "rb") as img_f:
-                        encoded = base64.b64encode(img_f.read()).decode('utf-8')
-                        mime = "image/png" # detect?
-                        if img_path.suffix.lower() in ['.jpg', '.jpeg']: mime = "image/jpeg"
-                        elif img_path.suffix.lower() == '.svg': mime = "image/svg+xml"
-                        
-                        src = f"data:{mime};base64,{encoded}"
-                        
-                except Exception as e:
-                    self.logger.warning(f"Failed to embed image {img_path}: {e}")
-                    continue
-                    
-                html_parts.append(
-                    f"<div class='figure'>"
-                    f"<h2>{section['title']}</h2>"
-                    f"<img src='{src}' alt='{section['title']}'>"
-                    f"<p class='caption'>{section['caption']}</p>"
-                    f"</div>"
-                )
-            elif section["type"] == "table":
-                # Render table
-                if not section['data']: continue
-                
-                rows = section['data']
-                cols = list(rows[0].keys())
-                
-                # Check for Status column for coloring
-                
-                thead = "".join(f"<th>{c}</th>" for c in cols)
-                tbody = ""
-                for row in rows:
-                    tbody += "<tr>"
-                    for c in cols:
-                        # Optional: colorize specific values
-                        val = row.get(c, "")
-                        tbody += f"<td>{val}</td>"
-                    tbody += "</tr>"
-                
-                html_parts.append(
-                    f"<div class='section'><h2>{section['title']}</h2>"
-                    f"<table><thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table>"
-                    f"</div>"
-                )
-        
-        html_parts.append("<div class='footer'>qmri-neuropipe report</div></body></html>")
-        return "\n".join(html_parts)
+        self.data["dmri"]["steps"].append(step)
+
+    def add_dmri_summary(self, title: str, data: List[Dict[str, str]]):
+        if not data: return
+        self.data["dmri"]["summary_table"] = {
+            "title": title,
+            "columns": list(data[0].keys()),
+            "rows": data
+        }
+
+    def set_dmri_outputs(self, outputs: List[Dict[str, str]]):
+        """Set final dMRI output files list."""
+        self.data["dmri"]["outputs"] = outputs
+
+    def set_anat_outputs(self, outputs: List[Dict[str, str]]):
+        """Set final anatomical output files list."""
+        self.data["anat"]["outputs"] = outputs
+
+    # --- Generic/Helpers ---
+
+
+
+    def _create_figure_obj(self, path: Path, title: str, caption: str) -> Dict[str, str]:
+        """Read image and create base64 src object."""
+        try:
+            with open(path, "rb") as img_f:
+                encoded = base64.b64encode(img_f.read()).decode('utf-8')
+                mime = "image/png"
+                if path.suffix.lower() in ['.jpg', '.jpeg']: mime = "image/jpeg"
+                elif path.suffix.lower() == '.svg': mime = "image/svg+xml"
+                src = f"data:{mime};base64,{encoded}"
+                return {"src": src, "title": title, "caption": caption}
+        except Exception as e:
+            self.logger.warning(f"Failed to embed image {path}: {e}")
+            return {"src": "", "title": "Error", "caption": "Image load failed"}
 
     def generate(self, filename: str = "report.html"):
         """Generate the HTML report."""
+        if not self.template:
+            self.logger.error("Template not loaded. Cannot generate report.")
+            return None
+            
         out_file = self.output_dir / filename
-        html_content = self._render_html()
-        out_file.write_text(html_content, encoding='utf-8')
-        self.logger.info(f"Report generated: {out_file}")
-        return out_file
+        try:
+            html_content = self.template.render(**self.data)
+            out_file.write_text(html_content, encoding='utf-8')
+            self.logger.info(f"Report generated: {out_file}")
+            return out_file
+        except Exception as e:
+            self.logger.error(f"Failed to render report: {e}")
+            return None
 
     def generate_pdf(self, filename: str = "report.pdf"):
         """Generate PDF report (requires weasyprint)."""
         if not weasyprint:
-            self.logger.warning("weasyprint not installed. Skipping PDF generation.")
+            self.logger.debug("weasyprint not installed. Skipping PDF generation.")
             return None
             
-        html_content = self._render_html()
+        # Re-render to ensure latest data
+        if not self.template: return None
+        html_content = self.template.render(**self.data)
+        
         out_file = self.output_dir / filename
         try:
             weasyprint.HTML(string=html_content).write_pdf(out_file)

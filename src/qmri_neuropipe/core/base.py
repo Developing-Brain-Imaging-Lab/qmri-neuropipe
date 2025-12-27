@@ -788,16 +788,6 @@ class BasePipeline(ABC):
                 if self.config.get('stop_on_error', False):
                     self.logger.error("Stopping pipeline due to error")
                     break
-        #             self.logger.info(
-        #                 f"Skipping {subject}{sessions} "
-        #                 "(outputs already exist)"
-        #             )
-        #             n_skipped += 1
-        #             continue
-                
-        #         # Process subject/session
-        #         self.logger.info(f"Processing {subject}{sessions}")
-        #         self.process_subject(subject, sessions)
                 
         #         n_success += 1
         #         self.logger.info(

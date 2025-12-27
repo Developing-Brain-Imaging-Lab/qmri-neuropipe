@@ -2,8 +2,10 @@ Metadata-Version: 2.4
 Name: qmri-neuropipe
 Version: 0.0.1
 Requires-Dist: typer>=0.12
-Requires-Dist: pydra>=0.23
 Requires-Dist: rich>=13.7
 Requires-Dist: pydantic>=2.5
 Requires-Dist: pandas>=2.2
 Requires-Dist: pyyaml>=6.0
+Requires-Dist: jinja2>=3.1
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: antspyx>=0.3

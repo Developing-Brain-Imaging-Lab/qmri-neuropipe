@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>{{ header.title }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 40px;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #2c3e50;
+        }
+
+        h1 {
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            margin-top: 40px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            margin-top: 25px;
+            color: #555;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+
+        .header-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid #3498db;
+            margin-bottom: 40px;
+        }
+
+        .header-info p {
+            margin: 5px 0;
+        }
+
+        .header-label {
+            font-weight: bold;
+            width: 150px;
+            display: inline-block;
+            color: #555;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .sub-section {
+            margin-left: 20px;
+            margin-bottom: 30px;
+        }
+
+        .figure-container {
+            text-align: center;
+            margin: 20px 0;
+            background: #fff;
+            padding: 15px;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        img {
+            max-width: 90%;
+            max-height: 500px;
+            border-radius: 4px;
+        }
+
+        .caption {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .step-details {
+            background: #fcfcfc;
+            padding: 10px 15px;
+            border-left: 3px solid #ccc;
+            margin: 10px 0;
+            font-size: 0.95em;
+        }
+
+        .step-param {
+            display: block;
+            margin: 2px 0;
+        }
+
+        .step-param-key {
+            font-weight: 600;
+            color: #444;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f1f2f6;
+            font-weight: 600;
+            color: #333;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .footer {
+            margin-top: 60px;
+            font-size: 0.8em;
+            color: #999;
+            text-align: center;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Header -->
+    <div class="header-info">
+        <h1>{{ header.title }}</h1>
+        <p><span class="header-label">Generated:</span> {{ header.generated_at }}</p>
+        <p><span class="header-label">Subject:</span> {{ header.subject }}</p>
+        {% if header.session %}<p><span class="header-label">Session:</span> {{ header.session }}</p>{% endif %}
+        <p><span class="header-label">BIDS Directory:</span> {{ header.bids_dir }}</p>
+        <p><span class="header-label">Work Directory:</span> {{ header.work_dir }}</p>
+    </div>
+
+    <!-- Anatomical Section -->
+    {% if anat %}
+    <div class="section">
+        <h2>Anatomical Processing Pipeline</h2>
+
+        <!-- Anat Inputs -->
+        {% if anat.inputs %}
+        <div class="sub-section">
+            <h3>Input Images</h3>
+            {% for input in anat.inputs %}
+            <div class="step-details">
+                <span class="step-param"><span class="step-param-key">Modality:</span> {{ input.modality }}</span>
+                <span class="step-param"><span class="step-param-key">Path:</span> {{ input.path }}</span>
+            </div>
+            {% if input.figure %}
+            <div class="figure-container">
+                <img src="{{ input.figure.src }}" alt="{{ input.figure.title }}">
+                <p class="caption">{{ input.figure.caption }}</p>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Anat Steps -->
+        {% if anat.steps %}
+        <div class="sub-section">
+            <h3>Processing Workflow</h3>
+            {% for step in anat.steps %}
+            <div class="sub-section">
+                <h4>{{ step.name }}</h4>
+
+                {% if step.details %}
+                <div class="step-details">
+                    {% for key, value in step.details.items() %}
+                    <span class="step-param"><span class="step-param-key">{{ key }}:</span> {{ value }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if step.figures %}
+                {% for fig in step.figures %}
+                <div class="figure-container">
+                    <img src="{{ fig.src }}" alt="{{ fig.title }}">
+                    <p class="caption">{{ fig.caption }}</p>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Anat Summary -->
+        {% if anat.summary_table %}
+        <div class="sub-section">
+            <h3>Anatomical Execution Summary</h3>
+            <table>
+                <thead>
+                    <tr>
+                        {% for col in anat.summary_table.columns %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in anat.summary_table.rows %}
+                    <tr>
+                        {% for col in anat.summary_table.columns %}
+                        <td>{{ row[col] }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Anat Outputs -->
+        {% if anat.outputs %}
+        <div class="sub-section">
+            <h3>Final Outputs</h3>
+            <div class="step-details">
+                {% for out in anat.outputs %}
+                <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- dMRI Section -->
+    {% if dmri %}
+    <div class="section">
+        <h2>dMRI Processing Pipeline</h2>
+
+        <!-- dMRI Inputs -->
+        {% if dmri.inputs %}
+        <div class="sub-section">
+            <h3>Diffusion Inputs</h3>
+            <p>{{ dmri.inputs.summary }}</p>
+            {% for fig in dmri.inputs.figures %}
+            <div class="figure-container">
+                <img src="{{ fig.src }}" alt="{{ fig.title }}">
+                <p class="caption">{{ fig.caption }}</p>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- dMRI Steps -->
+        {% if dmri.steps %}
+        <div class="sub-section">
+            <h3>Processing Steps</h3>
+            {% for step in dmri.steps %}
+            <div class="sub-section">
+                <h4>{{ step.name }}</h4>
+
+                {% if step.details %}
+                <div class="step-details">
+                    {% for key, value in step.details.items() %}
+                    <span class="step-param"><span class="step-param-key">{{ key }}:</span> {{ value }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if step.figures %}
+                {% for fig in step.figures %}
+                <div class="figure-container">
+                    <img src="{{ fig.src }}" alt="{{ fig.title }}">
+                    <p class="caption">{{ fig.caption }}</p>
+                </div>
+                {% endfor %}
+                {% endif %}
+
+                {% if step.tables %}
+                {% for table in step.tables %}
+                <h5>{{ table.title }}</h5>
+                <table>
+                    <thead>
+                        <tr>
+                            {% for col in table.columns %}
+                            <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in table.rows %}
+                        <tr>
+                            {% for col in table.columns %}
+                            <td>{{ row[col] }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endfor %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- dMRI Summary -->
+        {% if dmri.summary_table %}
+        <div class="sub-section">
+            <h3>dMRI Execution Summary</h3>
+            <table>
+                <thead>
+                    <tr>
+                        {% for col in dmri.summary_table.columns %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in dmri.summary_table.rows %}
+                    <tr>
+                        {% for col in dmri.summary_table.columns %}
+                        <td>{{ row[col] }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- dMRI Outputs -->
+        {% if dmri.outputs %}
+        <div class="sub-section">
+            <h3>Final Outputs</h3>
+            <div class="step-details">
+                {% for out in dmri.outputs %}
+                <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        qmri-neuropipe report
+    </div>
+
+</body>
+
+</html>

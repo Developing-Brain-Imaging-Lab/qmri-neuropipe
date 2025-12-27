@@ -207,6 +207,47 @@ class CoregistrationStep(BaseProcessingStep):
         if should_run:
             self.logger.info(f"Running {self.method} coregistration...")
             
+            # --- Output Resolution Handling ---
+            # Check for output_resolution option ('anatomical' [default] or 'dwi'/'native')
+            out_res = options.get('output_resolution', 'anatomical').lower()
+            if out_res in ['dwi', 'native']:
+                self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
+                
+                # Define path for resampled target
+                resampled_target = output_dir / f"target_resampled_to_dwi_{in_path.stem}.nii.gz"
+                
+                try:
+                    interpolator = options.get("interpolation", "linear").lower() # Normalize case
+                    
+                    if self.method == 'ants':
+                         # ANTsPy expects: linear, nearestNeighbor, bspline...
+                         if interpolator == 'nearest': interpolator = 'nearestNeighbor'
+                         elif interpolator == 'cubic': interpolator = 'bspline'
+                         
+                         ants.resample_to_image(target, in_path, resampled_target, interpolator=interpolator)
+                         
+                    elif self.method == 'fsl':
+                        # FLIRT: trilinear, nearestneighbour, sinc, spline
+                        fsl_interp = interpolator
+                        if interpolator == 'linear': fsl_interp = 'trilinear'
+                        elif interpolator == 'nearest': fsl_interp = 'nearestneighbour'
+                        elif interpolator == 'bspline': fsl_interp = 'spline'
+                        elif interpolator == 'cubic': fsl_interp = 'spline'
+                        
+                        fsl.resample_to_image(target, in_path, resampled_target, interpolator=fsl_interp)
+                    else:
+                        self.logger.warning(f"Resampling not implemented for method '{self.method}'. Using original target.")
+                        resampled_target = target
+
+                    if resampled_target.exists():
+                        target = resampled_target
+                        self.logger.info(f"Target updated to resampled image: {target}")
+                        
+                except Exception as e:
+                     self.logger.error(f"Failed to resample target: {e}.")
+                     # If user explicitly asked for native, we should not fail silently
+                     raise ProcessingError(f"Failed to resample target to native resolution: {e}")
+
             try:
                 if self.method == 'ants':
                     # ANTs registration

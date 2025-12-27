@@ -75,7 +75,8 @@ def build_bids_name(entities, suffix=None, extension=".nii.gz"):
     parts = []
 
     # Standard BIDS order (you can adjust as needed)
-    for key in ("sub", "ses", "task", "acq", "desc", "ce", "rec", "dir","echo", "flip", "inv", "mt", "run", "chunk"):
+    # Standard BIDS order (you can adjust as needed)
+    for key in ("sub", "ses", "task", "acq", "ce", "rec", "dir", "run", "space", "model", "desc", "echo", "flip", "inv", "mt", "chunk"):
         value = entities.get(key)
         if value:
             parts.append(f"{key}-{value}")
@@ -148,6 +149,7 @@ def parse_bids_filename(path):
     return entities
 
 extract_bids_entities = parse_bids_filename
+get_entities_from_path = parse_bids_filename
 
 def bids_find(root, suffix=None, extension=None):
     """

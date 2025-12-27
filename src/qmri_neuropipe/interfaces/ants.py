@@ -139,3 +139,33 @@ def iMath(in_file: ImageLike | Path, out_file: Path, operation: str, *args, **kw
     
     ants.image_write(result, str(out_p))
     return out_p
+
+def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike | Path, out_file: Path, interpolator: str = "linear") -> Path:
+    """
+    Resample source_file to the resolution/grid of reference_file.
+    """
+    src_p = extract_image_path(source_file)
+    ref_p = extract_image_path(reference_file)
+    out_p = ensure_dir(out_file)
+    
+    # We can use ants.resample_image_to_target which handles everything
+    src_img = ants.image_read(str(src_p))
+    ref_img = ants.image_read(str(ref_p))
+    
+    # INTERPOLATION MAP
+    # generic 'linear' -> ants 'linear'
+    # generic 'nearest' -> ants 'nearestNeighbor'
+    # generic 'cubic', 'spline' -> ants 'bspline' or 'cubic' (ants supports: linear, nearestNeighbor, multiLabel, gaussian, bspline, cosineWindowedSinc, welchWindowedSinc, hammingWindowedSinc, lanczosWindowedSinc, blackmanWindowedSinc, cosineWindowedSinc, welchWindowedSinc, hammingWindowedSinc, lanczosWindowedSinc, blackmanWindowedSinc)
+    
+    ants_interp = interpolator
+    if interpolator == 'nearest': ants_interp = 'nearestNeighbor'
+    elif interpolator == 'cubic': ants_interp = 'bspline' # approximate default for cubic-like
+
+    resampled = ants.resample_image_to_target(
+        image=src_img,
+        target=ref_img,
+        interp_type=ants_interp
+    )
+    
+    ants.image_write(resampled, str(out_p))
+    return out_p

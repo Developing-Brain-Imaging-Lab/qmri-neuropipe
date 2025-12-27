@@ -179,7 +179,7 @@ class Synb0EstimationStep(BaseProcessingStep):
             t1w_2_mni_antsmat = output_dir / "t1w_2_mni.txt"
             mni_2_t1w_fslmat = output_dir / "mni_2_t1w.mat"
             mni_2_t1w_antsmat = output_dir / "mni_2_t1w.txt"
-    
+            
             _, t1w_2_mni_fslmat = fsl.flirt(in_file=t1w_norm_nii,
                                             ref_file=mni_atlas_img,
                                             out_file=t1w_mni, # This should be the output image, not the matrix
@@ -187,7 +187,6 @@ class Synb0EstimationStep(BaseProcessingStep):
                                             cost="normmi",
                                             dof=12,
                                             extra_args="-usesqform")
-
             fsl.convert_xfm(in_file=t1w_2_mni_fslmat, out_file=mni_2_t1w_fslmat, inverse=True)
 
             c3d.fsl2ants(ref_file=mni_atlas_img,
@@ -269,9 +268,7 @@ class Synb0EstimationStep(BaseProcessingStep):
 
             
             
-            # 3. Create a synthetic DWIFile object metadata (JSON)
-            import json
-            real_json = input_dwi.json
+
             real_meta = {}
             if real_json and real_json.exists():
                 with open(real_json, "r") as f:

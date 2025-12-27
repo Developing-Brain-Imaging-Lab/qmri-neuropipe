@@ -203,7 +203,7 @@ class GibbsUnringingStep(BaseProcessingStep):
         
         try:
             if self.method == 'dipy':
-                corrected = dipy.gibbs_ringing_correction(in_file=input_img.img, 
+                corrected = dipy.gibbs_unring(in_file=input_img.img, 
                                                           out_file=output_img,
                                                           nthreads=nthreads)
             elif self.method == 'mrtrix':

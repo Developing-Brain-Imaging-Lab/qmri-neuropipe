@@ -87,31 +87,14 @@ class DenoisingStep(BaseProcessingStep):
         self.patch_radius = patch_radius
         self.block_radius = block_radius
         
-        # Check dependencies
-        self._check_dependencies()
+
         
         self.logger.info(f"Initialized denoising with method: {method}")
     
-    def _check_dependencies(self) -> None:
-        """Check that required dependencies are available."""
-        if self.method == 'mrtrix':
-            # Assume MRtrix3 is installed and in PATH
-            pass
-
-        if self.method == 'ants':
-            # Assume ANTs is installed and in PATH
-            pass
 
 
-        # if self.method == 'mppca' and not DIPY_AVAILABLE:
-        #     raise ProcessingError(
-        #         "DIPY not available. Install with: pip install dipy"
-        #     )
-        
-        # if self.method == 'nlmeans' and not NLMEANS_AVAILABLE:
-        #     raise ProcessingError(
-        #         "DIPY nlmeans not available. Install with: pip install dipy"
-        #     )
+
+
 
         # --- Helper to get an image from either context or direct ImageLike ---
     
@@ -492,57 +475,8 @@ class DenoisingStep(BaseProcessingStep):
         )
     
 
-# Convenience function for quick denoising
-def denoise_image(input: ImageLike, output: ImageLike, method: str = 'mrtrix', mask: Optional[Path] = None, **kwargs) -> Path:
-    """
-    Convenience function for quick denoising without full pipeline setup.
-    
-    Args:
-        input: Input image path
-        output: Output image path
-        method: Denoising method ('mrtrix', 'ants', 'mppca', 'nlmeans', etc.)
-        mask: Optional mask path
-        **kwargs: Method-specific parameters
-    
-    Returns:
-        Path to denoised image
-    
-    Example:
-        >>> from qmri_neuropipe.processing.common.denoising import denoise_image
-        >>> 
-        >>> denoised = denoise_image(
-        ...     input=Path('dwi.nii.gz'),
-        ...     output=Path('denoised.nii.gz'),
-        ...     method='mppca'
-        ... )
-    """
-    # Create minimal config
-    from qmri_neuropipe.core import PipelineConfig
-    
-    config = PipelineConfig(
-        bids_dir=Path('/tmp'),  # Dummy value
-        output_dir=output.img.parent
-    )
-    
-    # Run denoising
-    denoiser = DenoisingStep(config, method=method)
-    
-    # Temporarily disable validation for standalone use
-    denoiser.validate_inputs = lambda *args, **kwargs: None
-    
-    result = denoiser.run(
-        input,
-        output.img.parent,
-        mask=mask,
-        **kwargs
-    )
-    
-    return result
-
-
 # Module version and metadata
 __version__ = '2.0.0'
 __all__ = [
-    'DenoisingStep',
-    'denoise_image'
+    'DenoisingStep'
 ]
