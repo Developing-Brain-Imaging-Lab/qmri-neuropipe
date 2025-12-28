@@ -511,7 +511,6 @@ class CSDFittingStep(BaseProcessingStep):
             in_bval=dwi.bval, 
             mask_file=mask_path, 
             algorithm=resp_algo, 
-            algorithm=resp_algo, 
             nthreads=self.nthreads
         )
         
