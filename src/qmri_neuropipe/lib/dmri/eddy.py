@@ -274,6 +274,13 @@ class EddyCorrectionStep(BaseProcessingStep):
                                        out_file=output_img
                                        )
             elif self.method == 'eddy':
+                # Determine GPU settings
+                cuda_enabled = self.config.use_gpu
+                cuda_device = 0
+                if self.config.gpu_ids:
+                     cuda_enabled = True
+                     cuda_device = self.config.gpu_ids[0]
+                
                 ecc = fsl.eddy(
                     in_file=input_img,
                     out_file=output_img,
@@ -283,6 +290,8 @@ class EddyCorrectionStep(BaseProcessingStep):
                     index=index,
                     extra_opts=extra_opts,
                     nthreads=nthreads,
+                    cuda=cuda_enabled,
+                    cuda_device=cuda_device,
                     **kwargs,
                 )
             elif self.method == 'two-pass':

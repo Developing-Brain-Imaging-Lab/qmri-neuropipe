@@ -296,6 +296,16 @@ def main(
         "--dry-run",
         help="Perform a dry run without executing the pipeline"
     ),
+    jobs: int = typer.Option(
+        1,
+        "--jobs", "-j",
+        help="Number of parallel jobs (subjects) to run locally"
+    ),
+    submit: bool = typer.Option(
+        False,
+        "--submit",
+        help="Generate HTCondor submit files instead of running locally"
+    ),
 ):
     """
     qmri-neuropipe: Robust neuroimaging pipeline for BIDS datasets.
@@ -345,6 +355,8 @@ def main(
             'log_level': log_level,
             'verbose': verbose,
             'debug': debug,
+            'jobs': jobs,
+            'submit': submit,
         }
         # Remove None values to distinguish "not provided" from "explicitly None"
         cli_args = {k: v for k, v in cli_args.items() if v is not None}

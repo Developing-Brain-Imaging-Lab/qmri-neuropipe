@@ -90,6 +90,12 @@ class PipelineConfig:
     debug: bool = False
     verbose: bool = False
     
+    # GPU Configuration
+    gpu_ids: Optional[List[int]] = None
+    
+    # Custom Input Configuration (e.g. non-standard Anatomical)
+    anat_input: Optional[Dict[str, Any]] = None
+
     # Additional configuration
     config_data: Dict[str, Any] = field(default_factory=dict)
     
@@ -163,6 +169,8 @@ class PipelineConfig:
             'log_level': config_data.get('log_level', 'INFO'),
             'debug': config_data.get('debug', False),
             'verbose': config_data.get('verbose', False),
+            'gpu_ids': config_data.get('gpu_ids'),
+            'anat_input': config_data.get('anat_input'),
         }
         
         # Store everything in config_data
@@ -326,6 +334,8 @@ class PipelineConfig:
             'log_level': self.log_level,
             'debug': self.debug,
             'verbose': self.verbose,
+            'gpu_ids': self.gpu_ids,
+            'anat_input': self.anat_input,
         }
         
         # Merge with config_data

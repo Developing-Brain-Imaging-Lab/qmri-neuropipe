@@ -223,12 +223,17 @@ class Synb0EstimationStep(BaseProcessingStep):
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
             try:
-                 self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
-                 dipy.synb0_estimation(
-                     in_file=b0_in_mni,
-                     t1_file=t1w_norm_atlas,
-                     out_file=syn_b0_path
-                 )
+                if self.config.gpu_ids:
+                    import os
+                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.config.gpu_ids))
+                    self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+                
+                self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
+                dipy.synb0_estimation(
+                    in_file=b0_in_mni,
+                    t1_file=t1w_norm_atlas,
+                    out_file=syn_b0_path
+                )
             except Exception as e:
                  raise ProcessingError(f"Synb0 estimation failed: {e}")
                  

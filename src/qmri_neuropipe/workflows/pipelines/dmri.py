@@ -1484,8 +1484,8 @@ class DMRIPipeline(BasePipeline):
                  self.logger.info(f"Skipping MRIQC for dmri pipeline (Computed modalities empty. Config: {cfg_mods})")
 
         # 1. Build the Preprocessing Context 
-        t1w_files:  list[ImageFile] = bids_find_t1w(anat_dir)
-        t2w_files:  list[ImageFile] = bids_find_t2w(anat_dir)
+        t1w_files = self._find_anat_files(subject, session, 'T1w')
+        t2w_files = self._find_anat_files(subject, session, 'T2w')
         dwi_files:  list[DWIFile]   = bids_find_dwi(dwi_dir)
         
         if not dwi_files:
@@ -1963,6 +1963,89 @@ class DMRIPipeline(BasePipeline):
         self.logger.info(
             f"Preprocessing complete for sub-{subject} {ses}. Results in {output_dir}"
         )
+
+    def _find_anat_files(self, subject: str, session: str | None, modality: str = 'T1w') -> list[ImageFile]:
+        """
+        Find anatomical files using config overrides or standard BIDS search.
+        """
+        # 1. Custom Check
+        anat_cfg = self.config.get('anat_input', {})
+        if not anat_cfg: anat_cfg = {}
+        
+        path_key = f"{modality.lower()}_path"
+        pattern_key = f"{modality.lower()}_search_pattern"
+        
+        custom_path = anat_cfg.get(path_key)
+        custom_pattern = anat_cfg.get(pattern_key)
+        
+        results = []
+        
+        if custom_path:
+             p = Path(custom_path)
+             if p.exists():
+                 # Create minimal ImageFile
+                 # Entities might be fake but we need at least sub/ses
+                 ent = {"sub": subject, "ses": session, "suffix": modality}
+                 results.append(ImageFile(entities=ent, img=p, json=None))
+                 self.logger.info(f"Using custom anatomical file: {p}")
+        
+        elif custom_pattern:
+             # Glob with formatting
+             p_str = custom_pattern.format(subject=subject, session=session if session else "")
+             p = Path(p_str)
+             
+             matches = []
+             if p.is_absolute():
+                  matches = list(p.parent.glob(p.name))
+             else:
+                  # Relative to bids_dir? Or cwd? 
+                  # Implementation Plan said "derivatives/..." 
+                  # Let's assume relative to BIDS_DIR if not absolute.
+                  root = self.config.bids_dir
+                  matches = list(root.glob(p_str))
+                  
+             for m in matches:
+                  ent = {"sub": subject, "ses": session, "suffix": modality}
+                  # Try to find sidecar
+                  json_path = m.with_suffix("").with_suffix(".json")
+                  if not json_path.exists(): json_path = Path(str(m).replace('.nii.gz', '.json'))
+                  
+                  results.append(ImageFile(entities=ent, img=m, json=json_path if json_path.exists() else None))
+             
+             if matches:
+                 self.logger.info(f"Found {len(matches)} custom anatomical files matching pattern.")
+
+        if results:
+             return results
+             
+        # 2. Fallback to Standard BIDS
+        # Finding everything then filtering is inefficient if we just want one subject.
+        # But 'bids_find_t1w(root)' does full scan.
+        # Better: use bids_find with subject specific path if possible?
+        # Standard method:
+        from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w
+        
+        # We need the 'root' used previously. In `process_subject`, 'anat_dir' was derived.
+        # But here we can use self.config.bids_dir and filter.
+        # Or construct the subject directory and search there?
+        # BIDS structure: bids_dir / sub-X / ses-Y / anat
+        
+        search_dir = self.config.bids_dir / f"sub-{subject}"
+        if session:
+            search_dir = search_dir / f"ses-{session}"
+        search_dir = search_dir / "anat"
+        
+        if not search_dir.exists():
+             # Try without session? Or maybe it's not in 'anat'?
+             # Some BIDS have different structure?
+             # Fallback to recursively searching subject dir
+             search_dir = self.config.bids_dir / f"sub-{subject}"
+        
+        if modality == 'T1w':
+             return bids_find_t1w(search_dir)
+        elif modality == 'T2w':
+             return bids_find_t2w(search_dir)
+        return []
 
     def _recover_missed_metrics(self, reporter, context, output_dir, final_ents, final_dwi_path):
         """

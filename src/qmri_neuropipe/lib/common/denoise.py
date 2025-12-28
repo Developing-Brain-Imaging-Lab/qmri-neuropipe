@@ -63,7 +63,7 @@ class DenoisingStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
-        method: Literal['mrtrix', 'ants', 'mppca', 'nlmeans', 'wavelets', 'gaussian'] = 'mrtrix',
+        method: Literal['mrtrix', 'ants', 'mppca', 'patch2self', 'nlmeans', 'wavelets', 'gaussian'] = 'mrtrix',
         patch_radius: int = 2,
         block_radius: int = 5,
         pca_method: str = 'eig',
@@ -87,16 +87,9 @@ class DenoisingStep(BaseProcessingStep):
         self.method = method
         self.patch_radius = patch_radius
         self.block_radius = block_radius
-        self.pca_method = pca_method
-        
-
-        
+        self.pca_method = pca_method    
         self.logger.info(f"Initialized denoising with method: {method}")
     
-
-
-
-
 
         # --- Helper to get an image from either context or direct ImageLike ---
     
@@ -114,10 +107,10 @@ class DenoisingStep(BaseProcessingStep):
                 raise ValidationError(
                     f"Input must be at least 3D, got shape {img.shape}"
                 )
-            # MP-PCA requires 4D
-            if self.method == 'mppca' and len(img.shape) != 4:
+            # MP-PCA and Patch2Self require 4D
+            if self.method in ['mppca', 'patch2self'] and len(img.shape) != 4:
                 raise ValidationError(
-                    f"MP-PCA requires 4D data, got shape {img.shape}"
+                    f"{self.method} requires 4D data, got shape {img.shape}"
                 )
         except Exception as e:
             raise ValidationError(f"Invalid NIfTI file: {e}")
@@ -247,7 +240,7 @@ class DenoisingStep(BaseProcessingStep):
                                                      noise_map=noise_map_path,
                                                      nthreads=nthreads)
             else:
-                # Python-based methods (mppca, nlmeans, wavelets, gaussian)
+                # Python-based methods (mppca, patch2self, nlmeans, wavelets, gaussian)
                 # Limit threads for BLAS/OpenMP operations
                 with threadpool_limits(limits=nthreads):
                     if self.method == 'mppca':
@@ -263,6 +256,13 @@ class DenoisingStep(BaseProcessingStep):
                                                      pca_method=pca_method,
                                                      nthreads=nthreads,
                                                      **kwargs)
+                    elif self.method == 'patch2self':
+                        denoised = dipy.patch2self(in_file=input_img.img,
+                                                   out_file=output_img_path,
+                                                   patch_radius=self.patch_radius,
+                                                   nthreads=nthreads,
+                                                   **kwargs)
+                        noise = None # Patch2Self wrapper doesn't return noise map
                     elif self.method == 'nlmeans':
                         denoised = dipy.nlmeans(in_file=input_img.img, 
                                                 out_file=output_img_path, 
