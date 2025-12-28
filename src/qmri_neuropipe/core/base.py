@@ -816,19 +816,21 @@ class BasePipeline(ABC):
                 if self.config.get('stop_on_error', False):
                     self.logger.error("Stopping pipeline due to error")
                     break
+        
+        return {
+            'n_success': n_success,
+            'n_failed': n_failed,
+            'n_skipped': n_skipped
+        }
 
     def _run_parallel(self, data, jobs):
         """Execute pipeline in parallel using ProcessPoolExecutor."""
         self.logger.info(f"Running parallel execution with {jobs} jobs...")
         config_dict = self.config.to_dict()
         
-        # Use rich progress if available
-        progress = None
-        if Progress:
-             # We can't update rich progress from workers easily without complex IPC.
-             # So we track futures completion in main process.
-             pass
-
+        n_success = 0
+        n_failed = 0
+        
         with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
             futures = {
                 executor.submit(_worker_wrapper, self.__class__, config_dict, sub, ses): (sub, ses)
@@ -840,11 +842,20 @@ class BasePipeline(ABC):
                 try:
                     res_sub, res_ses, success, error = future.result()
                     if success:
+                        n_success += 1
                         self.logger.info(f"Successfully processed {res_sub} {res_ses}")
                     else:
+                        n_failed += 1
                         self.logger.error(f"Failed to process {res_sub} {res_ses}: {error}")
                 except Exception as e:
+                    n_failed += 1
                     self.logger.error(f"Job execution failed for {sub} {ses}: {e}")
+                    
+        return {
+            'n_success': n_success,
+            'n_failed': n_failed,
+            'n_skipped': 0 # Parallel runner doesn't check skip before dispatch usually, or detailed stats are lost
+        }
 
     def _generate_htcondor_submission(self, data):
         """Generate HTCondor submit file and subjects list."""

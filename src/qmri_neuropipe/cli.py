@@ -431,8 +431,13 @@ def main(
         
         # Run pipeline
         console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
-        pipeline_obj.run(subjects=config.participant_label,
-                         sessions=config.session_label)
+        stats = pipeline_obj.run(subjects=config.participant_label,
+                                 sessions=config.session_label)
+        
+        if stats and stats.get('n_failed', 0) > 0:
+             console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
+             console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
+             raise typer.Exit(code=1)
         
         console.print("\n[bold green]Pipeline completed successfully![/bold green]\n")
         

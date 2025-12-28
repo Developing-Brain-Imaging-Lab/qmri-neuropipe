@@ -260,8 +260,13 @@ class DenoisingStep(BaseProcessingStep):
                                                      **kwargs)
                     elif self.method == 'patch2self':
                         model = kwargs.get('model', self.model)
+                        # Ensure input is DWI and has bval
+                        if not isinstance(input_img, DWIFile) or not input_img.bval:
+                            raise ProcessingError("Patch2Self requires DWI data with bval file")
+                        
                         denoised = dipy.patch2self(in_file=input_img.img,
                                                    out_file=output_img_path,
+                                                   bval_file=input_img.bval,
                                                    patch_radius=self.patch_radius,
                                                    model=model,
                                                    nthreads=nthreads,

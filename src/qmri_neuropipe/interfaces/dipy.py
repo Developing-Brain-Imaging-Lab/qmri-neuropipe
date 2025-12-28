@@ -9,23 +9,26 @@ from ..core.utils import extract_image_path, ensure_dir
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
 
-def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str = "ridge", nthreads: int = 1):
+def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: int = 1, model: str = "ridge", nthreads: int = 1):
     """
         Run Patch2Self denoising.
         
         Best for dMRI data with multiple volumes.
         
         Args:
-            data: 4D array (x, y, z, volumes)
-            mask: Optional 3D binary mask
-            **kwargs: Additional parameters
+            in_file: Input 4D NIfTI file
+            out_file: Output path
+            bval_file: Path to bval file
+            patch_radius: Patch radius (default 1)
+            model: Regression model (default 'ridge')
+            nthreads: Number of threads
         
         Returns:
-            Tuple of (denoised_data, sigma_map)
+            Output file path
         """
     try:
         from dipy.denoise.patch2self import patch2self as p2s
-        from dipy.denoise.denspeed import determine_num_threads
+        from dipy.io.gradients import read_bvals_bvecs
     except ImportError:
          raise ImportError("DIPY is required for patch2self but not installed.")
     
@@ -33,9 +36,14 @@ def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str 
 
     if out_file.exists():
         return out_file
+    
+    # Load bvals
+    # read_bvals_bvecs returns (bvals, bvecs)
+    bvals, _ = read_bvals_bvecs(str(bval_file), None)
 
     os.environ['OMP_NUM_THREADS'] = str(nthreads)
-    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model)
+    # patch2self signature: data, bvals, ...
+    den = p2s(img.get_fdata(), bvals, patch_radius=patch_radius, b0_threshold=50, model=model)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
