@@ -23,10 +23,14 @@ from ...io.bids import build_bids_name
 
 
 class DTIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='dipy', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -79,7 +83,7 @@ class DTIFittingStep(BaseProcessingStep):
             if 'metrics' in self.kwargs:
                 dipy_kwargs['metrics'] = self.kwargs['metrics']
                 
-            fit_dti(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **dipy_kwargs)
+            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **dipy_kwargs)
             
         elif self.method == 'fsl':
             from ...interfaces.fsl import fit_dti
@@ -97,7 +101,7 @@ class DTIFittingStep(BaseProcessingStep):
             if 'metrics' in self.kwargs:
                 mrtrix_kwargs['metrics'] = self.kwargs['metrics']
                 
-            fit_dti(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **mrtrix_kwargs)
+            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **mrtrix_kwargs)
         else:
             raise ValueError(f"Unknown DTI method: {self.method}")
             
@@ -114,10 +118,14 @@ class DTIFittingStep(BaseProcessingStep):
 
 
 class DKIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='dipy', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -159,7 +167,7 @@ class DKIFittingStep(BaseProcessingStep):
 
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_dki
-             fit_dki(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **self.kwargs)
+             fit_dki(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown DKI method: {self.method}")
              
@@ -175,10 +183,14 @@ class DKIFittingStep(BaseProcessingStep):
 
 
 class NODDIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='dmipy', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='dmipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -221,10 +233,10 @@ class NODDIFittingStep(BaseProcessingStep):
         outputs = {}
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
-             outputs = fit_noddi(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **self.kwargs)
+             outputs = fit_noddi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         elif self.method == 'amico':
              from ...interfaces.amico import fit_noddi
-             outputs = fit_noddi(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **self.kwargs)
+             outputs = fit_noddi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown NODDI method: {self.method}")
              
@@ -288,10 +300,14 @@ class NODDIFittingStep(BaseProcessingStep):
 
 
 class SANDIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='amico', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='amico', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -331,7 +347,7 @@ class SANDIFittingStep(BaseProcessingStep):
 
         if self.method == 'amico':
              from ...interfaces.amico import fit_sandi
-             fit_sandi(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **self.kwargs)
+             fit_sandi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown SANDI method: {self.method}")
 
@@ -346,10 +362,14 @@ class SANDIFittingStep(BaseProcessingStep):
 
 
 class MAPMRIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='dipy', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -389,7 +409,7 @@ class MAPMRIFittingStep(BaseProcessingStep):
 
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_mapmri
-             fit_mapmri(dwi, model_out, mask_file=mask_path, n_cpus=self.n_cpus, **self.kwargs)
+             fit_mapmri(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown MAPMRI method: {self.method}")
              
@@ -404,10 +424,14 @@ class MAPMRIFittingStep(BaseProcessingStep):
 
 
 class CSDFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='msmt_csd', n_cpus=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='msmt_csd', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method # e.g. 'msmt_csd' or 'csd' (used as algo for dwi2fod usually)
-        self.n_cpus = n_cpus
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs # e.g. lmax, response_algo ('dhollander')
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
@@ -487,7 +511,8 @@ class CSDFittingStep(BaseProcessingStep):
             in_bval=dwi.bval, 
             mask_file=mask_path, 
             algorithm=resp_algo, 
-            nthreads=self.n_cpus
+            algorithm=resp_algo, 
+            nthreads=self.nthreads
         )
         
         # 2. Estimate FOD
@@ -501,7 +526,7 @@ class CSDFittingStep(BaseProcessingStep):
             mask_file=mask_path,
             algorithm=fod_algo,
             lmax=lmax,
-            nthreads=self.n_cpus
+            nthreads=self.nthreads
         )
         
         # 3. Rename/BIDSify outputs

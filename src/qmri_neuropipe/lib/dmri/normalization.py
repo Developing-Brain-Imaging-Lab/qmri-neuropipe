@@ -57,6 +57,11 @@ class NormalizationStep(BaseProcessingStep):
             self.logger.warning("Normalization skipped: No modeling results found.")
             return context
 
+        # Fetch nthreads
+        nthreads = kwargs.get('nthreads', self.config.get('n_cpus', 1))
+        import os
+        os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+        
         # 1. Find driving metric
         ref_path = None
         
@@ -173,7 +178,8 @@ class NormalizationStep(BaseProcessingStep):
                  # Check for existing transform?
                  # ...
                  
-                 reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type)
+                 # ...
+                 
                  reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type)
                  tx_forward = reg['fwdtransforms']
                  

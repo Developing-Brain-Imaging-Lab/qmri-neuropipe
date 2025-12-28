@@ -26,7 +26,7 @@ class ReportGenerator:
     Supports structured hierarchical data.
     """
     
-    def __init__(self, output_dir: Path, title: str = "Pipeline Report"):
+    def __init__(self, output_dir: Path, title: str = "qmri-neuropipe Pipeline Report"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.title = title

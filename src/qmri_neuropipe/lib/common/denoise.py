@@ -254,12 +254,14 @@ class DenoisingStep(BaseProcessingStep):
                                                      mask=mask,
                                                      noise_map=noise_map_path,
                                                      patch_radius=self.patch_radius,
-                                                     block_radius=self.block_radius, 
+                                                     block_radius=self.block_radius,
+                                                     nthreads=nthreads,
                                                      **kwargs)
                     elif self.method == 'nlmeans':
                         denoised = dipy.nlmeans(in_file=input_img.img, 
                                                 out_file=output_img_path, 
                                                 mask=mask, 
+                                                nthreads=nthreads,
                                                 **kwargs)
                     elif self.method == 'wavelets':
                         denoised = self._run_wavelets(

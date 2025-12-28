@@ -15,7 +15,7 @@ from ..core.utils import ensure_path, ensure_dir, extract_image_path
 # Actually, let's redefine _as_path here to be safe and independent.
 
 
-def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=2, mask: Optional[Path]=None, noise_map: Optional[Path]=None, force: bool=False) -> Tuple[Path, Optional[Path]]:
+def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=1, mask: Optional[Path]=None, noise_map: Optional[Path]=None, force: bool=False) -> Tuple[Path, Optional[Path]]:
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
     nm_p = ensure_dir(noise_map) if noise_map else None
@@ -32,7 +32,7 @@ def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=2, mask:
    
     return out_p, (nm_p if nm_p else None)
     
-def dwibiascorrect(in_file: ImageLike | Path, in_bvec: Path, in_bval: Path, out_file: Path, method: str = "ants", mask: Optional[Path]=None, bias_field: Optional[Path]=None, nthreads: int = 2, force: bool = False):
+def dwibiascorrect(in_file: ImageLike | Path, in_bvec: Path, in_bval: Path, out_file: Path, method: str = "ants", mask: Optional[Path]=None, bias_field: Optional[Path]=None, nthreads: int = 1, force: bool = False):
     
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -50,7 +50,7 @@ def dwibiascorrect(in_file: ImageLike | Path, in_bvec: Path, in_bval: Path, out_
     
     return out_p
 
-def mrdegibbs(in_file: ImageLike | Path, out_file: Path, nthreads: int = 2, force: bool = False):
+def mrdegibbs(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, force: bool = False):
     
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -65,7 +65,7 @@ def mrdegibbs(in_file: ImageLike | Path, out_file: Path, nthreads: int = 2, forc
 
     return out_p
 
-def dwi2mask(in_file: ImageLike | Path, out_file: Path, nthreads: int = 2, force: bool = False):
+def dwi2mask(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, force: bool = False):
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
     if not force and out_p.exists():
@@ -75,7 +75,7 @@ def dwi2mask(in_file: ImageLike | Path, out_file: Path, nthreads: int = 2, force
     return out_p
 
 
-def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path = None, export_grad_fsl: Tuple[Path, Path] = None, nthreads: int = 2, force: bool = False):
+def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path = None, export_grad_fsl: Tuple[Path, Path] = None, nthreads: int = 1, force: bool = False):
     """
     Wrapper for dwigradcheck.
     
@@ -129,12 +129,12 @@ def fit_dti(
     bvec_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     metrics: list[str] = ['fa', 'adc', 'ad', 'rd'],
-    n_cpus: int = 1
+    nthreads: int = 1
 ) -> Dict[str, Path]:
     """
     Fit DTI using MRtrix3.
     
-    n_cpus : int
+    nthreads : int
         Number of threads (-nthreads).
     """
     import shutil
@@ -165,8 +165,8 @@ def fit_dti(
     if mask_file:
         cmd.extend(["-mask", str(mask_file)])
         
-    if n_cpus > 1:
-        cmd.extend(["-nthreads", str(n_cpus)])
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
     
     cmd.extend(["-quiet", "-force"])
     run_cmd(" ".join(cmd), label="dwi2tensor")
@@ -276,7 +276,7 @@ def dwi2response(
     in_bval: Path = None,
     mask_file: Path = None,
     algorithm: str = "dhollander",
-    nthreads: int = 2,
+    nthreads: int = 1,
     force: bool = False
 ) -> Dict[str, Path]:
     """
@@ -337,7 +337,7 @@ def dwi2fod(
     mask_file: Path = None,
     algorithm: str = "msmt_csd",
     lmax: Optional[Union[int, str]] = None,
-    nthreads: int = 2,
+    nthreads: int = 1,
     force: bool = False
 ) -> Dict[str, Path]:
     """

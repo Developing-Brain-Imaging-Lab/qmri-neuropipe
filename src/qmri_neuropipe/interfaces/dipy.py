@@ -9,7 +9,7 @@ from ..core.utils import extract_image_path, ensure_dir
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
 
-def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str = "ridge"):
+def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str = "ridge", nthreads: int = 1):
     """
         Run Patch2Self denoising.
         
@@ -25,19 +25,24 @@ def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str 
         """
     try:
         from dipy.denoise.patch2self import patch2self as p2s
+        from dipy.denoise.denspeed import determine_num_threads
     except ImportError:
          raise ImportError("DIPY is required for patch2self but not installed.")
+    
+    # Optimize threads
+    n_jobs = determine_num_threads(nthreads)
+
 
     img = nib.load(in_file)
 
     if out_file.exists():
         return out_file
 
-    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model)
+    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model, num_threads=n_jobs)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
-def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, patch_radius: int=2, **kwargs)-> Tuple[Path, Optional[Path]]:
+def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, patch_radius: int=2, nthreads: int = 1, **kwargs)-> Tuple[Path, Optional[Path]]:
         """
         Run Marchenko-Pastur PCA denoising.
         
@@ -54,8 +59,12 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
         try:
              from dipy.denoise.localpca import mppca as dipy_mppca
              from dipy.denoise.pca_noise_estimate import pca_noise_estimate
+             from dipy.denoise.denspeed import determine_num_threads
         except ImportError:
              raise ImportError("DIPY is required for mppca but not installed.")
+             
+        # Optimize threads
+        n_jobs = determine_num_threads(nthreads)
              
 
 
@@ -75,7 +84,7 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             mask = None
         
         # Run MP-PCA
-        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True)
+        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True, num_threads=n_jobs)
         
         # Calculate noise reduction
         if mask is not None:
@@ -98,15 +107,19 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             
         return out_file, noise_map
 
-def nlmeans(in_file: Path, out_file: Path, mask: Optional[Path]=None, sigma: float=None, patch_radius: int=1, block_radius: int=5, **kwargs):
+def nlmeans(in_file: Path, out_file: Path, mask: Optional[Path]=None, sigma: float=None, patch_radius: int=1, block_radius: int=5, nthreads: int = 1, **kwargs):
     """
     Run Non-Local Means denoising.
     """
     try:
         from dipy.denoise.nlmeans import nlmeans as dipy_nlmeans
         from dipy.denoise.noise_estimate import estimate_sigma
+        from dipy.denoise.denspeed import determine_num_threads
     except ImportError:
          raise ImportError("DIPY is required for nlmeans but not installed.")
+         
+    # Optimize threads
+    n_jobs = determine_num_threads(nthreads)
          
     in_path = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -120,11 +133,11 @@ def nlmeans(in_file: Path, out_file: Path, mask: Optional[Path]=None, sigma: flo
     if sigma is None:
         sigma = estimate_sigma(data, N=0)
 
-    den = dipy_nlmeans(data, sigma=sigma, mask=None, patch_radius=patch_radius, block_radius=block_radius, rician=True)
+    den = dipy_nlmeans(data, sigma=sigma, mask=None, patch_radius=patch_radius, block_radius=block_radius, rician=True, num_threads=n_jobs)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_p)
     return out_p
 
-def gibbs_unring(in_file: Path, out_file: Path, **kwargs):
+def gibbs_unring(in_file: Path, out_file: Path, nthreads: int = 1, **kwargs):
     """
     Run Gibbs unringing.
     """
@@ -142,7 +155,14 @@ def gibbs_unring(in_file: Path, out_file: Path, **kwargs):
     img = nib.load(in_path)
     data = img.get_fdata()
 
-    den = gibbs_removal(data) # slice_axis? n_points? defaults usually ok for full volume
+    # Optimize threads
+    try:
+         from dipy.denoise.denspeed import determine_num_threads
+         n_jobs = determine_num_threads(nthreads)
+    except ImportError:
+         n_jobs = nthreads # Fallback
+
+    den = gibbs_removal(data, num_threads=n_jobs) # slice_axis? n_points? defaults usually ok for full volume
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_p)
     return out_p
 
@@ -237,7 +257,7 @@ def fit_dti(
     mask_file: Optional[Path] = None,
     fit_method: str = "WLLS",
     metrics: list[str] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"],
-    n_cpus: int = 1
+    nthreads: int = 1
 ) -> Dict[str, Path]:
     """
     Fit Diffusion Tensor Imaging (DTI) model using DIPY.
@@ -258,7 +278,7 @@ def fit_dti(
         Method: "WLLS" (Weighted Linear Least Squares), "OLS" (Ordinary), "NLLS" (Non-Linear), "RESTORE".
     metrics : list
         Metrics to calculate: fa, md, ad, rd, color_fa.
-    n_cpus : int
+    nthreads : int
         Number of CPUs to use (not currently fully utilized by standard DIPY fit, but reserved for future parallelization).
     """
     import numpy as np
@@ -301,7 +321,7 @@ def fit_dti(
 
     # Fit
     try:
-        if n_cpus > 1:
+        if nthreads > 1:
             # Parallel Fit
             # 1. Flatten data within mask
             data_flat = data[mask]
@@ -309,7 +329,7 @@ def fit_dti(
             # 2. Chunk data
             n_samples = data_flat.shape[0]
             if n_samples > 0:
-                chunk_size = int(np.ceil(n_samples / n_cpus))
+                chunk_size = int(np.ceil(n_samples / nthreads))
                 chunks = [data_flat[i:i + chunk_size] for i in range(0, n_samples, chunk_size)]
                 
                 # 3. Prepare args
@@ -321,7 +341,7 @@ def fit_dti(
                 args_list = [(chunk, gtab, fit_method, worker_kwargs) for chunk in chunks]
                 
                 # 4. Run in parallel
-                with multiprocessing.Pool(processes=n_cpus) as pool:
+                with multiprocessing.Pool(processes=nthreads) as pool:
                     results = pool.starmap(_dti_fit_worker, args_list)
                     
                 # 5. Reassemble
@@ -415,7 +435,7 @@ def fit_dki(
     bvec_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     metrics: list[str] = ["mk", "ak", "rk", "fa", "md"],
-    n_cpus: int = 1,
+    nthreads: int = 1,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -450,7 +470,7 @@ def fit_dki(
     
     # Fit
     try:
-        if n_cpus > 1:
+        if nthreads > 1:
             import multiprocessing
             # Parallel Fit
             # 1. Flatten data within mask
@@ -462,7 +482,7 @@ def fit_dki(
             # 2. Chunk data
             n_samples = data_flat.shape[0]
             if n_samples > 0:
-                chunk_size = int(np.ceil(n_samples / n_cpus))
+                chunk_size = int(np.ceil(n_samples / nthreads))
                 chunks = [data_flat[i:i + chunk_size] for i in range(0, n_samples, chunk_size)]
                 
                 # 3. Prepare args
@@ -471,7 +491,7 @@ def fit_dki(
                 args_list = [(chunk, gtab, {}) for chunk in chunks]
                 
                 # 4. Run in parallel
-                with multiprocessing.Pool(processes=n_cpus) as pool:
+                with multiprocessing.Pool(processes=nthreads) as pool:
                     results = pool.starmap(_dki_fit_worker, args_list)
                     
                 # 5. Reassemble
@@ -545,7 +565,7 @@ def fit_mapmri(
     positivity: bool = True,
     global_constraints: bool = False,
     metrics: list[str] = ["rtop", "rtap", "rtpp", "qiv", "msd"],
-    n_cpus: int = 1
+    nthreads: int = 1
 ) -> Dict[str, Path]:
     """
     Fit MAP-MRI model.

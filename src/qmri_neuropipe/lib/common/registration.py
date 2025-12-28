@@ -204,8 +204,11 @@ class CoregistrationStep(BaseProcessingStep):
                  self.logger.debug(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, In Shape={in_shape}, Out Shape={out_shape}")
                  should_run = False
                  
+        # Get nthreads from kwargs or config
+        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        
         if should_run:
-            self.logger.info(f"Running {self.method} coregistration...")
+            self.logger.info(f"Running {self.method} coregistration with {nthreads} threads...")
             
             # --- Output Resolution Handling ---
             # Check for output_resolution option ('anatomical' [default] or 'dwi'/'native')
@@ -224,7 +227,7 @@ class CoregistrationStep(BaseProcessingStep):
                          if interpolator == 'nearest': interpolator = 'nearestNeighbor'
                          elif interpolator == 'cubic': interpolator = 'bspline'
                          
-                         ants.resample_to_image(target, in_path, resampled_target, interpolator=interpolator)
+                         ants.resample_to_image(target, in_path, resampled_target, interpolator=interpolator, nthreads=nthreads)
                          
                     elif self.method == 'fsl':
                         # FLIRT: trilinear, nearestneighbour, sinc, spline
@@ -279,6 +282,7 @@ class CoregistrationStep(BaseProcessingStep):
                         out_prefix=output_transform, 
                         transform_type=transform_type,
                         interpolator=interpolator,
+                        nthreads=nthreads,
                         **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation']}
                     )
 
@@ -296,7 +300,8 @@ class CoregistrationStep(BaseProcessingStep):
                              out_file=output_img,
                              transforms=prefix, # Now prefix IS the list of transforms
                              interpolator=interpolator, 
-                             imagetype=3 # 3 = Time Series (4D)
+                             imagetype=3, # 3 = Time Series (4D)
+                             nthreads=nthreads
                          )
                     else:
                         # Standard 3D copy

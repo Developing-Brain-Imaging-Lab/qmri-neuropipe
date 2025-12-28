@@ -234,11 +234,25 @@
         {% if anat.outputs %}
         <div class="sub-section">
             <h3>Final Outputs</h3>
+
+            {% if anat.outputs is mapping %}
+            {% for category, items in anat.outputs.items() %}
+            {% if items %}
+            <h4>{{ category }}</h4>
+            <div class="step-details">
+                {% for out in items %}
+                <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% else %}
             <div class="step-details">
                 {% for out in anat.outputs %}
                 <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -345,11 +359,25 @@
         {% if dmri.outputs %}
         <div class="sub-section">
             <h3>Final Outputs</h3>
+
+            {% if dmri.outputs is mapping %}
+            {% for category, items in dmri.outputs.items() %}
+            {% if items %}
+            <h4>{{ category }}</h4>
+            <div class="step-details">
+                {% for out in items %}
+                <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% else %}
             <div class="step-details">
                 {% for out in dmri.outputs %}
                 <span class="step-param"><span class="step-param-key">{{ out.key }}:</span> {{ out.path }}</span>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
         {% endif %}
 

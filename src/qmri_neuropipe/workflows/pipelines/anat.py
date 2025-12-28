@@ -701,7 +701,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             # Add Output Paths to Summary
             if final_output_dir:
-                 anat_outputs = []
+                 anat_outputs = {
+                     "Final Preprocessed Images": [],
+                     "Modeling Derivatives": [],
+                     "Normalized Derivatives": [],
+                     "Segmentation Outputs": []
+                 }
                  
                  # T1w Path
                  pre_t1 = context.get("preprocessed_t1w")
@@ -710,7 +715,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                      ents['desc'] = 'preproc'
                      if 'suffix' not in ents: ents['suffix'] = 'T1w'
                      t1_path = final_output_dir / build_bids_name(ents)
-                     anat_outputs.append({"key": "Preprocessed T1w", "path": str(t1_path)})
+                     anat_outputs["Final Preprocessed Images"].append({"key": "Preprocessed T1w", "path": str(t1_path)})
                  
                  # T2w Path
                  pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
@@ -719,7 +724,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                      ents['desc'] = 'preproc'
                      if 'suffix' not in ents: ents['suffix'] = 'T2w'
                      t2_path = final_output_dir / build_bids_name(ents)
-                     anat_outputs.append({"key": "Preprocessed T2w", "path": str(t2_path)})
+                     anat_outputs["Final Preprocessed Images"].append({"key": "Preprocessed T2w", "path": str(t2_path)})
                      
                  # Mask Path
                  mask_img = context.get("brain_mask")
@@ -728,7 +733,20 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                      ents['desc'] = 'preproc'
                      ents['suffix'] = 'mask'
                      mask_path = final_output_dir / build_bids_name(ents)
-                     anat_outputs.append({"key": "Brain Mask", "path": str(mask_path)})
+                     anat_outputs["Segmentation Outputs"].append({"key": "Brain Mask", "path": str(mask_path)})
+                 
+                 # Scan for Intermediate Outputs (Normalized, Segmentation, Coreg)
+                 # Normalized
+                 for f in final_output_dir.glob("*desc-norm*.nii.gz"):
+                      anat_outputs["Normalized Derivatives"].append({"key": f.name, "path": str(f)})
+                 
+                 # Segmentation
+                 for f in final_output_dir.glob("*dseg*.nii.gz"):
+                      anat_outputs["Segmentation Outputs"].append({"key": f.name, "path": str(f)})
+                 for f in final_output_dir.glob("*probseg*.nii.gz"):
+                      anat_outputs["Segmentation Outputs"].append({"key": f.name, "path": str(f)})
+                 for f in final_output_dir.glob("*5tt*.nii.gz"):
+                      anat_outputs["Segmentation Outputs"].append({"key": f.name, "path": str(f)})
                  
                  if reporter and anat_outputs:
                      reporter.set_anat_outputs(anat_outputs)

@@ -28,6 +28,7 @@ from qmri_neuropipe.interfaces.mriqc import run_mriqc
 from qmri_neuropipe.lib.reporting.report import ReportGenerator
 from qmri_neuropipe.lib.dmri.outliers import OutlierRemovalStep
 from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
+from qmri_neuropipe.lib.dmri.motion import NiiFreezeStep
 from ...lib.dmri.fitting import DTIFittingStep, DKIFittingStep, NODDIFittingStep, SANDIFittingStep, MAPMRIFittingStep, CSDFittingStep
 import time
 # Rich and Viz imports moved to local scope
@@ -151,11 +152,28 @@ class PreprocessingWorkflow(BaseWorkflow):
                 method=method
             ))
             
-        # 4. Eddy Current Correction
-        eddy_cfg = dmri_cfg.get('eddy', {})
-        run_eddy = eddy_cfg.get('enabled', True)
-        if run_eddy:
-             method = eddy_cfg.get('method', 'eddy')
+        # 4. Motion / Eddy Current Correction Strategy
+        # New config priority: dmri.preprocessing.motion_correction
+        # Fallback to legacy: dmri.preprocessing.eddy
+        
+        motion_cfg = dmri_cfg.get('motion_correction', {})
+        legacy_eddy_cfg = dmri_cfg.get('eddy', {})
+        
+        # Determine method: 'eddy', 'niifreeze', 'none'
+        motion_method = motion_cfg.get('method')
+        
+        # Backward compatibility: if not set, check legacy eddy enabled
+        if not motion_method:
+             if legacy_eddy_cfg.get('enabled', True):
+                 motion_method = 'eddy'
+             else:
+                 motion_method = 'none'
+
+        run_eddy = False 
+        
+        if motion_method == 'eddy':
+             run_eddy = True
+             method = legacy_eddy_cfg.get('method', 'eddy')
              self.logger.info(f"Adding EddyCorrectionStep (method={method})")
              self.add_step(EddyCorrectionStep(
                 config=self.config, 
@@ -163,19 +181,30 @@ class PreprocessingWorkflow(BaseWorkflow):
                 provenance=self.provenance,
                 method=method
             ))
-
-        # 4.6 Eddy QC (Quad) - Automatic if eddy is run
-        # User requested: if eddy is run, then eddy_quad should also be run
-        if run_eddy:
-             # Ensure method is compatible (fsl eddy)
-             eddy_method = eddy_cfg.get('method', 'eddy')
-             if eddy_method == 'eddy':
-                 self.logger.info("Adding EddyQuadStep (Automatic with Eddy)")
-                 self.add_step(EddyQuadStep(
-                     config=self.config,
-                     logger=self.logger,
-                     provenance=self.provenance
-                 ))
+            
+             # 4.6 Eddy QC (Quad) - Automatic if eddy is run (FSL only)
+             if method == 'eddy':
+                  self.logger.info("Adding EddyQuadStep (Automatic with Eddy)")
+                  self.add_step(EddyQuadStep(
+                      config=self.config,
+                      logger=self.logger,
+                      provenance=self.provenance
+                  ))
+                  
+        elif motion_method == 'niifreeze':
+             self.logger.info("Adding NiiFreezeStep (motion correction)")
+             self.add_step(NiiFreezeStep(
+                 config=self.config
+                 # Config might need merge or passed directly? 
+                 # BaseProcessingStep uses self.config. 
+                 # We can pass specific options via config dict if needed, 
+                 # but usually config object has everything.
+             ))
+             
+        elif motion_method == 'none':
+             self.logger.info("Motion correction disabled.")
+        else:
+             self.logger.warning(f"Unknown motion correction method '{motion_method}'. Skipping.")
 
         # 4.5 Outlier Removal
         outlier_cfg = dmri_cfg.get('outliers', {})
@@ -557,10 +586,49 @@ class PreprocessingWorkflow(BaseWorkflow):
          if curr_img and hasattr(curr_img, "img") and curr_img.img.exists():
              src_dir = curr_img.img.parent
              if src_dir != output_dir and output_dir in src_dir.parents:
-                  step_folder_name = src_dir.name
-                  target_step_dir = inter_dir / step_folder_name
                   shutil.copytree(src_dir, target_step_dir, dirs_exist_ok=True)
                   self.logger.info(f"Saved intermediate directory: {target_step_dir}")
+
+    def recover_intermediates(self, work_dir: Path, output_dir: Path):
+        """
+        Recover intermediate data from the final output directory back to the working directory.
+        This allows the pipeline to skip steps that were previously computed and saved.
+        """
+        import shutil
+        
+        # Define what intermediates we expect to recover
+        # Step classes save to specific subfolders in intermediate/
+        # e.g. topup/ -> intermediate/topup/
+        # synb0/ -> intermediate/synb0/
+        # eddy/ -> intermediate/eddy/ (not usually saved as intermediate, but could be)
+        
+        self.logger.info("Attempting to recover intermediate data...")
+        
+        # Construct paths
+        # output_dir (final_dwi_dir) / intermediate
+        intermediate_store = output_dir / "intermediate"
+        
+        if not intermediate_store.exists():
+            self.logger.debug(f"No intermediate storage found at {intermediate_store}")
+            return
+            
+        # 1. Topup
+        if (intermediate_store / "topup").exists():
+            target_work = work_dir / "topup"
+            if not target_work.exists():
+                self.logger.info(f"Recovering Topup results from {intermediate_store / 'topup'}")
+                shutil.copytree(intermediate_store / "topup", target_work, dirs_exist_ok=True)
+                
+        # 2. Synb0
+        if (intermediate_store / "synb0").exists():
+            target_work = work_dir / "synb0"
+            if not target_work.exists():
+                self.logger.info(f"Recovering Synb0 results from {intermediate_store / 'synb0'}")
+                shutil.copytree(intermediate_store / "synb0", target_work, dirs_exist_ok=True)
+
+        # 3. Eddy? or Gradient Nonlinearity?
+        # Add more as needed based on what _save_global_intermediate saves.
+
 
     def _report_step(self, reporter, step, dwi, prev_img, current_arg, target_img, figures_dir, step_kwargs=None):
          # Extract reporting logic
@@ -1565,6 +1633,15 @@ class DMRIPipeline(BasePipeline):
         
         # 6. Run preprocessing workflow (writing to WORK DIR)
         
+        # Attempt to recover intermediates BEFORE checking for final preproc skip
+        # This helps if we resume a run that crashed halfway or if we are re-running with some steps enabled.
+        # But if we skip the whole pipeline below, this recovery is moot but harmless.
+        # However, calling it here allows steps to see files in work_dir immediately.
+        
+        dwi_final_dir = self._get_output_dir(subject, session) / 'dwi'
+        if self.config.get("save_intermediates", False):
+             self.preprocessing.recover_intermediates(subj_work_dir, dwi_final_dir)
+
         # Check if preprocessing is already done (outputs exist in FINAL output_dir)
         # We need to reconstruct the expected final filename for the first DWI
         # This is heuristics since we usually process multiple DWIs merged or single.
@@ -1749,10 +1826,15 @@ class DMRIPipeline(BasePipeline):
             preprocessed_masks = [None] * len(preprocessed_dwis)
         
         from qmri_neuropipe.io.bids import build_bids_name
-        
-        # Collect final outputs for report
-        dmri_outputs = []
-
+        # Collecting Outputs for Report
+        dmri_outputs = {
+            "Final Preprocessed Images": [],
+            "Modeling Derivatives": [],
+            "Normalized Derivatives": [],
+            "Segmentation Outputs": []
+        }
+            
+        # 1. Output Preprocessed DWI
         for d, mask in zip(preprocessed_dwis, preprocessed_masks):
             # Force desc='preproc'
             final_entities = dict(d.entities)
@@ -1791,66 +1873,53 @@ class DMRIPipeline(BasePipeline):
                     self.logger.info(f"Saving Final Brain Mask: {mask.img.name} -> {mask_dest}")
                     shutil.copy(mask.img, mask_dest)
                 
-                # Add to Outputs (mask)
-                dmri_outputs.append({"key": "Brain Mask", "path": str(mask_dest)})
+                # Add to Outputs (mask) -> Segmentation Outputs
+                dmri_outputs["Segmentation Outputs"].append({"key": "Brain Mask", "path": str(mask_dest)})
             
-            # Add Preproc Output
-            dmri_outputs.append({"key": "Preprocessed DWI", "path": str(dest_path)})
-            if d.bval: dmri_outputs.append({"key": "Bval", "path": str(dest_path.with_suffix("").with_suffix(".bval"))})
-            if d.bvec: dmri_outputs.append({"key": "Bvec", "path": str(dest_path.with_suffix("").with_suffix(".bvec"))})
+            # Add Preproc Output -> Final Preprocessed Images
+            dmri_outputs["Final Preprocessed Images"].append({"key": "Preprocessed DWI", "path": str(dest_path)})
+            if d.bval: dmri_outputs["Final Preprocessed Images"].append({"key": "Bval", "path": str(dest_path.with_suffix("").with_suffix(".bval"))})
+            if d.bvec: dmri_outputs["Final Preprocessed Images"].append({"key": "Bvec", "path": str(dest_path.with_suffix("").with_suffix(".bvec"))})
 
-            # 3. Copy Model Outputs (if any)
-            # Scan work_dir/modeling/dti, work_dir/modeling/dki, etc.
-            # Folder names in fitting.py: DTI, DKI, NODDI, sandi, mapmri, CSD
-            # We must match these names (case-sensitive) or just scan all folders in modeling?
-            # Safest is to iterate known folders.
+            # 3. Copy Model Outputs (if any) AND Report
+            # Scan output_dir/models for results (whether newly processed or existing)
+            models_root = output_dir / "models"
             
+            # Also check work_dir for new results to copy if they exist and aren't in output yet
+            # (Though skipping logic usually handles this, let's ensure we report whatever is KEY)
+            
+            # First, ensure any NEW results in work_dir are copied (if not skipped)
             modeling_work = subj_work_dir / "modeling"
-            norm_work = subj_work_dir / "normalization" # Normalization is sibling to modeling usually?
-            # NormalizationStep puts outputs into output_dir.parent / "normalization".
-            # If modeling run() passed staging_dir = work_dir/modeling, output_dir.parent is work_dir.
-            # So outputs are in work_dir/normalization
-            
             model_folders = ['DTI', 'DKI', 'NODDI', 'sandi', 'mapmri', 'CSD']
-            
-            # Copy Normalization Results first or logic?
-            # Copy Normalization Results (handled by NormalizationWorkflow, but check if manual needed if workflow skipped?)
-            # NormalizationWorkflow handles copying to final_output_dir.
-            # If we want to be safe, we can leave this or remove it.
-            # Removing redundant copy as Workflow handles it.
-
             
             if modeling_work.exists():
                 for model_folder in model_folders:
                     src_model_dir = modeling_work / model_folder
                     if src_model_dir.exists():
-                         # Ensure destination subfolder exists (in output_dir/models)
                          dest_dir = output_dir / "models" / model_folder
                          dest_dir.mkdir(exist_ok=True, parents=True)
-                         
                          for f in src_model_dir.glob("*.nii.gz"):
                              dest = dest_dir / f.name
                              if not dest.exists() or not self.config.skip_existing:
                                  self.logger.info(f"Saving {model_folder} Map: {f.name}")
                                  shutil.copy(f, dest)
-                                 
-                                 # Report
-                                 # Key: DTI FA, NODDI ODI, etc.
-                                 # parse suffix
-                                 name_part = f.name.replace('.nii.gz', '')
-                                 suffix = name_part.split('_')[-1]
-                                 if 'model-' in f.name:
-                                      # Try to get nicer key
-                                      pass
-                                 dmri_outputs.append({"key": f"{model_folder} {suffix}", "path": str(dest)})
-
-                                 # Copy sidecar
-                                 json_src = f.with_suffix("").with_suffix(".json") # .nii.gz -> .json
+                                 # Sidecar
+                                 json_src = f.with_suffix("").with_suffix(".json")
                                  if not json_src.exists(): json_src = Path(str(f).replace('.nii.gz', '.json'))
-                                 
                                  if json_src.exists():
-                                     dest_json = dest_dir / json_src.name
-                                     shutil.copy(json_src, dest_json)
+                                     shutil.copy(json_src, dest_dir / json_src.name)
+
+            # NOW SCAN output_dir/models for Report
+            if models_root.exists():
+                 for model_dir in models_root.iterdir():
+                      if model_dir.is_dir():
+                           model_name = model_dir.name # e.g. DTI
+                           for f in model_dir.glob("*.nii.gz"):
+                                # Report
+                                name_part = f.name.replace('.nii.gz', '')
+                                suffix = name_part.split('_')[-1]
+                                key_name = f"{model_name} {suffix}"
+                                dmri_outputs["Modeling Derivatives"].append({"key": key_name, "path": str(f)})
                                      
             # 4. Normalization Outputs (Scanning)
             norm_dir = output_dir / "normalization"
@@ -1871,7 +1940,7 @@ class DMRIPipeline(BasePipeline):
                       key_name = f"Normalized {suffix} ({space})"
                       if 'desc-warp' in name: key_name = f"Warp Field ({space})"
                       
-                      dmri_outputs.append({"key": key_name, "path": str(f)})
+                      dmri_outputs["Normalized Derivatives"].append({"key": key_name, "path": str(f)})
             
             # 5. Add to Reporter and Generate
             if reporter:

@@ -51,11 +51,16 @@ class BrainMaskingStep(BaseProcessingStep):
         logger: Optional[logging.Logger] = None,
         provenance=None,
         method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip"] = "fsl",
-        n_threads: int = 1,
+        nthreads: int = 1,
     ):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.n_threads = n_threads
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
+        
         self._check_dependencies()
         self.logger.info(f"BrainMaskingStep initialized with method: {method}")
 
@@ -150,6 +155,9 @@ class BrainMaskingStep(BaseProcessingStep):
              else:
                  should_skip = True
         
+        # Override nthreads from kwargs if provided
+        nthreads = kwargs.get('nthreads', self.nthreads)
+        
         if should_skip:
              self.logger.info(f"Skipping brain masking (outputs exist): {masked_path}")
              if is_dwi:
@@ -227,12 +235,12 @@ class BrainMaskingStep(BaseProcessingStep):
              # Note: dwi2mask logic is complex. If pure b0, maybe use mrthreshold?
              # But let's try dwi2mask on the extracted b0 if possible, or fallback to dwi2mask on full input if that's what makes sense.
              # "ensure ... using the first volume" -> I will use tool_input (b0).
-             mrtrix.dwi2mask(in_file=tool_input, out_file=mask_generated_path, nthreads=self.n_threads)
+             mrtrix.dwi2mask(in_file=tool_input, out_file=mask_generated_path, nthreads=nthreads)
 
         elif self.method == "ants":
              # antsBrainExtraction.sh -d 3 ...
              # expects 3D input. tool_input is correct.
-             ants.ants_brain_extraction(in_file=tool_input, out_file=tool_brain_out, nthreads=self.n_threads, mask_out=mask_generated_path)
+             ants.ants_brain_extraction(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
 
         elif self.method == "freesurfer":
              if hasattr(freesurfer, 'mri_watershed'):
@@ -249,7 +257,7 @@ class BrainMaskingStep(BaseProcessingStep):
                  pass
 
         elif self.method == "synthstrip":
-             freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, n_threads=self.n_threads, mask_out=mask_generated_path)
+             freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
         
         else:
              raise ProcessingError(f"Unsupported method: {self.method}")
@@ -329,7 +337,7 @@ def mask_brain(
     input_image: ImageLike | Path,
     output_dir: Path,
     method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip"] = "fsl",
-    n_threads: int = 1,
+    nthreads: int = 1,
     return_mask: bool = False,
 ) -> ImageFile | Tuple[ImageFile, ImageFile]:
     """Quick brain‑masking without building a full pipeline.
@@ -339,5 +347,5 @@ def mask_brain(
     the resulting ``ImageFile``.
     """
     # ``None`` config/provenance are acceptable for a one‑off call.
-    step = BrainMaskingStep(config={}, method=method, n_threads=n_threads)
+    step = BrainMaskingStep(config={'n_cpus': nthreads}, method=method, nthreads=nthreads)
     return step.run(first_arg=input_image, output_dir=output_dir, return_mask=return_mask)

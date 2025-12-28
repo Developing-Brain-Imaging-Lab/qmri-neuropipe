@@ -16,12 +16,12 @@ def fit_noddi(
     bvec_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     metrics: list[str] = ["odi", "ficvf", "fiso"],
-    n_cpus: int = 1
+    nthreads: int = 1
 ) -> Dict[str, Path]:
     """
     Fit NODDI model using Dmipy.
     
-    n_cpus : int
+    nthreads : int
         Number of CPUs for parallel processing.
     """
     # Imports for NODDI
@@ -128,9 +128,9 @@ def fit_noddi(
     # Just linking orientation/dispersion is a strong enough constraint for "NODDI-like".
     
     # --- FIT ---
-    print(f"Fitting NODDI (Dmipy) with {n_cpus} CPUs...")
+    print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
     # fit returns a MicrostructureFit object
-    fit_results = noddi.fit(gtab, data, mask=mask_data, n_jobs=n_cpus)
+    fit_results = noddi.fit(gtab, data, mask=mask_data, n_jobs=nthreads)
     
     # --- Extract Metrics ---
     # ODI

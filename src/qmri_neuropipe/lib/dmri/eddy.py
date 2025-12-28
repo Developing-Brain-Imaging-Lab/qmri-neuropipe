@@ -265,6 +265,9 @@ class EddyCorrectionStep(BaseProcessingStep):
                      # Persist for QC
                      context["current_mask"] = mask
         
+        # Fetch nthreads
+        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        
         try:
             if self.method == 'eddy-correct':
                 ecc = fsl.eddy_correct(in_file=input_img, 
@@ -279,7 +282,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                     acqp=acqp,
                     index=index,
                     extra_opts=extra_opts,
-                    nthreads=self.config.n_cpus,
+                    nthreads=nthreads,
                     **kwargs,
                 )
             elif self.method == 'two-pass':

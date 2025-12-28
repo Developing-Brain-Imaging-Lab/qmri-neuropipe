@@ -297,7 +297,7 @@ class GibbsUnringingStep(BaseProcessingStep):
 
 
 # Convenience function for quick denoising
-def gibss_unringing(input_img: Path, output_img: Path, method: str = 'dipy', mask: Optional[Path] = None, **kwargs) -> Path:
+def gibbs_unringing(input_img: Path, output_img: Path, method: str = 'dipy', mask: Optional[Path] = None, **kwargs) -> Path:
     """
     Convenience function for quick gibbs unringing without full pipeline setup.
     
@@ -312,9 +312,9 @@ def gibss_unringing(input_img: Path, output_img: Path, method: str = 'dipy', mas
         Path to denoised image
     
     Example:
-        >>> from qmri_neuropipe.processing.common.gibbs import gibss_unringing
+        >>> from qmri_neuropipe.processing.common.gibbs import gibbs_unringing
         >>> 
-        >>> corrected = gibss_unringing(
+        >>> corrected = gibbs_unringing(
         ...     input_img=Path('dwi.nii.gz'),
         ...     output_img=Path('denoised.nii.gz'),
         ...     method='dipy'
