@@ -35,7 +35,7 @@ def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str 
         return out_file
 
     os.environ['OMP_NUM_THREADS'] = str(nthreads)
-    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model, num_threads=nthreads)
+    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
