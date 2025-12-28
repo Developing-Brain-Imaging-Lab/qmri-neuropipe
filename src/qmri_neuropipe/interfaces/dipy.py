@@ -1,5 +1,5 @@
 from pathlib import Path
-import json
+import os, json
 from typing import Optional, Literal, Tuple, Dict, Any, Union
 import numpy as np
 import nibabel as nib
