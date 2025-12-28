@@ -82,7 +82,7 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             mask = None
         
         # Run MP-PCA
-        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True, num_processes=n_jobs)
+        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True)
         
         # Calculate noise reduction
         if mask is not None:
