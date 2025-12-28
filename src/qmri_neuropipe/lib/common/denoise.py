@@ -263,11 +263,15 @@ class DenoisingStep(BaseProcessingStep):
                         # Ensure input is DWI and has bval
                         if not isinstance(input_img, DWIFile) or not input_img.bval:
                             raise ProcessingError("Patch2Self requires DWI data with bval file")
-                        
+                            
+                        # Warn about unused patch_radius
+                        if self.patch_radius != 2: # Default is 2 in Config/Init, but DIPY v3 ignores it.
+                             self.logger.warning("patch_radius is ignored by Patch2Self (auto-determined).")
+
                         denoised = dipy.patch2self(in_file=input_img.img,
                                                    out_file=output_img_path,
                                                    bval_file=input_img.bval,
-                                                   patch_radius=self.patch_radius,
+                                                   # patch_radius=self.patch_radius, # Unused in v3
                                                    model=model,
                                                    nthreads=nthreads,
                                                    **kwargs)

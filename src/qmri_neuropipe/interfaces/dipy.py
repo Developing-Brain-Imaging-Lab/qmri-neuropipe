@@ -9,7 +9,7 @@ from ..core.utils import extract_image_path, ensure_dir
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
 
-def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: int = 1, model: str = "ridge", nthreads: int = 1):
+def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: Optional[int] = None, model: str = "ridge", nthreads: int = 1):
     """
         Run Patch2Self denoising.
         
@@ -43,7 +43,7 @@ def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: int
 
     os.environ['OMP_NUM_THREADS'] = str(nthreads)
     # patch2self signature: data, bvals, ...
-    den = p2s(img.get_fdata(), bvals, patch_radius=patch_radius, b0_threshold=50, model=model)
+    den = p2s(img.get_fdata(), bvals, b0_threshold=50, model=model)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
