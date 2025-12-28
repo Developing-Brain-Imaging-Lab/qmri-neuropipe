@@ -9,29 +9,53 @@ The following tools must be installed and accessible in your system path:
 *   [MRtrix3](https://www.mrtrix.org/) (e.g., `dwidenoise`, `mrdegibbs`)
 *   [ANTs](http://stnava.github.io/ANTs/) (e.g., `N4BiasFieldCorrection`, `antsRegistration`)
 
-## Python Installation
+## Setting up the Environment
 
-1.  **Clone the repository:**
+It is highly recommended to use a virtual environment to manage dependencies and avoid conflicts. You can use either **Conda** or Python's built-in **venv**.
+
+### Option 1: Using Conda (Recommended)
+
+1.  **Install Miniforge or Anaconda**: [Download Miniforge](https://github.com/conda-forge/miniforge) (lighter) or [Anaconda](https://www.anaconda.com/products/distribution).
+2.  **Create a new environment**:
     ```bash
-    git clone https://github.com/Developing-Brain-Imaging-Lab/qmri-neuropipe.git
-    cd qmri-neuropipe
+    conda create -n qmri python=3.10
+    ```
+3.  **Activate the environment**:
+    ```bash
+    conda activate qmri
+    ```
+4.  **Install the pipeline**:
+    ```bash
+    # Ensure you are in the repository root
+    pip install -e .
     ```
 
-2.  **Create a virtual environment (recommended):**
+### Option 2: Using venv
+
+1.  **Create a virtual environment**:
     ```bash
     python -m venv venv
-    source venv/bin/activate
     ```
-
-3.  **Install the package:**
-    ```bash
-    pip install .
-    ```
-
-    Or for development (editable mode):
+2.  **Activate the environment**:
+    *   **Linux/macOS**:
+        ```bash
+        source venv/bin/activate
+        ```
+    *   **Windows**:
+        ```bash
+        venv\Scripts\activate
+        ```
+3.  **Install the pipeline**:
     ```bash
     pip install -e .
     ```
+
+## Installation Options
+
+*   **Editable Install (Development)**:
+    Use `pip install -e .` to install the package in editable mode. Changes to the source code will be immediately reflected without re-installing.
+*   **Standard Install**:
+    Use `pip install .` for a static installation.
 
 ## Verify Installation
 
