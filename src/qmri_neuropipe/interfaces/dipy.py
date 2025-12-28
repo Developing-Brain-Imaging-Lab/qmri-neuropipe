@@ -66,8 +66,6 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
         # Optimize threads
         n_jobs = determine_num_threads(nthreads)
              
-
-
         if out_file.exists() and (not noise_map or noise_map.exists()):
             return out_file, (noise_map if noise_map else None)
         
@@ -84,7 +82,7 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             mask = None
         
         # Run MP-PCA
-        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True, num_threads=n_jobs)
+        denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, return_sigma=True, num_processes=n_jobs)
         
         # Calculate noise reduction
         if mask is not None:
@@ -162,7 +160,7 @@ def gibbs_unring(in_file: Path, out_file: Path, nthreads: int = 1, **kwargs):
     except ImportError:
          n_jobs = nthreads # Fallback
 
-    den = gibbs_removal(data, num_threads=n_jobs) # slice_axis? n_points? defaults usually ok for full volume
+    den = gibbs_removal(data, num_processes=n_jobs) # slice_axis? n_points? defaults usually ok for full volume
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_p)
     return out_p
 
