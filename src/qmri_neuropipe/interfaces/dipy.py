@@ -65,6 +65,8 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
              
         # Optimize threads
         n_jobs = determine_num_threads(nthreads)
+        print(n_jobs)
+        print(nthreads)
              
         if out_file.exists() and (not noise_map or noise_map.exists()):
             return out_file, (noise_map if noise_map else None)
