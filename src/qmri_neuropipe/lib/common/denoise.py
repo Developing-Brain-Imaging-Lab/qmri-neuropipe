@@ -65,7 +65,8 @@ class DenoisingStep(BaseProcessingStep):
         provenance = None,
         method: Literal['mrtrix', 'ants', 'mppca', 'nlmeans', 'wavelets', 'gaussian'] = 'mrtrix',
         patch_radius: int = 2,
-        block_radius: int = 5
+        block_radius: int = 5,
+        pca_method: str = 'eig',
     ):
         """
         Initialize denoising step.
@@ -86,6 +87,7 @@ class DenoisingStep(BaseProcessingStep):
         self.method = method
         self.patch_radius = patch_radius
         self.block_radius = block_radius
+        self.pca_method = pca_method
         
 
         
@@ -249,12 +251,16 @@ class DenoisingStep(BaseProcessingStep):
                 # Limit threads for BLAS/OpenMP operations
                 with threadpool_limits(limits=nthreads):
                     if self.method == 'mppca':
+                        # Fetch pca_method from kwargs OR use instance default (from config/init)
+                        pca_method = kwargs.get('pca_method', self.pca_method)
+                        
                         denoised, noise = dipy.mppca(in_file=input_img.img, 
                                                      out_file=output_img_path, 
                                                      mask=mask,
                                                      noise_map=noise_map_path,
                                                      patch_radius=self.patch_radius,
                                                      block_radius=self.block_radius,
+                                                     pca_method=pca_method,
                                                      nthreads=nthreads,
                                                      **kwargs)
                     elif self.method == 'nlmeans':

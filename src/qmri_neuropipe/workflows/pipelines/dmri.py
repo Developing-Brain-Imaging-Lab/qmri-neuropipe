@@ -130,14 +130,17 @@ class PreprocessingWorkflow(BaseWorkflow):
         denoise_cfg = dmri_cfg.get('denoising', {})
         if denoise_cfg.get('enabled', True):
             method = denoise_cfg.get('method', 'mrtrix')
+            params = denoise_cfg.get('parameters', {})
+            
             self.logger.info(f"Adding DenoisingStep (method={method})")
             self.add_step(DenoisingStep(
                 config=self.config, 
                 logger=self.logger, 
                 provenance=self.provenance,
                 method=method,
-                patch_radius=denoise_cfg.get('patch_radius', 2),
-                block_radius=denoise_cfg.get('block_radius', 5)
+                patch_radius=params.get('patch_radius') or denoise_cfg.get('patch_radius', 2),
+                block_radius=params.get('block_radius') or denoise_cfg.get('block_radius', 5),
+                pca_method=params.get('pca_method') or denoise_cfg.get('pca_method', 'eig')
             ))
             
         # 3. Gibbs Unringing
@@ -669,6 +672,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                      details["Patch Radius"] = str(step.patch_radius)
                      if step.method == 'mppca':
                          details["Block Radius"] = str(step.block_radius)
+                         details["PCA Method"] = step.pca_method
                          
                  fig_out = figures_dir / f"denoise_comp_{stem}.png"
                  if prev_img and curr_img_obj:
