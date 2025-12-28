@@ -67,6 +67,7 @@ class DenoisingStep(BaseProcessingStep):
         patch_radius: int = 2,
         block_radius: int = 5,
         pca_method: str = 'eig',
+        model: str = 'ridge',
     ):
         """
         Initialize denoising step.
@@ -88,6 +89,7 @@ class DenoisingStep(BaseProcessingStep):
         self.patch_radius = patch_radius
         self.block_radius = block_radius
         self.pca_method = pca_method    
+        self.model = model
         self.logger.info(f"Initialized denoising with method: {method}")
     
 
@@ -257,9 +259,11 @@ class DenoisingStep(BaseProcessingStep):
                                                      nthreads=nthreads,
                                                      **kwargs)
                     elif self.method == 'patch2self':
+                        model = kwargs.get('model', self.model)
                         denoised = dipy.patch2self(in_file=input_img.img,
                                                    out_file=output_img_path,
                                                    patch_radius=self.patch_radius,
+                                                   model=model,
                                                    nthreads=nthreads,
                                                    **kwargs)
                         noise = None # Patch2Self wrapper doesn't return noise map

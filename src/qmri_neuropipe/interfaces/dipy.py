@@ -29,16 +29,13 @@ def patch2self(in_file: Path, out_file: Path, patch_radius: int = 1, model: str 
     except ImportError:
          raise ImportError("DIPY is required for patch2self but not installed.")
     
-    # Optimize threads
-    n_jobs = determine_num_threads(nthreads)
-
-
     img = nib.load(in_file)
 
     if out_file.exists():
         return out_file
 
-    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model, num_threads=n_jobs)
+    os.environ['OMP_NUM_THREADS'] = str(nthreads)
+    den = p2s(img.get_fdata(), patch_radius=patch_radius, b0_threshold=50, model=model, num_threads=nthreads)
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
@@ -64,9 +61,6 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
         except ImportError:
              raise ImportError("DIPY is required for mppca but not installed.")
              
-        # Optimize threads
-        n_jobs = determine_num_threads(nthreads)
-             
         if out_file.exists() and (not noise_map or noise_map.exists()):
             return out_file, (noise_map if noise_map else None)
         
@@ -83,7 +77,7 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             mask = None
         
         # Run MP-PCA
-        os.environ['OMP_NUM_THREADS'] = str(n_jobs)
+        os.environ['OMP_NUM_THREADS'] = str(nthreads)
         denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, pca_method=pca_method, return_sigma=True)
         
         # Calculate noise reduction
