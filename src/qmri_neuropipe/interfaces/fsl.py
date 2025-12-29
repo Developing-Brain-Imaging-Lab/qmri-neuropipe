@@ -301,7 +301,18 @@ def eddy(
     if not in_file.bvec or not in_file.bval:
         raise RuntimeError("bvec and bval files are required for eddy.")
 
-    eddy_bin = "eddy_cuda" if cuda else "eddy"
+    # Detect appropriate binary
+    if cuda:
+        eddy_bin = _find_eddy_cuda()
+        if not eddy_bin:
+             raise RuntimeError("CUDA enabled but no 'eddy_cuda*' executable found in PATH or FSLDIR/bin.")
+    else:
+        # Prefer OpenMP version if available
+        eddy_bin = "eddy_openmp" if _which("eddy_openmp") else "eddy"
+        # If neither found, checking just "eddy" will likely fail in run_cmd but that's expected.
+
+    # Fix: Ensure shutil is imported if used later (it is used at line 335)
+    import shutil
     env_parts = ["env", f"CUDA_VISIBLE_DEVICES={cuda_device}"] if cuda else ["env", f"OMP_NUM_THREADS={nthreads}"]
 
     cmd_parts = [
