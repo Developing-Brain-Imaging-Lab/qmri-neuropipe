@@ -3,6 +3,7 @@ from pathlib import Path
 from pathlib import Path
 import os
 import multiprocessing
+import argparse
 from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union
 import nibabel as nib
@@ -12,6 +13,25 @@ from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
+
+def _fit_chunk(args):
+    """
+    Helper function to fit a chunk of data in a separate process.
+    """
+    data_chunk, model, scheme = args
+    
+    # Enforce single-threaded execution within the worker
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    
+    # Fit the chunk
+    # dmipy fit returns a MicrostructureFit object
+    fit_obj = model.fit(scheme, data_chunk)
+    
+    # Return only the parameters dict to minimize pickling
+    return fit_obj.fitted_parameters
 
 def fit_noddi(
     in_file: Union[Path, ImageLike],
@@ -138,14 +158,86 @@ def fit_noddi(
     # For now, we will assume Independent NODDI (or flexible) which is often preferred anyway.
     # Just linking orientation/dispersion is a strong enough constraint for "NODDI-like".
     
-    # --- FIT ---
-    # Optimize parallelization by disabling inner-loop threading
-    # This prevents thread oversubscription when using multiprocessing
-    print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
+    print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs (Custom Parallelization)...")
     
-    with threadpool_limits(limits=1, user_api='blas'):
-        # fit returns a MicrostructureFit object
-        fit_results = noddi.fit(gtab, data, mask=mask_data, number_of_processors=nthreads)
+    # --- Custom Parallelization ---
+    # 1. Prepare Data
+    if mask_data is not None:
+        valid_voxels = data[mask_data] # (N_valid, N_dwis)
+    else:
+        # Flatten all voxels
+        valid_voxels = data.reshape(-1, data.shape[-1])
+        
+    n_voxels = valid_voxels.shape[0]
+    print(f"Total voxels to fit: {n_voxels}")
+    
+    # 2. Split into chunks
+    # Ensure at least one voxel per chunk
+    n_chunks = nthreads
+    chunks = np.array_split(valid_voxels, n_chunks)
+    
+    # Prepare arguments for each chunk
+    # (data_chunk, model, scheme)
+    chunk_args = [(c, noddi, gtab) for c in chunks if c.shape[0] > 0]
+    
+    # 3. Process Config (already set at top of function, but force fork again just in case)
+    try:
+        if multiprocessing.get_start_method() != 'fork':
+             multiprocessing.set_start_method('fork', force=True)
+    except RuntimeError:
+        pass
+        
+    # 4. Run Pool
+    results = []
+    # Use a safe context for pool
+    ctx = multiprocessing.get_context('fork')
+    with ctx.Pool(processes=nthreads) as pool:
+        # map_async is often smoother for UI progress if we added tqdm, but simple map is fine
+        results = pool.map(_fit_chunk, chunk_args)
+        
+    # 5. Reassemble Results
+    # results is a list of dicts. We need to concatenate the arrays for each key.
+    if not results:
+         raise ProcessingError("Fitting failed produced no results.")
+         
+    keys = results[0].keys()
+    merged_params = {}
+    for k in keys:
+        # Concatenate this parameter across all chunks
+        arrays = [res[k] for res in results]
+        merged_params[k] = np.concatenate(arrays, axis=0)
+        
+    # 6. Map back to volume
+    # We create a pseudo-fit-results dict to act like the original object's property
+    fit_results = argparse.Namespace(fitted_parameters={}) 
+    
+    # Repopulate full volume maps
+    # If we used a mask, we need to embed valid voxels back into 3D
+    # If no mask, we just reshape
+    
+    vol_shape = data.shape[:-1]
+    
+    full_maps = {}
+    for k, v in merged_params.items():
+        # v is 1D array of length N_valid (or N_total)
+        
+        # Determine output shape: (X, Y, Z) or (X, Y, Z, M) if parameter is multidimensional?
+        # NODDI params like odi, f_iso are scalars per voxel.
+        # Check shape of v
+        if v.ndim == 1:
+            out_arr = np.zeros(vol_shape, dtype=v.dtype)
+        else:
+            out_arr = np.zeros(vol_shape + (v.shape[1],), dtype=v.dtype)
+            
+        if mask_data is not None:
+             out_arr[mask_data] = v
+        else:
+             out_arr = v.reshape(out_arr.shape)
+             
+        full_maps[k] = out_arr
+        
+    # Assign to our mock object for compatibility with extraction code below
+    fit_results.fitted_parameters = full_maps
     
     # --- Extract Metrics ---
     # ODI
