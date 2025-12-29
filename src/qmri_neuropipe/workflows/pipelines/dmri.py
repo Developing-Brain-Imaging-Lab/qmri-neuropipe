@@ -589,6 +589,7 @@ class PreprocessingWorkflow(BaseWorkflow):
          if curr_img and hasattr(curr_img, "img") and curr_img.img.exists():
              src_dir = curr_img.img.parent
              if src_dir != output_dir and output_dir in src_dir.parents:
+                  target_step_dir = inter_dir / src_dir.name
                   shutil.copytree(src_dir, target_step_dir, dirs_exist_ok=True)
                   self.logger.info(f"Saved intermediate directory: {target_step_dir}")
 
