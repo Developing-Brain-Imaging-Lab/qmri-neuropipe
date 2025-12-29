@@ -16,7 +16,8 @@ def fit_noddi(
     bvec_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     metrics: list[str] = ["odi", "ficvf", "fiso"],
-    nthreads: int = 1
+    nthreads: int = 1,
+    **kwargs
 ) -> Dict[str, Path]:
     """
     Fit NODDI model using Dmipy.
