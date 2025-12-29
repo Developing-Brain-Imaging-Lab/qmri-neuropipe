@@ -60,7 +60,7 @@ def fit_noddi(
     # qmri-neuropipe inputs are likely standard.
     
     # Warning: acquisition_scheme_from_bvalues_bvecs expects bvals in s/mm^2 and bvecs normalized.
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues_bvecs(bvals, bvecs)
+    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals*1e6, bvecs)
     
     # Define Mask
     if mask_file and mask_file.exists():
