@@ -48,6 +48,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         self.steps = []
 
     def build_pipeline(self, context: dict):
+        self.steps = []  # Reset steps
         dwi_files: list[DWIFile] = context.get("dwi_files", [])
         topup_groups = context.get("topup_groups", [])
         
@@ -810,6 +811,9 @@ class ModelingWorkflow(BaseWorkflow):
         self.steps = []
         
     def build_pipeline(self, context: dict):
+        # Reset steps to prevent accumulation across subjects
+        self.steps = []
+        
         modeling_cfg = self.config.get('dmri', {}).get('modeling', {})
         
         # 1. DTI
@@ -1191,6 +1195,7 @@ class NormalizationWorkflow(BaseWorkflow):
         self.steps = []
         
     def build_pipeline(self, context: dict):
+        self.steps = [] # Reset steps
         # Config is now at dmri.normalization level, not dmri.modeling.normalization
         norm_cfg = self.config.get('dmri', {}).get('normalization', {})
         
@@ -1329,6 +1334,7 @@ class SegmentationWorkflow(BaseWorkflow):
         self.steps = []
         
     def build_pipeline(self, context: dict):
+        self.steps = [] # Reset steps
         seg_cfg = self.config.get('dmri', {}).get('segmentation', {})
         
         if seg_cfg.get('enabled', False):
