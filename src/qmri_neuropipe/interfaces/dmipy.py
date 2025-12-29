@@ -105,6 +105,26 @@ def fit_noddi(
     # --- FIT ---
     # Optimize parallelization by disabling inner-loop threading using threadpoolctl
     # This dynamically limits threads for BLAS/OpenMP libraries during the fit
+    # Also attempt to limit Numba threads if used
+    os.environ["NUMBA_NUM_THREADS"] = "1"
+    os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+    
+    try:
+        import numba
+        numba.set_num_threads(1)
+        if hasattr(numba, 'config'):
+            numba.config.THREADING_LAYER = 'workqueue'
+    except ImportError:
+        pass
+
+    # Ensure Pathos pools are clear if used
+    try:
+        import pathos.multiprocessing as mp
+        # resizing pool to 0 or restarting helps clear state
+        mp.ProcessingPool().restart() 
+    except ImportError:
+        pass
+
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
     
     with threadpool_limits(limits=1, user_api='blas'):
