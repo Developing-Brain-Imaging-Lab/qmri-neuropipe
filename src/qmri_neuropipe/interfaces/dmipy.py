@@ -29,6 +29,43 @@ def fit_noddi(
     nthreads : int
         Number of CPUs for parallel processing.
     """
+    # --- Parallelization Config (MUST BE FIRST) ---
+    # These configurations must run before any imports that might initialize libraries
+    import os
+    import multiprocessing
+    from threadpoolctl import threadpool_limits
+
+    # 1. Environment Variables
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    os.environ["NUMBA_NUM_THREADS"] = "1"
+    os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+    os.environ["JOBLIB_START_METHOD"] = "fork"
+
+    # 2. Numba Monkeypatch
+    # Critical: Must run before dmipy imports numba
+    try:
+        import numba
+        numba.set_num_threads(1)
+        if hasattr(numba, 'config'):
+            numba.config.THREADING_LAYER = 'workqueue'
+        
+        # Monkeypatch: Disable further changes to prevent external overrides
+        numba.set_num_threads = lambda n: None
+    except (ImportError, RuntimeError):
+        pass
+
+    # 3. Force Fork
+    # Critical: Workers must inherit the monkeypatched Numba state
+    try:
+        if multiprocessing.get_start_method() != 'fork':
+             multiprocessing.set_start_method('fork', force=True)
+    except RuntimeError:
+        pass
+        
     # Imports for NODDI
     try:
         from dmipy.signal_models import cylinder_models, gaussian_models
@@ -104,52 +141,7 @@ def fit_noddi(
     # --- FIT ---
     # Optimize parallelization by disabling inner-loop threading
     # This prevents thread oversubscription when using multiprocessing
-    # --- FIT ---
-    # Optimize parallelization by disabling inner-loop threading using threadpoolctl
-    # This dynamically limits threads for BLAS/OpenMP libraries during the fit
-    # Also attempt to limit Numba threads if used
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
-    os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
-    
-    try:
-        import numba
-        numba.set_num_threads(1)
-        if hasattr(numba, 'config'):
-            numba.config.THREADING_LAYER = 'workqueue'
-        
-        # Monkeypatch set_num_threads to prevent overrides by external libraries
-        # This prevents the "Cannot set NUMBA_NUM_THREADS..." error
-        numba.set_num_threads = lambda n: None
-        
-    except (ImportError, RuntimeError):
-        pass
-
-    # Ensure Pathos pools are clear if used
-    try:
-        import pathos.multiprocessing as mp
-        # resizing pool to 0 or restarting helps clear state
-        mp.ProcessingPool().restart() 
-    except ImportError:
-        pass
-
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
-    
-    # Force 'fork' to ensure workers inherit the Numba monkeypatch and config
-    # This prevents workers from crashing when they try to reset thread counts
-    try:
-        if multiprocessing.get_start_method() != 'fork':
-             multiprocessing.set_start_method('fork', force=True)
-    except RuntimeError:
-        # Context might be already set and cannot be changed, but we tried.
-        pass
-    
-    # Also hint joblib if used internally
-    os.environ["JOBLIB_START_METHOD"] = "fork"
     
     with threadpool_limits(limits=1, user_api='blas'):
         # fit returns a MicrostructureFit object
