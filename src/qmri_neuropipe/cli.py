@@ -389,7 +389,8 @@ def main(
         
         # Create output directories
         config.output_dir.mkdir(parents=True, exist_ok=True)
-        (config.output_dir / "derivatives" / "qmri-neuropipe").mkdir(parents=True, exist_ok=True)
+        # derivatives/qmri-neuropipe no longer created automatically
+        # Outputs go directly to config.output_dir
         
         # Set work_dir if not specified
         if config.work_dir is None:

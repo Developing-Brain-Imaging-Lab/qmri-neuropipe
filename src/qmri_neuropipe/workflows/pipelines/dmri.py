@@ -336,19 +336,18 @@ class PreprocessingWorkflow(BaseWorkflow):
 
     def run(self, output_dir: Path, context: dict, reporter=None) -> dict:
         """
-        Execute the workflow on a list of DWI files.
+        Execute the workflow on a list of DWI files (Unified Global/Per-Image).
         """
         dwi_files: list[DWIFile] = context.get("dwi_files", [])
         self.logger.info(f"Starting PreprocessingWorkflow for {len(dwi_files)} files.")
         
-        # Prepare context
-        context = dict(context) 
+        # Prepare context (copy)
+        context = dict(context)
         
         # Reporting: Inputs
         if reporter and dwi_files:
             reporter.set_dmri_input_summary(f"DWI Files: {len(dwi_files)}")
             dwi = dwi_files[0]
-            # Plot b0 or first volume
             p = output_dir / "report_input_dwi_b0.png"
             try:
                  from qmri_neuropipe.lib.reporting.viz import create_ortho_view
@@ -356,181 +355,6 @@ class PreprocessingWorkflow(BaseWorkflow):
                  reporter.add_dmri_input_figure(p, caption=dwi.img.name)
             except Exception as e:
                  self.logger.warning(f"Failed to plot input DWI: {e}")
-
-        # Separate Global vs Per-Image steps
-        global_steps = []
-        per_image_steps = []
-        
-        for step in self.steps:
-            if isinstance(step, (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep)):
-                 global_steps.append(step)
-            else:
-                 per_image_steps.append(step)
-        
-        # Prepare for execution with granular progress
-        total_steps = len(global_steps) + (len(dwi_files) * len(per_image_steps))
-        
-        # Helper to execute the core loop logic
-        def _execute_processing(progress_ctx=None, task_id=None):
-            nonlocal context
-            nonlocal dwi_files # Also used and reassigned
-            
-            # Run Global Steps
-            for step in global_steps:
-                 if progress_ctx:
-                     progress_ctx.update(task_id, description=f"[cyan]Global Step: {step.__class__.__name__}")
-                 
-                 self.logger.info(f"Executing Global Step: {step.__class__.__name__}...")
-                 
-                 # Capture old dwi_files
-                 old_dwis = context.get("dwi_files", [])
-                 
-                 # Pass T1w context implicitly via context dict
-                 # We need to update the outer context variable, but it's local scope.
-                 # Dict is mutable, so updating keys works. Reassigning 'context' var doesn't update outer scope.
-                 # Actually context is passed as arg, so it's a reference. But the line context = step.run(...) reapplies it.
-                 # Let's be careful.
-                 new_ctx = step.run(context, output_dir=output_dir)
-                 
-                 # Merge updates back to original context dict reference if possible, or update nonlocal
-                 # Usually step returns a modified copy or same dict.
-                 if new_ctx is not context:
-                     context.update(new_ctx)
-                 
-                 # Check if dwi_files changed
-                 new_dwis = context.get("dwi_files", [])
-                 if new_dwis is not old_dwis or (new_dwis and old_dwis and new_dwis[0].img != old_dwis[0].img):
-                     self.logger.info("DWI files updated by global step. Refreshing Topup Groups...")
-                     from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
-                     context["topup_groups"] = find_reversed_phase_groups(new_dwis)
-                 
-                 # Save intermediate output
-                 if self.config.get("save_intermediates", False):
-                     self._save_global_intermediate(step, output_dir, context)
-
-                 if reporter:
-                      figures_dir = output_dir / "figures"
-                      figures_dir.mkdir(exist_ok=True, parents=True) # Ensure exists
-                      # Report global step (dwi=None). Pass context as current_arg.
-                      self._report_step(reporter, step, None, None, context, None, figures_dir)
-                 
-                 if progress_ctx:
-                     progress_ctx.advance(task_id)
-
-            # Run Per-Image Steps
-            processed_dwis = []
-            processed_masks = []
-            topup_map = context.get("topup_map", {})
-            
-            dwi_files = context.get("dwi_files", []) # Refresh in case global steps changed them
-
-            for dwi_idx, dwi in enumerate(dwi_files, 1):
-                if not progress_ctx and not console:
-                     self.logger.info(f"Processing image: {dwi.img.name}")
-                
-                # Per-image context
-                ctx = dict(context)
-                ctx["current_image"] = dwi
-                if dwi.img in topup_map:
-                    ctx["topup_base"] = topup_map[dwi.img]
-                
-                t1w_files = ctx.get("t1w_files", [])
-                target_img = t1w_files[0].img if t1w_files else None
-                
-                current_arg = ctx
-                step_metrics = [] # Local for report
-
-                # Report figures directory (created once per image if needed, or already exists)
-                figures_dir = output_dir / "figures"
-                if reporter: figures_dir.mkdir(exist_ok=True, parents=True)
-
-                for step in per_image_steps:
-                    step_name = step.__class__.__name__
-                    if progress_ctx:
-                         progress_ctx.update(task_id, description=f"[cyan]File {dwi_idx}/{len(dwi_files)}: {step_name}")
-                    
-                    # --- Step Execution Logic (Simplified for brevity but preserving functional logic) ---
-                    step_kwargs = {}
-                    if isinstance(step, CoregistrationStep):
-                        if target_img:
-                            step_kwargs["target"] = target_img
-                            coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
-                            # Flatten options: top-level + nested 'options' key
-                            flat_opts = dict(coreg_cfg)
-                            if "options" in flat_opts:
-                                sub_opts = flat_opts.pop("options")
-                                if isinstance(sub_opts, dict):
-                                    flat_opts.update(sub_opts)
-                            step_kwargs["options"] = flat_opts
-                        else:
-                            self.logger.warning(f"Skipping CoregistrationStep for {dwi.img.name} - No structural target found.")
-                            step_metrics.append({"Step": step_name, "Status": "Skipped", "Duration": "0s"})
-                            if progress_ctx: progress_ctx.advance(task_id)
-                            continue
-                            
-                    if isinstance(step, BrainMaskingStep):
-                            step_kwargs["return_mask"] = True
-                    
-                    prev_img_obj = current_arg.get("current_image") if isinstance(current_arg, dict) else current_arg
-                    
-                    try:
-                        st = time.time()
-                        current_arg = step.run(current_arg, output_dir=output_dir, **step_kwargs)
-                        dur = time.time() - st
-                        
-                        step_metrics.append({"Step": step_name, "Status": "Completed", "Duration": f"{dur:.2f}s"})
-                        
-                        # Check if skipped but reporting needed (if output exists)
-                        # Reporting & plotting logic via _report_step
-                        if reporter: self._report_step(reporter, step, dwi, prev_img_obj, current_arg, target_img, figures_dir, step_kwargs)            
-                        
-                        # Save intermediates
-                        if self.config.get("save_intermediates", False):
-                            self._save_image_intermediate(output_dir, context, current_arg)
-
-                    except Exception as e:
-                        if self.config.get("stop_on_error", False):
-                            raise e
-                        self.logger.error(f"Step {step_name} failed: {e}")
-                        step_metrics.append({"Step": step_name, "Status": "Failed", "Duration": "0s"})
-                        break
-
-                    if progress_ctx:
-                         progress_ctx.advance(task_id)
-
-                # Post-image processing (Reporting Summary)
-                if reporter:
-                    # Add Final Preprocessed Output Paths
-                    final_dwi = current_arg.get("current_image") if isinstance(current_arg, dict) else current_arg
-                    dmri_outputs = []
-                    
-                    if final_dwi and hasattr(final_dwi, 'img') and final_dwi.img.exists():
-                         dmri_outputs.append({"key": "Output DWI", "path": str(final_dwi.img)})
-                         if final_dwi.bval and final_dwi.bval.exists():
-                              dmri_outputs.append({"key": "Output Bval", "path": str(final_dwi.bval)})
-                         if final_dwi.bvec and final_dwi.bvec.exists():
-                              dmri_outputs.append({"key": "Output Bvec", "path": str(final_dwi.bvec)})
-                         
-                         reporter.set_dmri_outputs(dmri_outputs)
-                    
-                    # Generic summary table
-                    reporter.add_dmri_summary("Execution Summary", step_metrics)
-                    # Detailed metric summary
-                    self._report_metrics_summary(reporter, dwi, current_arg)
-
-                # Collect results
-                result_ctx = current_arg
-                if isinstance(result_ctx, dict):
-                    processed_dwis.append(result_ctx.get("current_image", dwi))
-                    processed_masks.append(result_ctx.get("current_mask"))
-                else:
-                    processed_dwis.append(result_ctx)
-                    processed_masks.append(None)
-            
-            context["preprocessed_dwis"] = processed_dwis
-            context["preprocessed_masks"] = processed_masks
-            context["current_image"] = processed_dwis[-1] if processed_dwis else context.get("current_image")
-            return context
 
         # Execution Wrapper with Rich
         try:
@@ -541,6 +365,155 @@ class PreprocessingWorkflow(BaseWorkflow):
             console = None
             Progress = None
             
+        # Helper for execution
+        def _execute_processing(progress_ctx=None, task_id=None):
+            nonlocal context
+            nonlocal dwi_files
+            
+            # Identify Global Steps Types
+            GLOBAL_STEPS = (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep)
+            
+            current_dwis = context.get("dwi_files", [])
+            current_masks = context.get("masks", [None] * len(current_dwis))
+            # If masks missing or short, pad
+            if len(current_masks) < len(current_dwis):
+                current_masks.extend([None] * (len(current_dwis) - len(current_masks)))
+
+            for step_idx, step in enumerate(self.steps):
+                step_name = step.__class__.__name__
+                
+                if isinstance(step, GLOBAL_STEPS):
+                    # --- Global Step ---
+                    if progress_ctx:
+                         progress_ctx.update(task_id, description=f"[cyan]Global: {step_name}")
+                    
+                    self.logger.info(f"Executing Global Step: {step_name}...")
+                    
+                    # Update context with current state of lists
+                    context['dwi_files'] = current_dwis
+                    
+                    old_dwis = list(current_dwis)
+                    
+                    # Run Global Step
+                    new_ctx = step.run(context, output_dir=output_dir)
+                    
+                    if new_ctx is not context:
+                        context.update(new_ctx)
+                        
+                    # Update current pointers
+                    current_dwis = context.get("dwi_files", [])
+
+                    # If dwi changed, refresh topup groups
+                    if current_dwis != old_dwis:
+                        from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
+                        context["topup_groups"] = find_reversed_phase_groups(current_dwis)
+                        # Reset masks if sizes mismatch
+                        if len(current_masks) != len(current_dwis):
+                             current_masks = [None] * len(current_dwis)
+                    
+                     # Save intermediate
+                    if self.config.get("save_intermediates", False):
+                         self._save_global_intermediate(step, output_dir, context)
+                         
+                    # Report
+                    if reporter:
+                         figures_dir = output_dir / "figures"
+                         figures_dir.mkdir(exist_ok=True, parents=True)
+                         self._report_step(reporter, step, None, None, context, None, figures_dir)
+                         
+                    if progress_ctx: progress_ctx.advance(task_id)
+
+                else:
+                    # --- Per-Image Step ---
+                    new_dwis = []
+                    new_masks = []
+                    topup_map = context.get("topup_map", {})
+                    
+                    for i, (dwi, mask) in enumerate(zip(current_dwis, current_masks)):
+                         if progress_ctx:
+                              progress_ctx.update(task_id, description=f"[cyan]Step: {step_name} ({i+1}/{len(current_dwis)})")
+                         
+                         # Prepare per-image context
+                         img_ctx = dict(context)
+                         img_ctx['current_image'] = dwi
+                         img_ctx['current_mask'] = mask
+                         if dwi.img in topup_map:
+                             img_ctx["topup_base"] = topup_map[dwi.img]
+
+                         # T1w target logic
+                         t1w_files = img_ctx.get("t1w_files", [])
+                         target_img = t1w_files[0].img if t1w_files else None
+                         
+                         # Step kwargs
+                         step_kwargs = {}
+                         if isinstance(step, CoregistrationStep):
+                             if target_img:
+                                 step_kwargs["target"] = target_img
+                                 coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
+                                 flat_opts = dict(coreg_cfg)
+                                 if "options" in flat_opts: flat_opts.update(flat_opts.pop("options"))
+                                 step_kwargs["options"] = flat_opts
+                             else:
+                                 # Skip
+                                 new_dwis.append(dwi)
+                                 new_masks.append(mask)
+                                 continue
+                         
+                         if isinstance(step, BrainMaskingStep):
+                             step_kwargs["return_mask"] = True
+                             
+                         # Run
+                         try:
+                             from time import time as now
+                             st = now()
+                             result = step.run(img_ctx, output_dir=output_dir, **step_kwargs)
+                             dur = now() - st
+                             
+                             # Extract output
+                             out_dwi = result.get("current_image") if isinstance(result, dict) else result
+                             out_mask = result.get("current_mask") if isinstance(result, dict) else None
+                             
+                             new_dwis.append(out_dwi)
+                             new_masks.append(out_mask if out_mask is not None else mask)
+                             
+                             # Reporting
+                             if reporter:
+                                 figures_dir = output_dir / "figures"
+                                 figures_dir.mkdir(exist_ok=True, parents=True)
+                                 self._report_step(reporter, step, dwi, dwi, result, target_img, figures_dir, step_kwargs)
+                                 # Add duration to summary
+                                 reporter.add_dmri_summary("Execution Summary", [{"Step": step_name, "Status": "Completed", "Duration": f"{dur:.2f}s"}])
+                             
+                             # Save intermediate
+                             if self.config.get("save_intermediates", False):
+                                 self._save_image_intermediate(output_dir, context, result)
+                                 
+                         except Exception as e:
+                             if self.config.get("stop_on_error", False): raise e
+                             self.logger.error(f"Step {step_name} failed on {dwi.img.name}: {e}")
+                             new_dwis.append(dwi)
+                             new_masks.append(mask)
+
+                    # Update lists for next step
+                    current_dwis = new_dwis
+                    current_masks = new_masks
+                    
+                    if progress_ctx: progress_ctx.advance(task_id)
+
+            # Finalize
+            context["preprocessed_dwis"] = current_dwis
+            context["preprocessed_masks"] = current_masks
+            if current_dwis:
+                context["current_image"] = current_dwis[-1] # Fallback for single-image consumers
+            return context
+
+        # Run logic
+        calc_total = 0
+        GLOBAL_STEPS = (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep)
+        for s in self.steps:
+             if isinstance(s, GLOBAL_STEPS): calc_total += 1
+             else: calc_total += len(dwi_files) 
+             
         if Progress:
              with Progress(
                 SpinnerColumn(),
@@ -548,9 +521,10 @@ class PreprocessingWorkflow(BaseWorkflow):
                 BarColumn(),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
-                transient=True 
+                transient=True,
+                console=console
              ) as progress:
-                 task = progress.add_task(f"[cyan]Starting Preprocessing...", total=total_steps)
+                 task = progress.add_task(f"[cyan]Preprocessing...", total=calc_total)
                  return _execute_processing(progress_ctx=progress, task_id=task)
         else:
              return _execute_processing()
@@ -1790,8 +1764,10 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("="*60)
             self.logger.info("  RUNNING MODEL FITTING        ")
             self.logger.info("="*60)
-            # Pass output_dir / "models" to ModelingWorkflow so it copies modeling/DTI -> models/DTI
-            preprocessed_context = self.modeling.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=output_dir / "models")
+            # Pass output_dir / "models" or configured models_dir
+            models_out = Path(self.config.get('models_dir')) if self.config.get('models_dir') else output_dir / "models"
+            models_out.mkdir(parents=True, exist_ok=True)
+            preprocessed_context = self.modeling.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=models_out)
         else:
             self.logger.info("No modeling steps configured.")
 
@@ -1803,8 +1779,9 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("="*60)
             self.logger.info("  RUNNING NORMALIZATION        ")
             self.logger.info("="*60)
-            # Use work_dir for staging, write final results to output_dir/normalization
-            norm_output_dir = output_dir / "normalization"
+            # Use work_dir for staging, write final results to output_dir/normalization or normalization_dir
+            norm_output_dir = Path(self.config.get('normalization_dir')) if self.config.get('normalization_dir') else output_dir / "normalization"
+            norm_output_dir.mkdir(parents=True, exist_ok=True)
             preprocessed_context = self.normalization.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=norm_output_dir)
 
         else:
@@ -1819,8 +1796,9 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("  RUNNING SEGMENTATION         ")
             self.logger.info("="*60)
             
-            # Use work_dir for staging, write final results to output_dir/stats
-            stats_output_dir = output_dir / "stats"
+            # Use work_dir for staging, write final results to output_dir/stats or segmentation_dir
+            stats_output_dir = Path(self.config.get('segmentation_dir')) if self.config.get('segmentation_dir') else output_dir / "stats"
+            stats_output_dir.mkdir(parents=True, exist_ok=True)
             preprocessed_context = self.segmentation.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=stats_output_dir)
 
 
