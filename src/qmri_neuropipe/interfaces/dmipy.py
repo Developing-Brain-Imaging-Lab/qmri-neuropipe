@@ -118,12 +118,7 @@ def fit_noddi(
         import numba
         numba.set_num_threads(1)
         if hasattr(numba, 'config'):
-            numba.config.THREADING_LAYER = 'workqueue'
-        
-        # Monkeypatch set_num_threads to prevent overrides by external libraries
-        # This prevents the "Cannot set NUMBA_NUM_THREADS..." error
-        numba.set_num_threads = lambda n: None
-        
+            numba.config.THREADING_LAYER = 'workqueue'        
     except (ImportError, RuntimeError):
         pass
 
