@@ -194,6 +194,7 @@ class NODDIFittingStep(BaseProcessingStep):
         self.kwargs = kwargs
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
+        from ...io.bids import build_bids_name, get_entities_from_path
         dwi = context if not isinstance(context, dict) else context.get('current_image')
         model_out = output_dir / "NODDI"
         model_out.mkdir(parents=True, exist_ok=True)
@@ -242,7 +243,6 @@ class NODDIFittingStep(BaseProcessingStep):
              
         # Rename/BIDSify outputs
         # Keys might be 'odi', 'icvf', 'fiso', 'f_intra', 'f_extra'
-        from ...io.bids import build_bids_name, get_entities_from_path
         
         ent_base = get_entities_from_path(dwi.img)
         if 'desc' in ent_base: del ent_base['desc']
