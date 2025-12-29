@@ -79,6 +79,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         
         # For simplicity, pick the first DWI as the "forward" b0 source.
         input_dwi = dwi_files[0]
+        real_json = input_dwi.json
         
         output_dir = self.get_step_output_dir(output_dir)
         

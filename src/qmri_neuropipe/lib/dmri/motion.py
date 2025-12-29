@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 
 from ...core.base import BaseProcessingStep
 from ...core.types import ImageFile
-from ...interfaces.nifreeze import nifreeze_shoreline
+from ...interfaces.nifreeze import run_nifreeze
 import logging
 
 class NiiFreezeStep(BaseProcessingStep):
@@ -14,6 +14,9 @@ class NiiFreezeStep(BaseProcessingStep):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.b0_thresh = config.get("b0_thresh", 5)
+        self.model = config.get("model", "b0")
+        self.strategy = config.get("strategy", "random")
+        self.seed = config.get("seed", 2021)
         
     def run(self, context: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
         """
@@ -24,19 +27,6 @@ class NiiFreezeStep(BaseProcessingStep):
             self.logger.warning("No DWI files found for NiiFreeze.")
             return context
 
-        # NiiFreeze runs on single 4D file usually.
-        # Assuming concatenated or single run.
-        # If multiple, loop? 
-        # Standard pipeline usually has one 'dwi_files' list, often just one 4D file after concatenation (if implemented) 
-        # or we process each run independently.
-        
-        # NOTE: PreprocessingWorkflow processes 'files' individually in current loop structure?
-        # Re-checking dmri.py: process_subject iterates self.pipeline.loader.load_subject...
-        # which returns a Subject object with .sessions -> .scans
-        # But `process_subject` loops 'preprocessed_dwis'.
-        # Actually `PreprocessingWorkflow.run` takes `context` which has `dwi_files`.
-        # `dwi_files` is a list of ImageFile.
-        
         corrected_files = []
         
         for idx, dwi in enumerate(dwi_files):
@@ -76,10 +66,12 @@ class NiiFreezeStep(BaseProcessingStep):
                  continue
 
             # Fetch nthreads
-            nthreads = kwargs.get('nthreads', self.config.get("n_cpus", 1))
+            # run() signature in base.py usually allows **kwargs, but here run is fixed.
+            # We fetch from config.
+            nthreads = self.config.get("n_cpus", 1)
 
             try:
-                out_d, out_v, out_l = nifreeze_shoreline(
+                out_d, out_v, out_l = run_nifreeze(
                     in_dwi=dwi.img,
                     in_bval=dwi.bval,
                     in_bvec=dwi.bvec,
@@ -87,7 +79,10 @@ class NiiFreezeStep(BaseProcessingStep):
                     out_prefix=out_prefix,
                     b0_thresh=self.b0_thresh,
                     nthreads=nthreads,
-                    verbose=True
+                    verbose=True,
+                    model=self.model,
+                    strategy=self.strategy,
+                    seed=self.seed
                 )
                 
                 # Wrap
@@ -102,11 +97,15 @@ class NiiFreezeStep(BaseProcessingStep):
                 
                 # Propagate Sidecar JSON
                 if dwi.json:
-                     shutil.copy(dwi.json, out_d.with_suffix("").with_suffix(".json"))
-                     corrected.json = out_d.with_suffix("").with_suffix(".json")
+                     dest_json = out_d.parent / (out_d.name.replace('.nii.gz', '.json').replace('.nii', '.json'))
+                     shutil.copy(dwi.json, dest_json)
+                     corrected.json = dest_json
 
                 corrected_files.append(corrected)
                 
+            except ImportError:
+                 self.logger.error("NiiFreeze is not installed. Skipping motion correction.")
+                 corrected_files.append(dwi)
             except Exception as e:
                 self.logger.error(f"NiiFreeze failed for {dwi.img.name}: {e}")
                 corrected_files.append(dwi) # Fallback
