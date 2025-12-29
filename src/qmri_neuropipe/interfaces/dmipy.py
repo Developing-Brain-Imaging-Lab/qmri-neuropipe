@@ -100,7 +100,7 @@ def fit_noddi(
     # --- FIT ---
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
     # fit returns a MicrostructureFit object
-    fit_results = noddi.fit(gtab, data, mask=mask_data, n_jobs=nthreads)
+    fit_results = noddi.fit(gtab, data, mask=mask_data, number_of_processors=nthreads)
     
     # --- Extract Metrics ---
     # ODI
