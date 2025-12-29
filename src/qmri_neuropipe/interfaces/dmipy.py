@@ -28,7 +28,8 @@ def _fit_chunk(args):
     
     # Fit the chunk
     # dmipy fit returns a MicrostructureFit object
-    fit_obj = model.fit(scheme, data_chunk)
+    # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
+    fit_obj = model.fit(scheme, data_chunk, number_of_processors=1)
     
     # Return only the parameters dict to minimize pickling
     return fit_obj.fitted_parameters
