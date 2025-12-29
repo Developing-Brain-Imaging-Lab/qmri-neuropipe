@@ -27,7 +27,7 @@ def fit_noddi(
     """
     # Imports for NODDI
     try:
-        from dmipy.custom_models import cylinder_models, gaussian_models
+        from ddmipy.signal_models import cylinder_models, gaussian_models
         from dmipy.core.modeling_framework import MultiCompartmentModel
         from dmipy.distributions import distribute_models
         from dmipy.core import acquisition_scheme
