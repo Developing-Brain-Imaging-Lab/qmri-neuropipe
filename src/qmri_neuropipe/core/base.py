@@ -796,7 +796,10 @@ class BasePipeline(ABC):
                     continue
                 
                 # Process subject/session
-                self.logger.info(f"Processing {subject} {session}")
+                self.logger.info("\n" + "="*80)
+                self.logger.info(f"  PROCESSING: sub-{subject}" + (f" ses-{session}" if session else ""))
+                self.logger.info("="*80 + "\n")
+                
                 self.process_subject(subject, session)
                 
                 n_success += 1
