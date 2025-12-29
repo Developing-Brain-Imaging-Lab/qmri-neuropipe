@@ -1012,17 +1012,19 @@ queue sub,ses from {subjects_file}
         
         return logger
     
-    # def _get_all_subjects(self) -> List[str]:
-    #     """
-    #     Get all subjects from BIDS dataset.
+    def _get_all_subjects(self) -> List[str]:
+        """
+        Get all subjects from BIDS dataset.
         
-    #     Returns:
-    #         List of subject IDs
-    #     """
-    #     from qmri_neuropipe.io.bids import BIDSLayout
-        
-    #     bids = BIDSLayout(self.config.get('bids_dir'))
-    #     return bids.get_subjects()
+        Returns:
+            List of subject IDs
+        """
+        from qmri_neuropipe.io.bids import select_participants_sessions
+        # Get all pairs (subject, session)
+        pairs = select_participants_sessions(Path(self.config.get('bids_dir')), None, None)
+        # Extract unique subjects
+        subjects = sorted(list(set(p[0] for p in pairs)))
+        return subjects
     
     # def _get_subject_sessions(self, subject: str) -> List[Optional[str]]:
     #     """
