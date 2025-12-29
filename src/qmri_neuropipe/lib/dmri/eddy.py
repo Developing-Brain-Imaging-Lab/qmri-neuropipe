@@ -277,9 +277,12 @@ class EddyCorrectionStep(BaseProcessingStep):
                 # Determine GPU settings
                 cuda_enabled = self.config.use_gpu
                 cuda_device = 0
-                if self.config.gpu_ids:
+                if self.config.gpu_ids is not None:
                      cuda_enabled = True
-                     cuda_device = self.config.gpu_ids[0]
+                     gpus = self.config.gpu_ids
+                     if isinstance(gpus, int):
+                         gpus = [gpus]
+                     cuda_device = gpus[0]
                 
                 ecc = fsl.eddy(
                     in_file=input_img,
