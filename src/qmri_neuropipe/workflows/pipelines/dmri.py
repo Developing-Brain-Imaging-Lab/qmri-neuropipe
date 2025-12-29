@@ -1954,7 +1954,21 @@ class DMRIPipeline(BasePipeline):
         Find anatomical files using config overrides or standard BIDS search.
         """
         # 1. Custom Check
-        anat_cfg = self.config.get('anat_input', {})
+        # Check in order of preference:
+        # 1. anat: input: ... (Nested Clean)
+        # 2. anat: ... (Nested Direct)
+        # 3. anat_input: ... (Top Level Legacy)
+        
+        anat_section = self.config.get('anat', {})
+        anat_cfg = {}
+        
+        if anat_section.get('input'):
+             anat_cfg = anat_section['input']
+        elif any(k.endswith('_path') or k.endswith('_search_pattern') for k in anat_section):
+             anat_cfg = anat_section
+        else:
+             anat_cfg = self.config.get('anat_input', {})
+             
         if not anat_cfg: anat_cfg = {}
         
         path_key = f"{modality.lower()}_path"
