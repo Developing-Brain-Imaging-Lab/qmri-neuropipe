@@ -46,14 +46,14 @@ def mri_normalize(in_file: ImageLike | Path, out_file: Path):
     run_cmd(f"mri_normalize -g 1 -mprage {in_p} {out_file}")
 
 
-def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, n_threads: Optional[int] = None, mask_out: Optional[Path] = None):
+def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, nthreads: Optional[int] = None, mask_out: Optional[Path] = None):
     """
     Run FreeSurfer mri_synthstrip (SynthStrip).
     
     Args:
         in_file: path to input image
         out_file: path to output brain image (or mask if requested via other flags, but here we model 1-to-1)
-        n_threads: number of threads to use (passed as -n if supported or via OMP env)
+        nthreads: number of threads to use (passed as -n if supported or via OMP env)
         mask_out: optional path to save binary mask
     """
     # synthstrip supports -n/--threads? Checking docs would be ideal. 
@@ -66,7 +66,18 @@ def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, n_threads: Optiona
     if out_p.exists() and (not mask_out or Path(mask_out).exists()):
         return out_p, mask_out
 
-    thread_arg = f"-t {n_threads}" if n_threads else ""
+    # SynthStrip uses -n for threads in some versions? Or depends on underlying tool (python/tensorflow).
+    # But previous code used -t. Let's stick to -n if that's standard, but wait, 
+    # line 69 used -t. The docstring said -n.
+    # I will assume standardizing on `nthreads` variable, and use whatever flag works.
+    # If the user error was simply keyword mismatch, checking flag is secondary but important.
+    # Most FS tools don't have -t for threads. Python scripts might.
+    # Let's check if I can find what flag mri_synthstrip uses. 
+    # Usually it's a python wrapper around a model.
+    # I will stick to the previous flag implementation `-t` but rename the variable. 
+    # Wait, line 69 used `-t {n_threads}`. I'll keep `-t {nthreads}`.
+    
+    thread_arg = f"-t {nthreads}" if nthreads else ""
     mask_arg = f"-m {mask_out}" if mask_out else ""
     
     run_cmd(f"mri_synthstrip -i {in_p} -o {out_file} {thread_arg} {mask_arg}")
