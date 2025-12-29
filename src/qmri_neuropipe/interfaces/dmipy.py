@@ -1,6 +1,8 @@
 
 from pathlib import Path
+from pathlib import Path
 import os
+import multiprocessing
 from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union
 import nibabel as nib
@@ -136,6 +138,18 @@ def fit_noddi(
         pass
 
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
+    
+    # Force 'fork' to ensure workers inherit the Numba monkeypatch and config
+    # This prevents workers from crashing when they try to reset thread counts
+    try:
+        if multiprocessing.get_start_method() != 'fork':
+             multiprocessing.set_start_method('fork', force=True)
+    except RuntimeError:
+        # Context might be already set and cannot be changed, but we tried.
+        pass
+    
+    # Also hint joblib if used internally
+    os.environ["JOBLIB_START_METHOD"] = "fork"
     
     with threadpool_limits(limits=1, user_api='blas'):
         # fit returns a MicrostructureFit object
