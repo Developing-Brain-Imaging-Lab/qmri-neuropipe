@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import os
+from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union
 import nibabel as nib
 import numpy as np
@@ -101,15 +102,14 @@ def fit_noddi(
     # --- FIT ---
     # Optimize parallelization by disabling inner-loop threading
     # This prevents thread oversubscription when using multiprocessing
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
+    # --- FIT ---
+    # Optimize parallelization by disabling inner-loop threading using threadpoolctl
+    # This dynamically limits threads for BLAS/OpenMP libraries during the fit
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
-    # fit returns a MicrostructureFit object
-    fit_results = noddi.fit(gtab, data, mask=mask_data, number_of_processors=nthreads)
+    
+    with threadpool_limits(limits=1, user_api='blas'):
+        # fit returns a MicrostructureFit object
+        fit_results = noddi.fit(gtab, data, mask=mask_data, number_of_processors=nthreads)
     
     # --- Extract Metrics ---
     # ODI
