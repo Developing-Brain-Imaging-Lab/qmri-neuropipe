@@ -235,6 +235,28 @@ def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:
     )
 
 
+import subprocess
+
+# Cache for capability checks
+_EDDY_HAS_NTHR: Dict[str, bool] = {}
+
+def _check_eddy_supports_nthr(eddy_bin: str) -> bool:
+    """Check if eddy binary supports --nthr flag."""
+    if eddy_bin in _EDDY_HAS_NTHR:
+        return _EDDY_HAS_NTHR[eddy_bin]
+    
+    try:
+        # FSL tools often return non-zero on help, so we ignore check=True
+        result = subprocess.run([eddy_bin, "--help"], capture_output=True, text=True)
+        # Check both stdout and stderr (FSL is inconsistent)
+        output = result.stdout + result.stderr
+        supports = "--nthr" in output or "Number of threads" in output
+        _EDDY_HAS_NTHR[eddy_bin] = supports
+        return supports
+    except Exception:
+        # If we can't run it (e.g. not found), assume False or let the main call fail later
+        return False
+
 def eddy(
     in_file: DWIFile,
     out_file: Path,
@@ -295,7 +317,10 @@ def eddy(
     ]
 
     if not cuda:
-        cmd_parts.append(f"--nthr={nthreads}")
+        # Only pass --nthr if supported
+        if _check_eddy_supports_nthr(eddy_bin):
+            cmd_parts.append(f"--nthr={nthreads}")
+        # Else we rely on OMP_NUM_THREADS set above
     if topup_base:
         cmd_parts.append(f"--topup={topup_base}")
     if external_field:
