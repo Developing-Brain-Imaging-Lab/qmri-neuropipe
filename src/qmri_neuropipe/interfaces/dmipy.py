@@ -1,5 +1,6 @@
 
 from pathlib import Path
+import os
 from typing import Optional, Dict, Union
 import nibabel as nib
 import numpy as np
@@ -98,6 +99,14 @@ def fit_noddi(
     # Just linking orientation/dispersion is a strong enough constraint for "NODDI-like".
     
     # --- FIT ---
+    # Optimize parallelization by disabling inner-loop threading
+    # This prevents thread oversubscription when using multiprocessing
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs...")
     # fit returns a MicrostructureFit object
     fit_results = noddi.fit(gtab, data, mask=mask_data, number_of_processors=nthreads)
