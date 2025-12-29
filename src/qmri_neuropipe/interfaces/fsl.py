@@ -236,6 +236,55 @@ def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:
 
 
 import subprocess
+import shutil
+import os
+import re
+
+def _which(cmd: str) -> Optional[str]:
+    """Return path to command if found."""
+    return shutil.which(cmd)
+
+def _find_eddy_cuda() -> Optional[str]:
+    """Find the best available eddy_cuda executable."""
+    # 1. Check for generic symlink/binary first
+    if shutil.which("eddy_cuda"):
+        return "eddy_cuda"
+        
+    # 2. Search for versioned binaries (eddy_cuda8.0, eddy_cuda9.1, etc.)
+    candidates = []
+    search_paths = os.environ.get("PATH", "").split(os.pathsep)
+    fsldir = os.environ.get("FSLDIR")
+    if fsldir:
+        search_paths.insert(0, os.path.join(fsldir, "bin"))
+        
+    seen = set()
+    for path in search_paths:
+        if not path or not os.path.isdir(path): continue
+        try:
+            for f in os.listdir(path):
+                if f.startswith("eddy_cuda") and f not in seen:
+                    full_path = os.path.join(path, f)
+                    if os.access(full_path, os.X_OK):
+                        candidates.append(f)
+                        seen.add(f)
+        except OSError:
+            pass
+            
+    if not candidates:
+        return None
+        
+    # Sort by version (highest first)
+    def version_key(name):
+        m = re.search(r"eddy_cuda(\d+\.?\d*)", name)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return 0.0
+        return 0.0
+        
+    candidates.sort(key=version_key, reverse=True)
+    return candidates[0]
 
 # Cache for capability checks
 _EDDY_HAS_NTHR: Dict[str, bool] = {}
