@@ -224,9 +224,12 @@ class Synb0EstimationStep(BaseProcessingStep):
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
             try:
-                if self.config.gpu_ids:
+                if self.config.gpu_ids is not None:
                     import os
-                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, self.config.gpu_ids))
+                    gpus = self.config.gpu_ids
+                    if isinstance(gpus, int):
+                        gpus = [gpus]
+                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
                     self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
                 
                 self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
