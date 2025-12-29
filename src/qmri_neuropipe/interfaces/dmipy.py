@@ -114,7 +114,12 @@ def fit_noddi(
         numba.set_num_threads(1)
         if hasattr(numba, 'config'):
             numba.config.THREADING_LAYER = 'workqueue'
-    except ImportError:
+        
+        # Monkeypatch set_num_threads to prevent overrides by external libraries
+        # This prevents the "Cannot set NUMBA_NUM_THREADS..." error
+        numba.set_num_threads = lambda n: None
+        
+    except (ImportError, RuntimeError):
         pass
 
     # Ensure Pathos pools are clear if used
