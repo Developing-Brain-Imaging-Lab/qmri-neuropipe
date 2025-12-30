@@ -2,7 +2,6 @@
 import os
 import sys
 # Point to the source code (assuming this directory is moved to repo/docs)
-# Point to the source code (assuming this directory is moved to repo/docs)
 sys.path.insert(0, os.path.abspath('../src'))
 
 # Mock heavy dependencies to avoid installation on RTD

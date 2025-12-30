@@ -233,6 +233,14 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
 
 # --- Unified Parallelization Helpers ---
 
+def _global_driver_wrapper(args):
+    """
+    Global wrapper to unpack arguments for parallel worker.
+    args: (chunk_id, chunk_data, gtab, worker_func, kwargs)
+    """
+    chunk_id, chunk_data, gtab, worker_func, kwargs = args
+    return worker_func(chunk_id, chunk_data, gtab, kwargs)
+
 def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=None):
     """
     Unified driver for parallel DIPY model fitting.
@@ -274,10 +282,11 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     chunks = [c for c in chunks if c.shape[0] > 0]
     
     # 3. Prepare Args
-    # (chunk_id, chunk_data, gtab, worker_kwargs)
+    # (chunk_id, chunk_data, gtab, worker_func, worker_kwargs)
     chunk_args = []
     for i, c in enumerate(chunks):
-        chunk_args.append((i, c, gtab, worker_kwargs))
+        # We must pass the worker_func in the args now if we use a generic wrapper
+        chunk_args.append((i, c, gtab, worker_func, worker_kwargs))
 
     # 4. Run Pool
     results = []
@@ -288,16 +297,14 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     except ValueError:
         ctx = multiprocessing.get_context('fork')
         
-    # Wrapper to unpack args (since map/imap passes single arg)
-    def _driver_wrapper(args):
-        return worker_func(*args)
-
     with ctx.Pool(processes=nthreads) as pool:
         # Use imap to guarantee order
-        iterator = pool.imap(_driver_wrapper, chunk_args)
+        # Use the GLOBAL wrapper defined below/above
+        iterator = pool.imap(_global_driver_wrapper, chunk_args)
         
         for i, res in enumerate(iterator):
             results.append(res)
+
 
     # 5. Reassemble
     if not results:
