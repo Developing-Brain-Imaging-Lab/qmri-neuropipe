@@ -18,7 +18,7 @@ def _fit_chunk(args):
     """
     Helper function to fit a chunk of data in a separate process.
     """
-    data_chunk, model, scheme = args
+    data_chunk, model, scheme, keys_to_keep = args
     
     # Enforce single-threaded execution within the worker
     import os
@@ -31,8 +31,11 @@ def _fit_chunk(args):
     # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
     fit_obj = model.fit(scheme, data_chunk, number_of_processors=1)
     
-    # Return only the parameters dict to minimize pickling
-    return fit_obj.fitted_parameters
+    # Return only the requested parameters to minimize pickling/transfer overhead
+    full_params = fit_obj.fitted_parameters
+    if keys_to_keep:
+        return {k: v for k, v in full_params.items() if k in keys_to_keep}
+    return full_params
 
 def fit_noddi(
     in_file: Union[Path, ImageLike],
@@ -178,8 +181,15 @@ def fit_noddi(
     chunks = np.array_split(valid_voxels, n_chunks)
     
     # Prepare arguments for each chunk
-    # (data_chunk, model, scheme)
-    chunk_args = [(c, noddi, gtab) for c in chunks if c.shape[0] > 0]
+    # Define keys we actually need to save memory/time
+    keys_to_keep = [
+        'SD1WatsonDistributed_1_SD1Watson_1_odi',
+        'partial_volume_0',
+        'partial_volume_1',
+        'partial_volume_2'
+    ]
+    # (data_chunk, model, scheme, keys_to_keep)
+    chunk_args = [(c, noddi, gtab, keys_to_keep) for c in chunks if c.shape[0] > 0]
     
     # 3. Process Config (already set at top of function, but force fork again just in case)
     try:
@@ -192,9 +202,11 @@ def fit_noddi(
     results = []
     # Use a safe context for pool
     ctx = multiprocessing.get_context('fork')
+    print("Starting process pool...")
     with ctx.Pool(processes=nthreads) as pool:
         # map_async is often smoother for UI progress if we added tqdm, but simple map is fine
         results = pool.map(_fit_chunk, chunk_args)
+    print("Workers finished. Reassembling results...")
         
     # 5. Reassemble Results
     # results is a list of dicts. We need to concatenate the arrays for each key.
