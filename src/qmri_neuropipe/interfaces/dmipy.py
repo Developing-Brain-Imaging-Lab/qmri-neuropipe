@@ -18,7 +18,9 @@ def _fit_chunk(args):
     """
     Helper function to fit a chunk of data in a separate process.
     """
-    data_chunk, model, scheme, keys_to_keep = args
+    chunk_id, data_chunk, model, scheme, keys_to_keep = args
+    
+    print(f"[Worker {chunk_id}] Started chunk with {len(data_chunk)} voxels.")
     
     # Enforce single-threaded execution within the worker
     import os
@@ -26,17 +28,25 @@ def _fit_chunk(args):
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     
-    # Fit the chunk
-    # dmipy fit returns a MicrostructureFit object
-    # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
-    fit_obj = model.fit(scheme, data_chunk, number_of_processors=1)
-    
-    # Return only the requested parameters to minimize pickling/transfer overhead
-    full_params = fit_obj.fitted_parameters
-    if keys_to_keep:
-        return {k: v for k, v in full_params.items() if k in keys_to_keep}
-    
-    return full_params
+    try:
+        # Fit the chunk
+        # dmipy fit returns a MicrostructureFit object
+        # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
+        fit_obj = model.fit(scheme, data_chunk, number_of_processors=1)
+        
+        # Return only the requested parameters to minimize pickling/transfer overhead
+        full_params = fit_obj.fitted_parameters
+        if keys_to_keep:
+            ret = {k: v for k, v in full_params.items() if k in keys_to_keep}
+        else:
+            ret = full_params
+            
+        print(f"[Worker {chunk_id}] Finished fitting.")
+        return ret
+        
+    except Exception as e:
+        print(f"[Worker {chunk_id}] Crash/Error: {e}")
+        raise e
 
 def fit_noddi(
     in_file: Union[Path, ImageLike],
@@ -83,13 +93,12 @@ def fit_noddi(
     except (ImportError, RuntimeError):
         pass
 
-    # 3. Force Fork
-    # Critical: Workers must inherit the monkeypatched Numba state
-    try:
-        if multiprocessing.get_start_method() != 'fork':
-             multiprocessing.set_start_method('fork', force=True)
-    except RuntimeError:
-        pass
+    # 3. Force Fork - REMOVED, using spawn context in pool instead
+    # try:
+    #     if multiprocessing.get_start_method() != 'fork':
+    #          multiprocessing.set_start_method('fork', force=True)
+    # except RuntimeError:
+    #     pass
         
     # Imports for NODDI
     try:
@@ -189,21 +198,19 @@ def fit_noddi(
         'partial_volume_1',
         'partial_volume_2'
     ]
-    # (data_chunk, model, scheme, keys_to_keep)
-    chunk_args = [(c, noddi, gtab, keys_to_keep) for c in chunks if c.shape[0] > 0]
+    # (chunk_id, data_chunk, model, scheme, keys_to_keep)
+    chunk_args = [(i, c, noddi, gtab, keys_to_keep) for i, c in enumerate(chunks) if c.shape[0] > 0]
     
-    # 3. Process Config (already set at top of function, but force fork again just in case)
-    try:
-        if multiprocessing.get_start_method() != 'fork':
-             multiprocessing.set_start_method('fork', force=True)
-    except RuntimeError:
-        pass
-        
     # 4. Run Pool
     results = []
-    # Use a safe context for pool
-    ctx = multiprocessing.get_context('fork')
-    print("Starting process pool...")
+    # Use 'spawn' for safety against BLAS/Numba crashes
+    try:
+         ctx = multiprocessing.get_context('spawn')
+    except ValueError:
+         # Fallback if spawn is not available (rare on modern python)
+         ctx = multiprocessing.get_context('fork')
+         
+    print(f"Starting process pool (method: {ctx.get_start_method()})...")
     
     # We use explicit try/finally to ensure termination if needed
     pool = ctx.Pool(processes=nthreads)
@@ -217,12 +224,12 @@ def fit_noddi(
         start_t = time.time()
         for i, res in enumerate(iterator):
             results.append(res)
-            # Log every 10% or so
+            # Parent process logging
             if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
                  elapsed = time.time() - start_t
-                 print(f"  - Processed {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
+                 print(f"  - Collected {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
             elif len(chunk_args) <= 10:
-                 print(f"  - Processed chunk {i + 1}/{len(chunk_args)}")
+                 print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
 
     finally:
         # Ensure we close the pool
