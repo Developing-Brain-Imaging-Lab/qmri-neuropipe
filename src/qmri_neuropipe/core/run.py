@@ -22,7 +22,7 @@ def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False) -> Non
     if dry_run:
         return
 
-    proc = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+    proc = subprocess.run(shlex.split(cmd), capture_output=True, text=True, errors='replace')
     
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.splitlines()[-10:])
