@@ -62,6 +62,11 @@ def fit_noddi(
     mask_file: Optional[Path] = None,
     metrics: list[str] = ["odi", "ficvf", "fiso"],
     nthreads: int = 1,
+    parallel_diffusivity: float = 1.7e-9,
+    iso_diffusivity: float = 3.0e-9,
+    distribution: str = "Watson",
+    solver: str = "brute2fine",
+    solver_kwargs: Optional[Dict] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -127,6 +132,9 @@ def fit_noddi(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required for NODDI.")
 
+    if solver_kwargs is None:
+        solver_kwargs = {}
+    
     # Load data
     img = nib.load(str(in_path))
     data = img.get_fdata()
