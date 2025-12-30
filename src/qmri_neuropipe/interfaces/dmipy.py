@@ -54,14 +54,14 @@ def _fit_chunk(args):
             # Note: SMT doesn't use the explicit "Distributed" wrappers usually, as it models the mean signal directly.
             # We fit the microstructure parameters (fractions, intrinsic diffusivities).
             bundle = distribute_models.BundleModel([stick, zeppelin])
-            bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par','partial_volume_0')
+            bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
             bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
             bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
 
             # SMT Model
-            noddi = MultiCompartmentSphericalMeanModel(models=[ball, bundle])
+            noddi = MultiCompartmentSphericalMeanModel(models=[bundle, ball])
             
-            # Fix Diffusivities            
+            # Fix Diffusivities          
             noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
         
         else:
@@ -78,7 +78,7 @@ def _fit_chunk(args):
             dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
             dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
             
-            noddi = MultiCompartmentModel(models=[ball, dispersed_bundle])
+            noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
             noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
 
         # --- Apply Chunk-Specific Fixed Parameters ---
@@ -308,7 +308,7 @@ def fit_noddi(
              # Default
              dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
              
-         dummy_model = MultiCompartmentModel(models=[ball, dispersed_bundle])
+         dummy_model = MultiCompartmentModel(models=[dispersed_bundle, ball])
 
     all_params = dummy_model.parameter_names
     param_map = {}
@@ -316,12 +316,12 @@ def fit_noddi(
     # 1. Global Volume Fractions
     # Usually: partial_volume_0 (ball), partial_volume_1 (bundle)
     # Check if 'partial_volume_0' exists
-    if 'partial_volume_0' in all_params:
-         param_map['f_iso'] = 'partial_volume_0'
+    if 'partial_volume_1' in all_params:
+         param_map['f_iso'] = 'partial_volume_1'
     
     # For 'f_bundle', it's partial_volume_1 if it exists
-    if 'partial_volume_1' in all_params:
-         param_map['f_bundle'] = 'partial_volume_1'
+    if 'partial_volume_0' in all_params:
+         param_map['f_bundle'] = 'partial_volume_0'
     
     # 2. ODI / SMT specifics
     if model_type == 'standard':
@@ -338,16 +338,7 @@ def fit_noddi(
              param_map['pv_stick'] = filtered[0] if filtered else pv_candidates[0]
              
     else:
-        # SMT Model
-        # parameters are usually implicit.
-        # We assume f_iso (ball), f_bundle (zeppelin+stick).
-        # But wait, MultiCompartmentSphericalMeanModel(models=[stick, zeppelin, ball])
-        # This usually has 3 partial volumes? partial_volume_0, _1, _2 ?
-        # Or does it group?
-        # Usually it respects input order: stick(0), zeppelin(1), ball(2).
-        # Let's inspect in practice.
-        # If we didn't use a bundler, we have 3 compartments.
-        # We need to sum stick+zeppelin for f_bundle.
+        # SMT Modele.
         pass
 
     print(f"Identified keys: {param_map}")
@@ -375,7 +366,7 @@ def fit_noddi(
         # Fixed params for this chunk
         c_fixed = {}
         if fiso_chunks[i] is not None:
-             c_fixed['partial_volume_0'] = fiso_chunks[i]
+             c_fixed['partial_volume_1'] = fiso_chunks[i]
 
         chunk_args.append(
             (i, chunks[i], gtab, model_config, c_fixed, keys_to_keep, solver, solver_kwargs)
@@ -502,7 +493,7 @@ def fit_noddi(
 
         # Update f_iso if not already set correctly via param_map (which might fail for SMT)
         if f_iso is None:
-            f_iso = fit_results.fitted_parameters.get('partial_volume_0')
+            f_iso = fit_results.fitted_parameters.get('partial_volume_1')
 
     # Recalculate if standard (and not set by SMT)
     if vf_intra is None and pv0 is not None and f_intra is not None:
