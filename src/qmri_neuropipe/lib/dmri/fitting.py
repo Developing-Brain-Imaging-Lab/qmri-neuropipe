@@ -250,10 +250,11 @@ class NODDIFittingStep(BaseProcessingStep):
         
         suffix_map = {
             'odi': 'ODI',
-            'icvf': 'ICVF',
-            'fiso': 'ISOVF',
-            'vic': 'VIC', # AMICO output
-            'isovf': 'ISOVF'
+            'vf_intra': 'ICVF',
+            'vf_extra': 'EXVF',
+            'fiso': 'FISO',
+            'vic': 'ICVF', # AMICO output
+            'isovf': 'FISO'
         }
         
         for key, path in outputs.items():
