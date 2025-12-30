@@ -28,9 +28,12 @@ def _fit_chunk(args):
     import sys
     import warnings
     import contextlib
-    from dmipy.signal_models import cylinder_models, gaussian_models
-    from dmipy.distributions import distribute_models
-    from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from dmipy.signal_models import cylinder_models, gaussian_models
+        from dmipy.distributions import distribute_models
+        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
 
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
@@ -163,11 +166,14 @@ def fit_noddi(
     #     pass
         
     # Imports for NODDI
+    # Imports for NODDI
     try:
-        from dmipy.signal_models import cylinder_models, gaussian_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-        from dmipy.distributions import distribute_models
-        from dmipy.core import acquisition_scheme
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from dmipy.signal_models import cylinder_models, gaussian_models
+            from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+            from dmipy.distributions import distribute_models
+            from dmipy.core import acquisition_scheme
     except ImportError:
         raise ProcessingError("Dmipy required but not installed.")
 

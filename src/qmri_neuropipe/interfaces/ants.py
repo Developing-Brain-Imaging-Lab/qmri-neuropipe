@@ -2,22 +2,19 @@ from pathlib import Path
 from typing import Optional, Tuple
 from ..core.types import ImageLike
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
-import os, ants
+import os
 
-# Or better, replicate _as_path locally to avoid cross-interface dependency if preferred, 
-# but fsl.py exports it? It's private.
-# Let's import Path and ImageLike
+# Lazy import ants inside functions to allow thread setting
 
 def n4bias(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, shrink: Optional[int] = 2, iters=[50,50,30,20], mask: Optional[Path]=None, bias_field: Optional[Path]=None):
     
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
     bf_p = ensure_dir(bias_field) if bias_field else None
-
-    # Removed strict existence check to allow re-runs. 
-    # Logic should be handled by caller (Step classes).
-
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    
     image  = ants.image_read( str(in_p) )
     n4_img = ants.n4_bias_field_correction(image, 
                                            shrink_factor=shrink, 
@@ -38,13 +35,13 @@ def n4bias(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, shrink:
 
 def denoise_image(in_file: ImageLike | Path, out_file: Path, noise_model: str = "Rician", nthreads: int = 1, mask: Optional[Path]=None, noise_map: Optional[Path]=None):
     
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+    
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
     nm_p  = ensure_dir(noise_map) if noise_map else None
 
-    # Removed strict existence check.
-
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
     image   = ants.image_read( str(in_p) )
     den_img = ants.denoise_image(image, 
                                  noise_model=noise_model, 
@@ -58,10 +55,11 @@ def ants_brain_extraction(in_file: ImageLike | Path, out_file: Path, nthreads: i
     """
     Wrapper for antsBrainExtraction.sh 
     """
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+    
     out = Path(out_file)
     out.parent.mkdir(parents=True, exist_ok=True)
-    
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
 
     # Placeholder logic - no strict check removed as it's a placeholder
     if out.exists() and (not mask_out or Path(mask_out).exists()):
@@ -74,15 +72,14 @@ def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path
     """
     Apply ANTs transforms.
     """
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+
     out = Path(out_file)
     out.parent.mkdir(parents=True, exist_ok=True)
     
-    # Removed strict existence check.
-
     fixed_p = extract_image_path(fixed_file)
     moving_p = extract_image_path(moving_file)
-    
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
     
     fixed_img = ants.image_read(str(fixed_p))
     moving_img = ants.image_read(str(moving_p))
@@ -104,12 +101,13 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     """
     Run ANTs registration.
     """
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+    
     fixed_p = extract_image_path(fixed_file)
     moving_p = extract_image_path(moving_file)
     out_prefix = ensure_dir(out_prefix)
     
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
-
     warped_out = out_prefix.with_suffix("").parent / (out_prefix.name + "Warped.nii.gz")
     
     fixed_img = ants.image_read(str(fixed_p))
@@ -131,15 +129,16 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     
     return warped_out, mytx['fwdtransforms']
 
-def iMath(in_file: ImageLike | Path, out_file: Path, operation: str, *args, **kwargs):
+def iMath(in_file: ImageLike | Path, out_file: Path, operation: str, *args, nthreads: int = 1, **kwargs):
     """
     Wrapper for ANTs iMath.
     """
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+    
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
     
-    # Removed strict existence check.
-        
     image = ants.image_read(str(in_p))
     result = ants.iMath(image, operation, *args, **kwargs)
     
@@ -150,12 +149,13 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     """
     Resample source_file to the resolution/grid of reference_file.
     """
+    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+    import ants
+    
     src_p = extract_image_path(source_file)
     ref_p = extract_image_path(reference_file)
     out_p = ensure_dir(out_file)
-    
-    os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
-    
+        
     # We can use ants.resample_image_to_target which handles everything
     src_img = ants.image_read(str(src_p))
     ref_img = ants.image_read(str(ref_p))
@@ -176,4 +176,5 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     )
     
     ants.image_write(resampled, str(out_p))
+    
     return out_p

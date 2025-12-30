@@ -230,24 +230,137 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
     return out_file
 
 
-def _dti_fit_worker(data_chunk, gtab, fit_method, kwargs):
+
+# --- Unified Parallelization Helpers ---
+
+def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=None):
     """
-    Worker function for parallel DTI fitting.
-    """
-    import dipy.reconst.dti as dipy_dti
-    # Re-instantiate model to avoid pickling complex objects or issues with shared state
-    # Ensure return_leverages is handled if passed in kwargs
-    if 'return_leverages' not in kwargs and (fit_method in ['WLLS', 'OLS', 'NLLS']):
-         # Default to True as per main function to match behavior
-         kwargs['return_leverages'] = True
-         
-    if fit_method == 'RESTORE':
-        # sigma logic
-        sigma = kwargs.pop('sigma', None)
-        model = dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma, **kwargs)
-    else:
-        model = dipy_dti.TensorModel(gtab, fit_method=fit_method, **kwargs)
+    Unified driver for parallel DIPY model fitting.
+    
+    Args:
+        data: 4D numpy array (volumetric data)
+        mask: 3D boolean mask
+        gtab: Gradient table
+        worker_func: Function that takes (chunk_id, chunk_data, gtab, kwargs) and returns fitted parameters
+        nthreads: Number of parallel processes
+        worker_kwargs: Additional kwargs to pass to the worker
         
+    Returns:
+        vol_params: 4D array of fitted parameters wrapped in the original volume shape
+    """
+    import multiprocessing
+    import numpy as np
+    
+    if worker_kwargs is None:
+        worker_kwargs = {}
+
+    print(f"  - Starting parallel fit with {nthreads} threads...")
+    
+    # 1. Flatten data within mask
+    if mask is None:
+        mask = np.ones(data.shape[:3], dtype=bool)
+        
+    data_flat = data[mask]
+    n_samples = data_flat.shape[0]
+    
+    if n_samples == 0:
+        return None 
+
+    # 2. Create Chunks
+    # Use array_split to ensure we strictly partition the data
+    chunks = np.array_split(data_flat, nthreads)
+    
+    # Prune empty chunks if any
+    chunks = [c for c in chunks if c.shape[0] > 0]
+    
+    # 3. Prepare Args
+    # (chunk_id, chunk_data, gtab, worker_kwargs)
+    chunk_args = []
+    for i, c in enumerate(chunks):
+        chunk_args.append((i, c, gtab, worker_kwargs))
+
+    # 4. Run Pool
+    results = []
+    
+    # Use 'spawn' for safety against BLAS/Numba crashes
+    try:
+        ctx = multiprocessing.get_context('spawn')
+    except ValueError:
+        ctx = multiprocessing.get_context('fork')
+        
+    # Wrapper to unpack args (since map/imap passes single arg)
+    def _driver_wrapper(args):
+        return worker_func(*args)
+
+    with ctx.Pool(processes=nthreads) as pool:
+        # Use imap to guarantee order
+        iterator = pool.imap(_driver_wrapper, chunk_args)
+        
+        for i, res in enumerate(iterator):
+            results.append(res)
+
+    # 5. Reassemble
+    if not results:
+        raise RuntimeError("No results from parallel fitting.")
+    
+    # Concatenate along the first axis (samples)
+    all_params = np.concatenate(results, axis=0)
+    
+    # 6. Map back to volume
+    if all_params.ndim == 1:
+        out_shape = mask.shape
+    else:
+        out_shape = mask.shape + all_params.shape[1:]
+        
+    vol_params = np.zeros(out_shape, dtype=all_params.dtype)
+    vol_params[mask] = all_params
+    
+    return vol_params
+
+# --- Worker Functions ---
+
+def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
+    import dipy.reconst.dti as dipy_dti
+    fit_method = kwargs.get('fit_method', 'WLLS')
+    sigma = kwargs.get('sigma', None)
+    
+    if fit_method == 'RESTORE':
+        model = dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+    else:
+        model = dipy_dti.TensorModel(gtab, fit_method=fit_method, return_leverages=True)
+        
+    fit = model.fit(data_chunk)
+    return fit.model_params
+
+def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
+    import dipy.reconst.dki as dipy_dki
+    model = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
+    fit = model.fit(data_chunk)
+    return fit.model_params
+
+def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
+    import dipy.reconst.mapmri as mapmri
+    laplacian = kwargs.get('laplacian', True)
+    positivity = kwargs.get('positivity', True)
+    global_constraints = kwargs.get('global_constraints', False)
+    
+    model = mapmri.MapmriModel(
+        gtab,
+        laplacian_regularization=laplacian,
+        positivity_constraint=positivity,
+        global_constraints=global_constraints
+    )
+    fit = model.fit(data_chunk)
+    return fit.model_params
+
+def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
+    import dipy.reconst.fwdti as fwdti
+    fit_method = kwargs.get('fit_method', 'NLLS') # Default to NLLS for FWE
+    # Extract other FWE params
+    fwe_kwargs = {k:v for k,v in kwargs.items() if k != 'fit_method'}
+    
+    model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **fwe_kwargs)
+    
     fit = model.fit(data_chunk)
     return fit.model_params
 
@@ -324,44 +437,30 @@ def fit_dti(
     # Fit
     try:
         if nthreads > 1:
-            # Parallel Fit
-            # 1. Flatten data within mask
-            data_flat = data[mask]
+            # Parallel Fit using Unified Driver
+            worker_kwargs = {}
+            if fit_method != 'RESTORE':
+                worker_kwargs['return_leverages'] = True
+            if fit_method == 'RESTORE':
+                 # RESTORE takes sigma in kwargs usually? No, TensorModel(..., sigma=sigma)
+                 # Wait, TensorModel signature for RESTORE: sigma is explicit arg.
+                 # Our worker handles sigma from kwargs.
+                 # But we don't calculate sigma here unless passed?
+                 # dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
+                 # We need to pass sigma if we have it? The original code passed `sigma=None`.
+                 pass
+
+            vol_params = _parallel_fit_driver(
+                data, 
+                mask, 
+                gtab, 
+                _dti_worker, 
+                nthreads, 
+                worker_kwargs={'fit_method': fit_method, **worker_kwargs}
+            )
             
-            # 2. Chunk data
-            n_samples = data_flat.shape[0]
-            if n_samples > 0:
-                chunk_size = int(np.ceil(n_samples / nthreads))
-                chunks = [data_flat[i:i + chunk_size] for i in range(0, n_samples, chunk_size)]
-                
-                # 3. Prepare args
-                # Pass necessary kwargs to worker
-                worker_kwargs = {}
-                if fit_method != 'RESTORE':
-                    worker_kwargs['return_leverages'] = True
-                    
-                args_list = [(chunk, gtab, fit_method, worker_kwargs) for chunk in chunks]
-                
-                # 4. Run in parallel
-                with multiprocessing.Pool(processes=nthreads) as pool:
-                    results = pool.starmap(_dti_fit_worker, args_list)
-                    
-                # 5. Reassemble
-                all_params = np.concatenate(results, axis=0)
-                
-                # 6. Map back to volume
-                # Get shape of params from first result (or model definition). DTI is usually 12 params (quadric form + S0 etc)
-                # But actually dipy returns a shape like (..., 6) or (..., 12).
-                # model_params shape matches data shape except last dim.
-                # If input was (N, D), output is (N, P).
-                n_params = all_params.shape[-1]
-                vol_params = np.zeros(mask.shape + (n_params,), dtype=all_params.dtype)
-                vol_params[mask] = all_params
-                
-                dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
-            else:
-                # Empty mask?
-                 dti_fit = dti_model.fit(data, mask=mask)
+            dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
+
         else:
             # Serial Fit
             dti_fit = dti_model.fit(data, mask=mask)
@@ -418,18 +517,7 @@ def fit_dti(
             
     return output_files
 
-def _dki_fit_worker(data_chunk, gtab, kwargs):
-    """
-    Worker function for parallel DKI fitting.
-    """
-    import dipy.reconst.dki as dipy_dki
-    
-    # Instantiate model
-    model = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
-    
-    fit = model.fit(data_chunk)
-    return fit.model_params
- 
+
 def fit_dki(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -468,46 +556,23 @@ def fit_dki(
     else:
         mask = None
         
-    dkimodel = dipy_dki.DiffusionKurtosisModel(gtab)
+    dkimodel = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
     
     # Fit
     try:
         if nthreads > 1:
-            import multiprocessing
             # Parallel Fit
-            # 1. Flatten data within mask
-            if mask is None:
-                 mask = np.ones(data.shape[:3], dtype=bool)
-                 
-            data_flat = data[mask]
+            vol_params = _parallel_fit_driver(
+                data, 
+                mask, 
+                gtab, 
+                _dki_worker, 
+                nthreads, 
+                worker_kwargs=kwargs
+            )
             
-            # 2. Chunk data
-            n_samples = data_flat.shape[0]
-            if n_samples > 0:
-                chunk_size = int(np.ceil(n_samples / nthreads))
-                chunks = [data_flat[i:i + chunk_size] for i in range(0, n_samples, chunk_size)]
-                
-                # 3. Prepare args
-                # Pass clean kwargs. Serial version ignores kwargs, so we ignore them here too.
-                # If we want to support params, we need to handle them explicitly.
-                args_list = [(chunk, gtab, {}) for chunk in chunks]
-                
-                # 4. Run in parallel
-                with multiprocessing.Pool(processes=nthreads) as pool:
-                    results = pool.starmap(_dki_fit_worker, args_list)
-                    
-                # 5. Reassemble
-                all_params = np.concatenate(results, axis=0)
-                
-                # 6. Map back to volume
-                n_params = all_params.shape[-1]
-                vol_params = np.zeros(mask.shape + (n_params,), dtype=all_params.dtype)
-                vol_params[mask] = all_params
-                
-                dkifit = dipy_dki.DiffusionKurtosisFit(dkimodel, vol_params)
-            else:
-                 # Empty mask?
-                 dkifit = dkimodel.fit(data, mask=mask)
+            dkifit = dipy_dki.DiffusionKurtosisFit(dkimodel, vol_params)
+
         else:
             # Serial Fit
             dkifit = dkimodel.fit(data, mask=mask)
@@ -604,7 +669,24 @@ def fit_mapmri(
         global_constraints=global_constraints
     )
     
-    map_fit = map_model.fit(data, mask=mask)
+    if nthreads > 1:
+        worker_kwargs = {
+            'laplacian': laplacian,
+            'positivity': positivity,
+            'global_constraints': global_constraints
+        }
+        
+        vol_params = _parallel_fit_driver(
+             data, 
+             mask, 
+             gtab, 
+             _mapmri_worker, 
+             nthreads, 
+             worker_kwargs=worker_kwargs
+        )
+        map_fit = mapmri.MapmriFit(map_model, vol_params)
+    else:
+        map_fit = map_model.fit(data, mask=mask)
     
     output_files = {}
     # Save Outputs
@@ -649,5 +731,106 @@ def fit_mapmri(
         with open(sidecar_path, 'w') as f:
              json.dump(sidecar, f, indent=4)
 
+    return output_files
+
+
+def fit_fwe_dti(
+    in_file: Union[Path, ImageLike],
+    out_dir: Path,
+    bval_file: Optional[Path] = None,
+    bvec_file: Optional[Path] = None,
+    mask_file: Optional[Path] = None,
+    fit_method: str = "NLLS",
+    metrics: list[str] = ["fa", "md", "ad", "rd", "f"],
+    nthreads: int = 1,
+    **kwargs
+) -> Dict[str, Path]:
+    """
+    Fit Free-Water Elimination DTI (FWE-DTI) model using DIPY.
+    """
+    from dipy.core.gradients import gradient_table
+    from dipy.io.gradients import read_bvals_bvecs
+    import dipy.reconst.fwdti as fwdti
+    from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
+
+    in_path = extract_image_path(in_file)
+    img = nib.load(str(in_path))
+    data = img.get_fdata()
+    
+    if bval_file is None or bvec_file is None:
+        if isinstance(in_file, DWIFile):
+            bval_file = bval_file or in_file.bval
+            bvec_file = bvec_file or in_file.bvec
+            
+    if not bval_file or not bvec_file:
+         raise ValueError("Gradient files (bval/bvec) are required.")
+
+    bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
+    gtab = gradient_table(bvals, bvecs=bvecs)
+
+    if mask_file and mask_file.exists():
+        mask = nib.load(str(mask_file)).get_fdata().astype(bool)
+    else:
+        mask = None
+        
+    fwe_model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **kwargs)
+    
+    try:
+        if nthreads > 1:
+            worker_kwargs = {'fit_method': fit_method, **kwargs}
+            vol_params = _parallel_fit_driver(
+                data, 
+                mask, 
+                gtab, 
+                _fwe_dti_worker, 
+                nthreads, 
+                worker_kwargs=worker_kwargs
+            )
+            fwe_fit = fwdti.FreeWaterTensorFit(fwe_model, vol_params)
+        else:
+            fwe_fit = fwe_model.fit(data, mask=mask)
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise RuntimeError(f"FWE-DTI fitting failed: {e}") from e
+        
+    # Save Outputs
+    output_files = {}
+    ent_base = get_entities_from_path(in_path)
+    if 'desc' in ent_base: del ent_base['desc']
+    ent_base['model'] = 'FWDTI'
+    
+    sidecar = {
+        "ModelName": "Free-Water Elimination DTI",
+        "FittingSoftware": "DIPY",
+        "InputData": in_path.name,
+        "FittingMethod": fit_method,
+        "Metrics": metrics
+    }
+    
+    for metric in metrics:
+        metric_suffix = metric.upper()
+        if metric == 'f': metric_suffix = 'FW' # Free Water Fraction
+        
+        out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
+        out_path = out_dir / out_name
+        
+        # Extract metric
+        val = None
+        if metric == 'fa': val = fwe_fit.fa
+        elif metric == 'md': val = fwe_fit.md
+        elif metric == 'ad': val = fwe_fit.ad
+        elif metric == 'rd': val = fwe_fit.rd
+        elif metric == 'f': val = fwe_fit.f
+        elif metric == 'prediction': val = fwe_fit.predict(gtab, S0=1.) # Optional?
+        
+        if val is not None:
+             nib.save(nib.Nifti1Image(val, img.affine), str(out_path))
+             output_files[metric] = out_path
              
+             sidecar_path = str(out_path).replace('.nii.gz', '.json')
+             with open(sidecar_path, 'w') as f:
+                 json.dump(sidecar, f, indent=4)
+                 
     return output_files

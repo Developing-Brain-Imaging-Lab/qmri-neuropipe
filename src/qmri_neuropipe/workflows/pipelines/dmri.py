@@ -29,7 +29,7 @@ from qmri_neuropipe.lib.reporting.report import ReportGenerator
 from qmri_neuropipe.lib.dmri.outliers import OutlierRemovalStep
 from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
 from qmri_neuropipe.lib.dmri.motion import NiiFreezeStep
-from ...lib.dmri.fitting import DTIFittingStep, DKIFittingStep, NODDIFittingStep, SANDIFittingStep, MAPMRIFittingStep, CSDFittingStep
+from ...lib.dmri.fitting import DTIFittingStep, DKIFittingStep, NODDIFittingStep, SANDIFittingStep, MAPMRIFittingStep, CSDFittingStep, FWDTIFittingStep
 import time
 # Rich and Viz imports moved to local scope
 

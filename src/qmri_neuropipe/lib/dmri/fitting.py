@@ -597,3 +597,76 @@ class CSDFittingStep(BaseProcessingStep):
              
         context.setdefault('modeling_results', {})['CSD'] = results
         return context
+
+
+class FWDTIFittingStep(BaseProcessingStep):
+    def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
+        super().__init__(config, logger, provenance)
+        self.method = method
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
+        self.kwargs = kwargs
+
+    def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
+        # Resolve inputs
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        
+        # Output directory for this model
+        model_out = output_dir / "FWE_DTI"
+        model_out.mkdir(parents=True, exist_ok=True)
+        
+        # Check for existing outputs
+        skip = hasattr(self.config, 'skip_existing') and self.config.skip_existing
+        existing_results = {}
+        
+        if skip:
+            ents = dwi.entities.copy()
+            ents['model'] = 'FWDTI'
+            if 'desc' in ents: del ents['desc']
+            if 'suffix' in ents: del ents['suffix']
+            
+            # Check for key output (FA)
+            fa_path = model_out / build_bids_name(ents, suffix='FA')
+            
+            if fa_path.exists():
+                 self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found existing outputs)")
+                 # Collect existing
+                 for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
+                 for p in model_out.glob("*_FW.nii.gz"): existing_results['FW'] = p
+                 for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
+                 
+                 context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
+                 return context
+
+        self.logger.info(f"Running FWE-DTI fit ({self.method}) on {dwi.img.name}")
+        
+        # Prepare mask
+        if mask and hasattr(mask, 'img'):
+             mask_path = mask.img
+        else:
+             mask_path = mask
+
+        if self.method == 'dipy':
+            from ...interfaces.dipy import fit_fwe_dti
+            
+            # Extract config options
+            step_kwargs = self.kwargs.copy()
+            
+            fit_fwe_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **step_kwargs)
+            
+        else:
+            raise ValueError(f"Unknown FWE-DTI method: {self.method} (only 'dipy' supported)")
+            
+        # Track Outputs
+        results = {}
+        for p in model_out.glob("*_FA.nii.gz"): results['FA'] = p
+        for p in model_out.glob("*_FW.nii.gz"): results['FW'] = p
+        for p in model_out.glob("*_MD.nii.gz"): results['MD'] = p
+        for p in model_out.glob("*_AD.nii.gz"): results['AD'] = p
+        for p in model_out.glob("*_RD.nii.gz"): results['RD'] = p
+        
+        context.setdefault('modeling_results', {})['FWE_DTI'] = results
+        return context
