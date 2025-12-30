@@ -8,6 +8,8 @@ from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union
 import nibabel as nib
 import numpy as np
+import warnings
+
 
 from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path

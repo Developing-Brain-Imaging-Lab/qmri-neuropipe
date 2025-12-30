@@ -1758,6 +1758,109 @@ class DMRIPipeline(BasePipeline):
             
         else:
             preprocessed_context = self.preprocessing.run(subj_work_dir, context, reporter=reporter)
+            
+            # --- Save Final Preprocessed Output to Main Output Directory ---
+            # The user explicitly requested to save "preproc_dwi" files in the output directory
+            # before modeling/normalization begins.
+            
+            import shutil
+            preproc_dwis = preprocessed_context.get("preprocessed_dwis", [])
+            preproc_masks = preprocessed_context.get("preprocessed_masks", [])
+            
+            # We assume output structure: output_dir / sub-X / ses-Y / dwi
+            # dwi_final_dir is already defined as: self._get_output_dir(subject, session) / 'dwi'
+            # But let's verify
+            dwi_final_dir.mkdir(parents=True, exist_ok=True)
+            
+            updated_dwis = []
+            updated_masks = []
+            
+            for i, (pdwi, pmask) in enumerate(zip(preproc_dwis, preproc_masks)):
+                if not pdwi.img.exists():
+                    self.logger.warning(f"Preprocessed DWI does not exist: {pdwi.img}")
+                    updated_dwis.append(pdwi)
+                    updated_masks.append(pmask)
+                    continue
+                    
+                # Construct new filename with _desc-preproc
+                # Use original entities but override desc
+                ents = pdwi.entities.copy()
+                ents['desc'] = 'preproc'
+                
+                new_name_dwi = build_bids_name(ents, suffix='dwi')
+                if not new_name_dwi.endswith('.nii.gz'): new_name_dwi += '.nii.gz'
+                
+                dest_dwi = dwi_final_dir / new_name_dwi
+                
+                self.logger.info(f"Saving final preprocessed DWI: {dest_dwi}")
+                shutil.copy(pdwi.img, dest_dwi)
+                
+                # Copy sidecars
+                new_bval_path = None
+                if pdwi.bval and pdwi.bval.exists():
+                    dest_path_str = str(dest_dwi)
+                    for ext in ['.nii.gz', '.nii']:
+                        if dest_path_str.endswith(ext):
+                            dest_path_str = dest_path_str[:-len(ext)]
+                            break
+                    dest_bval = Path(dest_path_str + ".bval")
+                    shutil.copy(pdwi.bval, dest_bval)
+                    new_bval_path = dest_bval
+
+                new_bvec_path = None
+                if pdwi.bvec and pdwi.bvec.exists():
+                     dest_path_str = str(dest_dwi)
+                     for ext in ['.nii.gz', '.nii']:
+                        if dest_path_str.endswith(ext):
+                            dest_path_str = dest_path_str[:-len(ext)]
+                            break
+                     dest_bvec = Path(dest_path_str + ".bvec")
+                     shutil.copy(pdwi.bvec, dest_bvec)
+                     new_bvec_path = dest_bvec
+
+                new_json_path = None
+                if pdwi.json and pdwi.json.exists():
+                     dest_path_str = str(dest_dwi)
+                     for ext in ['.nii.gz', '.nii']:
+                        if dest_path_str.endswith(ext):
+                            dest_path_str = dest_path_str[:-len(ext)]
+                            break
+                     dest_json = Path(dest_path_str + ".json")
+                     shutil.copy(pdwi.json, dest_json)
+                     new_json_path = dest_json
+                     
+                # Save MASK
+                new_mask_obj = pmask
+                if pmask and hasattr(pmask, 'img') and pmask.img.exists():
+                     mask_ents = ents.copy()
+                     mask_ents['suffix'] = 'mask' # Ensure suffix is mask
+                     if 'desc' in mask_ents: 
+                         # Keep preproc desc for mask? Usually yes: desc-preproc_mask
+                         pass
+                         
+                     new_name_mask = build_bids_name(mask_ents)
+                     if not new_name_mask.endswith('.nii.gz'): new_name_mask += '.nii.gz'
+                     
+                     dest_mask = dwi_final_dir / new_name_mask
+                     self.logger.info(f"Saving final preprocessed Mask: {dest_mask}")
+                     shutil.copy(pmask.img, dest_mask)
+                     new_mask_obj = ImageFile(entities=mask_ents, img=dest_mask)
+
+                # Update context object to point to the SAVED file in output dir
+                # This ensures downstream steps use the official output file
+                updated_dwi_obj = DWIFile(
+                    img=dest_dwi,
+                    bval=new_bval_path,
+                    bvec=new_bvec_path,
+                    json=new_json_path,
+                    entities=ents
+                )
+                updated_dwis.append(updated_dwi_obj)
+                updated_masks.append(new_mask_obj)
+                
+            # Update context with the relocated files
+            preprocessed_context['preprocessed_dwis'] = updated_dwis
+            preprocessed_context['preprocessed_masks'] = updated_masks
         
         # 6b. Run Modeling Workflow (Using Preprocessed Data)
         # We need to make sure the preprocessed data (which might be in work dir) 
