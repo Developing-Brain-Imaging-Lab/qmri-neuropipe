@@ -43,6 +43,7 @@ def _fit_chunk(args):
         iso_diffusivity = model_config.get('iso_diffusivity', 3.0e-9)
         distribution = model_config.get('distribution', 'Watson')
         model_type = model_config.get('model_type', 'standard') # 'standard' or 'smt'
+        print(f"[Worker {chunk_id}] Config: Model Type={model_type}, Dist={distribution}")
         
         # Core Models
         ball = gaussian_models.G1Ball()
