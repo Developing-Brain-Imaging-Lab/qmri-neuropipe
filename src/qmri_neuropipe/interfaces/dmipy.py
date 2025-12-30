@@ -528,36 +528,23 @@ def fit_noddi(
          
     # Logic for SMT Reconstruction of f_intra/f_extra
     if model_type == 'smt':
-         # In SMT (Stick, Zeppelin, Ball), we likely have 3 PVs.
-         # Stick -> Intra
-         # Zeppelin -> Extra
-         # Ball -> Iso
-         # We need to sum Stick + Zeppelin to get Total-Non-Iso if we want to mimic standard f_intra logic?
-         # Or just map directly. 
-         # Let's see what keys we found.
-         pass
-         # TODO: Refine SMT metric extraction based on observed keys.
-         # For now, let's assume we want standard metrics: vf_intra (stick volume), vf_extra (zeppelin volume).
-         # Note: vf_intra = f_stick. vf_extra = f_zeppelin.
-         # In Standard NODDI: vf_intra = f_bundle * pv_stick.
+         # In SMT (Stick, Zeppelin, Ball), results are typically:
+         # partial_volume_0 -> Stick (Intra)
+         # partial_volume_1 -> Zeppelin (Extra)
+         # partial_volume_2 -> Ball (Iso)
          
-         # If we find explicit parameters for stick/zeppelin volume, use them.
-         # MultiCompartmentSphericalMeanModel(models=[stick, zeppelin, ball])
-         # usually returns 'partial_volume_0' (stick), 'partial_volume_1' (zeppelin), 'partial_volume_2' (ball).
+         # We try to extract these directly
+         vf_intra = fit_results.fitted_parameters.get('partial_volume_0')
+         vf_extra = fit_results.fitted_parameters.get('partial_volume_1')
          
-         # If so, we can assign directly:
-         # vf_intra = fit_results.fitted_parameters.get('partial_volume_0')
-         # vf_extra = fit_results.fitted_parameters.get('partial_volume_1')
-         # f_iso = fit_results.fitted_parameters.get('partial_volume_2')
-         pass
+         # Update f_iso if not already set correctly via param_map (which might fail for SMT)
+         if f_iso is None:
+             f_iso = fit_results.fitted_parameters.get('partial_volume_2')
 
-    # Recalculate if standard
+    # Recalculate if standard (and not set by SMT)
     if vf_intra is None and pv0 is not None and f_intra is not None:
          vf_intra = pv0 * f_intra
          vf_extra = (1 - pv0) * f_intra
-
-    vf_intra = None
-    vf_extra = None
     if pv0 is not None and f_intra is not None:
          vf_intra = pv0 * f_intra
          vf_extra = (1 - pv0) * f_intra
