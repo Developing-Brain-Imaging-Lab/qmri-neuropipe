@@ -222,21 +222,62 @@ def fit_noddi(
     
     # Prepare arguments for each chunk
     # Define keys we actually need to save memory/time
-    # Note: If switching to Bingham, 'SD1WatsonDistributed...' keys will be wrong.
-    # We should detect distribution type and adjust keys.
-    base_dist = 'SD1WatsonDistributed_1_SD1Watson_1'
-    if distribution.lower() == 'bingham':
-        base_dist = 'SD2BinghamDistributed_1_SD2Bingham_1'
+    # Prepare arguments for each chunk
+    # Define keys we actually need to save memory/time
+    
+    # DYNAMIC KEY DISCOVERY
+    # Hardcoded naming (e.g. SD1WatsonDistributed_1...) is fragile as instance counters may vary.
+    # We inspect noddi.parameter_names to find the correct keys.
+    all_params = noddi.parameter_names
+    param_map = {}
+    
+    # 1. Global Volume Fractions
+    # MultiCompartmentModel(models=[ball, dispersed_bundle])
+    # partial_volume_0 -> ball (iso)
+    # partial_volume_1 -> bundle (intra + extra)
+    param_map['f_iso'] = 'partial_volume_0'
+    param_map['f_bundle'] = 'partial_volume_1'
+    
+    # 2. Distributed Model Parameters (ODI, Stick Fraction)
+    # We look for keys that belong to the distributed model but are not the global volumes.
+    # Pattern likely contains 'Watson' or 'Bingham' and 'odi' or 'partial_volume_0'.
+    
+    # Find ODI key
+    odi_candidates = [p for p in all_params if 'odi' in p.lower() or 'kappa' in p.lower()] # Watson uses odi? Or kappa? Dmipy Watson yields 'odi' usually.
+    # If Watson, we expect 'odi'. 
+    if odi_candidates:
+        # If multiple, take the longest one? Or strictly match distribution name?
+        # Expect: SD1WatsonDistributed_1_SD1Watson_1_odi
+        # Filter by distribution name if possible
+        filtered = [p for p in odi_candidates if distribution.lower() in p.lower()]
+        if filtered:
+            param_map['odi'] = filtered[0]
+        else:
+            param_map['odi'] = odi_candidates[0] # Fallback
+    else:
+        print("WARNING: Could not find ODI parameter key. ODI map will be empty.")
+        param_map['odi'] = None
         
-    keys_to_keep = [
-        f'{base_dist}_odi', # Bingham might have odi1/odi2 or similar? Dmipy usually gives 'odi' for dispersals
-        # If Bingham, we might have different param names. Safest is to just strip prefix match or check dynamically?
-        # For now, let's keep the core volumes which are consistent.
-        f'{base_dist}_mu', # orientation ?
-        f'{base_dist}_partial_volume_0',
-        'partial_volume_0',
-        'partial_volume_1'
-    ]
+    # Find Intra-Bundle Stick Fraction (pv0 of the bundle)
+    # Key usually ends in 'partial_volume_0' but is NOT the global 'partial_volume_0'
+    # Expect: SD1WatsonDistributed_1_partial_volume_0
+    
+    # Exclude global 'partial_volume_0'
+    pv_candidates = [p for p in all_params if 'partial_volume_0' in p and p != 'partial_volume_0']
+    if pv_candidates:
+         # Again, filter by distribution name
+         filtered = [p for p in pv_candidates if distribution.lower() in p.lower()]
+         if filtered:
+             param_map['pv_stick'] = filtered[0]
+         else:
+             param_map['pv_stick'] = pv_candidates[0]
+    else:
+         print("WARNING: Could not find Masked Stick Fraction key. vf_intra calculation may fail.")
+         param_map['pv_stick'] = None
+
+    keys_to_keep = [v for v in param_map.values() if v is not None]
+    
+    print(f"DEBUG: Identified NODDI keys: {param_map}")
 
     # (chunk_id, data_chunk, model, scheme, keys_to_keep, solver, solver_kwargs)
     chunk_args = [(i, c, noddi, gtab, keys_to_keep, solver, solver_kwargs) for i, c in enumerate(chunks) if c.shape[0] > 0]
@@ -329,11 +370,18 @@ def fit_noddi(
     # --- Extract Metrics ---
     
     # Volume Fractions (Standard)
-    f_iso = fit_results.fitted_parameters.get('partial_volume_0')
-    f_intra = fit_results.fitted_parameters.get('partial_volume_1')
+    f_iso = fit_results.fitted_parameters.get(param_map.get('f_iso'))
+    f_intra = fit_results.fitted_parameters.get(param_map.get('f_bundle')) # Total non-iso fraction
 
-    pv0 = fit_results.fitted_parameters.get(f'{base_dist}_partial_volume_0')
-    odi_map = fit_results.fitted_parameters.get(f'{base_dist}_odi')
+    # Internal bundle fraction (Stick vs Zeppelin)
+    # pv_stick key maps to the fraction of 'stick' within the bundle
+    pv0 = None
+    if param_map.get('pv_stick'):
+        pv0 = fit_results.fitted_parameters.get(param_map['pv_stick'])
+    
+    odi_map = None
+    if param_map.get('odi'):
+        odi_map = fit_results.fitted_parameters.get(param_map['odi'])
 
     vf_intra = None
     vf_extra = None
