@@ -48,39 +48,24 @@ def _fit_chunk(args):
         ball = gaussian_models.G1Ball()
         stick = cylinder_models.C1Stick()
         zeppelin = gaussian_models.G2Zeppelin()
-        
+
+        if distribution.lower() == "bingham":
+            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
+        else:
+            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+
+        dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
+        dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+        dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+
         if model_type == 'smt':
             # SMT-NODDI: Spherical Mean of Stick + Zeppelin + Ball
-            # Note: SMT doesn't use the explicit "Distributed" wrappers usually, as it models the mean signal directly.
-            # We fit the microstructure parameters (fractions, intrinsic diffusivities).
-            bundle = distribute_models.BundleModel([stick, zeppelin])
-            bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
-            bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-            bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-
-            # SMT Model
-            noddi = MultiCompartmentSphericalMeanModel(models=[bundle, ball])
-            
-            # Fix Diffusivities          
-            noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-        
+            noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])        
         else:
-            # Standard NODDI
-            if distribution.lower() == "watson":
-                 dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-            elif distribution.lower() == "bingham":
-                 dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-            else:
-                 raise ValueError(f"Unknown distribution: {distribution}")
-            
-            # Tortuosity & Constraints
-            dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
-            dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-            dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-            
+            # Standard NODDI            
             noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
-            noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-
+            
+        noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
         # --- Apply Chunk-Specific Fixed Parameters ---
         if chunk_fixed_params:
             for param_key, param_val in chunk_fixed_params.items():
