@@ -24,6 +24,10 @@ def _fit_chunk(args):
     
     # Enforce single-threaded execution within the worker
     import os
+    import sys
+    import warnings
+    import contextlib
+
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -32,13 +36,18 @@ def _fit_chunk(args):
         # Fit the chunk
         # dmipy fit returns a MicrostructureFit object
         # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
-        fit_obj = model.fit(
-            scheme, 
-            data_chunk, 
-            number_of_processors=1,
-            solver=solver,
-            **solver_kwargs
-        )
+        
+        # Suppress dmipy print statements (optimizer setup) and warnings
+        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+             with warnings.catch_warnings():
+                 warnings.simplefilter("ignore")
+                 fit_obj = model.fit(
+                    scheme, 
+                    data_chunk, 
+                    number_of_processors=1,
+                    solver=solver,
+                    **solver_kwargs
+                )
         
         # Return only the requested parameters to minimize pickling/transfer overhead
         full_params = fit_obj.fitted_parameters
@@ -326,8 +335,11 @@ def fit_noddi(
     pv0 = fit_results.fitted_parameters.get(f'{base_dist}_partial_volume_0')
     odi_map = fit_results.fitted_parameters.get(f'{base_dist}_odi')
 
-    vf_intra = pv0 * f_intra
-    vf_extra = (1 - pv0) * f_intra
+    vf_intra = None
+    vf_extra = None
+    if pv0 is not None and f_intra is not None:
+         vf_intra = pv0 * f_intra
+         vf_extra = (1 - pv0) * f_intra
 
         
     # Save Outputs
