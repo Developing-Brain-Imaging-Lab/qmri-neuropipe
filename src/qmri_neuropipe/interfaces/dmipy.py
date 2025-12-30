@@ -194,9 +194,9 @@ def fit_noddi(
     # Define keys we actually need to save memory/time
     keys_to_keep = [
         'SD1WatsonDistributed_1_SD1Watson_1_odi',
+        'SD1WatsonDistributed_1_partial_volume_0',
         'partial_volume_0',
-        'partial_volume_1',
-        'partial_volume_2'
+        'partial_volume_1'
     ]
     # (chunk_id, data_chunk, model, scheme, keys_to_keep)
     chunk_args = [(i, c, noddi, gtab, keys_to_keep) for i, c in enumerate(chunks) if c.shape[0] > 0]
@@ -293,7 +293,7 @@ def fit_noddi(
     # models=[ball, watson_stick, watson_zeppelin]
     f_iso = fit_results.fitted_parameters['partial_volume_0']
     f_intra = fit_results.fitted_parameters['partial_volume_1']
-    f_extra = fit_results.fitted_parameters['partial_volume_2']
+    f_extra = ((1 - fit_results.fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'])*fit_results.fitted_parameters['partial_volume_1'])
     
     # Calculate ICVF (Intra-cellular Volume Fraction relative to non-CSF)
     # standard ICVF = f_intra / (f_intra + f_extra)
@@ -301,6 +301,8 @@ def fit_noddi(
     denom[denom == 0] = 1.0 # Avoid div/0
     icvf_map = f_intra / denom
     
+    vf_intra = (fit_results.fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'] * fit_results.fitted_parameters['partial_volume_1'])
+
     # Handle mask (zeros outside)
     if mask_data is not None:
          icvf_map[~mask_data] = 0
@@ -319,5 +321,6 @@ def fit_noddi(
     save_map('fiso', f_iso) # also save fiso as it is useful
     save_map('f_intra', f_intra)
     save_map('f_extra', f_extra)
+    save_map('vf_intra', vf_intra)
     
     return outputs
