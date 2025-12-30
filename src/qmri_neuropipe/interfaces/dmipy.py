@@ -35,6 +35,7 @@ def _fit_chunk(args):
     full_params = fit_obj.fitted_parameters
     if keys_to_keep:
         return {k: v for k, v in full_params.items() if k in keys_to_keep}
+    
     return full_params
 
 def fit_noddi(
@@ -203,11 +204,35 @@ def fit_noddi(
     # Use a safe context for pool
     ctx = multiprocessing.get_context('fork')
     print("Starting process pool...")
-    with ctx.Pool(processes=nthreads) as pool:
-        # map_async is often smoother for UI progress if we added tqdm, but simple map is fine
-        results = pool.map(_fit_chunk, chunk_args)
-    print("Workers finished. Reassembling results...")
+    
+    # We use explicit try/finally to ensure termination if needed
+    pool = ctx.Pool(processes=nthreads)
+    try:
+        # Use imap_unordered to process results as they finish and avoid blocking on a single slow chunk
+        # It also helps avoid large buffer buildups compared to map() waiting for everything
+        iterator = pool.imap_unordered(_fit_chunk, chunk_args)
         
+        # Collect results with progress
+        import time
+        start_t = time.time()
+        for i, res in enumerate(iterator):
+            results.append(res)
+            # Log every 10% or so
+            if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
+                 elapsed = time.time() - start_t
+                 print(f"  - Processed {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
+            elif len(chunk_args) <= 10:
+                 print(f"  - Processed chunk {i + 1}/{len(chunk_args)}")
+
+    finally:
+        # Ensure we close the pool
+        pool.close()
+        # Wait for workers to exit
+        print("Waiting for workers to exit (joining pool)...")
+        pool.join()
+        
+    print("Workers finished. Reassembling results...")
+
     # 5. Reassemble Results
     # results is a list of dicts. We need to concatenate the arrays for each key.
     if not results:
