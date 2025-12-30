@@ -53,18 +53,16 @@ def _fit_chunk(args):
             # SMT-NODDI: Spherical Mean of Stick + Zeppelin + Ball
             # Note: SMT doesn't use the explicit "Distributed" wrappers usually, as it models the mean signal directly.
             # We fit the microstructure parameters (fractions, intrinsic diffusivities).
-            noddi = MultiCompartmentSphericalMeanModel(models=[stick, zeppelin, ball])
+            bundle = distribute_models.BundleModel([stick, zeppelin])
+
+            # SMT Model
+            noddi = MultiCompartmentSphericalMeanModel(models=[ball, bundle])
             
             # Fix Diffusivities
             noddi.set_fixed_parameter('C1Stick_1_lambda_par', parallel_diffusivity)
             noddi.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
             noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-            
-            # SMT Tortuosity?
-            # Ideally: lambda_perp_zepp = lambda_par * (1 - f_intra). 
-            # But standard SMT-NODDI often just fixes lambda_perp if not linked?
-            # Dmipy SMT supports tortuosity linking if we define it.
-            # For now, let's duplicate the standard NODDI tortuosity if possible.
+        
             noddi.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
             noddi.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
             
@@ -379,36 +377,7 @@ def fit_noddi(
         # Fixed params for this chunk
         c_fixed = {}
         if fiso_chunks[i] is not None:
-             # Map 'f_iso' key to this chunk
-             # Usually 'partial_volume_0' if ball is first?
-             # NOTE: In our standard NODDI (ball, bundle), ball is 0.
-             # In SMT (stick, zeppelin, ball), ball is 2 (last).
-             # We must get the key correct.
-             
-             # Standard: noddi = MultiCompartmentModel(models=[ball, dispersed_bundle]) -> ball is 0.
-             # SMT: noddi = MultiCompartmentSphericalMeanModel(models=[stick, zeppelin, ball]) -> ball is 2?
-             
-             # Let's check param_map or all_params.
-             # If SMT, 'G1Ball_1_partial_volume_0' ?? No, usually 'partial_volume_X'.
-             # Dmipy normalizes volume fractions.
-             
-             # Strategy: Use the param name found in param_map['f_iso']/etc if we can trust it.
-             # For SMT, we need to be careful.
-             
-             # For standard NODDI:
-             if model_type == 'standard':
-                  target_key = 'partial_volume_0' 
-             else:
-                  # For SMT with [stick, zeppelin, ball]
-                  # It typically creates partial_volume_0, _1, _2 ?
-                  # If we fix one, the others renormalize?
-                  # Dmipy fixed parameter by array works on 'partial_volume_X'.
-                  # We'll need to know which one is ball.
-                  # Usually Dmipy assigns indices in order of models.
-                  # stick=0, zeppelin=1, ball=2.
-                  target_key = 'partial_volume_2' 
-                  
-             c_fixed[target_key] = fiso_chunks[i]
+             c_fixed['partial_volume_0'] = fiso_chunks[i]
 
         chunk_args.append(
             (i, chunks[i], gtab, model_config, c_fixed, keys_to_keep, solver, solver_kwargs)
@@ -511,6 +480,8 @@ def fit_noddi(
     f_intra = None
     pv0 = None
     odi_map = None
+    vf_intra = None
+    vf_extra = None
     
     # Extract based on map
     if param_map.get('f_iso'):
@@ -528,26 +499,17 @@ def fit_noddi(
          
     # Logic for SMT Reconstruction of f_intra/f_extra
     if model_type == 'smt':
-         # In SMT (Stick, Zeppelin, Ball), results are typically:
-         # partial_volume_0 -> Stick (Intra)
-         # partial_volume_1 -> Zeppelin (Extra)
-         # partial_volume_2 -> Ball (Iso)
-         
-         # We try to extract these directly
-         vf_intra = fit_results.fitted_parameters.get('partial_volume_0')
-         vf_extra = fit_results.fitted_parameters.get('partial_volume_1')
-         
-         # Update f_iso if not already set correctly via param_map (which might fail for SMT)
-         if f_iso is None:
-             f_iso = fit_results.fitted_parameters.get('partial_volume_2')
+
+        pv0 = fit_results.fitted_parameters['BundleModel_1_partial_volume_0']
+
+        # Update f_iso if not already set correctly via param_map (which might fail for SMT)
+        if f_iso is None:
+            f_iso = fit_results.fitted_parameters.get('partial_volume_0')
 
     # Recalculate if standard (and not set by SMT)
     if vf_intra is None and pv0 is not None and f_intra is not None:
-         vf_intra = pv0 * f_intra
-         vf_extra = (1 - pv0) * f_intra
-    if pv0 is not None and f_intra is not None:
-         vf_intra = pv0 * f_intra
-         vf_extra = (1 - pv0) * f_intra
+        vf_intra = pv0 * f_intra
+        vf_extra = (1 - pv0) * f_intra
 
         
     # Save Outputs
