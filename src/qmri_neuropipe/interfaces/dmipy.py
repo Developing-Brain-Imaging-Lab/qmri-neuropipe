@@ -277,22 +277,22 @@ def fit_noddi(
     stick = cylinder_models.C1Stick()
     zeppelin = gaussian_models.G2Zeppelin()
     
-    if model_type == 'smt':
-         dummy_model = MultiCompartmentSphericalMeanModel(models=[stick, zeppelin, ball])
+    if distribution.lower() == "watson":
+        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+    elif distribution.lower() == "bingham":
+        # Try/Except for older dmipy versions if needed
+        try:
+            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
+        except AttributeError:
+            # Fallback or error
+            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
     else:
-         if distribution.lower() == "watson":
-             dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-         elif distribution.lower() == "bingham":
-             # Try/Except for older dmipy versions if needed
-             try:
-                 dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-             except AttributeError:
-                  # Fallback or error
-                  dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-         else:
-             # Default
-             dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-             
+        # Default
+        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+    
+    if model_type == 'smt':
+         dummy_model = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
+    else:
          dummy_model = MultiCompartmentModel(models=[dispersed_bundle, ball])
 
     all_params = dummy_model.parameter_names
