@@ -232,9 +232,42 @@ class NODDIFittingStep(BaseProcessingStep):
              mask_path = mask
 
         outputs = {}
+        outputs = {}
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
-             outputs = fit_noddi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
+             
+             # Extract config options
+             # Priority: kwargs > config > default
+             noddi_kwargs = self.kwargs.copy()
+             
+             # Helper to get from config or kwargs
+             def get_cfg(key, default=None):
+                 if key in noddi_kwargs: return noddi_kwargs.pop(key)
+                 if isinstance(self.config, dict):
+                     return self.config.get(key, default)
+                 return getattr(self.config, key, default)
+
+             # Explicitly extract known parameters to pass them cleanly
+             # (fit_noddi now has explicit args for these)
+             distribution = get_cfg('distribution', 'Watson')
+             parallel_diff = get_cfg('parallel_diffusivity', 1.7e-9)
+             iso_diff = get_cfg('iso_diffusivity', 3.0e-9)
+             model_type = get_cfg('model_type', 'standard')
+             fiso_map = get_cfg('fiso_map', None)
+             
+             # Pass to fit_noddi
+             outputs = fit_noddi(
+                 dwi, 
+                 model_out, 
+                 mask_file=mask_path, 
+                 nthreads=self.nthreads,
+                 distribution=distribution,
+                 parallel_diffusivity=parallel_diff,
+                 iso_diffusivity=iso_diff,
+                 model_type=model_type,
+                 fiso_file=fiso_map,
+                 **noddi_kwargs
+             )
         elif self.method == 'amico':
              from ...interfaces.amico import fit_noddi
              outputs = fit_noddi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
