@@ -12,10 +12,9 @@ build:
 python:
   install:
     - requirements: docs/requirements.txt
-    - method: pip
-      path: .
-      extra_requirements:
-        - dev  # or whatever your pyproject.toml extra is
+    # Package not installed to avoid compiling heavy dependencies.
+    # We rely on autodoc_mock_imports in conf.py
+
 
 sphinx:
   configuration: docs/conf.py
