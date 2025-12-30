@@ -1764,8 +1764,14 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("="*60)
             self.logger.info("  RUNNING MODEL FITTING        ")
             self.logger.info("="*60)
-            # Pass output_dir / "models" or configured models_dir
-            models_out = Path(self.config.get('models_dir')) if self.config.get('models_dir') else output_dir / "models"
+            # Pass output_dir / "models" or configured models_dir with BIDS structure
+            if self.config.get('models_dir'):
+                 # Use relative path from standard output root (sub-X/ses-Y/dwi)
+                 rel_path = output_dir.relative_to(self.config.output_dir)
+                 models_out = Path(self.config.get('models_dir')) / rel_path
+            else:
+                 models_out = output_dir / "models"
+                 
             models_out.mkdir(parents=True, exist_ok=True)
             preprocessed_context = self.modeling.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=models_out)
         else:
@@ -1780,7 +1786,12 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("  RUNNING NORMALIZATION        ")
             self.logger.info("="*60)
             # Use work_dir for staging, write final results to output_dir/normalization or normalization_dir
-            norm_output_dir = Path(self.config.get('normalization_dir')) if self.config.get('normalization_dir') else output_dir / "normalization"
+            if self.config.get('normalization_dir'):
+                 rel_path = output_dir.relative_to(self.config.output_dir)
+                 norm_output_dir = Path(self.config.get('normalization_dir')) / rel_path
+            else:
+                 norm_output_dir = output_dir / "normalization"
+                 
             norm_output_dir.mkdir(parents=True, exist_ok=True)
             preprocessed_context = self.normalization.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=norm_output_dir)
 
@@ -1797,7 +1808,12 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("="*60)
             
             # Use work_dir for staging, write final results to output_dir/stats or segmentation_dir
-            stats_output_dir = Path(self.config.get('segmentation_dir')) if self.config.get('segmentation_dir') else output_dir / "stats"
+            if self.config.get('segmentation_dir'):
+                 rel_path = output_dir.relative_to(self.config.output_dir)
+                 stats_output_dir = Path(self.config.get('segmentation_dir')) / rel_path
+            else:
+                 stats_output_dir = output_dir / "stats"
+                 
             stats_output_dir.mkdir(parents=True, exist_ok=True)
             preprocessed_context = self.segmentation.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=stats_output_dir)
 

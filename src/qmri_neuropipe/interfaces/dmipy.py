@@ -18,7 +18,7 @@ def _fit_chunk(args):
     """
     Helper function to fit a chunk of data in a separate process.
     """
-    chunk_id, data_chunk, model, scheme, keys_to_keep = args
+    chunk_id, data_chunk, model, scheme, keys_to_keep, solver, solver_kwargs = args
     
     print(f"[Worker {chunk_id}] Started chunk with {len(data_chunk)} voxels.")
     
@@ -32,7 +32,13 @@ def _fit_chunk(args):
         # Fit the chunk
         # dmipy fit returns a MicrostructureFit object
         # CRITICAL: number_of_processors=1 ensures we don't spawn nested pools
-        fit_obj = model.fit(scheme, data_chunk, number_of_processors=1)
+        fit_obj = model.fit(
+            scheme, 
+            data_chunk, 
+            number_of_processors=1,
+            solver=solver,
+            **solver_kwargs
+        )
         
         # Return only the requested parameters to minimize pickling/transfer overhead
         full_params = fit_obj.fitted_parameters
@@ -154,24 +160,31 @@ def fit_noddi(
     stick = cylinder_models.C1Stick()
     zeppelin = gaussian_models.G2Zeppelin()
     
-    # Distributed Models (Watson)
-    # Create Watson-dispersed stick and zeppelin
-    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+    # Distributed Models
+    print(f"Adding distributed models (Type: {distribution})...")
+    if distribution.lower() == "watson":
+         dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+          
+    elif distribution.lower() == "bingham":
+         # Assuming SD2BinghamDistributed exists and works similarly
+         try:
+             dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
+         except AttributeError:
+             raise ValueError("Bingham distribution (SD2BinghamDistributed) not found in dmipy.")
 
+    else:
+        raise ValueError(f"Unknown distribution: {distribution}. Supported: Watson, Bingham.")
+    
+    # Tortuosity Constraint
     dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
     dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', 1.7e-9)
+    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
     
+
     # Multi-compartment model
     noddi = MultiCompartmentModel(models=[ball, dispersed_bundle])
-    noddi.set_fixed_parameter('G1Ball_1_lambda_iso', 3.0e-9)
+    noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
                                    
-    # Tortuosity Constraint: lambda_perp_zeppelin = lambda_par_stick * (1 - f_intra)
-    # This implies 1 - f_stick_volume_fraction??
-    # This is tricky in Dmipy via simple calls without explicit function.
-    # For now, we will assume Independent NODDI (or flexible) which is often preferred anyway.
-    # Just linking orientation/dispersion is a strong enough constraint for "NODDI-like".
-    
     print(f"Fitting NODDI (Dmipy) with {nthreads} CPUs (Custom Parallelization)...")
     
     # --- Custom Parallelization ---
@@ -192,14 +205,24 @@ def fit_noddi(
     
     # Prepare arguments for each chunk
     # Define keys we actually need to save memory/time
+    # Note: If switching to Bingham, 'SD1WatsonDistributed...' keys will be wrong.
+    # We should detect distribution type and adjust keys.
+    base_dist = 'SD1WatsonDistributed_1_SD1Watson_1'
+    if distribution.lower() == 'bingham':
+        base_dist = 'SD2BinghamDistributed_1_SD2Bingham_1'
+        
     keys_to_keep = [
-        'SD1WatsonDistributed_1_SD1Watson_1_odi',
-        'SD1WatsonDistributed_1_partial_volume_0',
+        f'{base_dist}_odi', # Bingham might have odi1/odi2 or similar? Dmipy usually gives 'odi' for dispersals
+        # If Bingham, we might have different param names. Safest is to just strip prefix match or check dynamically?
+        # For now, let's keep the core volumes which are consistent.
+        f'{base_dist}_mu', # orientation ?
+        f'{base_dist}_partial_volume_0',
         'partial_volume_0',
         'partial_volume_1'
     ]
-    # (chunk_id, data_chunk, model, scheme, keys_to_keep)
-    chunk_args = [(i, c, noddi, gtab, keys_to_keep) for i, c in enumerate(chunks) if c.shape[0] > 0]
+
+    # (chunk_id, data_chunk, model, scheme, keys_to_keep, solver, solver_kwargs)
+    chunk_args = [(i, c, noddi, gtab, keys_to_keep, solver, solver_kwargs) for i, c in enumerate(chunks) if c.shape[0] > 0]
     
     # 4. Run Pool
     results = []
@@ -263,9 +286,7 @@ def fit_noddi(
     # Repopulate full volume maps
     # If we used a mask, we need to embed valid voxels back into 3D
     # If no mask, we just reshape
-    
     vol_shape = data.shape[:-1]
-    
     full_maps = {}
     for k, v in merged_params.items():
         # v is 1D array of length N_valid (or N_total)
@@ -289,42 +310,31 @@ def fit_noddi(
     fit_results.fitted_parameters = full_maps
     
     # --- Extract Metrics ---
-    # ODI
-    odi_map = fit_results.fitted_parameters['SD1WatsonDistributed_1_SD1Watson_1_odi']
     
-    # Volume Fractions
-    # Dmipy returns partial_volume_0, partial_volume_1, partial_volume_2 corresponding to models input order
-    # models=[ball, watson_stick, watson_zeppelin]
-    f_iso = fit_results.fitted_parameters['partial_volume_0']
-    f_intra = fit_results.fitted_parameters['partial_volume_1']
-    f_extra = ((1 - fit_results.fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'])*fit_results.fitted_parameters['partial_volume_1'])
-    
-    # Calculate ICVF (Intra-cellular Volume Fraction relative to non-CSF)
-    # standard ICVF = f_intra / (f_intra + f_extra)
-    denom = f_intra + f_extra
-    denom[denom == 0] = 1.0 # Avoid div/0
-    icvf_map = f_intra / denom
-    
-    vf_intra = (fit_results.fitted_parameters['SD1WatsonDistributed_1_partial_volume_0'] * fit_results.fitted_parameters['partial_volume_1'])
+    # Volume Fractions (Standard)
+    f_iso = fit_results.fitted_parameters.get('partial_volume_0')
+    f_intra = fit_results.fitted_parameters.get('partial_volume_1')
 
-    # Handle mask (zeros outside)
-    if mask_data is not None:
-         icvf_map[~mask_data] = 0
-         
+    pv0 = fit_results.fitted_parameters.get(f'{base_dist}_partial_volume_0')
+    odi_map = fit_results.fitted_parameters.get(f'{base_dist}_odi')
+
+    vf_intra = pv0 * f_intra
+    vf_extra = (1 - pv0) * f_intra
+
+        
     # Save Outputs
     outputs = {}
     
     # Helper to save
     def save_map(name, array):
+        if array is None: return
         out_p = out_dir / f"{name}.nii.gz"
         nib.save(nib.Nifti1Image(array, affine), out_p)
         outputs[name] = out_p
         
     save_map('odi', odi_map)
-    save_map('icvf', icvf_map)
     save_map('fiso', f_iso) # also save fiso as it is useful
-    save_map('f_intra', f_intra)
-    save_map('f_extra', f_extra)
-    save_map('vf_intra', vf_intra)
+    save_map('vf_intra', vf_intra)  # Volume Fraction Intra
+    save_map('vf_extra', vf_extra) # Volume Fraction Extra
     
     return outputs
