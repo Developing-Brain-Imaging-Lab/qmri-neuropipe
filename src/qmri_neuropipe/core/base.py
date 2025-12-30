@@ -993,6 +993,8 @@ queue sub,ses from {subjects_file}
         
         # Get log level from config
         log_level = self.config.get('log_level', 'INFO')
+        if self.config.get('debug', False):
+            log_level = 'DEBUG'
         
         # Console Handler
         console_formatter = logging.Formatter('%(levelname)s: %(message)s')
