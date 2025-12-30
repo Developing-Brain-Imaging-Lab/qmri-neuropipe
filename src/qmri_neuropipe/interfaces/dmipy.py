@@ -488,7 +488,5 @@ def fit_noddi(
     save_map('fiso', f_iso) # also save fiso as it is useful
     save_map('vf_intra', vf_intra)  # Volume Fraction Intra
     save_map('vf_extra', vf_extra) # Volume Fraction Extra
-    save_map('pv0', pv0) # Partial Volume 0
-    save_map('f_bundle', f_intra) # Partial Volume 1
     
     return outputs
