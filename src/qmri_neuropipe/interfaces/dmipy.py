@@ -470,15 +470,6 @@ def fit_noddi(
          
     if param_map.get('odi'):
          odi_map = fit_results.fitted_parameters.get(param_map['odi'])
-         
-    # Logic for SMT Reconstruction of f_intra/f_extra
-    if model_type == 'smt':
-
-        pv0 = fit_results.fitted_parameters['BundleModel_1_partial_volume_0']
-
-        # Update f_iso if not already set correctly via param_map (which might fail for SMT)
-        if f_iso is None:
-            f_iso = fit_results.fitted_parameters.get('partial_volume_1')
 
     # Recalculate if standard (and not set by SMT)
     if vf_intra is None and pv0 is not None and f_intra is not None:
