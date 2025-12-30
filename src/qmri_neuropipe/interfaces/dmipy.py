@@ -307,6 +307,12 @@ def fit_noddi(
     # For 'f_bundle', it's partial_volume_1 if it exists
     if 'partial_volume_0' in all_params:
          param_map['f_bundle'] = 'partial_volume_0'
+
+    # Stick Fraction (intra-bundle)
+    pv_candidates = [p for p in all_params if 'partial_volume_0' in p and p != 'partial_volume_0']
+    if pv_candidates:
+            filtered = [p for p in pv_candidates if distribution.lower() in p.lower()]
+            param_map['pv_stick'] = filtered[0] if filtered else pv_candidates[0]
     
     # 2. ODI / SMT specifics
     if model_type == 'standard':
@@ -316,15 +322,6 @@ def fit_noddi(
             filtered = [p for p in odi_candidates if distribution.lower() in p.lower()]
             param_map['odi'] = filtered[0] if filtered else odi_candidates[0]
         
-        # Stick Fraction (intra-bundle)
-        pv_candidates = [p for p in all_params if 'partial_volume_0' in p and p != 'partial_volume_0']
-        if pv_candidates:
-             filtered = [p for p in pv_candidates if distribution.lower() in p.lower()]
-             param_map['pv_stick'] = filtered[0] if filtered else pv_candidates[0]
-             
-    else:
-        # SMT Modele.
-        pass
 
     print(f"Identified keys: {param_map}")
     print(f"All params: {all_params}") # Debug
