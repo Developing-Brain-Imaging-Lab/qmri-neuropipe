@@ -848,13 +848,25 @@ class ModelingWorkflow(BaseWorkflow):
         if noddi_cfg.get('enabled', False):
             method = noddi_cfg.get('method', 'dmipy')
             self.logger.info(f"Adding NODDIFittingStep (method={method})")
+            # Prepare kwargs from config, prioritizing top-level keys but supporting 'parameters' too if used
+            step_kwargs = noddi_cfg.copy()
+            # Remove keys that are passed explicitly or not needed
+            step_kwargs.pop('method', None) 
+            step_kwargs.pop('enabled', None)
+            
+            # Merge nested 'parameters' if present (legacy support)
+            if 'parameters' in step_kwargs:
+                 nested_params = step_kwargs.pop('parameters')
+                 if isinstance(nested_params, dict):
+                     step_kwargs.update(nested_params)
+
             self.add_step(NODDIFittingStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
                 method=method,
                 n_cpus=self.config.n_cpus,
-                **noddi_cfg.get('parameters', {})
+                **step_kwargs
             ))
             
         # 4. SANDI
