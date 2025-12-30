@@ -60,13 +60,12 @@ def _fit_chunk(args):
             noddi = MultiCompartmentSphericalMeanModel(models=[ball, bundle])
             
             # Fix Diffusivities
-            noddi.set_fixed_parameter('C1Stick_1_lambda_par', parallel_diffusivity)
-            noddi.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-            noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-        
             noddi.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
             noddi.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
             
+            noddi.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+            noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
+        
         else:
             # Standard NODDI
             if distribution.lower() == "watson":
