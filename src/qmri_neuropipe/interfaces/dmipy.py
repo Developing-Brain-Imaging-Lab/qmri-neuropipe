@@ -215,9 +215,10 @@ def fit_noddi(
     # We use explicit try/finally to ensure termination if needed
     pool = ctx.Pool(processes=nthreads)
     try:
-        # Use imap_unordered to process results as they finish and avoid blocking on a single slow chunk
-        # It also helps avoid large buffer buildups compared to map() waiting for everything
-        iterator = pool.imap_unordered(_fit_chunk, chunk_args)
+        # CRITICAL FIX: Use pool.imap (ordered) instead of imap_unordered.
+        # imap yields results in the same order as chunk_args.
+        # Since we use np.array_split to create chunks in order, we MUST reassemble them in order.
+        iterator = pool.imap(_fit_chunk, chunk_args)
         
         # Collect results with progress
         import time
@@ -247,6 +248,9 @@ def fit_noddi(
          
     keys = results[0].keys()
     merged_params = {}
+    
+    # Since we used pool.imap, 'results' is guaranteed to be in the same order as 'chunks'.
+    # We can safely simple concatenate.
     for k in keys:
         # Concatenate this parameter across all chunks
         arrays = [res[k] for res in results]
