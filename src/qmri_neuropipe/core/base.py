@@ -1009,9 +1009,17 @@ queue sub,ses from {subjects_file}
         
         ch.setLevel(getattr(logging, log_level))
         
-        # Add handlers
+        # Add handlers to pipeline logger
         logger.addHandler(fh)
         logger.addHandler(ch)
+        
+        # ALSO configure the 'qmri-neuropipe' logger used by utilities (run.py)
+        # to ensure command logging is captured
+        lib_logger = logging.getLogger("qmri-neuropipe")
+        lib_logger.setLevel(logging.DEBUG) # Always capture, handler filters
+        lib_logger.handlers.clear()
+        lib_logger.addHandler(fh)
+        lib_logger.addHandler(ch)
         
         logger.info(f"Logging to {log_file}")
         
