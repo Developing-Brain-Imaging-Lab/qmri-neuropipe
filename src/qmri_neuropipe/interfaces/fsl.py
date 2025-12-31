@@ -13,61 +13,27 @@ from ..core.types import DWIFile, ImageLike
 from ..io.dmri.bids import build_acqp_index
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
 
-def _format_extra_opts(extra_opts: Optional[Dict[str, Any]]) -> list[str]:
+def _format_extra_opts(extra_opts: Optional[Dict[str, Any]], prefix: str = "--") -> list[str]:
     opts: list[str] = []
     if not extra_opts:
         return opts
     for key, val in extra_opts.items():
         if isinstance(val, bool):
             if val:
-                opts.append(f"--{key}")
+                opts.append(f"{prefix}{key}")
         else:
-            opts.append(f"--{key}={val}")
+            # For header args like -basescale 1, FSL usually uses space not = for legacy tools
+            # But eddy uses =.
+            # Let's handle based on prefix?
+            if prefix == "--":
+                 opts.append(f"{prefix}{key}={val}")
+            else:
+                 opts.append(f"{prefix}{key} {val}")
     return opts
 
-def _ensure_acqp_index(in_dwi: DWIFile) -> tuple[Path | None, Path | None]:
-    """
-    Create acqp/index files if possible from BIDS metadata.
-    """
-    return build_acqp_index(in_dwi.json, in_dwi.img)
+# ... (omitted lines) ...
 
-
-def bet(in_file: ImageLike | Path, out_file: Path, frac: float = 0.5, mask: bool = True, robust: bool = True) -> tuple[Path, Optional[Path]]:
-    """
-    Wrapper for FSL BET. Accepts ImageLike or Path.
-    """
-    img_p = extract_image_path(in_file)
-    out_p = ensure_dir(out_file)
-
-    robust_arg = "-R" if robust else ""
-    bet_cmd = f"bet {img_p} {out_p} -f {frac} {robust_arg} " + ("-m" if mask else "")
-    if not out_p.exists():
-        run_cmd(bet_cmd, label="bet")
-
-    if mask:
-        # Standard BET mask naming: <output>_mask.nii.gz 
-        # (assuming output has .nii.gz extension)
-        # If out_p is "foo.nii.gz", mask is "foo_mask.nii.gz"
-        mask_suffix = "_mask" + "".join(out_p.suffixes)
-        # Actually fsl simply inserts _mask before the FIRST extension? 
-        # Or before .nii.gz?
-        # bet "foo.nii.gz" "bar.nii.gz" -m  -> bar_mask.nii.gz
-        
-        # Robust handling using string replacement on name if standard extension
-        name = out_p.name
-        if name.endswith(".nii.gz"):
-            mask_name = name.replace(".nii.gz", "_mask.nii.gz")
-        elif name.endswith(".nii"):
-            mask_name = name.replace(".nii", "_mask.nii")
-        else:
-            mask_name = name + "_mask"
-            
-        mask_p = out_p.with_name(mask_name)
-        return out_p, mask_p
-        
-    return out_p, None
-
-def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, omat: Path = None, dof: int = 6, cost: str = "normmi", extra_args: str = ""):
+def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, omat: Path = None, dof: int = 6, cost: str = "normmi", extra_args: str = "", extra_opts: Optional[Dict[str, Any]] = None):
     """
     Wrapper for FSL FLIRT.
     """
@@ -86,8 +52,11 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     elif out_p.exists():
          # If no omat requested and output exists, skip
          return out_p, None
-        
-    cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args}"
+    
+    # Format extra options
+    extra_flags = " ".join(_format_extra_opts(extra_opts, prefix="-"))
+    
+    cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args} {extra_flags}"
     run_cmd(cmd, label="flirt")
 
     

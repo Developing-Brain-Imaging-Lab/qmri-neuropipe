@@ -326,8 +326,13 @@ class CoregistrationStep(BaseProcessingStep):
                              run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
                          moving_for_reg = b0_path
                     
+                    # Collect extra options (exclude known args)
+                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation']
+                    # Also exclude method if present (passed in options?)
+                    fsl_extra_opts = {k: v for k, v in options.items() if k not in known_args}
+                    
                     # Calculate transform
-                    fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, extra_args=extra_args)
+                    fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, extra_args=extra_args, extra_opts=fsl_extra_opts)
                     
                     if is_dwi:
                         # FLIRT produced a 3D output (resampled B0).
