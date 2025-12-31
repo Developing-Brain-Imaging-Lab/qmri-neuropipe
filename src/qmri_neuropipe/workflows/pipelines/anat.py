@@ -223,19 +223,26 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                           fname = build_bids_name(ents)
                           expected_path = final_output_dir / fname
                           
+                          # Check for existence (standard or final preproc fallback)
+                          if not expected_path.exists() and skip_existing and t1_runnable and step == t1_runnable[-1]:
+                               # Last step: check for final desc-preproc if specific desc-sharpen missing
+                               p_ents = dict(processed_t1.entities)
+                               p_ents['desc'] = 'preproc'
+                               if 'suffix' not in p_ents: p_ents['suffix'] = 'T1w'
+                               p_fname = build_bids_name(p_ents)
+                               p_dest = final_output_dir / p_fname
+                               if p_dest.exists():
+                                   # Redirect to final output
+                                   expected_path = p_dest
+                                   fname = p_fname # Update for logging purposes
+                          
                           if expected_path.exists() and (skip_existing or save_intermediate):
                                self.logger.info(f"Skipping {step_name} (Found existing output: {fname})")
                                # Load existing image to proceed
                                import nibabel as nib
                                try:
-                                   # We need to load it as ImageFile to preserve entity chain? 
-                                   # Or just update context/processed_t1?
-                                   # Loading from final output means we trust it.
-                                   # Create a new ImageLike object wrapper
-                                   # For now, simplistic approach: load nibabel, wrap
-                                   # But ImageFile expects BIDS finding?
-                                   # Let's manually wrap.
-                                   img_obj = ImageFile(expected_path, self.config.bids_dir) # Should work if path exists
+                                   # Manually wrap
+                                   img_obj = ImageFile(entities=ents, img=expected_path) # Fixed instantiation
                                    processed_t1 = img_obj
                                    skipped = True
                                    

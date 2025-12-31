@@ -327,8 +327,7 @@ class CoregistrationStep(BaseProcessingStep):
                          moving_for_reg = b0_path
                     
                     # Collect extra options (exclude known args)
-                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation']
-                    # Also exclude method if present (passed in options?)
+                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method']
                     fsl_extra_opts = {k: v for k, v in options.items() if k not in known_args}
                     
                     # Calculate transform
