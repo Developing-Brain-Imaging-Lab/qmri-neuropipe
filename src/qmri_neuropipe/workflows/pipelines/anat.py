@@ -520,7 +520,28 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 if target_img:
                     self.logger.info(f"Generating binary brain mask using reference: {ref_img_key} ({mask_step.method})")
                     
-                    st = time.time()
+                    # Check for existing mask (SKIP LOGIC)
+                    skipped_mask = False
+                    if final_output_dir and skip_existing:
+                         # Construct expected mask name. Usually desc-preproc_mask
+                         # Matches save_results logic (desc='preproc', suffix='mask')
+                         m_ents = dict(target_img.entities)
+                         m_ents['desc'] = 'preproc'
+                         m_ents['suffix'] = 'mask'
+                         # Ensure no stale keys
+                         for k in ['space', 'res']: m_ents.pop(k, None)
+                         
+                         m_fname = build_bids_name(m_ents)
+                         m_dest = final_output_dir / m_fname
+                         
+                         if m_dest.exists():
+                              self.logger.info(f"Skipping Brain Masking (Found existing mask: {m_fname})")
+                              context["brain_mask"] = ImageFile(entities=m_ents, img=m_dest)
+                              skipped_mask = True
+                              step_metrics.append({"Step": "BrainMasking", "Status": "Skipped (Found)", "Duration": "0s"})
+                    
+                    if not skipped_mask:
+                        st = time.time()
                     try:
                         brain_masked, mask = mask_step.run(target_img, output_dir=output_dir, return_mask=True)
                         processed_masks.append(mask)
@@ -545,6 +566,9 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     except Exception as e:
                          self.logger.warning(f"Brain Masking failed: {e}")
                          step_metrics.append({"Step": "BrainMasking", "Status": "Failed", "Duration": "0s"})
+                    
+                    # Fix indentation for else block of checked_mask if needed, but structure implies simple if not skipped...
+                    pass 
                 else:
                     self.logger.warning("No reference image found for brain masking.")
                 
@@ -839,7 +863,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     self.logger.info(f"Final Anat T1w already exists, skipping copy: {dest}")
                
                # Update context to point to final preproc image
-               context['preprocessed_t1w'] = ImageFile(dest, self.config.bids_dir, entities=entities)
+               context['preprocessed_t1w'] = ImageFile(entities=entities, img=dest)
 
          # Copy Brain Mask
          mask = context.get("brain_mask")
@@ -865,7 +889,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                    self.logger.info(f"Final Brain Mask already exists, skipping copy: {dest}")
               
               # Update context
-              context['brain_mask'] = ImageFile(dest, self.config.bids_dir, entities=entities)
+              context['brain_mask'] = ImageFile(entities=entities, img=dest)
 
          # Copy T2w (processed)
          pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
@@ -891,7 +915,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
              
              # Update context to point to final preproc image (preferring coreg if present)
              key = "preprocessed_t2w_coreg" if "preprocessed_t2w_coreg" in context else "preprocessed_t2w"
-             context[key] = ImageFile(dest, self.config.bids_dir, entities=entities)
+             context[key] = ImageFile(entities=entities, img=dest)
 
 
 class AnatPipeline(BasePipeline):
