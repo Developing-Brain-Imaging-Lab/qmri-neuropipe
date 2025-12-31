@@ -360,6 +360,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
                       if not skipped:
                           st = time.time()
+                          st = time.time()
                           processed_t2 = step.run(processed_t2, output_dir=output_dir)
                           dur = time.time() - st
                           
@@ -836,6 +837,9 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     self._update_json_history(dest_json, self.steps)
                else:
                     self.logger.info(f"Final Anat T1w already exists, skipping copy: {dest}")
+               
+               # Update context to point to final preproc image
+               context['preprocessed_t1w'] = ImageFile(dest, self.config.bids_dir, entities=entities)
 
          # Copy Brain Mask
          mask = context.get("brain_mask")
@@ -859,6 +863,9 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                   # if mask.json... often mask doesn't have rich json.
               else:
                    self.logger.info(f"Final Brain Mask already exists, skipping copy: {dest}")
+              
+              # Update context
+              context['brain_mask'] = ImageFile(dest, self.config.bids_dir, entities=entities)
 
          # Copy T2w (processed)
          pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
@@ -881,6 +888,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                  self._update_json_history(dest_json, self.steps) # referencing self.steps of workflow
              else:
                  self.logger.info(f"Final Anat T2w already exists, skipping copy: {dest}")
+             
+             # Update context to point to final preproc image (preferring coreg if present)
+             key = "preprocessed_t2w_coreg" if "preprocessed_t2w_coreg" in context else "preprocessed_t2w"
+             context[key] = ImageFile(dest, self.config.bids_dir, entities=entities)
 
 
 class AnatPipeline(BasePipeline):
