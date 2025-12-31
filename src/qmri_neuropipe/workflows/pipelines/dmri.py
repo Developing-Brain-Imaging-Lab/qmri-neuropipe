@@ -1598,13 +1598,20 @@ class DMRIPipeline(BasePipeline):
             if d.json and not dest_json.exists():
                 shutil.copy(d.json, dest_json)
             
+            # Ensure entities match the processing subject/session
+            # This fixes issues where filenames on disk might differ from folder structure (e.g. missing letters in ID)
+            current_entities = d.entities.copy()
+            current_entities['sub'] = subject
+            if session:
+                current_entities['ses'] = session
+            
             # Create new DWIFile pointing to work dir
             new_dwi = DWIFile(
                 img=dest_img,
                 json=dest_json,
                 bval=dest_bval,
                 bvec=dest_bvec,
-                entities=d.entities
+                entities=current_entities
             )
             copied_dwi_files.append(new_dwi)
             
