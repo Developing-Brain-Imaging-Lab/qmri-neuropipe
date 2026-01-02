@@ -13,6 +13,7 @@ Welcome to qmri-neuropipe's documentation!
    hosting
    workflows/anatomical
    workflows/diffusion
+   modeling
    modules/core
    modules/interfaces
    modules/lib

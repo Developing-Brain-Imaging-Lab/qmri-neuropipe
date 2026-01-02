@@ -31,7 +31,7 @@ class DMRIReorientStep(BaseProcessingStep):
             step_output_dir = self.get_step_output_dir(output_dir)
             
             for dwi in dwi_files:
-                res = self._process_single(dwi, step_output_dir)
+                res = self._process_single(dwi, step_output_dir, **kwargs)
                 processed_files.append(res)
                 
             context["dwi_files"] = processed_files
@@ -42,9 +42,9 @@ class DMRIReorientStep(BaseProcessingStep):
              if not input_image:
                  raise ValidationError("No input image for dMRI reorientation.")
              step_output_dir = self.get_step_output_dir(output_dir)
-             return self._process_single(input_image, step_output_dir)
+             return self._process_single(input_image, step_output_dir, **kwargs)
 
-    def _process_single(self, input_image, output_dir: Path) -> Any:
+    def _process_single(self, input_image, output_dir: Path, **kwargs) -> Any:
         # Check if we have gradients (crucial for dMRI reorient)
         in_bvec = getattr(input_image, 'bvec', None)
         in_bval = getattr(input_image, 'bval', None)

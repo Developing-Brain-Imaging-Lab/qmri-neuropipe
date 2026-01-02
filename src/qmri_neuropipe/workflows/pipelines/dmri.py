@@ -988,7 +988,28 @@ class ModelingWorkflow(BaseWorkflow):
                 **map_cfg.get('parameters', {})
             ))
             
-
+            
+        # 6. FWE-DTI (Free-Water Elimination DTI)
+        fwe_dti_cfg = modeling_cfg.get('fwe_dti', {}) or modeling_cfg.get('fwdti', {})
+        if fwe_dti_cfg.get('enabled', False):
+            method = fwe_dti_cfg.get('method', 'dipy')
+            self.logger.info(f"Adding FWDTIFittingStep (method={method})")
+            
+            # Combine options
+            step_kwargs = fwe_dti_cfg.copy()
+            step_kwargs.pop('method', None)
+            step_kwargs.pop('enabled', None)
+            if 'parameters' in step_kwargs:
+                step_kwargs.update(step_kwargs.pop('parameters'))
+            
+            self.add_step(FWDTIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=method,
+                n_cpus=self.config.n_cpus,
+                **step_kwargs
+            ))
             
     
     def _report_modeling_step(self, reporter, step, dwi, output_dir, report_output_dir=None):
