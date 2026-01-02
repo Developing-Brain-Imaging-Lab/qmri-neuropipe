@@ -61,6 +61,14 @@ class ReconAllStep(BaseProcessingStep):
         # Or just output_dir / "freesurfer"
         
         fs_dir = self.config.output_dir / "derivatives" / "freesurfer"
+        
+        # Force Run: Clean up subject dir if exists
+        subj_dir = fs_dir / fs_sub_id
+        if kwargs.get('force', False) and subj_dir.exists():
+             self.logger.info(f"Recon-all force run: Removing existing subject dir {subj_dir}")
+             import shutil
+             shutil.rmtree(subj_dir)
+             
         fs_dir.mkdir(parents=True, exist_ok=True)
         
         # Run recon-all

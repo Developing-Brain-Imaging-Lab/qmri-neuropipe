@@ -38,6 +38,14 @@ class SharpeningStep(BaseProcessingStep):
         
         options = options or {}
         
+        if output_img.exists() and not kwargs.get('force', False):
+             self.logger.info(f"Skipping sharpening (exists): {output_img}")
+             result = ImageFile(img=output_img, entities=entities)
+             if context:
+                  context['current_image'] = result
+                  return context
+             return result
+
         if self.method == 'ants':
              self.logger.info(f"Sharpening image with ANTs iMath: {in_path}")
              # Usage: iMath Image Sharpen InputImage 

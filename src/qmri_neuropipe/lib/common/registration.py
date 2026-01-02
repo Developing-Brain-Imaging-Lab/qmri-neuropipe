@@ -59,7 +59,7 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         output_img = output_dir / build_bids_name({**entities, "desc": "norm"})
         output_transform = output_dir / build_bids_name({**entities, "desc": "norm", "suffix": "transform"})
         
-        if output_img.exists():
+        if output_img.exists() and not kwargs.get('force', False):
              self.logger.info(f"Skipping nonlinear registration (exists): {output_img}")
         else:
              in_p = self._extract_path(input_image)
@@ -171,7 +171,7 @@ class CoregistrationStep(BaseProcessingStep):
         
         # Skip if exists?
         should_run = True
-        if output_img.exists():
+        if output_img.exists() and not kwargs.get('force', False):
              # Check timestamps: if input is newer than output, we MUST re-run
              in_mtime = in_path.stat().st_mtime
              out_mtime = output_img.stat().st_mtime

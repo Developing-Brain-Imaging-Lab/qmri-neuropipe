@@ -19,7 +19,9 @@ from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
 from qmri_neuropipe.lib.dmri.grad_nonlin import TortoiseGradNonlinCorrectStep
 from qmri_neuropipe.lib.common.registration import CoregistrationStep
 from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
+from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
 from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
+from qmri_neuropipe.lib.dmri.merge import MergeStep
 
 from qmri_neuropipe.lib.common.mask import BrainMaskingStep
 from .anat import AnatPreprocessingWorkflow
@@ -127,6 +129,21 @@ class PreprocessingWorkflow(BaseWorkflow):
             self.logger.warning(f"Unknown distcorr method '{dist_method}'. No distortion correction step added.")
 
         
+        # 1.5 Merging (Critical for Topup/Eddy)
+        # Should happen after Topup (to calculate field on raw) but before Denoise? 
+        # User requested: After Topup, so Denoise/Gibbs/Eddy run on merged.
+        # Check config or default to enabled if multiple input files?
+        # Let's assume enabled unless disabled.
+        merge_cfg = dmri_cfg.get('merging', {})
+        do_merge = merge_cfg.get('enabled', True) # Defaulting to True for now if multiple files?
+        # Logic: If >1 file, and we are doing Topup, we likely want to merge.
+        if len(dwi_files) > 1 and context.get('do_topup', False):
+             do_merge = True
+             
+        if do_merge and len(dwi_files) > 1:
+             self.logger.info("Adding MergeStep (concatenating DWI files for unified processing)...")
+             self.add_step(MergeStep(self.config, self.logger, self.provenance))
+
         # 2. Denoising
         denoise_cfg = dmri_cfg.get('denoising', {})
         if denoise_cfg.get('enabled', True):
@@ -143,6 +160,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                 block_radius=params.get('block_radius') or denoise_cfg.get('block_radius', 5),
                 pca_method=params.get('pca_method') or denoise_cfg.get('pca_method', 'eig')
             ))
+            
             
         # 3. Gibbs Unringing
         degibbs_cfg = dmri_cfg.get('degibbs', {})
@@ -371,7 +389,7 @@ class PreprocessingWorkflow(BaseWorkflow):
             nonlocal dwi_files
             
             # Identify Global Steps Types
-            GLOBAL_STEPS = (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep)
+            GLOBAL_STEPS = (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep, MergeStep)
             
             current_dwis = context.get("dwi_files", [])
             current_masks = context.get("masks", [None] * len(current_dwis))
@@ -395,7 +413,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                     old_dwis = list(current_dwis)
                     
                     # Run Global Step
-                    new_ctx = step.run(context, output_dir=output_dir)
+                    force_run = self.config.get("dmri", {}).get("force_run", False)
+                    new_ctx = step.run(context, output_dir=output_dir, force=force_run)
                     
                     if new_ctx is not context:
                         context.update(new_ctx)
@@ -412,7 +431,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                              current_masks = [None] * len(current_dwis)
                     
                      # Save intermediate
-                    if self.config.get("save_intermediates", False):
+                    save_inter = self.config.get("save_intermediates", False)
+                    if save_inter:
                          self._save_global_intermediate(step, output_dir, context)
                          
                     # Report
@@ -462,11 +482,12 @@ class PreprocessingWorkflow(BaseWorkflow):
                          if isinstance(step, BrainMaskingStep):
                              step_kwargs["return_mask"] = True
                              
-                         # Run
+                         # Run Step
                          try:
                              from time import time as now
                              st = now()
-                             result = step.run(img_ctx, output_dir=output_dir, **step_kwargs)
+                             force_run = self.config.get("dmri", {}).get("force_run", False)
+                             result = step.run(img_ctx, output_dir=output_dir, force=force_run, **step_kwargs)
                              dur = now() - st
                              
                              # Extract output
@@ -525,9 +546,14 @@ class PreprocessingWorkflow(BaseWorkflow):
                 console=console
              ) as progress:
                  task = progress.add_task(f"[cyan]Preprocessing...", total=calc_total)
-                 return _execute_processing(progress_ctx=progress, task_id=task)
+                 context = _execute_processing(progress_ctx=progress, task_id=task)
         else:
-             return _execute_processing()
+             context = _execute_processing()
+             
+        # Save Final Outputs
+        self._save_final_outputs(context)
+        
+        return context
 
     def _save_global_intermediate(self, step, output_dir, context):
          import shutil
@@ -566,7 +592,72 @@ class PreprocessingWorkflow(BaseWorkflow):
              if src_dir != output_dir and output_dir in src_dir.parents:
                   target_step_dir = inter_dir / src_dir.name
                   shutil.copytree(src_dir, target_step_dir, dirs_exist_ok=True)
+                  shutil.copytree(src_dir, target_step_dir, dirs_exist_ok=True)
                   self.logger.info(f"Saved intermediate directory: {target_step_dir}")
+
+    def _save_final_outputs(self, context: dict):
+        """
+        Save final preprocessed DWI files to output directory.
+        Target: <output_dir>/sub-XX/[ses-YY]/dwi/sub-XX_[ses-YY]_desc-preproc_dwi.nii.gz
+        """
+        import shutil
+        from qmri_neuropipe.io.bids import build_bids_name
+        
+        dwis = context.get("preprocessed_dwis", [])
+        if not dwis:
+            return
+
+        self.logger.info(f"Saving {len(dwis)} preprocessed DWI files to final output directory.")
+
+        base_out = self.config.output_dir
+        
+        for dwi in dwis:
+            if not dwi.img.exists():
+                self.logger.warning(f"Final DWI missing: {dwi.img}")
+                continue
+
+            ents = dwi.entities.copy()
+            sub = ents.get("sub")
+            ses = ents.get("ses")
+            
+            if not sub:
+                 # Fallback
+                 sub = context.get("subject", "unknown")
+                 ents['sub'] = sub
+            if ses:
+                 ents['ses'] = ses
+                 
+            # Force valid suffix
+            ents['suffix'] = 'dwi'
+            ents['desc'] = 'preproc'
+            # Remove processing-specific entities if any (like run-1_split-1) if we re-merged?
+            # Assuming current entities reflect final state.
+            
+            # Construct Directory
+            target_dir = base_out / f"sub-{sub}"
+            if ses: target_dir /= f"ses-{ses}"
+            target_dir /= "dwi"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Construct Filenames
+            fname = build_bids_name(ents)
+            if not fname.endswith(".nii.gz"): fname += ".nii.gz"
+            
+            target_img = target_dir / fname
+            target_bval = target_img.with_suffix("").with_suffix(".bval")
+            target_bvec = target_img.with_suffix("").with_suffix(".bvec")
+            target_json = target_img.with_suffix("").with_suffix(".json")
+            
+            # Copy Files
+            self.logger.info(f"Saving final output: {target_img}")
+            shutil.copy(dwi.img, target_img)
+            
+            if dwi.bval and dwi.bval.exists():
+                shutil.copy(dwi.bval, target_bval)
+            if dwi.bvec and dwi.bvec.exists():
+                shutil.copy(dwi.bvec, target_bvec)
+            if dwi.json and dwi.json.exists():
+                shutil.copy(dwi.json, target_json)
 
     def recover_intermediates(self, work_dir: Path, output_dir: Path):
         """

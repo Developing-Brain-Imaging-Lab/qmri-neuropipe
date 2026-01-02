@@ -105,7 +105,7 @@ class TopupStep(BaseProcessingStep):
                 movpar = base.with_name(f"{base.name}_movpar.txt")
                 field_map = base.with_name(f"{base.name}_fmap.nii.gz")
                 
-                if fieldcoef.exists() and movpar.exists() and field_map.exists():
+                if fieldcoef.exists() and movpar.exists() and field_map.exists() and not kwargs.get('force', False):
                      self.logger.info(f"Skipping Topup group {idx} (outputs exist): {base}")
                 else:
                     nthreads = kwargs.get('nthreads', self.config.n_cpus)

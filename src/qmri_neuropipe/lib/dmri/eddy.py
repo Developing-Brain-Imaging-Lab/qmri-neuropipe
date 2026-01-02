@@ -176,7 +176,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         if input_img.bvec and not out_bvec.exists():
             outputs_exist = False
             
-        if outputs_exist:
+        if outputs_exist and not kwargs.get('force', False):
              self.logger.info(f"Skipping Eddy correction (Output exists: {output_img.name})")
 
              result_img = DWIFile(

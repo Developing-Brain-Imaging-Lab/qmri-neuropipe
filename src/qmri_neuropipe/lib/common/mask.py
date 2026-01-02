@@ -145,7 +145,7 @@ class BrainMaskingStep(BaseProcessingStep):
         # Skip if outputs exist
         # Skip if outputs exist AND input is not newer
         should_skip = False
-        if masked_path.exists() and (not return_mask or (mask_out_path and mask_out_path.exists())):
+        if masked_path.exists() and (not return_mask or (mask_out_path and mask_out_path.exists())) and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = in_path.stat().st_mtime
              out_mtime = masked_path.stat().st_mtime

@@ -90,7 +90,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         b0_path = output_dir / "real_b0.nii.gz"
         dummy_bval_path = output_dir / "b0.bval"
         
-        if syn_b0_path.exists() and b0_path.exists() and syn_b0_native_path.exists() and syn_json_path.exists() and dummy_bval_path.exists():
+        if syn_b0_path.exists() and b0_path.exists() and syn_b0_native_path.exists() and syn_json_path.exists() and dummy_bval_path.exists() and not kwargs.get('force', False):
             self.logger.info(f"Skipping Synb0 estimation (outputs exist): {syn_b0_path}")
         else:
             # Extract real b0

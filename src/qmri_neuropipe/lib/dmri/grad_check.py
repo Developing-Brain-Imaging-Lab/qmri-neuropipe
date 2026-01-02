@@ -68,7 +68,7 @@ class GradientCheckStep(BaseProcessingStep):
                 out_bval = base_name.with_suffix(".bval")
                 
                 # Check existing
-                if out_bvec.exists() and out_bval.exists():
+                if out_bvec.exists() and out_bval.exists() and not kwargs.get('force', False):
                     self.logger.info(f"Skipping GradientCheck for {input_img.img.name} (Outputs exist)")
                     result_img = DWIFile(
                         entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec
@@ -111,7 +111,7 @@ class GradientCheckStep(BaseProcessingStep):
             out_bvec = base_name.with_suffix(".bvec")
             out_bval = base_name.with_suffix(".bval")
 
-            if out_bvec.exists() and out_bval.exists():
+            if out_bvec.exists() and out_bval.exists() and not kwargs.get('force', False):
                 self.logger.info(f"Skipping GradientCheckStep (Outputs exist)")
                 return DWIFile(
                     entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec

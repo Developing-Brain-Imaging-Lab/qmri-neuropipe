@@ -53,7 +53,7 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         output_img = output_dir / build_bids_name({**input.entities, "desc": new_desc})
         
         # Check if output exists
-        if output_img.exists():
+        if output_img.exists() and not kwargs.get('force', False):
              self.logger.info(f"Skipping TORTOISE GNL correction (Output exists: {output_img.name})")
              if isinstance(input, DWIFile):
                  result_img = DWIFile(

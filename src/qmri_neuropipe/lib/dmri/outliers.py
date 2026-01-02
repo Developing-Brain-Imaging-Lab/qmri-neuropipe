@@ -51,7 +51,7 @@ class OutlierRemovalStep(BaseProcessingStep):
         
         # If output exists, we assume outlier removal was performed successfully previously.
         # Note: If previous run found NO outliers, out_path wouldn't exist, and we'd correctly fall through to check again.
-        if out_path.exists():
+        if out_path.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = current_img.img.stat().st_mtime
              out_mtime = out_path.stat().st_mtime

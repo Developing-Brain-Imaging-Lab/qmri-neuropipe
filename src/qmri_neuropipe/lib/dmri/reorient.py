@@ -74,7 +74,7 @@ class DMRIReorientStep(BaseProcessingStep):
         stride = "1,2,3,4"
         
         # If output exists and skip_existing, assume done
-        if self.config.get("skip_existing") and out_path.exists() and out_bvec_path.exists():
+        if self.config.get("skip_existing") and out_path.exists() and out_bvec_path.exists() and not kwargs.get('force', False):
              self.logger.info(f"Skipping dMRI Reorientation (exists): {out_path.name}")
         else:
              mrtrix.mrconvert(

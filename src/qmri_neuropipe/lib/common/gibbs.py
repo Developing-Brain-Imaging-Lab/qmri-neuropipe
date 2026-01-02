@@ -195,6 +195,31 @@ class GibbsUnringingStep(BaseProcessingStep):
         output_dir = self.get_step_output_dir(output_dir)
         output_img = output_dir / build_bids_name({**input_img.entities, "desc": "gibbs-corrected"})
                
+        # Check if output exists
+        if output_img.exists() and not kwargs.get('force', False):
+             self.logger.info(f"Skipping {self.method} gibbs unringing (Output exists: {output_img.name})")
+             # Reconstruct result object
+             if isinstance(input_img, DWIFile):
+                 result_img = DWIFile(
+                    entities=input_img.entities,
+                    img=output_img,
+                    json=input_img.json,
+                    bval=input_img.bval,
+                    bvec=input_img.bvec
+                 )
+             else:
+                 result_img = ImageFile(entities=input_img.entities, img=output_img, json=input_img.json)
+                 
+             if context is not None:
+                context["current_image"] = result_img
+                if isinstance(result_img, DWIFile):
+                    pre_list = context.setdefault("preprocessed_dwis", [])
+                    if result_img not in pre_list:
+                         pre_list.append(result_img)
+                return context
+             else:
+                return result_img
+
         # Run denoising based on method
         self.logger.info(f"Running {self.method} gibbs unringing...")
         

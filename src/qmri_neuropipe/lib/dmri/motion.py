@@ -18,7 +18,7 @@ class NiiFreezeStep(BaseProcessingStep):
         self.strategy = config.get("strategy", "random")
         self.seed = config.get("seed", 2021)
         
-    def run(self, context: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
+    def run(self, context: Dict[str, Any], output_dir: Path, **kwargs) -> Dict[str, Any]:
         """
         Run NiiFreeze on the input DWI.
         """
@@ -42,7 +42,7 @@ class NiiFreezeStep(BaseProcessingStep):
             final_bvec = step_dir / f"{out_prefix}_corrected.bvec"
             final_bval = step_dir / f"{out_prefix}_corrected.bval"
             
-            if final_dwi.exists() and self.config.get("skip_existing", False):
+            if final_dwi.exists() and self.config.get("skip_existing", False) and not kwargs.get('force', False):
                 self.logger.info(f"Skipping NiiFreeze (Output exists): {final_dwi}")
                 
                 # Create ImageFile wrapper

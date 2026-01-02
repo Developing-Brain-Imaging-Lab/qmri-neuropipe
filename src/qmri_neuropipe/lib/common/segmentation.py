@@ -41,6 +41,20 @@ class SegmentationStep(BaseProcessingStep):
             context: Pipeline context.
             output_dir: Directory to save stats file.
         """
+        # Determine output path early for skip check
+        subject = context.get('subject', 'unknown')
+        session = context.get('session', '')
+        out_name = f"sub-{subject}"
+        if session: out_name += f"_ses-{session}"
+        out_name += "_desc-roi_stats.tsv"
+        out_path = output_dir / out_name
+
+        if out_path.exists() and not kwargs.get('force', False):
+             self.logger.info(f"Skipping segmentation stats (exists): {out_path}")
+             if 'segmentation_stats' not in context: context['segmentation_stats'] = []
+             context['segmentation_stats'].append(out_path)
+             return context
+
         if not self.atlas_file:
              # Try to get from kwargs (runtime)
              if 'atlas_file' in kwargs: self.atlas_file = Path(kwargs['atlas_file'])

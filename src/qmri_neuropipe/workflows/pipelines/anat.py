@@ -183,6 +183,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             save_inter = self.config.get("save_intermediate", False)
             skip_existing = self.config.get("skip_existing", False)
             
+            # Force Run Override
+            force_run = self.config.get("anat", {}).get("force_run", False)
+            if force_run:
+                 self.logger.info("Anatomical force_run enabled: Ignoring existing outputs.")
+                 skip_existing = False
+            
             # Primary flow: Process T1w
             if t1w_files:
                  # Process T1w
@@ -258,7 +264,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                           # ReconAllStep might depend on T1w specifically
                           prev_t1 = processed_t1
                           st = time.time()
-                          processed_t1 = step.run(processed_t1, output_dir=output_dir)
+                          # Pass force if step accepts it within kwargs (BaseProcessingStep does)
+                          processed_t1 = step.run(processed_t1, output_dir=output_dir, force=force_run)
                           dur = time.time() - st
                           
                           step_metrics.append({

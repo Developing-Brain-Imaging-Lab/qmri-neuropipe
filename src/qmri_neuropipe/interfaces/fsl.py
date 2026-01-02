@@ -99,6 +99,33 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args} {extra_flags}"
     run_cmd(cmd, label="flirt")
 
+
+def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t") -> Path:
+    """
+    Wrapper for fslmerge.
+    
+    Args:
+        in_files: List of input images.
+        out_file: Output merged image path.
+        dimension: Dimension to merge along ('t', 'x', 'y', 'z', 'a'). Default 't'.
+    """
+    if not in_files:
+        raise ValueError("No input files for fslmerge.")
+        
+    out_p = ensure_dir(out_file)
+    
+    # Convert all inputs to paths
+    in_paths = [str(extract_image_path(f)) for f in in_files]
+    in_str = " ".join(in_paths)
+    
+    cmd = f"fslmerge -{dimension} {out_p} {in_str}"
+    
+    if not out_p.exists():
+         run_cmd(cmd, label="fslmerge")
+         
+    return out_p
+
+
     
     return out_p, omat if omat else None
 

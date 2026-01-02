@@ -93,7 +93,7 @@ class EddyQuadStep(BaseProcessingStep):
         qc_json = qc_out / "qc.json"
 
         # Check if already run
-        if qc_json.exists():
+        if qc_json.exists() and not kwargs.get('force', False):
              self.logger.info("Skipping eddy_quad (Output exists)")
         else:
              # If directory exists but no json, incomplete run?

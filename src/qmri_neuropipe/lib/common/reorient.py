@@ -39,7 +39,7 @@ class ReorientStep(BaseProcessingStep):
         orig_suffix = entities.get('suffix', 'T1w')
         output_img = output_dir / build_bids_name({**entities, "suffix": orig_suffix})
 
-        if output_img.exists():
+        if output_img.exists() and not kwargs.get('force', False):
              self.logger.info(f"Skipping reorientation (exists): {output_img}")
         else:
              fsl.reorient2std(input_image, output_img)

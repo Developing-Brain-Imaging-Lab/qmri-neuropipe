@@ -57,7 +57,7 @@ class BiasCorrectionStep(BaseProcessingStep):
 
         # Check if outputs exist
         # Check if outputs exist
-        if output_img.exists() and bias_field.exists():
+        if output_img.exists() and bias_field.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = input_img.img.stat().st_mtime
              out_mtime = output_img.stat().st_mtime
@@ -84,7 +84,7 @@ class BiasCorrectionStep(BaseProcessingStep):
                     return context
                  else:
                     return result_img
-        elif output_img.exists() and not bias_field.exists():
+        elif output_img.exists() and not bias_field.exists() and not kwargs.get('force', False):
             self.logger.info(f"Bias correction output exists but bias field missing ({bias_field.name}). Re-running.")
         else:
             self.logger.info(f"Bias correction output missing ({output_img.name}). Running.")
