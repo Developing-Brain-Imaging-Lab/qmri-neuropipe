@@ -272,7 +272,7 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     n_samples = data_flat.shape[0]
     
     if n_samples == 0:
-        return None 
+        raise ValueError("No voxels found in the provided mask (mask is empty). Cannot perform fitting.") 
 
     # 2. Create Chunks
     # Use array_split to ensure we strictly partition the data
