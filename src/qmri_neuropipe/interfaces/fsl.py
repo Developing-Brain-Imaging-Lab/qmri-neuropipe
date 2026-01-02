@@ -355,6 +355,7 @@ def eddy(
     acqp: Optional[Path] = None,
     index: Optional[Path] = None,
     extra_opts: Optional[Dict[str, Any]] = None,
+    force: bool = False,
 ) -> DWIFile:
     """
     Run FSL eddy or eddy_cuda with optional topup output.
@@ -363,7 +364,7 @@ def eddy(
     out_base = out_p.with_suffix("").with_suffix("")  # remove .nii.gz or .nii
     out_bvec = out_base.with_suffix(".bvec")
     
-    if out_p.exists() and out_bvec.exists():
+    if out_p.exists() and out_bvec.exists() and not force:
         return DWIFile(
             entities=in_file.entities,
             img=out_p,

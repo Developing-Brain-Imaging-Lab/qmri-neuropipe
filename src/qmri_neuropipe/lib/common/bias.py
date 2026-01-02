@@ -101,8 +101,8 @@ class BiasCorrectionStep(BaseProcessingStep):
                     out_file=output_img,
                     mask=mask,
                     bias_field=bias_field,
-                    nthreads=nthreads,
-                    **kwargs
+                    nthreads=nthreads
+                    # Do not pass **kwargs to n4bias as it does not accept them
                 )
             elif self.method == 'mrtrix':
                 # MRtrix requires bvec/bval for DWI usually if using dwibiascorrect -fslgrad

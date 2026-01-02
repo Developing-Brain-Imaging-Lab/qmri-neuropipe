@@ -223,6 +223,13 @@ class DenoisingStep(BaseProcessingStep):
         
         # Get nthreads from kwargs or config
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        
+        # Prepare filtered kwargs for backends that don't accept 'force'
+        call_kwargs = kwargs.copy()
+        if 'force' in call_kwargs:
+            del call_kwargs['force']
+        if 'nthreads' in call_kwargs: # nthreads often passed explicitly
+             del call_kwargs['nthreads']
 
         from threadpoolctl import threadpool_limits
 
@@ -237,17 +244,15 @@ class DenoisingStep(BaseProcessingStep):
             elif self.method == 'ants':
                 denoised, noise = ants.denoise_image(in_file=input_img.img,
                                                      out_file=output_img_path,
-                                                     noise_model=kwargs.get('noise_model', 'Rician'),
-                                                     mask=mask,
                                                      noise_map=noise_map_path,
-                                                     nthreads=nthreads)
+                                                     nthreads=nthreads) # ants.denoise_image does not accept kwargs
             else:
                 # Python-based methods (mppca, patch2self, nlmeans, wavelets, gaussian)
                 # Limit threads for BLAS/OpenMP operations
                 with threadpool_limits(limits=nthreads):
                     if self.method == 'mppca':
                         # Fetch pca_method from kwargs OR use instance default (from config/init)
-                        pca_method = kwargs.get('pca_method', self.pca_method)
+                        pca_method = call_kwargs.get('pca_method', self.pca_method)
                         
                         denoised, noise = dipy.mppca(in_file=input_img.img, 
                                                      out_file=output_img_path, 
@@ -257,9 +262,9 @@ class DenoisingStep(BaseProcessingStep):
                                                      block_radius=self.block_radius,
                                                      pca_method=pca_method,
                                                      nthreads=nthreads,
-                                                     **kwargs)
+                                                     **call_kwargs)
                     elif self.method == 'patch2self':
-                        model = kwargs.get('model', self.model)
+                        model = call_kwargs.get('model', self.model)
                         # Ensure input is DWI and has bval
                         if not isinstance(input_img, DWIFile) or not input_img.bval:
                             raise ProcessingError("Patch2Self requires DWI data with bval file")
@@ -274,25 +279,25 @@ class DenoisingStep(BaseProcessingStep):
                                                    # patch_radius=self.patch_radius, # Unused in v3
                                                    model=model,
                                                    nthreads=nthreads,
-                                                   **kwargs)
+                                                   **call_kwargs)
                         noise = None # Patch2Self wrapper doesn't return noise map
                     elif self.method == 'nlmeans':
                         denoised = dipy.nlmeans(in_file=input_img.img, 
                                                 out_file=output_img_path, 
                                                 mask=mask, 
                                                 nthreads=nthreads,
-                                                **kwargs)
+                                                **call_kwargs)
                     elif self.method == 'wavelets':
                         denoised = self._run_wavelets(
                             nib.load(str(input_img.img)).get_fdata(),
                             mask=nib.load(str(mask)).get_fdata() if mask else None,
-                            **kwargs
+                            **call_kwargs
                         )
                     elif self.method == 'gaussian':
                         denoised = self._run_gaussian(
                             nib.load(str(input_img.img)).get_fdata(),
                             mask=nib.load(str(mask)).get_fdata() if mask else None,
-                            **kwargs
+                            **call_kwargs
                         )
                     else:
                         raise ValueError(f"Unknown denoising method: {self.method}")
