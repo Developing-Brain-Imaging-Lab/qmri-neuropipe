@@ -268,6 +268,55 @@ class EddyCorrectionStep(BaseProcessingStep):
         # Fetch nthreads
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
         
+        # --- Memory Optimization: Int16 Conversion ---
+        # Check config or extra_opts for 'datatype' or 'convert_to_int16'
+        # eddy extra_opts doesn't usually allow 'datatype', so we look for custom keys or config
+        
+        target_datatype = kwargs.get('datatype') or extra_opts.get('datatype')
+        # If user put datatype in extra_opts, remove it so it's not passed to fsl.eddy (which rejects it)
+        if 'datatype' in extra_opts:
+             del extra_opts['datatype']
+             
+        # Check for optimize_memory in extra_opts (user flexibility)
+        if extra_opts.get('optimize_memory'):
+             target_datatype = 'int16'
+             del extra_opts['optimize_memory']
+             
+        # Also check explicit config flag if we add one later, e.g. 'optimize_memory'
+        if not target_datatype and self.config.get('dmri', {}).get('preprocessing', {}).get('eddy', {}).get('optimize_memory', False):
+             target_datatype = 'int16'
+
+        current_input_img = input_img 
+        if target_datatype == 'int16':
+             self.logger.info("Reducing memory usage: Converting input to int16 before running Eddy...")
+             from ...interfaces.mrtrix import mrconvert
+             
+             temp_int16 = output_dir / f"temp_int16_{input_img.img.name}"
+             
+             try:
+                 mrconvert(
+                     in_file=input_img,
+                     out_file=temp_int16,
+                     datatype="int16",
+                     nthreads=nthreads
+                 )
+                 
+                 if temp_int16.exists():
+                     # Create a temporary DWIFile pointing to this int16 image
+                     # preserving gradients
+                     current_input_img = DWIFile(
+                         entities=input_img.entities,
+                         img=temp_int16,
+                         json=input_img.json,
+                         bval=input_img.bval,
+                         bvec=input_img.bvec
+                     )
+                 else:
+                     self.logger.warning("Int16 conversion failed (output missing). Using original float input.")
+                     
+             except Exception as e:
+                 self.logger.warning(f"Int16 conversion failed: {e}. Using original float input.")
+
         try:
             if self.method == 'eddy-correct':
                 ecc = fsl.eddy_correct(in_file=input_img, 
@@ -285,7 +334,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                      cuda_device = gpus[0]
                 
                 ecc = fsl.eddy(
-                    in_file=input_img,
+                    in_file=current_input_img,
                     out_file=output_img,
                     mask=mask,
                     topup_base=topup_base,

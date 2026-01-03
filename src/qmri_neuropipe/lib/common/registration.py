@@ -318,6 +318,33 @@ class CoregistrationStep(BaseProcessingStep):
                     cost = options.get("cost", "normmi")
                     extra_args = options.get("extra_args", "")
                     
+                    # --- BBR Handling ---
+                    if cost == 'bbr':
+                        self.logger.info("BBR cost function requested. Ensuring WM segmentation is available...")
+                        try:
+                            from ..anat.segmentation import generate_wm_segmentation
+                            wm_seg_method = options.get('wm_seg_method', 'fast')
+                            
+                            # Generate/Get WM segmentation of the target (structural)
+                            # We use output_dir for the segmentation artifacts
+                            wm_seg = generate_wm_segmentation(
+                                target, 
+                                output_dir, 
+                                method=wm_seg_method, 
+                                nthreads=nthreads
+                            )
+                            
+                            # Pass to FSL FLIRT
+                            # FLIRT expects -wmseg <path>
+                            options['wmseg'] = wm_seg
+                            self.logger.info(f"Using WM segmentation for BBR: {wm_seg}")
+                            
+                        except ImportError:
+                            self.logger.error("Could not import segmentation module. Skipping BBR specific setup, which might fail.")
+                        except Exception as e:
+                            self.logger.error(f"Failed to generate WM segmentation for BBR: {e}. BBR might fail.")
+                            raise ProcessingError(f"BBR segmentation failed: {e}")
+
                     moving_for_reg = in_path
                     if is_dwi:
                          # Use b0 for registration (same strategy as ANTs)

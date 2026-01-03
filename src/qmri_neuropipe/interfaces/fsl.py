@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Union
 import json
 
 import nibabel as nib
@@ -673,3 +673,49 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     run_cmd(" ".join(cmd_parts), label="flirt_resample")
     return out_p
 
+
+def fast(
+    in_files: Union[Path, ImageLike, list[Union[Path, ImageLike]]],
+    out_base: Path,
+    img_type: int = 1, # 1=T1, 2=T2, 3=PD
+    num_classes: int = 3,
+    hyper: float = 0.1,
+    flags: str = ""
+):
+    """
+    Wrapper for FSL FAST (FMRIB's Automated Segmentation Tool).
+    
+    Args:
+        in_files: Input image(s) or list of images (multi-channel).
+        out_base: Output basename (mask/pve/seg will be appended).
+        img_type: Image type (1=T1, 2=T2, 3=PD).
+        num_classes: Number of tissue classes (default 3).
+        hyper: Hyper-parameter H (segmentation spatial smoothness) (default 0.1).
+        flags: Additional flags string.
+    """
+    out_p = ensure_dir(out_base) # Usually out_base is a prefix path, but ensure_dir ensures PARENT exists
+    
+    # Check if outputs exist. FAST outputs many files.
+    # We check for the main segmentation file: <out_base>_seg.nii.gz
+    seg_file = Path(f"{out_base}_seg.nii.gz")
+    if seg_file.exists():
+        return
+        
+    # Prepare input args
+    if not isinstance(in_files, list):
+        in_files = [in_files]
+        
+    in_paths = [str(extract_image_path(f)) for f in in_files]
+    
+    cmd = ["fast"]
+    cmd.append(f"-t {img_type}")
+    cmd.append(f"-n {num_classes}")
+    cmd.append(f"-H {hyper}")
+    
+    if flags:
+        cmd.extend(flags.split())
+        
+    cmd.append(f"-o {out_base}")
+    cmd.extend(in_paths)
+    
+    run_cmd(" ".join(cmd), label="fast")

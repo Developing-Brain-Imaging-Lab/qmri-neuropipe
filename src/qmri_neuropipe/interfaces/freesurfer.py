@@ -2,7 +2,7 @@
 from pathlib import Path
 import json, csv
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 from ..core.run import run_cmd
 from ..core.types import ImageLike
@@ -153,4 +153,43 @@ def recon_all(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, op
     cmd = f"recon-all -i {in_p} -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
     run_cmd(cmd, label="recon-all")
     
-    return sd_path / subject_id
+
+def mri_synthseg(
+    in_file: Union[Path, ImageLike],
+    out_file: Path,
+    nthreads: int = 1,
+    robust: bool = True,
+    parc: bool = False,
+    extra_args: str = ""
+):
+    """
+    Wrapper for FreeSurfer mri_synthseg.
+    
+    Args:
+        in_file: Input image.
+        out_file: Output segmentation (main).
+        nthreads: Number of threads.
+        robust: Use robust (less sensitive to artifacts) mode (default True).
+        parc: Output parcellation instead of just segmentation? 
+              SynthSeg produces one main output. Flags control behavior.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    
+    if out_p.exists():
+        return
+        
+    # mri_synthseg --i <input> --o <output> --threads <n>
+    cmd = ["mri_synthseg", f"--i {in_p}", f"--o {out_p}"]
+    
+    if nthreads > 1:
+        cmd.append(f"--threads {nthreads}")
+        
+    if robust:
+        cmd.append("--robust")
+        
+    if extra_args:
+        cmd.append(extra_args)
+        
+    run_cmd(" ".join(cmd), label="mri_synthseg")

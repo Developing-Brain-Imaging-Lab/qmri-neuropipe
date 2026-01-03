@@ -222,6 +222,7 @@ def mrconvert(
     in_file: Union[Path, ImageLike], 
     out_file: Path, 
     stride: str = None, 
+    datatype: str = None,
     in_bvec: Path = None, 
     in_bval: Path = None, 
     export_grad_fsl: Tuple[Path, Path] = None, 
@@ -247,6 +248,9 @@ def mrconvert(
     
     if stride:
         cmd.extend(["-stride", stride])
+        
+    if datatype:
+        cmd.extend(["-datatype", datatype])
         
     if in_bvec and in_bval:
         cmd.extend(["-fslgrad", str(in_bvec), str(in_bval)])
