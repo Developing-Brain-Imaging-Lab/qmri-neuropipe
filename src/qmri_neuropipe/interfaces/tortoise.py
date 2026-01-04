@@ -121,29 +121,40 @@ def apply_grad_nonlin(
     grad_coeffs: Path,
     nthreads: int = 1,
     force: bool = False,
+    is_ge: bool = True
 ) -> Path:
     """
     Apply gradient nonlinearity correction.
-    Uses 'ComputeGradientNonlinearityMap' and then applies it, or similar tool.
-    Currently retaining the placeholder implementation which assumes 'CreateGradientNonlinearityBMatrix' usage logic,
-    but updated to be cleaner.
     """
-    # ... (existing logic or improvement)
-    # The existing function calls 'CreateGradientNonlinearityBMatrix'
-    # Real TORTOISE workflow often uses DIFFPREP to apply GNL if coeffs are provided.
-    # Independent tool: 'FullDualSpaceGNLCorrection' or similar in internal builds?
-    # Publicly: 'ImportDICOM' allows handling, or specific diff_prep settings.
-    
-    # We will stick to the existing signature compatibility.
     in_p = extract_image_path(in_file)
     out_p = Path(out_file)
     ensure_dir(out_p.parent)
     
+    
     if out_p.exists() and not force: return out_p
     
-    # Note: This command name might vary by version. 
-    # v3: CreateGradientNonlinearityBMatrix is correct for calculating changes.
-    cmd = f"CreateGradientNonlinearityBMatrix --input {in_p} --coefficients {grad_coeffs} --output {out_p} --threads {nthreads}"
-    run_cmd(cmd, label="TORTOISE_GNL")
+    # Updated command based on user feedback to use CreateGradientNonlinearityBMatrix with correct flags
+    cmd_parts = ["CreateGradientNonlinearityBMatrix"]
+    cmd_parts.append(f"--initial_image {in_p}")
+    cmd_parts.append(f"--final_image {out_p}")
+    cmd_parts.append(f"--nonlinearity {grad_coeffs}")
+    
+    # Assuming TORTOISE style boolean (1/0) or switch
+    # User requested --isGE
+    if is_ge:
+        cmd_parts.append("--isGE 1")
+    
+    # Threads supported? Usually yes.
+    # cmd_parts.append(f"--threads {nthreads}") # Check if this command supports it. User didn't request, but good practice if supported. 
+    # CreateGradientNonlinearityBMatrix supported --threads. GradientNonlinearityCorrection likely does too? 
+    # Safest is to try. If failure, remove.
+    # User log showed 'CreateGradientNonlinearityBMatrix ... --threads 8', so multithreading was attempted.
+    # I'll rely on OMP_NUM_THREADS env var if arg is not standard, but I'll try adding it or stick to what user listed.
+    # User listed: --initial_image --final_image --nonlinearity --isGE
+    # Didn't list threads. I'll omit explicit --threads arg to be safe unless standard.
+    # Actually, to be safe, I'll pass it if I can verify it.
+    # I'll stick to EXACTLY what user suggested + basics.
+    
+    run_cmd(" ".join(cmd_parts), label="TORTOISE_GNL", n_threads=nthreads) # n_threads env var will be set by run_cmd
     
     return out_p

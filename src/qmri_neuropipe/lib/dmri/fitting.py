@@ -74,6 +74,12 @@ class DTIFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
+        # Check for Gradient Nonlinearity Map in context
+        gnl_map = context.get('gnl_map')
+        if gnl_map and not gnl_map.exists():
+            self.logger.warning(f"GNL map path found in context but file missing: {gnl_map}")
+            gnl_map = None
+
         if self.method == 'dipy':
             from ...interfaces.dipy import fit_dti
             # Map parameters
@@ -82,6 +88,10 @@ class DTIFittingStep(BaseProcessingStep):
                 dipy_kwargs['fit_method'] = self.kwargs['sub_method']
             if 'metrics' in self.kwargs:
                 dipy_kwargs['metrics'] = self.kwargs['metrics']
+            
+            if gnl_map:
+                self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY: {gnl_map}")
+                dipy_kwargs['grad_nonlin'] = gnl_map
                 
             fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **dipy_kwargs)
             
@@ -92,6 +102,10 @@ class DTIFittingStep(BaseProcessingStep):
             if 'save_tensor' in self.kwargs:
                 fsl_kwargs['save_tensor'] = self.kwargs['save_tensor']
                 
+            if gnl_map:
+                self.logger.info(f"Using Gradient Nonlinearity Tensor Map: {gnl_map}")
+                fsl_kwargs['grad_nonlin'] = gnl_map
+                
             fit_dti(dwi, model_out, mask_file=mask_path, **fsl_kwargs)
             
         elif self.method == 'mrtrix':
@@ -100,6 +114,9 @@ class DTIFittingStep(BaseProcessingStep):
             mrtrix_kwargs = {}
             if 'metrics' in self.kwargs:
                 mrtrix_kwargs['metrics'] = self.kwargs['metrics']
+            
+            if gnl_map:
+                self.logger.warning("Gradient nonlinearity tensor map found but not currently supported by MRtrix backend (in this pipeline). GNL correction will be ignored.")
                 
             fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **mrtrix_kwargs)
         else:
@@ -167,6 +184,16 @@ class DKIFittingStep(BaseProcessingStep):
 
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_dki
+             
+             # Check for GNL Map
+             gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+             if gnl_map:
+                if not gnl_map.exists():
+                     self.logger.warning(f"GNL map path missing: {gnl_map}")
+                else:
+                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY DKI: {gnl_map}")
+                     self.kwargs['grad_nonlin'] = gnl_map
+             
              fit_dki(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown DKI method: {self.method}")
@@ -443,6 +470,16 @@ class MAPMRIFittingStep(BaseProcessingStep):
 
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_mapmri
+             
+             # Check for GNL map
+             gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+             if gnl_map:
+                if not gnl_map.exists():
+                     self.logger.warning(f"GNL map path missing: {gnl_map}")
+                else:
+                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY MAPMRI: {gnl_map}")
+                     self.kwargs['grad_nonlin'] = gnl_map
+                     
              fit_mapmri(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
              raise ValueError(f"Unknown MAPMRI method: {self.method}")
@@ -654,6 +691,15 @@ class FWDTIFittingStep(BaseProcessingStep):
             
             # Extract config options
             step_kwargs = self.kwargs.copy()
+            
+            # Check GNL
+            gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+            if gnl_map:
+                if not gnl_map.exists():
+                     self.logger.warning(f"GNL map path missing: {gnl_map}")
+                else:
+                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY FWE-DTI: {gnl_map}")
+                     step_kwargs['grad_nonlin'] = gnl_map
             
             fit_fwe_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **step_kwargs)
             

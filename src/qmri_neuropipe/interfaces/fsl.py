@@ -576,7 +576,8 @@ def fit_dti(
     mask_file: Path,
     bval_file: Optional[Path] = None,
     bvec_file: Optional[Path] = None,
-    save_tensor: bool = False
+    save_tensor: bool = False,
+    grad_nonlin: Optional[Path] = None
 ) -> Dict[str, Path]:
     """
     Fit DTI using FSL dtifit.
@@ -632,6 +633,9 @@ def fit_dti(
     
     if save_tensor:
         cmd.append('--save_tensor')
+        
+    if grad_nonlin:
+        cmd.append(f'--gradnonlin={grad_nonlin}')
         
     run_cmd(" ".join(cmd), label="dtifit")
     

@@ -371,6 +371,134 @@ def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
     fit = model.fit(data_chunk)
     return fit.model_params
 
+# --- Generic GNL Voxel-wise Driver ---
+
+def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
+    """
+    Generic worker for voxel-wise fitting with varying gradient tables (GNL).
+    """
+    from dipy.core.gradients import gradient_table
+    import numpy as np
+
+    # Unpack kwargs
+    gnl_chunk = kwargs['gnl_chunk'] # (N, ...)
+    bvals = kwargs['bvals']
+    bvecs = kwargs['bvecs'] # (N_gradients, 3)
+    model_class = kwargs['model_class']
+    model_kwargs = kwargs.get('model_kwargs', {})
+    
+    res_params = []
+    
+    for i in range(chunk_data.shape[0]):
+        vox_data = chunk_data[i]
+        vox_gnl = gnl_chunk[i]
+        
+        # Reshape GNL tensor to 3x3 if needed
+        # It handles flattened 9-element arrays or 3x3 matrices
+        if vox_gnl.size == 9:
+            rot_mat = vox_gnl.reshape(3, 3)
+        elif vox_gnl.shape == (3,3):
+            rot_mat = vox_gnl
+        else:
+            # Fallback or error assumption
+            rot_mat = vox_gnl.reshape(3,3) 
+            
+        # Rotate bvecs: bvecs_new = bvecs @ R.T
+        rot_bvecs = np.dot(bvecs, rot_mat.T)
+        
+        # Create new gradient table
+        # Optimized: minimal check
+        vox_gtab = gradient_table(bvals, bvecs=rot_bvecs)
+        
+        # Instantiate Model
+        model = model_class(vox_gtab, **model_kwargs)
+        
+        # Fit
+        fit = model.fit(vox_data)
+        
+        # Collect parameters
+        # Most models stick params in model_params
+        # Some might use other attributes? (e.g. MAPMRI has q-space indices?)
+        # But generally fit.model_params is the vector representation.
+        res_params.append(fit.model_params)
+        
+    return np.array(res_params)
+
+def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_kwargs, nthreads=1):
+    """
+    Driver to execute GNL-corrected fitting.
+    """
+    import numpy as np
+    import nibabel as nib
+    import multiprocessing
+    
+    # 1. Load Map
+    gnl_img = nib.load(str(gnl_map_path))
+    gnl_data = gnl_img.get_fdata()
+
+    if gnl_data.shape[:3] != data.shape[:3]:
+        raise RuntimeError(f"GNL map dimensions {gnl_data.shape} do not match data {data.shape}")
+
+    # 2. Flatten data
+    if mask is None:
+        mask = np.ones(data.shape[:3], dtype=bool)
+        
+    data_flat = data[mask]
+    gnl_flat = gnl_data[mask]
+    
+    n_samples = data_flat.shape[0]
+    if n_samples == 0:
+        raise ValueError("No voxels in mask.")
+        
+    # 3. Parallelize
+    if nthreads > 1:
+        chunks_data = np.array_split(data_flat, nthreads)
+        chunks_gnl = np.array_split(gnl_flat, nthreads)
+        
+        pool_args = []
+        for i in range(nthreads):
+            if chunks_data[i].size == 0: continue
+            kw = {
+                'gnl_chunk': chunks_gnl[i],
+                'bvals': bvals,
+                'bvecs': bvecs,
+                'model_class': model_class,
+                'model_kwargs': model_kwargs
+            }
+            # Use global generic wrapper
+            pool_args.append((i, chunks_data[i], None, _gnl_worker_func, kw))
+            
+        try:
+            ctx = multiprocessing.get_context('spawn')
+        except ValueError:
+            ctx = multiprocessing.get_context('fork')
+            
+        with ctx.Pool(processes=nthreads) as pool:
+            res_list = pool.map(_global_driver_wrapper, pool_args)
+            
+        all_params = np.concatenate(res_list, axis=0) if res_list else np.array([])
+        
+    else:
+        # Serial
+        kw = {
+            'gnl_chunk': gnl_flat,
+            'bvals': bvals,
+            'bvecs': bvecs,
+            'model_class': model_class,
+            'model_kwargs': model_kwargs
+        }
+        all_params = _gnl_worker_func(0, data_flat, None, kw)
+        
+    # 4. Map back to volume
+    if all_params.size > 0:
+        param_shape = all_params.shape[1:]
+        out_shape = data.shape[:3] + param_shape
+        vol_params = np.zeros(out_shape, dtype=all_params.dtype)
+        vol_params[mask] = all_params
+        return vol_params
+    else:
+        raise RuntimeError("GNL Fit resulted in empty parameters.")
+
 def fit_dti(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -379,7 +507,8 @@ def fit_dti(
     mask_file: Optional[Path] = None,
     fit_method: str = "WLLS",
     metrics: list[str] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"],
-    nthreads: int = 1
+    nthreads: int = 1,
+    **kwargs
 ) -> Dict[str, Path]:
     """
     Fit Diffusion Tensor Imaging (DTI) model using DIPY.
@@ -441,20 +570,45 @@ def fit_dti(
         # return_leverages=True to avoid KeyError in serial fit or internally
         dti_model = dipy_dti.TensorModel(gtab, fit_method=fit_method, return_leverages=True)
 
+    # Convert grad_nonlin path to Path if str
+    if kwargs.get('grad_nonlin'):
+         grad_nonlin = Path(kwargs['grad_nonlin'])
+    else:
+         grad_nonlin = None
+
     # Fit
     try:
-        if nthreads > 1:
+        if grad_nonlin:
+             # GNL Correction Voxel-wise Fit
+             
+             # Prepare model kwargs
+             model_kwargs = {
+                 'fit_method': fit_method
+             }
+             if fit_method != 'RESTORE':
+                 model_kwargs['return_leverages'] = True
+             else:
+                 model_kwargs['sigma'] = None # or None
+                 
+             vol_params = _execute_gnl_fit(
+                data=data,
+                mask=mask,
+                gnl_map_path=grad_nonlin,
+                bvals=bvals,
+                bvecs=bvecs,
+                model_class=dipy_dti.TensorModel,
+                model_kwargs=model_kwargs,
+                nthreads=nthreads
+             )
+             
+             dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
+
+        elif nthreads > 1:
             # Parallel Fit using Unified Driver
             worker_kwargs = {}
             if fit_method != 'RESTORE':
                 worker_kwargs['return_leverages'] = True
             if fit_method == 'RESTORE':
-                 # RESTORE takes sigma in kwargs usually? No, TensorModel(..., sigma=sigma)
-                 # Wait, TensorModel signature for RESTORE: sigma is explicit arg.
-                 # Our worker handles sigma from kwargs.
-                 # But we don't calculate sigma here unless passed?
-                 # dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
-                 # We need to pass sigma if we have it? The original code passed `sigma=None`.
                  pass
 
             vol_params = _parallel_fit_driver(
@@ -567,7 +721,22 @@ def fit_dki(
     
     # Fit
     try:
-        if nthreads > 1:
+        # Check for GNL
+        if kwargs.get('grad_nonlin'):
+            grad_nonlin = Path(kwargs['grad_nonlin'])
+            vol_params = _execute_gnl_fit(
+                data=data,
+                mask=mask,
+                gnl_map_path=grad_nonlin,
+                bvals=bvals,
+                bvecs=bvecs,
+                model_class=dipy_dki.DiffusionKurtosisModel,
+                model_kwargs=kwargs, # kwargs contains config for DKI model
+                nthreads=nthreads
+            )
+            dkifit = dipy_dki.DiffusionKurtosisFit(dkimodel, vol_params)
+            
+        elif nthreads > 1:
             # Parallel Fit
             vol_params = _parallel_fit_driver(
                 data, 
@@ -639,7 +808,8 @@ def fit_mapmri(
     positivity: bool = True,
     global_constraints: bool = False,
     metrics: list[str] = ["rtop", "rtap", "rtpp", "qiv", "msd"],
-    nthreads: int = 1
+    nthreads: int = 1,
+    **kwargs
 ) -> Dict[str, Path]:
     """
     Fit MAP-MRI model.
@@ -676,7 +846,27 @@ def fit_mapmri(
         global_constraints=global_constraints
     )
     
-    if nthreads > 1:
+    if kwargs.get('grad_nonlin'):
+        grad_nonlin = Path(kwargs['grad_nonlin'])
+        model_kwargs = {
+            'laplacian_regularization': laplacian,
+            'positivity_constraint': positivity,
+            'global_constraints': global_constraints
+        }
+        
+        vol_params = _execute_gnl_fit(
+            data=data,
+            mask=mask,
+            gnl_map_path=grad_nonlin,
+            bvals=bvals,
+            bvecs=bvecs,
+            model_class=mapmri.MapmriModel,
+            model_kwargs=model_kwargs,
+            nthreads=nthreads
+        )
+        map_fit = mapmri.MapmriFit(map_model, vol_params)
+        
+    elif nthreads > 1:
         worker_kwargs = {
             'laplacian': laplacian,
             'positivity': positivity,
@@ -783,7 +973,27 @@ def fit_fwe_dti(
     fwe_model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **kwargs)
     
     try:
-        if nthreads > 1:
+        if kwargs.get('grad_nonlin'):
+            grad_nonlin = Path(kwargs['grad_nonlin'])
+            # Prepare model_kwargs
+            # Exclude grad_nonlin to be safe, though generic driver takes specific args
+            model_kwargs = kwargs.copy()
+            if 'grad_nonlin' in model_kwargs: del model_kwargs['grad_nonlin']
+            model_kwargs['fit_method'] = fit_method
+            
+            vol_params = _execute_gnl_fit(
+                data=data,
+                mask=mask,
+                gnl_map_path=grad_nonlin,
+                bvals=bvals,
+                bvecs=bvecs,
+                model_class=fwdti.FreeWaterTensorModel,
+                model_kwargs=model_kwargs,
+                nthreads=nthreads
+            )
+            fwe_fit = fwdti.FreeWaterTensorFit(fwe_model, vol_params)
+            
+        elif nthreads > 1:
             worker_kwargs = {'fit_method': fit_method, **kwargs}
             vol_params = _parallel_fit_driver(
                 data, 
