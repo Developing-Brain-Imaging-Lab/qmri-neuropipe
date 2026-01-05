@@ -60,6 +60,9 @@ class MergeStep(BaseProcessingStep):
         first_dwi = dwi_files[0]
         ents = first_dwi.entities.copy()
         ents['desc'] = 'merged'
+        # Remove dir entity if present, as merged file contains multiple directions
+        if 'dir' in ents:
+            del ents['dir']
         # Remove session/run specific if they differ? 
         # Usually we keep first file's naming conv mostly
         
