@@ -98,6 +98,7 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     
     cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args} {extra_flags}"
     run_cmd(cmd, label="flirt")
+    return out_p, Path(omat) if omat else None
 
 
 def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t") -> Path:
@@ -124,10 +125,6 @@ def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t"
          run_cmd(cmd, label="fslmerge")
          
     return out_p
-
-
-    
-    return out_p, omat if omat else None
 
 
 def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, warp: Path = None, premat: Path = None, interp: str = "spline", extra_args: str = ""):

@@ -408,3 +408,218 @@ def dwi2fod(
     run_cmd(" ".join(cmd), label=f"dwi2fod-{algorithm}")
     
     return fods
+
+
+def transformconvert(
+    in_transform: Path,
+    out_mrtrix_transform: Path,
+    operation: str = 'flirt_import', 
+    ref_image: Optional[Path] = None,
+    in_image: Optional[Path] = None,
+    force: bool = False
+):
+    """
+    Wrapper for transformconvert.
+    
+    Args:
+        in_transform: Input transform file (e.g. FSL mat, etc.)
+        out_mrtrix_transform: Output MRTrix transform file.
+        operation: 'flirt_import', 'itk_import', etc.
+        ref_image: Reference image (required for flirt_import).
+        in_image: Input moving image (required for flirt_import).
+        force: Force overwrite.
+    """
+    out_p = ensure_dir(out_mrtrix_transform)
+    
+    if not force and out_p.exists():
+        return out_p
+    
+    cmd = ["transformconvert", str(in_transform), operation]
+    
+    if operation == 'flirt_import':
+        if not ref_image or not in_image:
+             raise ValueError("transformconvert 'flirt_import' requires ref_image and in_image.")
+        cmd.append(str(in_image))
+        cmd.append(str(ref_image))
+        
+    cmd.append(str(out_p))
+    
+    if force:
+        cmd.append("-force")
+        
+    cmd.append("-quiet")
+    
+    run_cmd(" ".join(cmd), label="transformconvert")
+    return out_p
+
+
+def mrtransform(
+    in_file: Union[Path, ImageLike],
+    out_file: Path,
+    linear_transform: Optional[Path] = None,
+    warp_image: Optional[Path] = None,
+    template: Optional[Path] = None,
+    nthreads: int = 1,
+    force: bool = False
+):
+    """
+    Wrapper for mrtransform.
+    
+    Args:
+        in_file: Input image.
+        out_file: Output transformed image.
+        linear_transform: Linear transform (e.g. from transformconvert).
+        warp_image: Nonlinear warp image.
+        template: Template image (for regridding).
+        nthreads: Number of threads.
+        force: Force overwrite.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        return out_p
+        
+    cmd = ["mrtransform", str(in_p), str(out_p)]
+    
+    if linear_transform:
+        cmd.extend(["-linear", str(linear_transform)])
+        
+    if warp_image:
+        cmd.extend(["-warp", str(warp_image)])
+        
+    if template:
+        cmd.extend(["-template", str(template)])
+        
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+        
+    if force:
+        cmd.append("-force")
+        
+    cmd.append("-quiet")
+    
+    run_cmd(" ".join(cmd), label="mrtransform")
+    return out_p
+
+
+def apply_mrtrix_transform(
+    dwi_file: Union[Path, DWIFile],
+    out_dwi: Path,
+    transform_file: Path,
+    transform_type: str = "flirt", # 'flirt' or 'mrtrix'
+    ref_image: Optional[Path] = None,
+    nthreads: int = 1,
+    force: bool = False
+) -> Tuple[Path, Path, Path]:
+    """
+    Apply a registration transform to a DWI file using MRTrix.
+    
+    Workflow:
+    1. Convert NIfTI DWI -> .mif (embedding bvals/bvecs).
+    2. Convert transform to MRTrix format if needed (e.g. FSL FLIRT mat).
+    3. Apply mrtransform (handles gradient reorientation automatically).
+    4. Convert .mif -> NIfTI (exporting rotated bvals/bvecs).
+    
+    Args:
+        dwi_file: Input DWI file or object (must have bval/bvec if Path).
+        out_dwi: Output NIfTI path.
+        transform_file: Transform file (e.g. .mat).
+        transform_type: Type of input transform ('flirt', 'mrtrix').
+        ref_image: Reference target image (required for FLIRT import and regridding).
+        nthreads: Logic threads.
+        
+    Returns:
+        (out_dwi, out_bvec, out_bval) paths.
+    """
+    import os
+    
+    if isinstance(dwi_file, DWIFile):
+        in_path = dwi_file.img
+        in_bvec = dwi_file.bvec
+        in_bval = dwi_file.bval
+        if not in_bvec or not in_bval:
+             raise ValueError("DWIFile must have bvec/bval for MRTrix transform.")
+    else:
+        # Assume path, try to find sidecars? Or require explict args? 
+        # For simplicity in this function signature, let's assume user passes DWIFile mostly.
+        # Check if we can find them next to image?
+        in_path = Path(dwi_file)
+        in_bvec = in_path.with_suffix("").with_suffix(".bvec")
+        in_bval = in_path.with_suffix("").with_suffix(".bval")
+        if not in_bvec.exists(): in_bvec = in_path.with_suffix(".bvec")
+        if not in_bval.exists(): in_bval = in_path.with_suffix(".bval")
+        
+        if not in_bvec.exists() or not in_bval.exists():
+             raise ValueError(f"Could not automatically find bvec/bval for {in_path}. Use DWIFile wrapper.")
+
+    out_p = ensure_dir(out_dwi)
+    out_bvec = out_p.with_suffix("").with_suffix(".bvec")
+    out_bval = out_p.with_suffix("").with_suffix(".bval")
+    
+    if not force and out_p.exists() and out_bvec.exists():
+        return out_p, out_bvec, out_bval
+
+    # Create temporary directory for conversions
+    temp_dir = out_p.parent / f"temp_mrtrix_trans_{out_p.stem}"
+    temp_dir.mkdir(exist_ok=True)
+    
+    try:
+        # 1. NIfTI -> MIF
+        temp_mif_in = temp_dir / "input.mif"
+        mrconvert(
+            in_file=in_path,
+            out_file=temp_mif_in,
+            in_bvec=in_bvec,
+            in_bval=in_bval,
+            nthreads=nthreads,
+            force=True
+        )
+        
+        # 2. Prepare Transform
+        mrtrix_transform = transform_file
+        if transform_type == 'flirt':
+             # Convert FSL mat to MRTrix
+             if not ref_image:
+                 raise ValueError("ref_image is required for FLIRT transform conversion.")
+                 
+             mrtrix_transform = temp_dir / "transform_mrtrix.txt"
+             transformconvert(
+                 in_transform=transform_file,
+                 out_mrtrix_transform=mrtrix_transform,
+                 operation='flirt_import',
+                 ref_image=ref_image,
+                 in_image=in_path,
+                 force=True
+             )
+        
+        # 3. Apply Transform
+        temp_mif_out = temp_dir / "output.mif"
+        mrtransform(
+            in_file=temp_mif_in,
+            out_file=temp_mif_out,
+            linear_transform=mrtrix_transform,
+            template=ref_image, # Use ref image as template for grid
+            nthreads=nthreads,
+            force=True
+        )
+        
+        # 4. MIF -> NIfTI + bvecs
+        if out_bvec.exists(): out_bvec.unlink() # cleanup before export to ensure fresh
+        if out_bval.exists(): out_bval.unlink()
+        
+        mrconvert(
+            in_file=temp_mif_out,
+            out_file=out_p,
+            export_grad_fsl=(out_bvec, out_bval),
+            nthreads=nthreads,
+            force=True
+        )
+        
+    finally:
+        # Cleanup
+        import shutil
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+            
+    return out_p, out_bvec, out_bval
