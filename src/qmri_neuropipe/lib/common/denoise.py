@@ -228,9 +228,15 @@ class DenoisingStep(BaseProcessingStep):
         if mask is None and self.method in ['mrtrix', 'mppca', 'patch2self']:
              try:
                  self.logger.info("No mask provided. Generating temporary dilated mask via FSL BET to accelerate denoising...")
-                 temp_ref = output_dir / f"temp_denoise_ref_{input_img.img.stem}.nii.gz"
-                 temp_brain = output_dir / f"temp_denoise_brain_{input_img.img.stem}.nii.gz"
-                 temp_mask_dil = output_dir / f"temp_denoise_mask_dilated_{input_img.img.stem}.nii.gz"
+                 
+                 # Robust stem extraction
+                 stem = input_img.img.name
+                 while stem.endswith(('.nii', '.gz')):
+                     stem = Path(stem).stem
+
+                 temp_ref = output_dir / f"temp_denoise_ref_{stem}.nii.gz"
+                 temp_brain = output_dir / f"temp_denoise_brain_{stem}.nii.gz"
+                 temp_mask_dil = output_dir / f"temp_denoise_mask_dilated_{stem}.nii.gz"
                  
                  # 1. Prepare Reference (3D)
                  # Determine if 4D
@@ -247,17 +253,26 @@ class DenoisingStep(BaseProcessingStep):
                  if is_4d:
                       # Extract first volume (b0 usually)
                       # fslroi <input> <output> <tmin> <tsize>
+                      # Use force=True to overwrite temp if exists
                       run_cmd(f"fslroi {input_img.img} {temp_ref} 0 1", label="extract_ref_for_mask")
                       bet_input = temp_ref
                  
                  # 2. Run FSL BET
                  # Returns (brain, mask)
+                 # Force overwrite if temp files exist from previous failed run
+                 if temp_brain.exists():
+                     import shutil
+                     if temp_brain.exists(): temp_brain.unlink()
+                     # BET creates separate mask file, we need to know its name to clean it?
+                     # Wrapper handles it, but let's just let BET overwrite or fail?
+                     # FSL BET usually overwrites.
+                 
                  _, temp_mask = fsl.bet(bet_input, temp_brain, frac=0.3, mask=True) # frac=0.3 is often safe for dMRI b0
                  
                  if temp_mask and temp_mask.exists():
                      # 3. Dilate
                      # Ensures whole coverage
-                     mrtrix.maskfilter(temp_mask, temp_mask_dil, filter_type='dilate', npass=2, nthreads=nthreads, force=kwargs.get('force', False))
+                     mrtrix.maskfilter(temp_mask, temp_mask_dil, filter_type='dilate', npass=2, nthreads=nthreads, force=True)
                      
                      if temp_mask_dil.exists():
                          mask = temp_mask_dil
@@ -279,12 +294,14 @@ class DenoisingStep(BaseProcessingStep):
 
         try:
             if self.method == 'mrtrix':
+                # Force=True because we are in the execution block (so we decided to run)
+                # This handles cases where auxiliary outputs (NoiseMap) exist but main output didn't.
                 denoised, noise = mrtrix.dwidenoise(in_file=input_img.img,
                                                     out_file=output_img_path, 
                                                     mask=mask,
                                                     noise_map=noise_map_path,
                                                     nthreads=nthreads,
-                                                    force=bool(kwargs.get('force', False)))
+                                                    force=True)
             elif self.method == 'ants':
                 denoised, noise = ants.denoise_image(in_file=input_img.img,
                                                      out_file=output_img_path,
