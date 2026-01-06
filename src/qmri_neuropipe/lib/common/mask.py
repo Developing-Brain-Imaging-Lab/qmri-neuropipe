@@ -94,7 +94,7 @@ class BrainMaskingStep(BaseProcessingStep):
     # ---------------------------------------------------------------------
     # Core execution
     # ---------------------------------------------------------------------
-    def run(self, first_arg, output_dir: Path, return_mask: bool = False, **kwargs) -> Any:
+    def run(self, first_arg, output_dir: Path, return_mask: bool = False, structural_mask: Optional[ImageLike | Path] = None, **kwargs) -> Any:
         """Run the selected brain‑extraction tool.
 
         Parameters
@@ -106,6 +106,9 @@ class BrainMaskingStep(BaseProcessingStep):
         return_mask : bool
             If True, returns a tuple (brain_image, binary_mask) in standalone mode,
             or properly populates context.
+        structural_mask : Path or Image, optional
+            A pre-computed structural brain mask (binary). If provided, and valid,
+            this mask is used directly instead of running an external tool.
 
         Returns
         -------
@@ -211,56 +214,97 @@ class BrainMaskingStep(BaseProcessingStep):
         else:
              tool_input = in_path
 
-        # Dispatch to the chosen tool to generate MASK
-        # We focus on generating the mask file ('mask_generated_path') first.
-        # Some tools output a brain image; we discard it if it's based on b0 and we want 4D output.
-        
-        tool_brain_out = output_dir / f"{stem}_tool_brain.nii.gz"
-        
-        if self.method == "fsl":
-             # bet <in> <out> -m (produces out.nii.gz and out_mask.nii.gz)
-             # We want the mask.
-             _, gen_mask = fsl.bet(in_file=tool_input, out_file=tool_brain_out, robust=True, mask=True)
-             if gen_mask and gen_mask.exists():
-                 gen_mask.rename(mask_generated_path)
+             tool_input = in_path
+
+        # ---------------------------------------------------------------------
+        # Optimization: Use Structural Mask if provided
+        # ---------------------------------------------------------------------
+        used_structural_mask = False
+        if structural_mask:
+             # Validate structural mask
+             if hasattr(structural_mask, 'img'):
+                 s_mask_path = structural_mask.img
+             elif isinstance(structural_mask, (str, Path)):
+                 s_mask_path = Path(structural_mask)
              else:
-                 raise ProcessingError("FSL BET failed to generate mask.")
+                 s_mask_path = None
                  
-        elif self.method == "mrtrix":
-             # dwi2mask usually works on 4D. 
-             # If user insists on first volume, dwi2mask on b0 might behave differently (just threshold).
-             # But 'dwi2mask' expects DWI.
-             # If we pass b0 (3D) to dwi2mask, it might assume it's a T2 and work?
-             # For improved robustness as requested ("ensure ... using the first volume"), we use tool_input (b0).
-             # Note: dwi2mask logic is complex. If pure b0, maybe use mrthreshold?
-             # But let's try dwi2mask on the extracted b0 if possible, or fallback to dwi2mask on full input if that's what makes sense.
-             # "ensure ... using the first volume" -> I will use tool_input (b0).
-             mrtrix.dwi2mask(in_file=tool_input, out_file=mask_generated_path, nthreads=nthreads)
-
-        elif self.method == "ants":
-             # antsBrainExtraction.sh -d 3 ...
-             # expects 3D input. tool_input is correct.
-             ants.ants_brain_extraction(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
-
-        elif self.method == "freesurfer":
-             if hasattr(freesurfer, 'mri_watershed'):
-                 freesurfer.mri_watershed(tool_input, tool_brain_out)
-                 # Derive mask
+             if s_mask_path and s_mask_path.exists():
+                 # Check geometry compatibility
                  try:
-                     brain = nib.load(str(tool_brain_out))
-                     bm_data = brain.get_fdata()
-                     mask = (np.abs(bm_data) > 1e-6).astype(np.int16)
-                     nib.save(nib.Nifti1Image(mask, brain.affine, brain.header), mask_generated_path)
-                 except Exception:
-                     pass
+                     # Check alignment (affine and shape)
+                     # For 4D input, structural mask (3D) should match spatial dims
+                     s_img = nib.load(str(s_mask_path))
+                     i_img = nib.load(str(in_path))
+                     
+                     s_shape = s_img.shape
+                     i_shape = i_img.shape[:3]
+                     
+                     # Simple shape check
+                     if s_shape == i_shape:
+                          # Copy to mask_generated_path
+                          self.logger.info(f"Using provided structural mask (skipping generation): {s_mask_path}")
+                          import shutil
+                          shutil.copy(s_mask_path, mask_generated_path)
+                          used_structural_mask = True
+                     else:
+                          self.logger.warning(f"Provided structural mask shape {s_shape} does not match input {i_shape}. Ignoring.")
+                 except Exception as e:
+                     self.logger.warning(f"Failed to validate structural mask: {e}. Ignoring.")
              else:
-                 pass
+                  self.logger.warning(f"structural_mask provided but invalid or not found: {structural_mask}")
 
-        elif self.method == "synthstrip":
-             freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
-        
-        else:
-             raise ProcessingError(f"Unsupported method: {self.method}")
+        if not used_structural_mask:
+            # Dispatch to the chosen tool to generate MASK
+            # We focus on generating the mask file ('mask_generated_path') first.
+            # Some tools output a brain image; we discard it if it's based on b0 and we want 4D output.
+            
+            tool_brain_out = output_dir / f"{stem}_tool_brain.nii.gz"
+            
+            if self.method == "fsl":
+                 # bet <in> <out> -m (produces out.nii.gz and out_mask.nii.gz)
+                 # We want the mask.
+                 _, gen_mask = fsl.bet(in_file=tool_input, out_file=tool_brain_out, robust=True, mask=True)
+                 if gen_mask and gen_mask.exists():
+                     gen_mask.rename(mask_generated_path)
+                 else:
+                     raise ProcessingError("FSL BET failed to generate mask.")
+                     
+            elif self.method == "mrtrix":
+                 # dwi2mask usually works on 4D. 
+                 # If user insists on first volume, dwi2mask on b0 might behave differently (just threshold).
+                 # But 'dwi2mask' expects DWI.
+                 # If we pass b0 (3D) to dwi2mask, it might assume it's a T2 and work?
+                 # For improved robustness as requested ("ensure ... using the first volume"), we use tool_input (b0).
+                 # Note: dwi2mask logic is complex. If pure b0, maybe use mrthreshold?
+                 # But let's try dwi2mask on the extracted b0 if possible, or fallback to dwi2mask on full input if that's what makes sense.
+                 # "ensure ... using the first volume" -> I will use tool_input (b0).
+                 mrtrix.dwi2mask(in_file=tool_input, out_file=mask_generated_path, nthreads=nthreads)
+    
+            elif self.method == "ants":
+                 # antsBrainExtraction.sh -d 3 ...
+                 # expects 3D input. tool_input is correct.
+                 ants.ants_brain_extraction(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
+    
+            elif self.method == "freesurfer":
+                 if hasattr(freesurfer, 'mri_watershed'):
+                     freesurfer.mri_watershed(tool_input, tool_brain_out)
+                     # Derive mask
+                     try:
+                         brain = nib.load(str(tool_brain_out))
+                         bm_data = brain.get_fdata()
+                         mask = (np.abs(bm_data) > 1e-6).astype(np.int16)
+                         nib.save(nib.Nifti1Image(mask, brain.affine, brain.header), mask_generated_path)
+                     except Exception:
+                         pass
+                 else:
+                     pass
+    
+            elif self.method == "synthstrip":
+                 freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
+            
+            else:
+                 raise ProcessingError(f"Unsupported method: {self.method}")
 
         # Post-process: Apply mask to original input
         if not mask_generated_path.exists():
@@ -339,6 +383,7 @@ def mask_brain(
     method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip"] = "fsl",
     nthreads: int = 1,
     return_mask: bool = False,
+    structural_mask: Optional[ImageLike | Path] = None,
 ) -> ImageFile | Tuple[ImageFile, ImageFile]:
     """Quick brain‑masking without building a full pipeline.
 
@@ -348,4 +393,4 @@ def mask_brain(
     """
     # ``None`` config/provenance are acceptable for a one‑off call.
     step = BrainMaskingStep(config={'n_cpus': nthreads}, method=method, nthreads=nthreads)
-    return step.run(first_arg=input_image, output_dir=output_dir, return_mask=return_mask)
+    return step.run(first_arg=input_image, output_dir=output_dir, return_mask=return_mask, structural_mask=structural_mask)

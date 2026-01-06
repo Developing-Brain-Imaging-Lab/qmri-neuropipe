@@ -214,8 +214,24 @@ class CoregistrationStep(BaseProcessingStep):
             self.logger.info(f"Running {self.method} coregistration with {nthreads} threads...")
             self.logger.info(f"Application method: {apply_method}")
 
+            # --- Pre-Registration: Ensure Moving Image is 3D ---
+            # If input is 4D DWI, we need a 3D reference (b0 or mean b0) for:
+            # 1. Defining the native grid for resampling target (if requested)
+            # 2. Being the 'moving' image for registration
+            moving_for_reg = in_path
+            
+            if is_dwi:
+                 # Extract b0 or mean b0
+                 b0_path = output_dir / "temp_b0_ref.nii.gz"
+                 # Ensure we don't re-extract if it exists (though run_cmd might handle checks, explicit check is cheap)
+                 if not b0_path.exists():
+                     run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
+                 moving_for_reg = b0_path
+
             # --- Output Resolution Handling ---
             # Check for output_resolution option ('anatomical' [default] or 'dwi'/'native')
+            # 'native' means we want the result in DWI space.
+            # So we must DOWNsample the Target (T1w) to the DWI grid BEFORE registration.
             out_res = options.get('output_resolution', 'anatomical').lower()
             if out_res in ['dwi', 'native']:
                 self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
@@ -231,7 +247,8 @@ class CoregistrationStep(BaseProcessingStep):
                          if interpolator == 'nearest': interpolator = 'nearestNeighbor'
                          elif interpolator == 'cubic': interpolator = 'bspline'
                          
-                         ants.resample_to_image(target, in_path, resampled_target, interpolator=interpolator, nthreads=nthreads)
+                         # Use moving_for_reg (3D) as reference
+                         ants.resample_to_image(target, moving_for_reg, resampled_target, interpolator=interpolator, nthreads=nthreads)
                          
                     elif self.method == 'fsl':
                         # FLIRT: trilinear, nearestneighbour, sinc, spline
@@ -241,7 +258,7 @@ class CoregistrationStep(BaseProcessingStep):
                         elif interpolator == 'bspline': fsl_interp = 'spline'
                         elif interpolator == 'cubic': fsl_interp = 'spline'
                         
-                        fsl.resample_to_image(target, in_path, resampled_target, interpolator=fsl_interp)
+                        fsl.resample_to_image(target, moving_for_reg, resampled_target, interpolator=fsl_interp)
                     else:
                         self.logger.warning(f"Resampling not implemented for method '{self.method}'. Using original target.")
                         resampled_target = target
@@ -261,24 +278,7 @@ class CoregistrationStep(BaseProcessingStep):
                     transform_type = options.get("transform_type", "Rigid")
                     interpolator = options.get("interpolation", "linear")
                     
-                    # Ensure moving image is 3D for ANTs if it's 4D (DWI)
-                    # Use a temporary b0 or mean b0
-                    moving_for_reg = in_path
-                    
-                    # Simple check: if is_dwi or just check dims
-                    # We can use nibabel to check dims, or trust is_dwi
-                    if is_dwi:
-                         # Extract b0 or mean b0
-                         # For efficiency, let's use the 'current_image' object which might have info
-                         # Or just load and average first volume
-                         # Using a temp file for registration
-                         b0_path = output_dir / "temp_b0_ref.nii.gz"
-                         
-                         # Use fsl roi to get first volume (assuming it's b0)
-                         # Or we could be smarter if we had bvals.
-                         # For now, volume 0 is standard reference.
-                         run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
-                         moving_for_reg = b0_path
+                    # moving_for_reg is already prepared above
                     
                     warped, prefix = ants.registration(
                         fixed_file=target, 
@@ -395,13 +395,10 @@ class CoregistrationStep(BaseProcessingStep):
                             self.logger.error(f"Failed to generate WM segmentation for BBR: {e}. BBR might fail.")
                             raise ProcessingError(f"BBR segmentation failed: {e}")
 
-                    moving_for_reg = in_path
-                    if is_dwi:
-                         # Use b0 for registration (same strategy as ANTs)
-                         b0_path = output_dir / "temp_b0_ref.nii.gz"
-                         if not b0_path.exists():
-                             run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
-                         moving_for_reg = b0_path
+                    if is_dwi and not moving_for_reg:
+                         # Fallback if somehow not set (unlikely)
+                         moving_for_reg = in_path
+
                     
                     # Collect extra options (exclude known args)
                     known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']

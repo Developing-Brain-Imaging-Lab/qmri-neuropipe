@@ -482,6 +482,51 @@ class PreprocessingWorkflow(BaseWorkflow):
                          if isinstance(step, BrainMaskingStep):
                              step_kwargs["return_mask"] = True
                              
+                             # Optimization: Use structural mask if coregistered to T1w space
+                             coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
+                             coreg_enabled = coreg_cfg.get('enabled', False) or self.config.get("do_coregistration", False)
+                             
+                             # Check output resolution (default anatomical)
+                             coreg_opts = coreg_cfg.get("options", {}) if isinstance(coreg_cfg.get("options"), dict) else {}
+                             out_res = coreg_opts.get("output_resolution", coreg_cfg.get("output_resolution", "anatomical")).lower()
+                             
+                             if coreg_enabled and out_res == "anatomical" and t1w_files:
+                                 # We are in T1w space. Try to find the T1w mask.
+                                 # t1w_files[0] should be the structural reference.
+                                 t1_ref = t1w_files[0]
+                                 if hasattr(t1_ref, 'img'):
+                                      t1_path = t1_ref.img
+                                      # Patterns to check:
+                                      # 1. _desc-brain_mask.nii.gz (Anat workflow typical)
+                                      # 2. _desc-preproc_mask.nii.gz (Another variant)
+                                      # 3. _mask.nii.gz (Generic)
+                                      
+                                      # Assuming t1_path is ..._desc-preproc_T1w.nii.gz
+                                      # Try replacing desc-preproc_T1w with desc-brain_mask
+                                      
+                                      parent = t1_path.parent
+                                      # We use entities if available for robust search
+                                      if hasattr(t1_ref, 'entities'):
+                                           m_ents = t1_ref.entities.copy()
+                                           m_ents['suffix'] = 'mask'
+                                           
+                                           # Variant A: desc-brain
+                                           m_ents['desc'] = 'brain'
+                                           from qmri_neuropipe.io.bids import build_bids_name
+                                           c_path = parent / build_bids_name(m_ents)
+                                           
+                                           # Variant B: desc-preproc
+                                           m_ents['desc'] = 'preproc'
+                                           c_path_2 = parent / build_bids_name(m_ents)
+                                           
+                                           if c_path.exists():
+                                               step_kwargs["structural_mask"] = c_path
+                                               self.logger.info(f"optimization: Finding structural mask to avoid re-computation: {c_path}")
+                                           elif c_path_2.exists():
+                                               step_kwargs["structural_mask"] = c_path_2
+                                               self.logger.info(f"optimization: Finding structural mask to avoid re-computation: {c_path_2}")
+                                 
+                             
                          # Run Step
                          try:
                              from time import time as now

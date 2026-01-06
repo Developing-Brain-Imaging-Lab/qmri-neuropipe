@@ -508,7 +508,8 @@ def mrtransform(
         
     if force:
         cmd.append("-force")
-        
+    
+    cmd.append("-reorient_fod no")
     cmd.append("-quiet")
     
     run_cmd(" ".join(cmd), label="mrtransform")
