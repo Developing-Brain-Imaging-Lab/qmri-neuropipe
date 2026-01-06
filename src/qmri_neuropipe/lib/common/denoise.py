@@ -22,8 +22,9 @@ import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, DWIFile, ImageLike
-from ...interfaces import dipy, ants, mrtrix
+from ...interfaces import dipy, ants, mrtrix, fsl
 from ...io.bids import build_bids_name
+from ...core.run import run_cmd
 
 
 class DenoisingStep(BaseProcessingStep):
@@ -218,11 +219,54 @@ class DenoisingStep(BaseProcessingStep):
              else:
                 return result_img
         
-        # Run denoising based on method
-        self.logger.info(f"Running {self.method} denoising...")
-        
         # Get nthreads from kwargs or config
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        
+        # Optimization: Generate temporary mask if not provided to speed up denoising
+        # Primarily for MRTrix/MP-PCA which benefits significantly from masking
+        # User requested: "If a brain mask doesn't exist, can we create a temporary brain mask (and dilate it...)"
+        if mask is None and self.method in ['mrtrix', 'mppca', 'patch2self']:
+             try:
+                 self.logger.info("No mask provided. Generating temporary dilated mask via FSL BET to accelerate denoising...")
+                 temp_ref = output_dir / f"temp_denoise_ref_{input_img.stem}.nii.gz"
+                 temp_brain = output_dir / f"temp_denoise_brain_{input_img.stem}.nii.gz"
+                 temp_mask_dil = output_dir / f"temp_denoise_mask_dilated_{input_img.stem}.nii.gz"
+                 
+                 # 1. Prepare Reference (3D)
+                 # Determine if 4D
+                 is_4d = False
+                 try:
+                     # Check extraction logic or use nibabel
+                     hdr = nib.load(str(input_img.img)).header
+                     if len(hdr.get_data_shape()) > 3 and hdr.get_data_shape()[3] > 1:
+                         is_4d = True
+                 except:
+                     pass # Assume 3D or fail later
+                 
+                 bet_input = input_img.img
+                 if is_4d:
+                      # Extract first volume (b0 usually)
+                      # fslroi <input> <output> <tmin> <tsize>
+                      run_cmd(f"fslroi {input_img.img} {temp_ref} 0 1", label="extract_ref_for_mask")
+                      bet_input = temp_ref
+                 
+                 # 2. Run FSL BET
+                 # Returns (brain, mask)
+                 _, temp_mask = fsl.bet(bet_input, temp_brain, frac=0.3, mask=True) # frac=0.3 is often safe for dMRI b0
+                 
+                 if temp_mask and temp_mask.exists():
+                     # 3. Dilate
+                     # Ensures whole coverage
+                     mrtrix.maskfilter(temp_mask, temp_mask_dil, filter_type='dilate', npass=2, nthreads=nthreads, force=kwargs.get('force', False))
+                     
+                     if temp_mask_dil.exists():
+                         mask = temp_mask_dil
+                         self.logger.info(f"Using temporary mask: {mask}")
+             except Exception as e:
+                 self.logger.warning(f"Failed to generate temporary mask: {e}. Proceeding without mask.")
+
+        # Run denoising based on method
+        self.logger.info(f"Running {self.method} denoising...")
         
         # Prepare filtered kwargs for backends that don't accept 'force'
         call_kwargs = kwargs.copy()

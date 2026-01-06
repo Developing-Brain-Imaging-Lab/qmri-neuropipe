@@ -75,6 +75,33 @@ def dwi2mask(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, force
     return out_p
 
 
+
+def maskfilter(in_file: ImageLike | Path, out_file: Path, filter_type: str = 'dilate', npass: int = 1, nthreads: int = 1, force: bool = False):
+    """
+    Wrapper for maskfilter.
+    
+    Args:
+        in_file: Input mask
+        out_file: Output mask
+        filter_type: 'dilate', 'erode', etc.
+        npass: Number of passes
+        nthreads: Number of threads
+        force: Force overwrite
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        return out_p
+        
+    cmd = f"maskfilter {in_p} {filter_type} {out_p} -npass {npass} -nthreads {nthreads} -quiet"
+    if force:
+        cmd += " -force"
+        
+    run_cmd(cmd, label=f"maskfilter-{filter_type}")
+    return out_p
+
+
 def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path = None, export_grad_fsl: Tuple[Path, Path] = None, nthreads: int = 1, force: bool = False):
     """
     Wrapper for dwigradcheck.
