@@ -228,9 +228,9 @@ class DenoisingStep(BaseProcessingStep):
         if mask is None and self.method in ['mrtrix', 'mppca', 'patch2self']:
              try:
                  self.logger.info("No mask provided. Generating temporary dilated mask via FSL BET to accelerate denoising...")
-                 temp_ref = output_dir / f"temp_denoise_ref_{input_img.stem}.nii.gz"
-                 temp_brain = output_dir / f"temp_denoise_brain_{input_img.stem}.nii.gz"
-                 temp_mask_dil = output_dir / f"temp_denoise_mask_dilated_{input_img.stem}.nii.gz"
+                 temp_ref = output_dir / f"temp_denoise_ref_{input_img.img.stem}.nii.gz"
+                 temp_brain = output_dir / f"temp_denoise_brain_{input_img.img.stem}.nii.gz"
+                 temp_mask_dil = output_dir / f"temp_denoise_mask_dilated_{input_img.img.stem}.nii.gz"
                  
                  # 1. Prepare Reference (3D)
                  # Determine if 4D
