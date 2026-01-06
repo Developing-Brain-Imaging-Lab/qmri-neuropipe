@@ -12,7 +12,7 @@ import nibabel as nib
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
 from ...core.types import ImageLike, DWIFile, ImageFile
-from ...interfaces import ants, fsl, freesurfer, c3d
+from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
 from ...io.bids import build_bids_name
 
 
@@ -153,6 +153,7 @@ class CoregistrationStep(BaseProcessingStep):
         output_dir = self.get_step_output_dir(output_dir)
         
         options = options or {}
+        apply_method = options.get('apply_method', 'native').lower() # 'native' or 'mrtrix'
         
         # Suffix handling
         new_desc = "coreg"
@@ -207,9 +208,12 @@ class CoregistrationStep(BaseProcessingStep):
         # Get nthreads from kwargs or config
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
         
+        mrtrix_rotated_bvecs = None # Track if MRTrix handled bvecs
+        
         if should_run:
             self.logger.info(f"Running {self.method} coregistration with {nthreads} threads...")
-            
+            self.logger.info(f"Application method: {apply_method}")
+
             # --- Output Resolution Handling ---
             # Check for output_resolution option ('anatomical' [default] or 'dwi'/'native')
             out_res = options.get('output_resolution', 'anatomical').lower()
@@ -283,26 +287,72 @@ class CoregistrationStep(BaseProcessingStep):
                         transform_type=transform_type,
                         interpolator=interpolator,
                         nthreads=nthreads,
-                        **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation']}
+                        **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation', 'apply_method']}
                     )
 
                     # Now we have the transform. We must apply it to the FULL 4D image.
                     if is_dwi:
-                         # Apply transform to 4D input
-                         # ants.apply_transform wrapper? Or manually.
-                         # ants.registration wrapper returns 'warped' 3D image.
-                         # We need to warp the 4D input using the generated transform.
-                         
-                         self.logger.info(f"Applying transform to full 4D DWI (interpolation={interpolator})...")
-                         ants.apply_transforms(
-                             fixed_file=target,
-                             moving_file=in_path,
-                             out_file=output_img,
-                             transforms=prefix, # Now prefix IS the list of transforms
-                             interpolator=interpolator, 
-                             imagetype=3, # 3 = Time Series (4D)
-                             nthreads=nthreads
-                         )
+                         # Application
+                         if apply_method == 'mrtrix':
+                             # Identify ANTs Transform (prefix0GenericAffine.mat)
+                             # ants.registration returns 'prefix', which is a LIST of transforms usually
+                             # e.g. [ ...0GenericAffine.mat ]
+                             ants_transform = None
+                             for t in prefix:
+                                 if str(t).endswith("0GenericAffine.mat"):
+                                     ants_transform = Path(t)
+                                     break
+                             
+                             if not ants_transform:
+                                 # Fallback guess
+                                 ants_transform = Path(str(output_transform) + "0GenericAffine.mat")
+                                 
+                             if not ants_transform.exists():
+                                 raise ProcessingError(f"Could not find ANTs transform for MRTrix application: {ants_transform}")
+
+                             self.logger.info("Applying ANTs transform using MRTrix (with gradient reorientation)...")
+                             
+                             # MRTrix needs the transform in its format or FSL/ITK?
+                             # mrtransform -linear using ITK/ANTs needs checking.
+                             # `mrtransform` supports FSL via -linear (import) but ANTs?
+                             # Usually we convert ANTs to FSL first if using mrtransform's fsl support,
+                             # OR we use `transformconvert itk_import`.
+                             # My updated apply_mrtrix_transform supports 'flirt' type (via transformconvert flirt_import).
+                             # If ANTs produces ITK format, we might need 'itk_import'.
+                             # For now, let's convert ANTs -> FSL, then use MRTrix via FSL mode (safer if transformconvert handles it easily).
+                             # Or better: `transformconvert` has `itk_import` operation.
+                             
+                             # Let's try converting ANTs -> FSL mat using c3d (we already have it) -> then MRTrix.
+                             # This is robust because we know how to handle FSL mat in mrtrix wrapper.
+                             
+                             fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
+                             # We need moving_for_reg as ref for conversion
+                             c3d.ants2fsl(target, moving_for_reg, ants_transform, fsl_mat)
+                             
+                             # Now apply using MRTrix
+                             _, mrtrix_rotated_bvecs, _ = mrtrix.apply_mrtrix_transform(
+                                 dwi_file=input_image,
+                                 out_dwi=output_img,
+                                 transform_file=fsl_mat,
+                                 transform_type='flirt',
+                                 ref_image=target,
+                                 interp=interpolator,
+                                 nthreads=nthreads,
+                                 force=True
+                             )
+                             
+                         else:
+                             # Native ANTs Apply
+                             self.logger.info(f"Applying transform to full 4D DWI (native/ANTs, interpolation={interpolator})...")
+                             ants.apply_transforms(
+                                 fixed_file=target,
+                                 moving_file=in_path,
+                                 out_file=output_img,
+                                 transforms=prefix, # Now prefix IS the list of transforms
+                                 interpolator=interpolator, 
+                                 imagetype=3, # 3 = Time Series (4D)
+                                 nthreads=nthreads
+                             )
                     else:
                         # Standard 3D copy
                         import shutil
@@ -354,21 +404,40 @@ class CoregistrationStep(BaseProcessingStep):
                          moving_for_reg = b0_path
                     
                     # Collect extra options (exclude known args)
-                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method']
+                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
                     fsl_extra_opts = {k: v for k, v in options.items() if k not in known_args}
                     
                     # Calculate transform
                     fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, extra_args=extra_args, extra_opts=fsl_extra_opts)
                     
                     if is_dwi:
-                        # FLIRT produced a 3D output (resampled B0).
-                        # We need to apply the matrix to the full 4D DWI.
-                        self.logger.info("Applying FLIRT transform to full 4D DWI...")
-                        # flirt -applyxfm -init <mat> -in <4D> -ref <target> -out <4D_out>
-                        
-                        apply_cmd = f"flirt -applyxfm -init {output_mat} -in {in_path} -ref {target} -out {output_img}"
-                        # Note: We overwrite the 3D output from the first flirt call with the 4D output
-                        run_cmd(apply_cmd, label="flirt_apply_4d")
+                        if apply_method == 'mrtrix':
+                             self.logger.info("Applying FLIRT transform using MRTrix (with gradient reorientation)...")
+                             # use output_mat directly
+                             interp = options.get("interpolation", "cubic")
+                             if interp == 'linear': interp = 'linear' # matching mrtrix names? cubic is default. mrtransform accepts linear/cubic/sinc/nearest.
+                             # Check mapping: flirt 'trilinear' -> mrtrix 'linear'?
+                             
+                             _, mrtrix_rotated_bvecs, _ = mrtrix.apply_mrtrix_transform(
+                                 dwi_file=input_image,
+                                 out_dwi=output_img,
+                                 transform_file=output_mat,
+                                 transform_type='flirt',
+                                 ref_image=target,
+                                 interp=interp,
+                                 nthreads=nthreads,
+                                 force=True
+                             )
+                        else:
+                            # FLIRT Apply
+                            # FLIRT produced a 3D output (resampled B0).
+                            # We need to apply the matrix to the full 4D DWI.
+                            self.logger.info("Applying FLIRT transform to full 4D DWI...")
+                            # flirt -applyxfm -init <mat> -in <4D> -ref <target> -out <4D_out>
+                            
+                            apply_cmd = f"flirt -applyxfm -init {output_mat} -in {in_path} -ref {target} -out {output_img}"
+                            # Note: We overwrite the 3D output from the first flirt call with the 4D output
+                            run_cmd(apply_cmd, label="flirt_apply_4d")
                     
                 elif self.method == 'freesurfer':
                     # FreeSurfer BBRegister
@@ -398,93 +467,64 @@ class CoregistrationStep(BaseProcessingStep):
                  # Standard Rigid/Affine registration of dMRI requires bvec rotation.
                  rotated_bvecs = input_image.bvec # Default
                  
-                 if self.method == 'fsl':
-                     # Rotate bvecs for FSL
-                     mat_file = output_transform.with_suffix(".mat")
-                     if hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists() and mat_file.exists():
-                         new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
-                         try:
-                             self.logger.info("Rotating b-vectors...")
-                             fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
-                             rotated_bvecs = new_bvec_path
-                         except Exception as e:
-                             self.logger.warning(f"Failed to rotate b-vectors: {e}")
-                 
-                 elif self.method == 'ants':
-                     # ANTs rotation logic
-                     # Need to recover or find affine mat.
-                     # In 'should_run' block, we have local variables but might be tricky.
-                     # Re-find best affine candidate
-                     ants_affine = None
+                 # If MRTrix was used, it returned the rotated bvecs (embedded in MIF, then exported)
+                 # We should use that.
+                 if apply_method == 'mrtrix' and mrtrix_rotated_bvecs:
+                     self.logger.info("Using b-vectors rotated by MRTrix.")
+                     rotated_bvecs = mrtrix_rotated_bvecs
                      
-                     # Check locals for 'prefix' (transform list)
-                     transform_list = locals().get('prefix', [])
-                     for t in transform_list:
-                         if str(t).endswith(".mat"):
-                             ants_affine = Path(t)
-                             break
+                 else:
+                     # Manual Rotation Fallback
+                     if self.method == 'fsl':
+                         # Rotate bvecs for FSL
+                         mat_file = output_transform.with_suffix(".mat")
+                         if hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists() and mat_file.exists():
+                             new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                             try:
+                                 self.logger.info("Rotating b-vectors...")
+                                 fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
+                                 rotated_bvecs = new_bvec_path
+                             except Exception as e:
+                                 self.logger.warning(f"Failed to rotate b-vectors: {e}")
                      
-                     if not ants_affine:
-                          potential_mat = Path(str(output_transform) + "0GenericAffine.mat")
-                          if potential_mat.exists():
-                               ants_affine = potential_mat
-                     
-                     if ants_affine and ants_affine.exists():
-                         fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
-                         try:
-                             # C3d ants2fsl needs refs. 
-                             # 'moving_for_reg' is defined in this block above.
-                             ref_moving = locals().get('moving_for_reg')
-                             if not ref_moving:
-                                  ref_moving = output_dir / "temp_b0_ref.nii.gz" if is_dwi else in_path
-                             
-                             if ref_moving.exists():
-                                 self.logger.info("Converting ANTs transform to FSL format for bvec rotation...")
-                                 c3d.ants2fsl(target, ref_moving, ants_affine, fsl_mat)
+                     elif self.method == 'ants':
+                         # ANTs rotation logic
+                         # Need to recover or find affine mat.
+                         # In 'should_run' block, we have local variables but might be tricky.
+                         # Re-find best affine candidate
+                         ants_affine = None
+                         
+                         # Check locals for 'prefix' (transform list)
+                         transform_list = locals().get('prefix', [])
+                         for t in transform_list:
+                             if str(t).endswith(".mat"):
+                                 ants_affine = Path(t)
+                                 break
+                         
+                         if not ants_affine:
+                              potential_mat = Path(str(output_transform) + "0GenericAffine.mat")
+                              if potential_mat.exists():
+                                   ants_affine = potential_mat
+                         
+                         if ants_affine and ants_affine.exists():
+                             fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
+                             try:
+                                 # C3d ants2fsl needs refs. 
+                                 # 'moving_for_reg' is defined in this block above.
+                                 ref_moving = locals().get('moving_for_reg')
+                                 if not ref_moving:
+                                      ref_moving = output_dir / "temp_b0_ref.nii.gz" if is_dwi else in_path
                                  
-                                 if fsl_mat.exists() and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
-                                     new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
-                                     self.logger.info("Rotating b-vectors (ANTs -> FSL)...")
-                                     fsl.rotate_bvecs(input_image.bvec, fsl_mat, new_bvec_path)
-                                     rotated_bvecs = new_bvec_path
-                         except Exception as e:
-                             self.logger.warning(f"Error during ANTs bvec rotation: {e}")
+                                 if ref_moving.exists():
+                                     if not fsl_mat.exists():
+                                         self.logger.info("Converting ANTs transform to FSL format for bvec rotation...")
+                                         c3d.ants2fsl(target, ref_moving, ants_affine, fsl_mat)
+                                     
+                                     if fsl_mat.exists() and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
+                                         new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                                         self.logger.info("Rotating b-vectors (ANTs -> FSL)...")
+                                         fsl.rotate_bvecs(input_image.bvec, fsl_mat, new_bvec_path)
+                                         rotated_bvecs = new_bvec_path
+                             except Exception as e:
+                                 self.logger.warning(f"Error during ANTs bvec rotation: {e}")
 
-        else: # should_run = False (Skipped)
-            if is_dwi:
-                rotated_bvecs = input_image.bvec # Default
-                # Just check if rotated file exists
-                if self.method == 'fsl':
-                    new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
-                elif self.method == 'ants':
-                    new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
-                else:
-                    new_bvec_path = None
-
-                if new_bvec_path and new_bvec_path.exists():
-                    self.logger.debug(f"Found existing rotated b-vecs: {new_bvec_path}")
-                    rotated_bvecs = new_bvec_path
-
-        # Wrap output matching result_img construction
-        if is_dwi:
-             # Ensure rotated_bvecs is available (it is defined in both branches above)
-             # But if loop variables leaking was relied upon, we must be careful.
-             # 'rotated_bvecs' is definitely set in if/else above for is_dwi.
-             
-             result_img = DWIFile(
-                 entities=entities,
-                 img=output_img,
-                 json=input_image.json,
-                 bval=input_image.bval,
-                 bvec=rotated_bvecs
-             )
-        else:
-             result_img = ImageFile(entities=entities, img=output_img, json=input_image.json if hasattr(input_image,'json') else None)
-
-        self.logger.info(f"Coregistered image saved: {output_img}")
-
-        if context is not None:
-            context["current_image"] = result_img
-            return context
-        
-        return result_img

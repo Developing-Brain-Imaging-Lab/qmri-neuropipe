@@ -155,13 +155,34 @@ class MergeStep(BaseProcessingStep):
                 elif pe_dir == 'j-': vec = [0, -1, 0]
                 elif pe_dir == 'k': vec = [0, 0, 1]
                 elif pe_dir == 'k-': vec = [0, 0, -1]
+                else:
+                    self.logger.warning(f"Unknown or missing PhaseEncodingDirection '{pe_dir}' for {d.img.name}. Defaulting to [0,1,0].")
+                    vec = [0, 1, 0]
                 
                 # Readout time: TRT is best. If missing, use EES * (dim - 1). 
-                # Ideally just use TRT or placeholder if eddy handles it? 
-                # Eddy needs correct relative values.
-                ro_time = trt if trt else 0.05 # Fallback?
+                ro_time = 0.05 # Default
+                if trt:
+                    ro_time = trt
+                elif eff_echo:
+                    # Calculate from EES. Need PE dimension size.
+                    # Assuming PE axis matches vec.
+                    try:
+                        img_shape = nib.load(d.img).shape
+                        dim_size = 0
+                        if vec[0] != 0: dim_size = img_shape[0]
+                        elif vec[1] != 0: dim_size = img_shape[1]
+                        elif vec[2] != 0: dim_size = img_shape[2]
+                        
+                        if dim_size > 0:
+                            ro_time = eff_echo * (dim_size - 1)
+                            self.logger.info(f"Calculated TotalReadoutTime from EES: {ro_time:.6f} s (EES={eff_echo}, dim={dim_size})")
+                    except Exception as e:
+                        self.logger.warning(f"Could not calculate TotalReadoutTime from EES: {e}")
+                else:
+                    self.logger.warning(f"No TotalReadoutTime or EffectiveEchoSpacing found for {d.img.name}. Using default {ro_time}.")
                 
-                param_line = f"{vec[0]} {vec[1]} {vec[2]} {ro_time}"
+                param_line = f"{int(vec[0])} {int(vec[1])} {int(vec[2])} {float(ro_time):.6f}"
+                self.logger.info(f"Detected params for {d.img.name}: {param_line} (PE={pe_dir})")
                 
                 # Find or add to list
                 if param_line not in acq_params_list:

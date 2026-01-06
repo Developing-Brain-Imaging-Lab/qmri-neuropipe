@@ -459,8 +459,11 @@ def mrtransform(
     linear_transform: Optional[Path] = None,
     warp_image: Optional[Path] = None,
     template: Optional[Path] = None,
+    interp: str = "cubic",
+    datatype: str = None,
     nthreads: int = 1,
-    force: bool = False
+    force: bool = False,
+    **kwargs
 ):
     """
     Wrapper for mrtransform.
@@ -471,8 +474,11 @@ def mrtransform(
         linear_transform: Linear transform (e.g. from transformconvert).
         warp_image: Nonlinear warp image.
         template: Template image (for regridding).
+        interp: Interpolation ('nearest', 'linear', 'cubic', 'sinc'). Default 'cubic'.
+        datatype: Output data type.
         nthreads: Number of threads.
         force: Force overwrite.
+        **kwargs: Additional flags.
     """
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -490,6 +496,12 @@ def mrtransform(
         
     if template:
         cmd.extend(["-template", str(template)])
+        
+    if interp:
+        cmd.extend(["-interp", interp])
+        
+    if datatype:
+        cmd.extend(["-datatype", datatype])
         
     if nthreads > 1:
         cmd.extend(["-nthreads", str(nthreads)])
@@ -509,6 +521,7 @@ def apply_mrtrix_transform(
     transform_file: Path,
     transform_type: str = "flirt", # 'flirt' or 'mrtrix'
     ref_image: Optional[Path] = None,
+    interp: str = "cubic",
     nthreads: int = 1,
     force: bool = False
 ) -> Tuple[Path, Path, Path]:
@@ -527,6 +540,7 @@ def apply_mrtrix_transform(
         transform_file: Transform file (e.g. .mat).
         transform_type: Type of input transform ('flirt', 'mrtrix').
         ref_image: Reference target image (required for FLIRT import and regridding).
+        interp: Interpolation method for mrtransform.
         nthreads: Logic threads.
         
     Returns:
@@ -600,6 +614,7 @@ def apply_mrtrix_transform(
             out_file=temp_mif_out,
             linear_transform=mrtrix_transform,
             template=ref_image, # Use ref image as template for grid
+            interp=interp,
             nthreads=nthreads,
             force=True
         )
