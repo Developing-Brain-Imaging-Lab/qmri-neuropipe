@@ -72,8 +72,10 @@ class MergeStep(BaseProcessingStep):
         out_bvec = out_nii.with_suffix("").with_suffix(".bvec")
         out_index = merge_dir / "index.txt"
         
+        out_acqp = merge_dir / "acqparams.txt"
+        
         # Check if outputs exist
-        if out_nii.exists() and out_bval.exists() and out_bvec.exists() and out_index.exists() and not kwargs.get('force', False):
+        if out_nii.exists() and out_bval.exists() and out_bvec.exists() and out_index.exists() and out_acqp.exists() and not kwargs.get('force', False):
             self.logger.info(f"Skipping Merge (Outputs exist: {out_nii})")
             
             # Load result
@@ -88,11 +90,11 @@ class MergeStep(BaseProcessingStep):
             # Update context
             context["dwi_files"] = [merged_dwi] # Replace list with single file
             context["merged_index"] = out_index
+            context["merged_acqp"] = out_acqp
             
-            # We also need to map acqp if it exists?
-            # TopupStep generates/updates topup_map.
-            # Eddy needs appropriate acqp and index.
-            # MergeStep should ensure index.txt corresponds to the merged sequence.
+            # Provide standard keys for downstream steps (Eddy)
+            context["acqp"] = out_acqp
+            context["index"] = out_index
             
             return context
             
