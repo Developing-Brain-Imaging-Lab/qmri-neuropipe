@@ -334,14 +334,29 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     else:
         model = dipy_dti.TensorModel(gtab, fit_method=fit_method, return_leverages=True)
         
-    fit = model.fit(data_chunk)
-    return fit.model_params
+    # Reshape to 4D to ensure DIPY handles it as a volume (avoiding 2D broadcasting issues)
+    # data_chunk is (N, B)
+    n_vox = data_chunk.shape[0]
+    n_vols = data_chunk.shape[1]
+    
+    # Reshape to (N, 1, 1, B)
+    data_4d = data_chunk.reshape(n_vox, 1, 1, n_vols)
+    
+    fit = model.fit(data_4d)
+    
+    # params will be (N, 1, 1, 7) -> squeeze to (N, 7)
+    return fit.model_params.squeeze()
 
 def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
     model = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
-    fit = model.fit(data_chunk)
-    return fit.model_params
+    # Reshape to 4D to ensure safe broadcasting
+    n_vox = data_chunk.shape[0]
+    n_vols = data_chunk.shape[1]
+    data_4d = data_chunk.reshape(n_vox, 1, 1, n_vols)
+    
+    fit = model.fit(data_4d)
+    return fit.model_params.squeeze()
 
 def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.mapmri as mapmri
