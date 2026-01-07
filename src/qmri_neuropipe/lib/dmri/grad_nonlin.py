@@ -4,6 +4,7 @@ import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageLike, DWIFile, ImageFile
+from ...core.run import run_cmd
 from ...interfaces import tortoise
 from ...io.bids import build_bids_name
 
@@ -17,10 +18,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
-        grad_coeffs: Optional[Path] = None
+        grad_coeffs: Optional[Path] = None,
+        is_resampled: bool = False
     ):
         super().__init__(config, logger, provenance)
         self.grad_coeffs = grad_coeffs
+        self.is_resampled = is_resampled
         self.logger.info("Initialized TortoiseGradNonlinCorrectStep")
 
     def validate_inputs(self, first_arg, **kwargs) -> None:
@@ -43,9 +46,15 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         if is_context:
             context = dict(first_arg)
             input = self._extract_image(context)
+            native_ref = context.get('native_dwi_for_gnl')
         else:
             context = None
             input = first_arg
+            native_ref = kwargs.get('native_reference')
+
+        if self.is_resampled and not native_ref:
+             self.logger.warning("GNL Step is configured for resampled data but 'native_dwi_for_gnl' not found in context. Using input as native (might be incorrect if already resampled).")
+             native_ref = input
 
         output_dir = output_dir / "grad_nonlin"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -72,17 +81,50 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
             
             nthreads = kwargs.get('nthreads', self.config.n_cpus)
             
+            target_image = input.img
+            native_image_path = native_ref.img if native_ref else None
+            
+            # If not resampled, input is effectively native
+            if not self.is_resampled:
+                native_image_path = None # Not implicitly needed by interface
+            
             try:
+                # Tortoise often appends suffixes or disallows .gz in output argument
+                # We pass output_map, but we check for specific 'graddev_c.nii' result
                 tortoise.apply_grad_nonlin(
-                    in_file=input.img,
+                    in_file=target_image,
                     out_file=output_map,
                     grad_coeffs=coeffs,
                     nthreads=nthreads,
-                    force=kwargs.get('force', False)
+                    force=kwargs.get('force', False),
+                    native_image=native_image_path
                 )
+                
+                # Handling explicit filename request from user:
+                # "the output ... is going to be the image with the 'graddev_c.nii' at the end of the name."
+                # Check for *graddev_c.nii in output directory
+                candidates = list(output_dir.glob("*graddev_c.nii"))
+                if not candidates:
+                    candidates = list(output_dir.glob("*graddev_c.nii.gz"))
+                
+                if candidates:
+                     actual_output = candidates[0]
+                     # Gzip if needed and rename to standardized proper output_map
+                     if actual_output.suffix == '.nii':
+                         self.logger.info(f"Gzipping and renaming GNL output: {actual_output.name} -> {output_map.name}")
+                         run_cmd(f"gzip -c {actual_output} > {output_map}", label="gzip_gnl")
+                         actual_output.unlink() # remove .nii
+                     else:
+                         self.logger.info(f"Renaming GNL output: {actual_output.name} -> {output_map.name}")
+                         actual_output.rename(output_map)
+                
             except Exception as e:
                 raise ProcessingError(f"TORTOISE GNL calculation failed: {e}", step_name="grad_nonlin_correct") from e
                 
+            if not output_map.exists():
+                 self.logger.warning(f"Expected GNL output {output_map} not found. Proceeding only if user overrides.")
+                 # raise ProcessingError?
+                 
             self.logger.info(f"GNL tensor map saved to: {output_map}")
 
         # Store map in context

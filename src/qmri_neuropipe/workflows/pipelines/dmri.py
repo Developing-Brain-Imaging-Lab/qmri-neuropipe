@@ -32,6 +32,8 @@ from qmri_neuropipe.lib.dmri.outliers import OutlierRemovalStep
 from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
 from qmri_neuropipe.lib.dmri.motion import NiiFreezeStep
 from ...lib.dmri.fitting import DTIFittingStep, DKIFittingStep, NODDIFittingStep, SANDIFittingStep, MAPMRIFittingStep, CSDFittingStep, FWDTIFittingStep
+from ...lib.dmri.tractography import TractSegStep, PyAFQStep
+from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
 import time
 # Rich and Viz imports moved to local scope
 
@@ -263,32 +265,65 @@ class PreprocessingWorkflow(BaseWorkflow):
                 method=method
             ))
 
-        # 6. Gradient Nonlinearity Correction (Tortoise)
-        gnl_cfg = dmri_cfg.get('grad_nonlin', {})
-        if gnl_cfg.get('enabled', False):
-             self.logger.info(f"Adding TortoiseGradNonlinCorrectStep")
-             self.add_step(TortoiseGradNonlinCorrectStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance
-             ))
-
-        # 7. Coregistration (to T1w)
+        
+        # 6. Coregistration (to T1w)
         coreg_cfg = dmri_cfg.get('coregistration', {})
         do_coreg = coreg_cfg.get('enabled') or self.config.get("do_coregistration", False)
         
         if coreg_cfg.get('enabled') is False:
              do_coreg = False
-             
+        
+        # We track if coregistration changed the resolution/grid
+        coreg_resampled = False
+        native_dwi_ref = None # To store native reference for GNL if needed
+        
         if do_coreg:
             method = coreg_cfg.get('method') or self.config.get("coreg_method", "ants")
+            
+            # Check output resolution
+            coreg_opts = coreg_cfg.get("options", {})
+            out_res = coreg_opts.get("output_resolution", coreg_cfg.get("output_resolution", "anatomical")).lower()
+            
+            # If resolution is 'anatomical', the output dwi is upsampled/resampled.
+            # If 'native' or 'dwi', it stays in native grid (structural is downsampled).
+            
+            if out_res == "anatomical":
+                coreg_resampled = True
+            
             self.logger.info(f"Adding CoregistrationStep (method={method})")
+            # We add logic to capture the native image before coreg replaces it in context?
+            # Actually, CoregStep replaces 'current_image' in context with the registered one.
+            # So if we want the native one for GNL, we must ensure it's available.
+            # But wait, step instantiation is just setup. Execution is later.
+            # We need to handle this data flow during EXECUTION (inside _execute_processing or steps).
+            # But the Steps are classes. 
+            
+            # The steps modify 'context'.
+            # CoregistrationStep updates 'current_image'.
+            # GNL needs 'current_image' (which is now registered) AND potentially 'native_image'.
+            # So CoregistrationStep should probably save 'native_image' in context if it changes resolution?
+            # OR we ensure GNL step knows how to find it.
+            
             self.add_step(CoregistrationStep(
                 config=self.config, 
                 logger=self.logger, 
                 provenance=self.provenance,
                 method=method
             ))
+
+        # 7. Gradient Nonlinearity Correction (Tortoise)
+        # MOVED after Coregistration per user request.
+        gnl_cfg = dmri_cfg.get('grad_nonlin', {})
+        if gnl_cfg.get('enabled', False):
+             self.logger.info(f"Adding TortoiseGradNonlinCorrectStep")
+             self.add_step(TortoiseGradNonlinCorrectStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 is_resampled=coreg_resampled # Pass flag? 
+                 # Wait, 'coreg_resampled' determined at init time is based on config.
+                 # This is correct since pipeline structure is static.
+             ))
 
         # 8. Final Brain Masking
         mask_cfg = dmri_cfg.get('brain_masking', {})
@@ -303,6 +338,147 @@ class PreprocessingWorkflow(BaseWorkflow):
                 provenance=self.provenance,
                 method=method
             ))
+
+
+        
+        # Dependency check: TractSeg requires CSD
+        # If TractSeg is enabled but CSD model is not, auto-enable CSD to ensure it's saved/reused.
+        tract_cfg = dmri_cfg.get('tractography', {})
+        model_cfg = dmri_cfg.get('models', {})
+        
+        if tract_cfg.get('tractseg', {}).get('enabled', False):
+             if not model_cfg.get('csd', {}).get('enabled', False):
+                 self.logger.info("TractSeg enabled: Auto-enabling CSD Fitting to ensure reuse/saving of FODs.")
+                 model_cfg.setdefault('csd', {})['enabled'] = True
+
+
+        # 9. Model Fitting (DTI, DKI, NODDI, etc.)
+        # model_cfg variable is already retrieved above
+        
+        # 9.1 DTI
+        if model_cfg.get('dti', {}).get('enabled', False):
+            self.logger.info("Adding DTIFittingStep")
+            self.add_step(DTIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['dti'].get('method', 'dipy'),
+                **model_cfg['dti'].get('options', {})
+            ))
+            
+        # 9.2 DKI
+        if model_cfg.get('dki', {}).get('enabled', False):
+            self.logger.info("Adding DKIFittingStep")
+            self.add_step(DKIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['dki'].get('method', 'dipy'),
+                **model_cfg['dki'].get('options', {})
+            ))
+            
+        # 9.3 NODDI
+        if model_cfg.get('noddi', {}).get('enabled', False):
+            self.logger.info("Adding NODDIFittingStep")
+            self.add_step(NODDIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['noddi'].get('method', 'dmipy'),
+                **model_cfg['noddi'].get('options', {})
+            ))
+            
+        # 9.4 SANDI
+        if model_cfg.get('sandi', {}).get('enabled', False):
+            self.logger.info("Adding SANDIFittingStep")
+            self.add_step(SANDIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['sandi'].get('method', 'amico'),
+                **model_cfg['sandi'].get('options', {})
+            ))
+            
+        # 9.5 MAPMRI
+        if model_cfg.get('mapmri', {}).get('enabled', False):
+            self.logger.info("Adding MAPMRIFittingStep")
+            self.add_step(MAPMRIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['mapmri'].get('method', 'dipy'),
+                **model_cfg['mapmri'].get('options', {})
+            ))
+            
+        # 9.6 CSD
+        if model_cfg.get('csd', {}).get('enabled', False):
+            self.logger.info("Adding CSDFittingStep")
+            self.add_step(CSDFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['csd'].get('method', 'msmt_csd'),
+                **model_cfg['csd'].get('options', {})
+            ))
+            
+        # 9.7 Free-Water DTI
+        if model_cfg.get('fw_dti', {}).get('enabled', False):
+            self.logger.info("Adding FWDTIFittingStep")
+            self.add_step(FWDTIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=model_cfg['fw_dti'].get('method', 'dipy'),
+                **model_cfg['fw_dti'].get('options', {})
+            ))
+
+
+        # 10. Tractography & Segmentation
+        tract_cfg = dmri_cfg.get('tractography', {})
+        
+        # 10.1 TractSeg
+        if tract_cfg.get('tractseg', {}).get('enabled', False):
+             self.logger.info("Adding TractSegStep")
+             self.add_step(TractSegStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='tractseg',
+                 **tract_cfg.get('tractseg', {}).get('options', {})
+             ))
+
+        # 10.2 PyAFQ / BabyAFQ
+        if tract_cfg.get('pyafq', {}).get('enabled', False):
+             self.logger.info("Adding PyAFQStep")
+             self.add_step(PyAFQStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='pyafq',
+                 **tract_cfg.get('pyafq', {}).get('options', {})
+             ))
+             
+        # 11. Analysis & Statistics
+        analysis_cfg = dmri_cfg.get('analysis', {})
+        
+        # 11.1 Atlas Registration
+        if analysis_cfg.get('atlases', {}):
+             self.logger.info("Adding AtlasRegistrationStep")
+             self.add_step(AtlasRegistrationStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='ants' # Default
+             ))
+             
+        # 11.2 Statistics Extraction
+        if analysis_cfg.get('full_stats', False):
+             self.logger.info("Adding StatsExtractionStep")
+             self.add_step(StatsExtractionStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance
+             ))
 
 
     def _audit_inputs(self, dwi_files: list[DWIFile], topup_groups: list):

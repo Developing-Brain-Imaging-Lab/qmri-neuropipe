@@ -121,10 +121,13 @@ def apply_grad_nonlin(
     grad_coeffs: Path,
     nthreads: int = 1,
     force: bool = False,
-    is_ge: bool = True
+    is_ge: bool = True,
+    native_image: Optional[Path] = None
 ) -> Path:
     """
     Apply gradient nonlinearity correction.
+    
+    If native_image is provided (for resampled data), it is used as the --initial_image (-i).
     """
     in_p = extract_image_path(in_file)
     out_p = Path(out_file)
@@ -133,9 +136,13 @@ def apply_grad_nonlin(
     
     if out_p.exists() and not force: return out_p
     
+    # Determine input image for command
+    # If native_image is provided, user requested using it via -i
+    input_to_use = native_image if native_image else in_p
+    
     # Updated command based on user feedback to use CreateGradientNonlinearityBMatrix with correct flags
     cmd_parts = ["CreateGradientNonlinearityBMatrix"]
-    cmd_parts.append(f"--initial_image {in_p}")
+    cmd_parts.append(f"--initial_image {input_to_use}")
     cmd_parts.append(f"--final_image {out_p}")
     cmd_parts.append(f"--nonlinearity {grad_coeffs}")
     

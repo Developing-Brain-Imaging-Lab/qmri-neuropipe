@@ -522,6 +522,38 @@ class CoregistrationStep(BaseProcessingStep):
                                          self.logger.info("Rotating b-vectors (ANTs -> FSL)...")
                                          fsl.rotate_bvecs(input_image.bvec, fsl_mat, new_bvec_path)
                                          rotated_bvecs = new_bvec_path
+
                              except Exception as e:
                                  self.logger.warning(f"Error during ANTs bvec rotation: {e}")
 
+        # --- Result Construction ---
+        if is_dwi:
+             # Check if we have a rotated bvec from this run
+             final_bvec = locals().get('rotated_bvecs')
+             
+             # If not (skipped or failed rotation), look for existing file
+             if not final_bvec:
+                 bvec_cand = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                 if bvec_cand.exists():
+                     final_bvec = bvec_cand
+                 else:
+                     final_bvec = input_image.bvec
+             
+             result = DWIFile(img=output_img, bvec=final_bvec, bval=input_image.bval, entities=entities, json=input_image.json)
+        else:
+             result = ImageFile(img=output_img, entities=entities)
+
+        if not output_img.exists():
+             raise ProcessingError(f"Coregistration step finished but output not found: {output_img}")
+
+        if context is not None:
+             context["current_image"] = result
+             
+             # Native Reference for GNL (if resampled)
+             out_res_chk = options.get('output_resolution', 'anatomical').lower()
+             if out_res_chk == 'anatomical' and is_dwi:
+                  context['native_dwi_for_gnl'] = input_image
+                  
+             return context
+             
+        return result
