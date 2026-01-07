@@ -459,13 +459,16 @@ def transformconvert(
     if not force and out_p.exists():
         return out_p
     
-    cmd = ["transformconvert", str(in_transform), operation]
+    cmd = ["transformconvert", str(in_transform)]
     
     if operation == 'flirt_import':
         if not ref_image or not in_image:
              raise ValueError("transformconvert 'flirt_import' requires ref_image and in_image.")
         cmd.append(str(in_image))
         cmd.append(str(ref_image))
+        cmd.append(operation)
+    else:
+        cmd.append(operation)
         
     cmd.append(str(out_p))
     
