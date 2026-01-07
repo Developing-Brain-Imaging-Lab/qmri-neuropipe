@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Union, Any
 import logging
 
-from ..core import run_cmd, ensure_dir
+from ..core import ensure_dir
+from ..core.run import run_cmd
 
 logger = logging.getLogger(__name__)
 
