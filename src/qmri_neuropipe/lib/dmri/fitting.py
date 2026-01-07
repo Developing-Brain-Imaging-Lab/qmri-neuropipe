@@ -86,8 +86,16 @@ class DTIFittingStep(BaseProcessingStep):
             dipy_kwargs = {}
             if 'sub_method' in self.kwargs:
                 dipy_kwargs['fit_method'] = self.kwargs['sub_method']
-            if 'metrics' in self.kwargs:
                 dipy_kwargs['metrics'] = self.kwargs['metrics']
+            else:
+                 # Default metrics if none provided
+                 dipy_kwargs['metrics'] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
+            
+            # Ensure "tensor" (FSL-style) and "tensor_mrtrix" are included as requested
+            curr_metrics = dipy_kwargs.get('metrics', [])
+            if "tensor" not in curr_metrics: curr_metrics.append("tensor")
+            if "tensor_mrtrix" not in curr_metrics: curr_metrics.append("tensor_mrtrix")
+            dipy_kwargs['metrics'] = curr_metrics
             
             if gnl_map:
                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY: {gnl_map}")

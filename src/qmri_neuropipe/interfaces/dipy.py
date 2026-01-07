@@ -689,6 +689,38 @@ def fit_dti(
         with open(sidecar_path, 'w') as f:
              json.dump(sidecar, f, indent=4)
             
+    # Handle explicit tensor outputs if requested
+    # DIPY model_params (lower_triangular): [Dxx, Dxy, Dyy, Dxz, Dyz, Dzz]
+    params = dti_fit.model_params
+    
+    if "tensor" in metrics or "tensor_fsl" in metrics:
+        # FSL Format: Upper Triangular [Dxx, Dxy, Dxz, Dyy, Dyz, Dzz]
+        # DIPY: [0, 1, 2, 3, 4, 5] -> Dxx, Dxy, Dyy, Dxz, Dyz, Dzz
+        # Map: 0->0(Dxx), 1->1(Dxy), 3->2(Dxz), 2->3(Dyy), 4->4(Dyz), 5->5(Dzz)
+        # Indices: [0, 1, 3, 2, 4, 5]
+        
+        fsl_order = [0, 1, 3, 2, 4, 5]
+        tensor_fsl = params[..., fsl_order]
+        
+        out_name = build_bids_name({**ent_base, 'suffix': 'tensor'}) # Standard BIDS suffix often 'tensor'
+        if "tensor_fsl" in metrics:
+             out_name = build_bids_name({**ent_base, 'suffix': 'tensorFSL'})
+
+        out_path = out_dir / out_name
+        nib.save(nib.Nifti1Image(tensor_fsl, img.affine), str(out_path))
+        output_files['tensor'] = out_path
+
+    if "tensor_mrtrix" in metrics:
+        # MRtrix Format: [Dxx, Dyy, Dzz, Dxy, Dxz, Dyz]
+        # Indices: [0, 2, 5, 1, 3, 4]
+        mrtrix_order = [0, 2, 5, 1, 3, 4]
+        tensor_mrtrix = params[..., mrtrix_order]
+        
+        out_name = build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
+        out_path = out_dir / out_name
+        nib.save(nib.Nifti1Image(tensor_mrtrix, img.affine), str(out_path))
+        output_files['tensor_mrtrix'] = out_path
+
     return output_files
 
 
