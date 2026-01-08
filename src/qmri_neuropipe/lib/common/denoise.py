@@ -223,9 +223,10 @@ class DenoisingStep(BaseProcessingStep):
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
         
         # Optimization: Generate temporary mask if not provided to speed up denoising
-        # Primarily for MRTrix/MP-PCA which benefits significantly from masking
-        # User requested: "If a brain mask doesn't exist, can we create a temporary brain mask (and dilate it...)"
-        if mask is None and self.method in ['mrtrix', 'mppca', 'patch2self']:
+        # Primarily for MRTrix/MP-PCA which benefits significantly from masking, but also valid for others (NLMeans, ANTs)
+        # User requested: "Is this mask also created for other modalities... And does this work across implemented denoising methods..."
+        # We enable this for all methods.
+        if mask is None:
              try:
                  self.logger.info("No mask provided. Generating temporary dilated mask via FSL BET to accelerate denoising...")
                  
