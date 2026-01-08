@@ -537,7 +537,7 @@ def mrtransform(
     if force:
         cmd.append("-force")
     
-    cmd.extend(["-strides", str(template)])
+    # cmd.extend(["-strides", str(template)]) # REMOVED: Applying 3D template strides to 4D DWI causes dimension loss.
     cmd.append("-reorient_fod no")
     cmd.append("-quiet")
     
