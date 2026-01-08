@@ -340,17 +340,7 @@ class PreprocessingWorkflow(BaseWorkflow):
             ))
 
 
-        # 8.5 Post-Processing Gradient Check (Verify Orientation Final)
-        if grad_check_cfg.get('enabled', False):
-             # Default to running post-check if main check is enabled, unless explicitly disabled
-             if grad_check_cfg.get('run_post_proc', True):
-                 self.logger.info("Adding GradientCheckStep (Post-Processing Verification)...")
-                 self.add_step(GradientCheckStep(
-                     config=self.config, 
-                     logger=self.logger, 
-                     provenance=self.provenance, 
-                     suffix='postproc'
-                 ))
+
         
         # Dependency check: TractSeg requires CSD
         # If TractSeg is enabled but CSD model is not, auto-enable CSD to ensure it's saved/reused.
