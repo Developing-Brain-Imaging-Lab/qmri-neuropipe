@@ -86,10 +86,9 @@ class DTIFittingStep(BaseProcessingStep):
             dipy_kwargs = {}
             if 'sub_method' in self.kwargs:
                 dipy_kwargs['fit_method'] = self.kwargs['sub_method']
-                dipy_kwargs['metrics'] = self.kwargs['metrics']
-            else:
-                 # Default metrics if none provided
-                 dipy_kwargs['metrics'] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
+            
+            # Default metrics if none provided
+            dipy_kwargs['metrics'] = self.kwargs.get('metrics', ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"])
             
             # Ensure "tensor" (FSL-style) and "tensor_mrtrix" are included as requested
             curr_metrics = dipy_kwargs.get('metrics', [])

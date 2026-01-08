@@ -537,6 +537,7 @@ def mrtransform(
     if force:
         cmd.append("-force")
     
+    cmd.append(["-strides", str(template)])
     cmd.append("-reorient_fod no")
     cmd.append("-quiet")
     
