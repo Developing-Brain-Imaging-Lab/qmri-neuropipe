@@ -411,6 +411,11 @@ class DenoisingStep(BaseProcessingStep):
                 pre_list = context.setdefault("preprocessed_dwis", [])
                 if result_img not in pre_list:
                     pre_list.append(result_img)
+            
+            # Save mask to context if we generated/used one (for reuse in Bias Correction)
+            if mask:
+                 context["temp_denoise_mask"] = mask
+                 context["current_mask"] = mask
 
             return context
         else:

@@ -49,6 +49,20 @@ class BiasCorrectionStep(BaseProcessingStep):
         if input_img is None:
              raise ProcessingError("No input image provided")
 
+        # Reuse mask from denoising step if available and not provided explicitly
+        if mask is None and context:
+             if 'current_mask' in context:
+                  mask = context['current_mask']
+                  self.logger.info(f"Using current_mask from context: {mask}")
+             elif 'temp_denoise_mask' in context:
+                  mask = context['temp_denoise_mask']
+                  self.logger.info(f"Reusing mask from DenoisingStep (fallback): {mask}")
+             elif 'brain_mask' in context:
+                  # Some workflows might have mask earlier (though rare for Bias)
+                  # mask = context['brain_mask'].img # usually ImageFile
+                  pass
+
+
         output_dir = self.get_step_output_dir(output_dir)
         # Suffix handling
         new_desc = "biascorrected"
