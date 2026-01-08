@@ -26,8 +26,10 @@ class GradientCheckStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
+        suffix: Optional[str] = None
     ):
         super().__init__(config, logger, provenance)
+        self.suffix = suffix
     
     def validate_inputs(self, first_arg, **kwargs) -> None:
         """
@@ -59,6 +61,9 @@ class GradientCheckStep(BaseProcessingStep):
             processed_files = []
             
             grad_check_dir = self.get_step_output_dir(output_dir)
+            if self.suffix:
+                grad_check_dir = grad_check_dir.parent / f"{grad_check_dir.name}_{self.suffix}"
+                grad_check_dir.mkdir(parents=True, exist_ok=True)
             
             for input_img in dwi_files:
                 # We only create new bvec/bval
@@ -106,6 +111,9 @@ class GradientCheckStep(BaseProcessingStep):
                 return input_img
 
             grad_check_dir = self.get_step_output_dir(output_dir)
+            if self.suffix:
+                grad_check_dir = grad_check_dir.parent / f"{grad_check_dir.name}_{self.suffix}"
+                grad_check_dir.mkdir(parents=True, exist_ok=True)
             
             base_name = grad_check_dir / input_img.img.name.replace("".join(input_img.img.suffixes), "")
             out_bvec = base_name.with_suffix(".bvec")
