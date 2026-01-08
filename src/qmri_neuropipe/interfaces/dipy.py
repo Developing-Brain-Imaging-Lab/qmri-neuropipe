@@ -691,7 +691,7 @@ def fit_dti(
             
     # Handle explicit tensor outputs if requested
     # DIPY model_params (lower_triangular): [Dxx, Dxy, Dyy, Dxz, Dyz, Dzz]
-    params = dti_fit.model_params
+    tensor_vals = dipy_dti.lower_triangular(dti_fit.quadratic_form)
     
     if "tensor" in metrics or "tensor_fsl" in metrics:
         # FSL Format: Upper Triangular [Dxx, Dxy, Dxz, Dyy, Dyz, Dzz]
@@ -700,7 +700,7 @@ def fit_dti(
         # Indices: [0, 1, 3, 2, 4, 5]
         
         fsl_order = [0, 1, 3, 2, 4, 5]
-        tensor_fsl = params[..., fsl_order]
+        tensor_fsl = tensor_vals[..., fsl_order]
         
         out_name = build_bids_name({**ent_base, 'suffix': 'tensor'}) # Standard BIDS suffix often 'tensor'
         if "tensor_fsl" in metrics:
@@ -714,7 +714,7 @@ def fit_dti(
         # MRtrix Format: [Dxx, Dyy, Dzz, Dxy, Dxz, Dyz]
         # Indices: [0, 2, 5, 1, 3, 4]
         mrtrix_order = [0, 2, 5, 1, 3, 4]
-        tensor_mrtrix = params[..., mrtrix_order]
+        tensor_mrtrix = tensor_vals[..., mrtrix_order]
         
         out_name = build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
         out_path = out_dir / out_name
