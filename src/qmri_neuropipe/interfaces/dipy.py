@@ -335,12 +335,19 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
 def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dti as dipy_dti
     fit_method = kwargs.get('fit_method', 'WLLS')
-    sigma = kwargs.get('sigma', None)
     
-    if fit_method == 'RESTORE':
-        model = dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=sigma)
-    else:
-        model = dipy_dti.TensorModel(gtab, fit_method=fit_method, return_leverages=True)
+    # Filter kwargs
+    fit_kwargs = kwargs.copy()
+    fit_kwargs.pop('n_cpus', None)
+    fit_kwargs.pop('nthreads', None)
+    fit_kwargs.pop('smoothing_fwhm', None)
+    fit_kwargs.pop('grad_nonlin', None)
+    
+    # Handle Legacy defaults
+    if fit_method != 'RESTORE' and 'return_leverages' not in fit_kwargs:
+         fit_kwargs['return_leverages'] = True
+         
+    model = dipy_dti.TensorModel(gtab, **fit_kwargs)
         
     # Reshape to 4D to ensure DIPY handles it as a volume (avoiding 2D broadcasting issues)
     # data_chunk is (N, B)
@@ -357,6 +364,10 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
 
 def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
+    import dipy.reconst.msdki as dipy_msdki
+    
+    # Check for MSDKI
+    use_msdki = kwargs.pop('use_msdki', False)
     
     # Filter out kwargs that dipy models don't accept but might be passed by pipeline
     fit_kwargs = kwargs.copy()
@@ -365,7 +376,11 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     fit_kwargs.pop('grad_nonlin', None) # GNL is handled by splitting, not passed to fit directly here
     fit_kwargs.pop('sub_method', None)
 
-    model = dipy_dki.DiffusionKurtosisModel(gtab, **fit_kwargs)
+    if use_msdki:
+        model = dipy_msdki.MeanDiffusionKurtosisModel(gtab, **fit_kwargs)
+    else:
+        model = dipy_dki.DiffusionKurtosisModel(gtab, **fit_kwargs)
+        
     # Reshape to 4D to ensure safe broadcasting
     n_vox = data_chunk.shape[0]
     n_vols = data_chunk.shape[1]
@@ -376,16 +391,14 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
 
 def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.mapmri as mapmri
-    laplacian = kwargs.get('laplacian', True)
-    positivity = kwargs.get('positivity', True)
-    global_constraints = kwargs.get('global_constraints', False)
     
-    model = mapmri.MapmriModel(
-        gtab,
-        laplacian_regularization=laplacian,
-        positivity_constraint=positivity,
-        global_constraints=global_constraints
-    )
+    fit_kwargs = kwargs.copy()
+    fit_kwargs.pop('n_cpus', None)
+    fit_kwargs.pop('nthreads', None)
+    fit_kwargs.pop('smoothing_fwhm', None)
+    fit_kwargs.pop('grad_nonlin', None)
+    
+    model = mapmri.MapmriModel(gtab, **fit_kwargs)
     fit = model.fit(data_chunk)
     return fit.model_params
 
@@ -528,6 +541,55 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
     else:
         raise RuntimeError("GNL Fit resulted in empty parameters.")
 
+def _resolve_iterative_params(fit_method, kwargs):
+    """
+    Resolve parameters for iterative fitting (IRLS).
+    Ensures 'weights_method' is a callable and 'fit_type' is set.
+    """
+    if fit_method != 'IRLS':
+        return
+
+    # 1. Resolve weights_method
+    weights_method = kwargs.get('weights_method')
+    
+    # If using IRLS, weights_method is mandatory. Default if missing.
+    if weights_method is None:
+        try:
+            import dipy.reconst.weights_method as wm
+            kwargs['weights_method'] = wm.weights_method_wls_m_est
+        except ImportError:
+            pass # DIPY version might be old?
+            
+    elif isinstance(weights_method, str):
+        try:
+            import dipy.reconst.weights_method as wm
+            from functools import partial
+            
+            w_str = weights_method.lower()
+            if w_str in ['gm', 'geman-mcclure']:
+                 kwargs['weights_method'] = partial(wm.weights_method_wls_m_est, m_est='gm')
+            elif w_str == 'cauchy':
+                 kwargs['weights_method'] = partial(wm.weights_method_wls_m_est, m_est='cauchy')
+            elif w_str in ['wls_m_est', 'ols', 'default']:
+                 kwargs['weights_method'] = wm.weights_method_wls_m_est
+            elif w_str == 'nlls_m_est':
+                 kwargs['weights_method'] = wm.weights_method_nlls_m_est
+            else:
+                 # Check if attribute exists
+                 if hasattr(wm, weights_method):
+                      kwargs['weights_method'] = getattr(wm, weights_method)
+                 else:
+                      print(f"  - WARNING: Unknown weights_method string '{weights_method}'. defaulting to wls_m_est.")
+                      kwargs['weights_method'] = wm.weights_method_wls_m_est
+        except ImportError:
+            print("  - WARNING: Could not import dipy.reconst.weights_method to resolve string.")
+
+    # 2. Resolve fit_type
+    # iterative_fit_tensor requires fit_type ('WLS' or 'NLLS')
+    if 'fit_type' not in kwargs:
+         # Default to WLS as it aligns with default weights_method_wls_m_est
+         kwargs['fit_type'] = 'WLS'
+
 def fit_dti(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -569,6 +631,9 @@ def fit_dti(
     from dipy.io.gradients import read_bvals_bvecs
     from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 
+    # Resolve iterative parameters if needed
+    _resolve_iterative_params(fit_method, kwargs)
+
     # Read data
     in_path = extract_image_path(in_file)
     img = nib.load(str(in_path))
@@ -585,6 +650,17 @@ def fit_dti(
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     gtab = gradient_table(bvals, bvecs=bvecs)
 
+    # Handle optional smoothing
+    smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
+    if smoothing_fwhm:
+        import scipy.ndimage
+        # FWHM = 2.355 * sigma
+        sigma = float(smoothing_fwhm) / 2.3548200450309493
+        print(f"  - Applying Gaussian smoothing (FWHM={smoothing_fwhm}mm, sigma={sigma:.2f})")
+        # Apply smoothing spatially (axes 0,1,2), independent over volumes (axis 3)
+        # Using 4D sigma with 0 on 4th dimension achieves this efficiently
+        scipy.ndimage.gaussian_filter(data, sigma=[sigma, sigma, sigma, 0], output=data)
+
     # Read mask
     if mask_file and mask_file.exists():
         mask = nib.load(str(mask_file)).get_fdata().astype(bool)
@@ -593,11 +669,12 @@ def fit_dti(
         mask = np.ones(data.shape[:3], dtype=bool)
 
     # Initialize Model for metadata or serial fallback
-    if fit_method == 'RESTORE':
-        dti_model = dipy_dti.TensorModel(gtab, fit_method='RESTORE', sigma=None)
-    else:
-        # return_leverages=True to avoid KeyError in serial fit or internally
-        dti_model = dipy_dti.TensorModel(gtab, fit_method=fit_method, return_leverages=True)
+    dti_kwargs = kwargs.copy()
+    
+    if fit_method != 'RESTORE' and 'return_leverages' not in dti_kwargs:
+         dti_kwargs['return_leverages'] = True
+
+    dti_model = dipy_dti.TensorModel(gtab, fit_method=fit_method, **dti_kwargs)
 
     # Convert grad_nonlin path to Path if str
     if kwargs.get('grad_nonlin'):
@@ -634,19 +711,19 @@ def fit_dti(
 
         elif nthreads > 1:
             # Parallel Fit using Unified Driver
-            worker_kwargs = {}
-            if fit_method != 'RESTORE':
-                worker_kwargs['return_leverages'] = True
-            if fit_method == 'RESTORE':
-                 pass
-
+            worker_kwargs = kwargs.copy()
+            worker_kwargs['fit_method'] = fit_method
+            
+            if fit_method != 'RESTORE' and 'return_leverages' not in worker_kwargs:
+                 worker_kwargs['return_leverages'] = True
+                 
             vol_params = _parallel_fit_driver(
                 data, 
                 mask, 
                 gtab, 
                 _dti_worker, 
                 nthreads, 
-                worker_kwargs={'fit_method': fit_method, **worker_kwargs}
+                worker_kwargs=worker_kwargs
             )
             
             dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
@@ -758,6 +835,10 @@ def fit_dki(
     import dipy.reconst.dki as dipy_dki
     from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 
+    # Resolve iterative parameters if needed
+    if 'fit_method' in kwargs:
+         _resolve_iterative_params(kwargs['fit_method'], kwargs)
+
     in_path = extract_image_path(in_file)
     img = nib.load(str(in_path))
     data = img.get_fdata()
@@ -772,30 +853,74 @@ def fit_dki(
 
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     gtab = gradient_table(bvals, bvecs=bvecs)
+    
+    # Handle optional smoothing
+    smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
+    if smoothing_fwhm:
+        import scipy.ndimage
+        # FWHM = 2.355 * sigma
+        sigma = float(smoothing_fwhm) / 2.3548200450309493
+        print(f"  - Applying Gaussian smoothing (FWHM={smoothing_fwhm}mm, sigma={sigma:.2f})")
+        # Apply smoothing spatially (axes 0,1,2), independent over volumes (axis 3)
+        # Using 4D sigma with 0 on 4th dimension achieves this efficiently
+        scipy.ndimage.gaussian_filter(data, sigma=[sigma, sigma, sigma, 0], output=data)
 
     if mask_file and mask_file.exists():
         mask = nib.load(str(mask_file)).get_fdata().astype(bool)
     else:
         mask = None
         
-    dkimodel = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
+    # Check for MSDKI flag
+    use_msdki = kwargs.pop('mean_signal', False)
+    # Re-inject as internal flag for workers
+    kwargs['use_msdki'] = use_msdki
+    
+    if use_msdki:
+        import dipy.reconst.msdki as dipy_msdki
+        ModelClass = dipy_msdki.MeanDiffusionKurtosisModel
+        FitClass = dipy_msdki.MeanDiffusionKurtosisFit
+    else:
+        ModelClass = dipy_dki.DiffusionKurtosisModel
+        FitClass = dipy_dki.DiffusionKurtosisFit
+        
+    dkimodel = ModelClass(gtab, **kwargs)
     
     # Fit
     try:
         # Check for GNL
         if kwargs.get('grad_nonlin'):
             grad_nonlin = Path(kwargs['grad_nonlin'])
+            # Clean kwargs for GNL fit function if needed, but it passes model_kwargs to init
+            # _execute_gnl_fit splits data then calls model_class(gtab, **model_kwargs).fit(data)
+            
+            # For GNL fit, we must pass the correct class.
+            
+            # We need to make sure 'grad_nonlin' key is passed? 
+            # Actually, `_execute_gnl_fit` expects `model_kwargs` to be clean enough for initialization.
+            # But we popped 'mean_signal' and 'smoothing_fwhm' so they are gone.
+            # We added 'use_msdki'. 
+            # _dki_worker handles 'use_msdki' but `_execute_gnl_fit` uses `voxel_fit` directly usually?
+            # Wait, `_execute_gnl_fit` rotates bvecs and runs.
+            # If `_execute_gnl_fit` instantiates `ModelClass`, does it handle `use_msdki`?
+            # No, `ModelClass` (DIPY model) doesn't know `use_msdki`.
+            # So `model_kwargs` passed to `_execute_gnl_fit` MUST NOT have `use_msdki` if passing `MeanDiffusionKurtosisModel` explicitly.
+            
+            gnl_kwargs = kwargs.copy()
+            gnl_kwargs.pop('use_msdki', None) # Remove internal flag, passing class explicitly
+            gnl_kwargs.pop('grad_nonlin', None)
+            gnl_kwargs = {k:v for k,v in gnl_kwargs.items() if k not in ['n_cpus', 'nthreads']}
+
             vol_params = _execute_gnl_fit(
                 data=data,
                 mask=mask,
                 gnl_map_path=grad_nonlin,
                 bvals=bvals,
                 bvecs=bvecs,
-                model_class=dipy_dki.DiffusionKurtosisModel,
-                model_kwargs=kwargs, # kwargs contains config for DKI model
+                model_class=ModelClass,
+                model_kwargs=gnl_kwargs, 
                 nthreads=nthreads
             )
-            dkifit = dipy_dki.DiffusionKurtosisFit(dkimodel, vol_params)
+            dkifit = FitClass(dkimodel, vol_params)
             
         elif nthreads > 1:
             # Parallel Fit
@@ -808,7 +933,7 @@ def fit_dki(
                 worker_kwargs=kwargs
             )
             
-            dkifit = dipy_dki.DiffusionKurtosisFit(dkimodel, vol_params)
+            dkifit = FitClass(dkimodel, vol_params)
 
         else:
             # Serial Fit
@@ -895,25 +1020,35 @@ def fit_mapmri(
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     gtab = gradient_table(bvals, bvecs=bvecs)
 
+    # Handle optional smoothing
+    smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
+    if smoothing_fwhm:
+        import scipy.ndimage
+        sigma = float(smoothing_fwhm) / 2.3548200450309493
+        print(f"  - Applying Gaussian smoothing (FWHM={smoothing_fwhm}mm, sigma={sigma:.2f})")
+        scipy.ndimage.gaussian_filter(data, sigma=[sigma, sigma, sigma, 0], output=data)
+
     if mask_file and mask_file.exists():
         mask = nib.load(str(mask_file)).get_fdata().astype(bool)
     else:
         mask = None
     
-    map_model = mapmri.MapmriModel(
-        gtab, 
-        laplacian_regularization=laplacian,
-        positivity_constraint=positivity,
-        global_constraints=global_constraints
-    )
+    # Prepare MapmriModel kwargs
+    map_kwargs = kwargs.copy()
+    # Map explicit function args to model init args
+    map_kwargs.setdefault('laplacian_regularization', laplacian)
+    map_kwargs.setdefault('positivity_constraint', positivity)
+    map_kwargs.setdefault('global_constraints', global_constraints)
+    
+    map_model = mapmri.MapmriModel(gtab, **map_kwargs)
     
     if kwargs.get('grad_nonlin'):
         grad_nonlin = Path(kwargs['grad_nonlin'])
-        model_kwargs = {
-            'laplacian_regularization': laplacian,
-            'positivity_constraint': positivity,
-            'global_constraints': global_constraints
-        }
+        
+        # Generic kwargs for GNL
+        gnl_kwargs = map_kwargs.copy()
+        gnl_kwargs.pop('grad_nonlin', None)
+        gnl_kwargs = {k:v for k,v in gnl_kwargs.items() if k not in ['n_cpus', 'nthreads']}
         
         vol_params = _execute_gnl_fit(
             data=data,
@@ -922,17 +1057,13 @@ def fit_mapmri(
             bvals=bvals,
             bvecs=bvecs,
             model_class=mapmri.MapmriModel,
-            model_kwargs=model_kwargs,
+            model_kwargs=gnl_kwargs,
             nthreads=nthreads
         )
         map_fit = mapmri.MapmriFit(map_model, vol_params)
         
     elif nthreads > 1:
-        worker_kwargs = {
-            'laplacian': laplacian,
-            'positivity': positivity,
-            'global_constraints': global_constraints
-        }
+        worker_kwargs = map_kwargs.copy()
         
         vol_params = _parallel_fit_driver(
              data, 

@@ -83,18 +83,25 @@ class DTIFittingStep(BaseProcessingStep):
         if self.method == 'dipy':
             from ...interfaces.dipy import fit_dti
             # Map parameters
-            dipy_kwargs = {}
+            dipy_kwargs = self.kwargs.copy()
+            
+            # Additional config extraction
+            if isinstance(self.config, dict):
+                 for k in ['smoothing_fwhm', 'fit_method', 'weights_method', 'return_S0_hat', 'sigma']:
+                      if k in self.config and k not in dipy_kwargs:
+                          dipy_kwargs[k] = self.config[k]
+
             if 'sub_method' in self.kwargs:
                 dipy_kwargs['fit_method'] = self.kwargs['sub_method']
             
             # Default metrics if none provided
-            dipy_kwargs['metrics'] = self.kwargs.get('metrics', ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"])
+            if 'metrics' not in dipy_kwargs:
+                dipy_kwargs['metrics'] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
             
-            # Ensure "tensor" (FSL-style) and "tensor_mrtrix" are included as requested
-            curr_metrics = dipy_kwargs.get('metrics', [])
+            # Ensure "tensor" outputs are included (legacy behavior)
+            curr_metrics = dipy_kwargs['metrics']
             if "tensor" not in curr_metrics: curr_metrics.append("tensor")
             if "tensor_mrtrix" not in curr_metrics: curr_metrics.append("tensor_mrtrix")
-            dipy_kwargs['metrics'] = curr_metrics
             
             if gnl_map:
                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY: {gnl_map}")
@@ -192,6 +199,14 @@ class DKIFittingStep(BaseProcessingStep):
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_dki
              
+             fit_kwargs = self.kwargs.copy()
+             
+             # Robustly checking config for new options if they weren't passed in init kwargs
+             if isinstance(self.config, dict):
+                 for k in ['smoothing_fwhm', 'mean_signal', 'fit_method', 'weights_method', 'return_S0_hat']:
+                      if k in self.config and k not in fit_kwargs:
+                          fit_kwargs[k] = self.config[k]
+
              # Check for GNL Map
              gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
              if gnl_map:
@@ -199,9 +214,9 @@ class DKIFittingStep(BaseProcessingStep):
                      self.logger.warning(f"GNL map path missing: {gnl_map}")
                 else:
                      self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY DKI: {gnl_map}")
-                     self.kwargs['grad_nonlin'] = gnl_map
+                     fit_kwargs['grad_nonlin'] = gnl_map
              
-             fit_dki(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
+             fit_dki(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **fit_kwargs)
         else:
              raise ValueError(f"Unknown DKI method: {self.method}")
              
@@ -478,6 +493,16 @@ class MAPMRIFittingStep(BaseProcessingStep):
         if self.method == 'dipy':
              from ...interfaces.dipy import fit_mapmri
              
+             map_kwargs = self.kwargs.copy()
+             
+             # Robust extraction for flexible options (smoothing, constraints)
+             if isinstance(self.config, dict):
+                  # Extract common MAPMRI options if available at top level of config
+                  for k in ['smoothing_fwhm', 'radial_order', 'laplacian_regularization', 
+                            'positivity_constraint', 'cvxpy_solver', 'static_diffusivity']:
+                      if k in self.config and k not in map_kwargs:
+                          map_kwargs[k] = self.config[k]
+             
              # Check for GNL map
              gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
              if gnl_map:
@@ -485,9 +510,9 @@ class MAPMRIFittingStep(BaseProcessingStep):
                      self.logger.warning(f"GNL map path missing: {gnl_map}")
                 else:
                      self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY MAPMRI: {gnl_map}")
-                     self.kwargs['grad_nonlin'] = gnl_map
+                     map_kwargs['grad_nonlin'] = gnl_map
                      
-             fit_mapmri(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
+             fit_mapmri(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **map_kwargs)
         else:
              raise ValueError(f"Unknown MAPMRI method: {self.method}")
              

@@ -86,12 +86,15 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         
         # 6. Brain Mask
         mask_cfg = anat_cfg.get("brain_masking", {})
-        if mask_cfg.get("enabled", True):
+        # If using FreeSurfer, we use its brain mask, so skip this step
+        use_fs = anat_cfg.get("use_freesurfer", False)
+        
+        if mask_cfg.get("enabled", True) and not use_fs:
              self.add_step(BrainMaskingStep(self.config, self.logger, self.provenance, method=mask_cfg.get("method", "ants")))
 
         # 7. Recon-all
         recon_cfg = anat_cfg.get("recon_all", {})
-        if recon_cfg.get("enabled"):
+        if recon_cfg.get("enabled") or use_fs:
              self.add_step(ReconAllStep(self.config, self.logger, self.provenance))
              
         # 8. Nonlinear Registration

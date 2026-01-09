@@ -193,3 +193,26 @@ def mri_synthseg(
         cmd.append(extra_args)
         
     run_cmd(" ".join(cmd), label="mri_synthseg")
+
+def mri_binarize(in_file: Union[Path, ImageLike], out_file: Path, min_val: float = 1, match: Optional[list] = None):
+    """
+    Run FreeSurfer mri_binarize.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    
+    if out_p.exists():
+        return
+
+    cmd = ["mri_binarize", f"--i {in_p}", f"--o {out_p}"]
+    
+    if match:
+        # Match specific values
+        vals = " ".join(map(str, match))
+        cmd.append(f"--match {vals}")
+    else:
+        # Default threshold
+        cmd.append(f"--min {min_val}")
+        
+    run_cmd(" ".join(cmd), label="mri_binarize")
