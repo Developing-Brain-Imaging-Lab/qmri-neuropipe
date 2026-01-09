@@ -20,8 +20,7 @@ from rich.table import Table
 from qmri_neuropipe.core import PipelineConfig
 from qmri_neuropipe.core.exceptions import ConfigurationError
 from qmri_neuropipe.io import DataLoader
-from .workflows.pipelines.dmri import DMRIPipeline
-from .workflows.pipelines.anat import AnatPipeline
+
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
 console = Console()
@@ -397,6 +396,40 @@ def main(
             config.work_dir = config.output_dir / "work"
         config.work_dir.mkdir(parents=True, exist_ok=True)
         
+        
+        # --- Configure Environment for Threading (ANTs, OpenMP, etc.) ---
+        # This MUST be done before importing pipeline modules that might initialize libraries (like ANTs)
+        import os
+        
+        # Determine effective CPU count
+        effective_cpus = config.n_cpus
+        if not effective_cpus:
+            # Fallback or default
+            effective_cpus = 1
+            
+        str_cpus = str(effective_cpus)
+        
+        # ANTs / ITK
+        os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str_cpus
+        
+        # OpenMP (used by many C modules)
+        # If omp_nthreads is explicitly set via CLI, use it. Otherwise default to n_cpus or system default.
+        if omp_nthreads:
+            os.environ["OMP_NUM_THREADS"] = str(omp_nthreads)
+        else:
+            # It is often safer to set OMP_NUM_THREADS to n_cpus to avoid oversubscription 
+            # if the underlying libraries default to all cores.
+            os.environ["OMP_NUM_THREADS"] = str_cpus
+            
+        # MKL / BLAS
+        os.environ["MKL_NUM_THREADS"] = str_cpus
+        os.environ["OPENBLAS_NUM_THREADS"] = str_cpus
+        os.environ["VECLIB_MAXIMUM_THREADS"] = str_cpus
+        os.environ["NUMEXPR_NUM_THREADS"] = str_cpus
+        
+        if config.verbose or verbose:
+             console.print(f"[blue]Setting threading environment variables:[/blue] ITK={str_cpus}, OMP={os.environ['OMP_NUM_THREADS']}")
+
         # Print configuration if verbose
         if config.verbose or verbose or dry_run:
             console.print("\n[bold green]Configuration validated successfully![/bold green]\n")
@@ -421,8 +454,10 @@ def main(
         # Create and run pipeline
         console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
         if pipeline_name == 'dmri':
+            from .workflows.pipelines.dmri import DMRIPipeline
             pipeline_obj = DMRIPipeline(config)
         elif pipeline_name == 'anat':
+            from .workflows.pipelines.anat import AnatPipeline
             pipeline_obj = AnatPipeline(config)
         else:
             raise ConfigurationError(
