@@ -7,7 +7,7 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...core.run import run_cmd
 from ...interfaces import tortoise
 from ...io.bids import build_bids_name
-from ...interfaces.mrtrix import mrconvert, dwiextract, mrcalc
+from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
 
 class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
     """
@@ -111,7 +111,7 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                              nbval = getattr(native_ref, 'bval', None)
                              
                              dwiextract(native_img_path, temp_b0s, bzero=True, in_bvec=nbvec, in_bval=nbval, force=True)
-                             mrcalc(temp_b0s, "mean", native_b0, axis=3, force=True)
+                             mrmath(temp_b0s, "mean", native_b0, axis=3, force=True)
                              temp_b0s.unlink(missing_ok=True)
                         native_b0_refs.append(native_b0)
                         initial_image_path = native_b0_refs[0]
@@ -130,7 +130,7 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                      fbval = getattr(input, 'bval', None)
                      
                      dwiextract(input.img, temp_b0s_final, bzero=True, in_bvec=fbvec, in_bval=fbval, force=True)
-                     mrcalc(temp_b0s_final, "mean", final_b0_path, axis=3, force=True)
+                     mrmath(temp_b0s_final, "mean", final_b0_path, axis=3, force=True)
                      temp_b0s_final.unlink(missing_ok=True)
                 
                 final_image_path = final_b0_path

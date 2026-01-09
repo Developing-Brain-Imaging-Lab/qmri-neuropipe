@@ -787,3 +787,36 @@ def mrcalc(
         
     run_cmd(" ".join(cmd), label="mrcalc")
     return out_p
+
+
+def mrmath(
+    in_file: Union[Path, ImageLike],
+    operation: str,
+    out_file: Path,
+    axis: int = 3,
+    nthreads: int = 1,
+    force: bool = False
+):
+    """
+    Wrapper for mrmath.
+    usage: mrmath input mean output -axis 3
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        return out_p
+        
+    cmd = ["mrmath", str(in_p), operation, str(out_p)]
+    
+    cmd.extend(["-axis", str(axis)])
+        
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+        
+    cmd.append("-quiet")
+    if force:
+        cmd.append("-force")
+        
+    run_cmd(" ".join(cmd), label="mrmath")
+    return out_p
