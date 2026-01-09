@@ -116,34 +116,34 @@ def drbuddi(
     return out_dir
 
 def apply_grad_nonlin(
-    in_file: ImageLike | Path,
-    out_file: Path,
+    initial_image: Optional[Path],
+    final_image: Path,
     grad_coeffs: Path,
     nthreads: int = 1,
     force: bool = False,
     is_ge: bool = True,
-    native_image: Optional[Path] = None
-) -> Path:
+    cwd: Optional[Path] = None
+) -> None:
     """
-    Apply gradient nonlinearity correction.
+    Apply gradient nonlinearity correction using CreateGradientNonlinearityBMatrix.
     
-    If native_image is provided (for resampled data), it is used as the --initial_image (-i).
+    Args:
+        initial_image: Native space image (usually mean b0). Optional.
+        final_image: Final space image (usually mean b0 of processing space).
+        grad_coeffs: Coefficients file.
+        nthreads: Number of threads.
+        force: Force run.
+        is_ge: Whether to apply GE specific corrections.
+        cwd: Working directory for execution (output usually generated here).
     """
-    in_p = extract_image_path(in_file)
-    out_p = Path(out_file)
-    ensure_dir(out_p.parent)
-    
-    
-    if out_p.exists() and not force: return out_p
-    
-    # Determine input image for command
-    # If native_image is provided, user requested using it via -i
-    input_to_use = native_image if native_image else in_p
     
     # Updated command based on user feedback to use CreateGradientNonlinearityBMatrix with correct flags
     cmd_parts = ["CreateGradientNonlinearityBMatrix"]
-    cmd_parts.append(f"--initial_image {input_to_use}")
-    cmd_parts.append(f"--final_image {out_p}")
+    
+    if initial_image:
+        cmd_parts.append(f"--initial_image {initial_image}")
+        
+    cmd_parts.append(f"--final_image {final_image}")
     cmd_parts.append(f"--nonlinearity {grad_coeffs}")
     
     # Assuming TORTOISE style boolean (1/0) or switch
@@ -151,17 +151,8 @@ def apply_grad_nonlin(
     if is_ge:
         cmd_parts.append("--isGE 1")
     
-    # Threads supported? Usually yes.
-    # cmd_parts.append(f"--threads {nthreads}") # Check if this command supports it. User didn't request, but good practice if supported. 
-    # CreateGradientNonlinearityBMatrix supported --threads. GradientNonlinearityCorrection likely does too? 
-    # Safest is to try. If failure, remove.
-    # User log showed 'CreateGradientNonlinearityBMatrix ... --threads 8', so multithreading was attempted.
-    # I'll rely on OMP_NUM_THREADS env var if arg is not standard, but I'll try adding it or stick to what user listed.
-    # User listed: --initial_image --final_image --nonlinearity --isGE
-    # Didn't list threads. I'll omit explicit --threads arg to be safe unless standard.
-    # Actually, to be safe, I'll pass it if I can verify it.
-    # I'll stick to EXACTLY what user suggested + basics.
+    # Run command
+    # Output file (graddev_c.nii) is created in the CWD or typically implied by the input.
+    # We rely on the caller to find and rename the output.
     
-    run_cmd(" ".join(cmd_parts), label="TORTOISE_GNL", n_threads=nthreads) # n_threads env var will be set by run_cmd
-    
-    return out_p
+    run_cmd(" ".join(cmd_parts), label="TORTOISE_GNL", n_threads=nthreads, cwd=cwd)

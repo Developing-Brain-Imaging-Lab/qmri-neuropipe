@@ -7,6 +7,7 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...core.run import run_cmd
 from ...interfaces import tortoise
 from ...io.bids import build_bids_name
+from ...interfaces.mrtrix import mrconvert, dwiextract, mrcalc
 
 class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
     """
@@ -89,15 +90,52 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                 native_image_path = None # Not implicitly needed by interface
             
             try:
-                # Tortoise often appends suffixes or disallows .gz in output argument
-                # We pass output_map, but we check for specific 'graddev_c.nii' result
+                # Prepare 3D mean b0 images for initial and final spaces
+                # This is required by CreateGradientNonlinearityBMatrix
+                
+                initial_image_path = None
+                
+                # 1. Native Space 3D Reference (Initial Image) - Only if resampled
+                if self.is_resampled:
+                    native_b0_refs = []
+                    if native_ref:
+                        native_img_path = native_ref.img
+                        native_b0 = output_dir / "native_b0_mean.nii.gz"
+                        
+                        if not native_b0.exists() or kwargs.get('force', False):
+                             # Extract b0s and mean
+                             temp_b0s = output_dir / "native_b0s.mif"
+                             dwiextract(native_img_path, temp_b0s, bzero=True, force=True)
+                             mrcalc(temp_b0s, "mean", native_b0, axis=3, force=True)
+                             temp_b0s.unlink(missing_ok=True)
+                        native_b0_refs.append(native_b0)
+                        initial_image_path = native_b0_refs[0]
+                    else:
+                         self.logger.warning("GNL Step is resampled but no native reference found. Skipping initial_image.")
+
+                # 2. Final Space 3D Reference (Final Image)
+                # Current input image (partially processed, likely coregistered)
+                # Need its mean b0 to define the target geometry
+                final_b0_path = output_dir / "final_b0_mean.nii.gz"
+                if not final_b0_path.exists() or kwargs.get('force', False):
+                     temp_b0s_final = output_dir / "final_b0s.mif"
+                     dwiextract(input.img, temp_b0s_final, bzero=True, force=True)
+                     mrcalc(temp_b0s_final, "mean", final_b0_path, axis=3, force=True)
+                     temp_b0s_final.unlink(missing_ok=True)
+                
+                final_image_path = final_b0_path
+                
+                # Run GNL. The command outputs 'graddev_c.nii' in the 'initial_image' directory ?? 
+                # OR in the CWD. User says "output name is ... extension of the input image names".
+                # To be safe, we run in output_dir.
+                
                 tortoise.apply_grad_nonlin(
-                    in_file=target_image,
-                    out_file=output_map,
+                    initial_image=initial_image_path,
+                    final_image=final_image_path,
                     grad_coeffs=coeffs,
                     nthreads=nthreads,
                     force=kwargs.get('force', False),
-                    native_image=native_image_path
+                    cwd=output_dir # Run in output dir to capture the output file there
                 )
                 
                 # Handling explicit filename request from user:
