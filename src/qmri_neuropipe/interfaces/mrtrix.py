@@ -820,3 +820,40 @@ def mrmath(
         
     run_cmd(" ".join(cmd), label="mrmath")
     return out_p
+
+
+def sh2peaks(
+    in_file: Union[Path, ImageLike],
+    out_file: Path,
+    nthreads: int = 1,
+    force: bool = False,
+    num_peaks: int = 3,
+    threshold: float = 0.1
+):
+    """
+    Wrapper for sh2peaks.
+    usage: sh2peaks fod.mif peaks.nii.gz -num 3 -threshold 0.1
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        return out_p
+        
+    cmd = ["sh2peaks", str(in_p), str(out_p)]
+    
+    if num_peaks:
+        cmd.extend(["-num", str(num_peaks)])
+        
+    if threshold:
+        cmd.extend(["-threshold", str(threshold)])
+    
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+        
+    cmd.append("-quiet")
+    if force:
+        cmd.append("-force")
+        
+    run_cmd(" ".join(cmd), label="sh2peaks")
+    return out_p
