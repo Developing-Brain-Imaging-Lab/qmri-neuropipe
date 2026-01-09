@@ -990,13 +990,20 @@ class ModelingWorkflow(BaseWorkflow):
         if dti_cfg.get('enabled', False):
             method = dti_cfg.get('method', 'dipy')
             self.logger.info(f"Adding DTIFittingStep (method={method})")
+            # Prepare kwargs
+            dti_kwargs = dict(dti_cfg)
+            if 'parameters' in dti_kwargs: dti_kwargs.update(dti_kwargs.pop('parameters'))
+            if 'options' in dti_kwargs: dti_kwargs.update(dti_kwargs.pop('options'))
+            dti_kwargs.pop('enabled', None)
+            dti_kwargs.pop('method', None)
+
             self.add_step(DTIFittingStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
                 method=method,
                 n_cpus=self.config.n_cpus,
-                **dti_cfg.get('parameters', {}) or dti_cfg.get('options', {}) # support parameters or options
+                **dti_kwargs
             ))
             
         # 2. DKI
@@ -1004,13 +1011,19 @@ class ModelingWorkflow(BaseWorkflow):
         if dki_cfg.get('enabled', False):
             method = dki_cfg.get('method', 'dipy')
             self.logger.info(f"Adding DKIFittingStep (method={method})")
+            # Prepare kwargs
+            dki_kwargs = dict(dki_cfg)
+            if 'parameters' in dki_kwargs: dki_kwargs.update(dki_kwargs.pop('parameters'))
+            dki_kwargs.pop('enabled', None)
+            dki_kwargs.pop('method', None)
+
             self.add_step(DKIFittingStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
                 method=method,
                 n_cpus=self.config.n_cpus,
-                **dki_cfg.get('parameters', {})
+                **dki_kwargs
             ))
 
         # 2.5 Constrained Spherical Deconvolution (CSD)
@@ -1083,13 +1096,19 @@ class ModelingWorkflow(BaseWorkflow):
         if map_cfg.get('enabled', False):
             method = map_cfg.get('method', 'dipy')
             self.logger.info(f"Adding MAPMRIFittingStep (method={method})")
+            # Prepare kwargs
+            map_kwargs = dict(map_cfg)
+            if 'parameters' in map_kwargs: map_kwargs.update(map_kwargs.pop('parameters'))
+            map_kwargs.pop('enabled', None)
+            map_kwargs.pop('method', None)
+
             self.add_step(MAPMRIFittingStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
             method=method,
                 n_cpus=self.config.n_cpus,
-                **map_cfg.get('parameters', {})
+                **map_kwargs
             ))
             
             
