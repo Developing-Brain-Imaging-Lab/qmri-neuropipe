@@ -355,6 +355,7 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     fit_kwargs.pop('n_cpus', None)
     fit_kwargs.pop('nthreads', None)
     fit_kwargs.pop('grad_nonlin', None) # GNL is handled by splitting, not passed to fit directly here
+    fit_kwargs.pop('sub_method', None)
 
     model = dipy_dki.DiffusionKurtosisModel(gtab, **fit_kwargs)
     # Reshape to 4D to ensure safe broadcasting
