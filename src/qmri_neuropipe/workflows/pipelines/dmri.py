@@ -342,144 +342,7 @@ class PreprocessingWorkflow(BaseWorkflow):
 
 
         
-        # Dependency check: TractSeg requires CSD
-        # If TractSeg is enabled but CSD model is not, auto-enable CSD to ensure it's saved/reused.
-        tract_cfg = dmri_cfg.get('tractography', {})
-        model_cfg = dmri_cfg.get('models', {})
-        
-        if tract_cfg.get('tractseg', {}).get('enabled', False):
-             if not model_cfg.get('csd', {}).get('enabled', False):
-                 self.logger.info("TractSeg enabled: Auto-enabling CSD Fitting to ensure reuse/saving of FODs.")
-                 model_cfg.setdefault('csd', {})['enabled'] = True
 
-
-        # 9. Model Fitting (DTI, DKI, NODDI, etc.)
-        # model_cfg variable is already retrieved above
-        
-        # 9.1 DTI
-        if model_cfg.get('dti', {}).get('enabled', False):
-            self.logger.info("Adding DTIFittingStep")
-            self.add_step(DTIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['dti'].get('method', 'dipy'),
-                **model_cfg['dti'].get('options', {})
-            ))
-            
-        # 9.2 DKI
-        if model_cfg.get('dki', {}).get('enabled', False):
-            self.logger.info("Adding DKIFittingStep")
-            self.add_step(DKIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['dki'].get('method', 'dipy'),
-                **model_cfg['dki'].get('options', {})
-            ))
-            
-        # 9.3 NODDI
-        if model_cfg.get('noddi', {}).get('enabled', False):
-            self.logger.info("Adding NODDIFittingStep")
-            self.add_step(NODDIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['noddi'].get('method', 'dmipy'),
-                **model_cfg['noddi'].get('options', {})
-            ))
-            
-        # 9.4 SANDI
-        if model_cfg.get('sandi', {}).get('enabled', False):
-            self.logger.info("Adding SANDIFittingStep")
-            self.add_step(SANDIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['sandi'].get('method', 'amico'),
-                **model_cfg['sandi'].get('options', {})
-            ))
-            
-        # 9.5 MAPMRI
-        if model_cfg.get('mapmri', {}).get('enabled', False):
-            self.logger.info("Adding MAPMRIFittingStep")
-            self.add_step(MAPMRIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['mapmri'].get('method', 'dipy'),
-                **model_cfg['mapmri'].get('options', {})
-            ))
-            
-        # 9.6 CSD
-        if model_cfg.get('csd', {}).get('enabled', False):
-            self.logger.info("Adding CSDFittingStep")
-            self.add_step(CSDFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['csd'].get('method', 'msmt_csd'),
-                **model_cfg['csd'].get('options', {})
-            ))
-            
-        # 9.7 Free-Water DTI
-        if model_cfg.get('fw_dti', {}).get('enabled', False):
-            self.logger.info("Adding FWDTIFittingStep")
-            self.add_step(FWDTIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=model_cfg['fw_dti'].get('method', 'dipy'),
-                **model_cfg['fw_dti'].get('options', {})
-            ))
-
-
-        # 10. Tractography & Segmentation
-        tract_cfg = dmri_cfg.get('tractography', {})
-        
-        # 10.1 TractSeg
-        if tract_cfg.get('tractseg', {}).get('enabled', False):
-             self.logger.info("Adding TractSegStep")
-             self.add_step(TractSegStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance,
-                 method='tractseg',
-                 **tract_cfg.get('tractseg', {}).get('options', {})
-             ))
-
-        # 10.2 PyAFQ / BabyAFQ
-        if tract_cfg.get('pyafq', {}).get('enabled', False):
-             self.logger.info("Adding PyAFQStep")
-             self.add_step(PyAFQStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance,
-                 method='pyafq',
-                 **tract_cfg.get('pyafq', {}).get('options', {})
-             ))
-             
-        # 11. Analysis & Statistics
-        analysis_cfg = dmri_cfg.get('analysis', {})
-        
-        # 11.1 Atlas Registration
-        if analysis_cfg.get('atlases', {}):
-             self.logger.info("Adding AtlasRegistrationStep")
-             self.add_step(AtlasRegistrationStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance,
-                 method='ants' # Default
-             ))
-             
-        # 11.2 Statistics Extraction
-        if analysis_cfg.get('full_stats', False):
-             self.logger.info("Adding StatsExtractionStep")
-             self.add_step(StatsExtractionStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance
-             ))
 
 
     def _audit_inputs(self, dwi_files: list[DWIFile], topup_groups: list):
@@ -1108,6 +971,21 @@ class ModelingWorkflow(BaseWorkflow):
         modeling_cfg = self.config.get('dmri', {}).get('modeling', {})
         
         # 1. DTI
+        # Dependency Check: Auto-enable CSD if TractSeg is requested
+        # We must do this BEFORE processing CSD step.
+        tract_cfg_chk = modeling_cfg.get('tractography', {})
+        # Support fallback source for tract_cfg (dmri root)
+        if not tract_cfg_chk:
+             tract_cfg_chk = self.config.get('dmri', {}).get('tractography', {})
+             
+        if tract_cfg_chk.get('tractseg', {}).get('enabled', False):
+             csd_chk = modeling_cfg.get('csd', {})
+             if not csd_chk.get('enabled', False):
+                 self.logger.info("TractSeg enabled: Auto-enabling CSD Fitting to ensure reuse/saving of FODs.")
+                 modeling_cfg.setdefault('csd', {})['enabled'] = True
+                 
+        
+        # 1. DTI
         dti_cfg = modeling_cfg.get('dti', {}) or modeling_cfg.get('tensor', {}) # Support 'tensor' for backward compatibility/legacy
         if dti_cfg.get('enabled', False):
             method = dti_cfg.get('method', 'dipy')
@@ -1236,6 +1114,67 @@ class ModelingWorkflow(BaseWorkflow):
                 n_cpus=self.config.n_cpus,
                 **step_kwargs
             ))
+            
+            
+        # 10. Tractography & Segmentation
+        tract_cfg = modeling_cfg.get('tractography', {})
+        # Note: In config, it might be under 'dmri.tractography' OR 'dmri.modeling.tractography'.
+        # The user instruction was 'dmri.tractography'.
+        # But here we are using 'modeling_cfg' which is 'dmri.modeling'.
+        # We should check 'dmri.tractography' as well if strictly following user guide.
+        # However, logically it makes sense in modeling workflow. 
+        # Let's check 'dmri' root too if not found in modeling.
+        
+        dmri_cfg = self.config.get('dmri', {})
+        if not tract_cfg:
+             tract_cfg = dmri_cfg.get('tractography', {})
+             
+        # 10.1 TractSeg
+        if tract_cfg.get('tractseg', {}).get('enabled', False):
+             self.logger.info("Adding TractSegStep")
+             self.add_step(TractSegStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='tractseg',
+                 **tract_cfg.get('tractseg', {}).get('options', {})
+             ))
+
+        # 10.2 PyAFQ / BabyAFQ
+        if tract_cfg.get('pyafq', {}).get('enabled', False):
+             self.logger.info("Adding PyAFQStep")
+             self.add_step(PyAFQStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='pyafq',
+                 **tract_cfg.get('pyafq', {}).get('options', {})
+             ))
+             
+        # 11. Analysis & Statistics
+        analysis_cfg = dmri_cfg.get('analysis', {})
+        # Also check inside modeling?
+        if not analysis_cfg:
+             analysis_cfg = modeling_cfg.get('analysis', {})
+        
+        # 11.1 Atlas Registration
+        if analysis_cfg.get('atlases', {}):
+             self.logger.info("Adding AtlasRegistrationStep")
+             self.add_step(AtlasRegistrationStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='ants' # Default
+             ))
+             
+        # 11.2 Statistics Extraction
+        if analysis_cfg.get('full_stats', False):
+             self.logger.info("Adding StatsExtractionStep")
+             self.add_step(StatsExtractionStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance
+             ))
             
     
     def _report_modeling_step(self, reporter, step, dwi, output_dir, report_output_dir=None):

@@ -156,7 +156,19 @@ class CoregistrationStep(BaseProcessingStep):
         apply_method = options.get('apply_method', 'native').lower() # 'native' or 'mrtrix'
         
         # Suffix handling
+        # Standardize stem cleanup
+        input_stem = in_path.name.replace(".nii.gz", "").replace(".nii", "")
+        
         new_desc = "coreg"
+        # BIDS name generic approach often appends entities to a base or rebuilds.
+        # "input_image.entities" is usually safer if available.
+        # But if we just want to ensure NO double ext:
+        # build_bids_name handles it if we pass clean entities.
+        # If build_bids_name uses suffix, it appends ".extension" (usually).
+        
+        # Let's trust build_bids_name but ensure previous ".nii" isn't lingering in some entity value?
+        # Usually entities are clean.
+        
         output_img = output_dir / build_bids_name({**entities, "desc": new_desc})
         
         # For transform filename:
@@ -237,7 +249,9 @@ class CoregistrationStep(BaseProcessingStep):
                 self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
                 
                 # Define path for resampled target
-                resampled_target = output_dir / f"target_resampled_to_dwi_{in_path.stem}.nii.gz"
+                # Avoid double extension if using stem that might have dots
+                safe_stem = in_path.name.replace(".nii.gz", "").replace(".nii", "")
+                resampled_target = output_dir / f"target_resampled_to_dwi_{safe_stem}.nii.gz"
                 
                 try:
                     interpolator = options.get("interpolation", "linear").lower() # Normalize case
@@ -531,15 +545,64 @@ class CoregistrationStep(BaseProcessingStep):
              # Check if we have a rotated bvec from this run
              final_bvec = locals().get('rotated_bvecs')
              
-             # If not (skipped or failed rotation), look for existing file
+             import shutil
+             
+             # If not (skipped or failed rotation), look for existing file or use original
              if not final_bvec:
-                 bvec_cand = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                 bvec_cand = output_img.parent / (output_img.name.split('.')[0] + ".bvec")
+                 # Check strict suffix replacement to avoid double extensions if name has dots?
+                 # safest is output_img.with_suffix("").with_suffix(".bvec") if .nii.gz 
+                 # But we handled double extension logic for output_img construction.
+                 # Let's use string replace of extension.
+                 base_name = output_img.name
+                 for ext in ['.nii.gz', '.nii']:
+                     if base_name.endswith(ext):
+                         base_name = base_name[:-len(ext)]
+                         break
+                 
+                 bvec_cand = output_dir / (base_name + ".bvec")
+                 
                  if bvec_cand.exists():
                      final_bvec = bvec_cand
-                 else:
-                     final_bvec = input_image.bvec
+                 elif input_image.bvec and input_image.bvec.exists():
+                     # Copy original bvec if no rotation happened (e.g. rigid with no rotation? Unlikely for coreg)
+                     # But if we did coreg, we SHOULD have rotated. 
+                     # If we are here, maybe rotation failed or method didn't support it (e.g. freesurfer without manual fallback).
+                     # Copying original is better than nothing, but we warn?
+                     # Actually generic ANTs/FSL logic above tries to rotate.
+                     shutil.copy(input_image.bvec, bvec_cand)
+                     final_bvec = bvec_cand
              
-             result = DWIFile(img=output_img, bvec=final_bvec, bval=input_image.bval, entities=entities, json=input_image.json)
+             # Ensure BVAL is present (Copy)
+             final_bval = None
+             if input_image.bval and input_image.bval.exists():
+                 base_name = output_img.name
+                 for ext in ['.nii.gz', '.nii']:
+                     if base_name.endswith(ext):
+                         base_name = base_name[:-len(ext)]
+                         break
+                 bval_path = output_dir / (base_name + ".bval")
+                 
+                 if not bval_path.exists():
+                     shutil.copy(input_image.bval, bval_path)
+                 final_bval = bval_path
+             
+             # Ensure JSON is present (Copy)
+             final_json = None
+             if input_image.json and input_image.json.exists():
+                 base_name = output_img.name
+                 for ext in ['.nii.gz', '.nii']:
+                     if base_name.endswith(ext):
+                         base_name = base_name[:-len(ext)]
+                         break
+                 json_path = output_dir / (base_name + ".json")
+                 
+                 if not json_path.exists():
+                     shutil.copy(input_image.json, json_path)
+                 final_json = json_path
+
+             
+             result = DWIFile(img=output_img, bvec=final_bvec, bval=final_bval, entities=entities, json=final_json)
         else:
              result = ImageFile(img=output_img, entities=entities)
 

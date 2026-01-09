@@ -105,7 +105,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                         if not native_b0.exists() or kwargs.get('force', False):
                              # Extract b0s and mean
                              temp_b0s = output_dir / "native_b0s.mif"
-                             dwiextract(native_img_path, temp_b0s, bzero=True, force=True)
+                             
+                             # Explicitly pass grads if available
+                             nbvec = getattr(native_ref, 'bvec', None)
+                             nbval = getattr(native_ref, 'bval', None)
+                             
+                             dwiextract(native_img_path, temp_b0s, bzero=True, in_bvec=nbvec, in_bval=nbval, force=True)
                              mrcalc(temp_b0s, "mean", native_b0, axis=3, force=True)
                              temp_b0s.unlink(missing_ok=True)
                         native_b0_refs.append(native_b0)
@@ -119,7 +124,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                 final_b0_path = output_dir / "final_b0_mean.nii.gz"
                 if not final_b0_path.exists() or kwargs.get('force', False):
                      temp_b0s_final = output_dir / "final_b0s.mif"
-                     dwiextract(input.img, temp_b0s_final, bzero=True, force=True)
+                     
+                     # Explicitly pass grads if available
+                     fbvec = getattr(input, 'bvec', None)
+                     fbval = getattr(input, 'bval', None)
+                     
+                     dwiextract(input.img, temp_b0s_final, bzero=True, in_bvec=fbvec, in_bval=fbval, force=True)
                      mrcalc(temp_b0s_final, "mean", final_b0_path, axis=3, force=True)
                      temp_b0s_final.unlink(missing_ok=True)
                 
