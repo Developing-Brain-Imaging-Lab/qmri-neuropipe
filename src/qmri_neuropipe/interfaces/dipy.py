@@ -245,7 +245,14 @@ def _global_driver_wrapper(args):
     os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
     chunk_id, chunk_data, gtab, worker_func, kwargs = args
-    return worker_func(chunk_id, chunk_data, gtab, kwargs)
+    
+    # Try using threadpoolctl for reliable limiting of BLAS/OpenMP
+    try:
+        from threadpoolctl import threadpool_limits
+        with threadpool_limits(limits=1):
+            return worker_func(chunk_id, chunk_data, gtab, kwargs)
+    except ImportError:
+        return worker_func(chunk_id, chunk_data, gtab, kwargs)
 
 def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=None):
     """

@@ -92,7 +92,14 @@ class DTIFittingStep(BaseProcessingStep):
                           dipy_kwargs[k] = self.config[k]
 
             if 'sub_method' in self.kwargs:
-                dipy_kwargs['fit_method'] = self.kwargs['sub_method']
+                # Only fallback to sub_method if fit_method NOT explicitly provided in config
+                # (Prevents flattening of 'parameters' overwriting top-level 'fit_method')
+                has_fit_method = False
+                if isinstance(self.config, dict) and 'fit_method' in self.config: has_fit_method=True
+                elif hasattr(self.config, 'fit_method'): has_fit_method=True
+                
+                if not has_fit_method:
+                    dipy_kwargs['fit_method'] = self.kwargs['sub_method']
             
             # Default metrics if none provided
             if 'metrics' not in dipy_kwargs:
