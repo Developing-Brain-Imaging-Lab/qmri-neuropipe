@@ -1040,6 +1040,10 @@ class PreprocessingWorkflow(BaseWorkflow):
 
              # Add the step to report
              reporter.add_dmri_step(step_name, details, figures=figures_list)
+             
+             # Check for metrics to report (e.g. from EddyQuadStep or OutlierRemoval)
+             if isinstance(current_arg, dict) and ('qc_metrics' in current_arg or 'outlier_stats' in current_arg):
+                 self._report_metrics_summary(reporter, dwi, current_arg)
                      
          except ImportError:
              self.logger.warning("Could not import qmri_neuropipe.lib.reporting.viz. Skipping plotting for step report.")
@@ -1322,7 +1326,22 @@ class ModelingWorkflow(BaseWorkflow):
             for c in candidates:
                 if not c.name.endswith(".nii.gz") and not c.name.endswith(".nii"): continue
                 stem_lower = c.name.lower().split(".")[0]
-                if not stem_lower.endswith(f"_{key.lower()}"): continue
+                
+                # Explicitly skip non-scalar 4D outputs that might match matching patterns accidentally
+                if any(x in stem_lower for x in ['tensor', 'color_fa', 'evals', 'evecs']):
+                    continue
+                    
+                # Strict Suffix Match: Ensure the filename ends with _<suffix> 
+                # (e.g. _FA matches ..._FA.nii.gz, but not ..._somethingFA.nii.gz)
+                target_suffix = f"_{key.lower()}"
+                if not stem_lower.endswith(target_suffix): continue
+                
+                # Double check to ensure we haven't matched a substring of a longer word
+                # e.g. "color_fa" ends with "_fa" is FALSE (it ends with "or_fa" -> "r_fa" -> "color_fa")
+                # Wait, color_fa.nii.gz -> stem=color_fa. endswith("_fa")?
+                # "color_fa"[-3:] is "_fa". So it DOES match. 
+                # Ideally we want to ensure the part before the suffix is a meaningful separator or end of ID.
+                # But since we explicitly excluded 'color_fa' above, strict endswith should be safe for 'fa', 'md', etc.
 
                 if sub_id and f"sub-{sub_id}" not in c.name: continue
                 if ses_id and f"ses-{ses_id}" not in c.name: continue
