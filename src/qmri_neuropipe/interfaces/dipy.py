@@ -349,7 +349,14 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
 
 def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
-    model = dipy_dki.DiffusionKurtosisModel(gtab, **kwargs)
+    
+    # Filter out kwargs that dipy models don't accept but might be passed by pipeline
+    fit_kwargs = kwargs.copy()
+    fit_kwargs.pop('n_cpus', None)
+    fit_kwargs.pop('nthreads', None)
+    fit_kwargs.pop('grad_nonlin', None) # GNL is handled by splitting, not passed to fit directly here
+
+    model = dipy_dki.DiffusionKurtosisModel(gtab, **fit_kwargs)
     # Reshape to 4D to ensure safe broadcasting
     n_vox = data_chunk.shape[0]
     n_vols = data_chunk.shape[1]
