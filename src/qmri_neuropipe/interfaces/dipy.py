@@ -556,22 +556,21 @@ def _resolve_iterative_params(fit_method, kwargs):
     if fit_method != 'IRLS':
         return
 
+    # Extract optional cutoff (z-score threshold) - remove from kwargs as Model init doesn't take it
+    cutoff = kwargs.pop('weights_cutoff', None)
+
     # 1. Resolve weights_method
     weights_method = kwargs.get('weights_method')
     
-    # If using IRLS, weights_method is mandatory. Default if missing.
-    if weights_method is None:
-        try:
-            import dipy.reconst.weights_method as wm
+    try:
+        import dipy.reconst.weights_method as wm
+        from functools import partial
+        
+        # If using IRLS, weights_method is mandatory. Default if missing.
+        if weights_method is None:
             kwargs['weights_method'] = wm.weights_method_wls_m_est
-        except ImportError:
-            pass # DIPY version might be old?
             
-    elif isinstance(weights_method, str):
-        try:
-            import dipy.reconst.weights_method as wm
-            from functools import partial
-            
+        elif isinstance(weights_method, str):
             w_str = weights_method.lower()
             if w_str in ['gm', 'geman-mcclure']:
                  kwargs['weights_method'] = partial(wm.weights_method_wls_m_est, m_est='gm')
@@ -588,8 +587,14 @@ def _resolve_iterative_params(fit_method, kwargs):
                  else:
                       print(f"  - WARNING: Unknown weights_method string '{weights_method}'. defaulting to wls_m_est.")
                       kwargs['weights_method'] = wm.weights_method_wls_m_est
-        except ImportError:
-            print("  - WARNING: Could not import dipy.reconst.weights_method to resolve string.")
+        
+        # Apply Custom Cutoff if provided
+        if cutoff is not None and 'weights_method' in kwargs:
+             # Wrap existing callable (partial or func) with new cutoff
+             kwargs['weights_method'] = partial(kwargs['weights_method'], cutoff=float(cutoff))
+             
+    except ImportError:
+        print("  - WARNING: Could not import dipy.reconst.weights_method to resolve string.")
 
     # 2. Resolve fit_type
     # iterative_fit_tensor requires fit_type ('WLS' or 'NLLS')
