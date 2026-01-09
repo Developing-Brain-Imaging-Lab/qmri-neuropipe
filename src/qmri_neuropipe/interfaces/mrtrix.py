@@ -668,3 +668,122 @@ def apply_mrtrix_transform(
             shutil.rmtree(temp_dir)
             
     return out_p, out_bvec, out_bval
+
+
+def dwiextract(
+    in_file: Union[Path, ImageLike],
+    out_file: Path,
+    bzero: bool = False,
+    no_bzero: bool = False,
+    singleshell: bool = False,
+    shells: Optional[list] = None,
+    in_bvec: Path = None,
+    in_bval: Path = None,
+    export_grad_fsl: Tuple[Path, Path] = None,
+    nthreads: int = 1,
+    force: bool = False
+):
+    """
+    Wrapper for dwiextract.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        if export_grad_fsl:
+            if export_grad_fsl[0].exists() and export_grad_fsl[1].exists():
+                return out_p
+        else:
+            return out_p
+
+    cmd = ["dwiextract", str(in_p), str(out_p)]
+    
+    if bzero:
+        cmd.append("-bzero")
+    if no_bzero:
+        cmd.append("-no_bzero")
+    if singleshell:
+        cmd.append("-singleshell")
+        
+    if shells:
+        shell_str = ",".join(map(str, shells))
+        cmd.extend(["-shells", shell_str])
+        
+    if in_bvec and in_bval:
+        cmd.extend(["-fslgrad", str(in_bvec), str(in_bval)])
+        
+    if export_grad_fsl:
+        cmd.extend(["-export_grad_fsl", str(export_grad_fsl[0]), str(export_grad_fsl[1])])
+        
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+        
+    cmd.append("-quiet")
+    if force:
+        cmd.append("-force")
+        
+    run_cmd(" ".join(cmd), label="dwiextract")
+    return out_p
+
+
+def mrcalc(
+    in_file1: Union[Path, ImageLike],
+    operation_or_file2: Union[str, Path, ImageLike],
+    out_file: Path,
+    *args,
+    axis: int = None,
+    nthreads: int = 1,
+    force: bool = False
+):
+    """
+    Wrapper for mrcalc.
+    usage: mrcalc input1 input2 -add output
+           mrcalc input1 0.5 -add output
+           mrcalc input1 -max output
+    """
+    in_p = extract_image_path(in_file1)
+    out_p = ensure_dir(out_file)
+    
+    if not force and out_p.exists():
+        return out_p
+        
+    cmd = ["mrcalc", str(in_p)]
+    
+    # Handle second argument (operation or operand)
+    op = str(operation_or_file2)
+    # If op is a file/number, use it as operand. If it looks like an operation (text), prepend dash if missing
+    # But mrcalc is purely stack based: operand operand op
+    # If user passed "mean", it's unary: operand -mean
+    # If "add", it's binary: operand operand -add
+    
+    # Heuristic: try to guess if op is a file or number
+    is_path = "/" in op or Path(op).exists() or "." in op # weak check for extension
+    
+    if is_path: 
+         cmd.append(op)
+         # If binary, we expect the operation in *args?
+         # Or maybe we assume default operation? No.
+         # For GNL usage: mrcalc(file, "mean", output). "mean" is unary.
+         # If binary, user must pass: mrcalc(file1, "add", out, args=(file2,))? 
+         # Or mrcalc(file1, file2, out, args=("add",))?
+         # Let's stick to the GNL usage first.
+    else:
+         # It's an operation string like "mean" -> "-mean"
+         if not op.startswith("-"): op = f"-{op}"
+         cmd.append(op)
+    
+    # Output is handled by ensure_dir result
+    cmd.append(str(out_p))
+    
+    if axis is not None:
+        cmd.extend(["-axis", str(axis)])
+        
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+        
+    cmd.append("-quiet")
+    if force:
+        cmd.append("-force")
+        
+    run_cmd(" ".join(cmd), label="mrcalc")
+    return out_p
