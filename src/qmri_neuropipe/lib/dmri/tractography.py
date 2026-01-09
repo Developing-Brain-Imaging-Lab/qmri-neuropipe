@@ -99,7 +99,7 @@ class TractSegStep(BaseProcessingStep):
         
         # Extract extra args
         ts_kwargs = self.kwargs.copy()
-        output_type = ts_kwargs.pop('output_type', 'bundle_masks')
+        output_type = ts_kwargs.pop('output_type', 'tract_segmentation')
         
         tractseg.run_tractseg(
             input_file=input_file,
