@@ -236,6 +236,14 @@ def _global_driver_wrapper(args):
     Global wrapper to unpack arguments for parallel worker.
     args: (chunk_id, chunk_data, gtab, worker_func, kwargs)
     """
+    import os
+    # Limit internal threading for each worker to avoid oversubscription
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1" 
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
     chunk_id, chunk_data, gtab, worker_func, kwargs = args
     return worker_func(chunk_id, chunk_data, gtab, kwargs)
 
