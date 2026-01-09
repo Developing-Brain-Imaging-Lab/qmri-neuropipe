@@ -160,7 +160,11 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
                      # Gzip if needed and rename to standardized proper output_map
                      if actual_output.suffix == '.nii':
                          self.logger.info(f"Gzipping and renaming GNL output: {actual_output.name} -> {output_map.name}")
-                         run_cmd(f"gzip -c {actual_output} > {output_map}", label="gzip_gnl")
+                         import gzip
+                         import shutil
+                         with open(actual_output, 'rb') as f_in:
+                             with gzip.open(output_map, 'wb') as f_out:
+                                 shutil.copyfileobj(f_in, f_out)
                          actual_output.unlink() # remove .nii
                      else:
                          self.logger.info(f"Renaming GNL output: {actual_output.name} -> {output_map.name}")
