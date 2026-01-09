@@ -208,11 +208,17 @@ class DKIFittingStep(BaseProcessingStep):
              
              fit_kwargs = self.kwargs.copy()
              
-             # Robustly checking config for new options if they weren't passed in init kwargs
+             # Robustly checking config for new options (dict or object)
+             opts = ['smoothing_fwhm', 'mean_signal', 'fit_method', 'weights_method', 'return_S0_hat']
+             
              if isinstance(self.config, dict):
-                 for k in ['smoothing_fwhm', 'mean_signal', 'fit_method', 'weights_method', 'return_S0_hat']:
+                 for k in opts:
                       if k in self.config and k not in fit_kwargs:
                           fit_kwargs[k] = self.config[k]
+                          
+             for k in opts:
+                  if k not in fit_kwargs and hasattr(self.config, k):
+                       fit_kwargs[k] = getattr(self.config, k)
 
              # Check for GNL Map
              gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
@@ -503,12 +509,17 @@ class MAPMRIFittingStep(BaseProcessingStep):
              map_kwargs = self.kwargs.copy()
              
              # Robust extraction for flexible options (smoothing, constraints)
+             opts = ['smoothing_fwhm', 'radial_order', 'laplacian_regularization', 
+                     'positivity_constraint', 'cvxpy_solver', 'static_diffusivity']
+             
              if isinstance(self.config, dict):
-                  # Extract common MAPMRI options if available at top level of config
-                  for k in ['smoothing_fwhm', 'radial_order', 'laplacian_regularization', 
-                            'positivity_constraint', 'cvxpy_solver', 'static_diffusivity']:
+                  for k in opts:
                       if k in self.config and k not in map_kwargs:
                           map_kwargs[k] = self.config[k]
+             
+             for k in opts:
+                  if k not in map_kwargs and hasattr(self.config, k):
+                       map_kwargs[k] = getattr(self.config, k)
              
              # Check for GNL map
              gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
