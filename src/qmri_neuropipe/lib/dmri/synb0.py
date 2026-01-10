@@ -228,13 +228,13 @@ class Synb0EstimationStep(BaseProcessingStep):
                 import sys
                 import os
                 
-                # Check for GPUs
-                if self.config.gpu_ids is not None:
-                    gpus = self.config.gpu_ids
-                    if isinstance(gpus, int):
-                        gpus = [gpus]
-                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
-                    self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+                # FORCE CPU to avoid TF/DIPY GPU Import Segfaults.
+                self.logger.info("Forcing CPU execution for Synb0 to ensure stability (GPU disabled for this step).")
+                
+                # Prepare Environment for Subprocess
+                cmd_env = os.environ.copy()
+                cmd_env["CUDA_VISIBLE_DEVICES"] = "-1"
+                cmd_env["TF_CPP_MIN_LOG_LEVEL"] = "2" # Reduce TF spam
                 
                 self.logger.info(f"Running Synb0 estimation (isolated process) using {t1w_path.name}...")
                 
@@ -327,7 +327,8 @@ if __name__ == "__main__":
                     
                 # Execute
                 cmd = f"{sys.executable} {str(script_path)}"
-                run_cmd(cmd)
+                # Pass the modified environment (Forced CPU)
+                run_cmd(cmd, env=cmd_env)
                 
             except Exception as e:
                  raise ProcessingError(f"Synb0 estimation failed: {e}")
