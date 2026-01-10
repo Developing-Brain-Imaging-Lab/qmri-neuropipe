@@ -11,30 +11,6 @@ This module provides:
 
 from __future__ import annotations
 import sys
-# WORKAROUND: Pre-load TensorFlow components for Synb0 to avoid SegFaults.
-# We scan the config file (if provided) for keywords indicating Synb0 usage.
-try:
-    import os
-    _should_load_tf = False
-    # Simple heuristic: Scan arguments for likely config files
-    for arg in sys.argv:
-        if arg.lower().endswith(('.yaml', '.yml', '.json')) and os.path.exists(arg):
-            try:
-                with open(arg, 'r', errors='ignore') as _f:
-                    _content = _f.read().lower()
-                    # Check for keywords triggering TF usage.
-                    # Only Synb0 requires TensorFlow. Topup (FSL) does not.
-                    if 'synb0' in _content: 
-                         _should_load_tf = True
-                         break
-            except: 
-                pass
-                
-    if _should_load_tf:
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-        import dipy.nn.tf.synb0
-except (ImportError, Exception):
-    pass
 from pathlib import Path
 from typing import List, Optional
 import typer
