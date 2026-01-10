@@ -223,113 +223,21 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
-            # Run in isolated subprocess to avoid TF/Torch conflicts
             try:
-                import sys
-                import os
+                if self.config.gpu_ids is not None:
+                    import os
+                    gpus = self.config.gpu_ids
+                    if isinstance(gpus, int):
+                        gpus = [gpus]
+                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
+                    self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
                 
-                # FORCE CPU to avoid TF/DIPY GPU Import Segfaults.
-                self.logger.info("Forcing CPU execution for Synb0 to ensure stability (GPU disabled for this step).")
-                
-                # Prepare Environment for Subprocess
-                cmd_env = os.environ.copy()
-                cmd_env["CUDA_VISIBLE_DEVICES"] = "-1"
-                cmd_env["TF_CPP_MIN_LOG_LEVEL"] = "2" # Reduce TF spam
-                
-                self.logger.info(f"Running Synb0 estimation (isolated process) using {t1w_path.name}...")
-                
-                # Create temporary script for isolation
-                script_path = output_dir / "run_synb0_isolated.py"
-                # Use raw strings and proper escaping
-                script_content = f"""
-import os
-import sys
-import logging
-
-# CRITICAL: Prevent PyTorch from loading to avoid TF/Torch conflict (SegFault).
-# Even if not used directly, dipy.data might try to import it.
-try:
-    sys.modules['torch'] = None
-    sys.modules['dipy.nn.torch'] = None
-    sys.modules['dipy.nn.torch.deepn4'] = None
-except Exception: 
-    pass
-
-# Ensure we can import modules from the environment
-try:
-    print("DEBUG: Importing tensorflow...", file=sys.stderr, flush=True)
-    import tensorflow as tf
-    print(f"DEBUG: TensorFlow Version: {{tf.__version__}}", file=sys.stderr, flush=True)
-    
-    print("DEBUG: Importing dipy...", file=sys.stderr, flush=True)
-    import dipy
-    print(f"DEBUG: DIPY Version: {{dipy.__version__}}", file=sys.stderr, flush=True)
-
-    print("DEBUG: Importing dipy.nn.tf.synb0...", file=sys.stderr, flush=True)
-    import dipy.nn.tf.synb0  # Force TF import here in isolation
-    from dipy.nn.tf.synb0 import Synb0
-    print("DEBUG: Import successful.", file=sys.stderr, flush=True)
-
-except ImportError as e:
-    print(f"DEBUG: Import failed: {{e}}", file=sys.stderr, flush=True)
-    # Fallback for newer DIPY versions if structure changed, or try generic
-    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0", file=sys.stderr, flush=True)
-    import dipy.nn.synb0 as synb0_mod
-    Synb0 = synb0_mod.Synb0
-
-import nibabel as nib
-import numpy as np
-
-def run_synb0(b0_file, t1_file, out_file):
-    print(f"Loading files: {{b0_file}}, {{t1_file}}", file=sys.stderr, flush=True)
-    b0_img = nib.load(b0_file)
-    t1_img = nib.load(t1_file)
-    
-    b0_data = b0_img.get_fdata()
-    t1_data = t1_img.get_fdata()
-    
-    if b0_data.ndim == 4:
-        b0_data = b0_data[..., 0]
-        
-    print("Initializing model...", file=sys.stderr, flush=True)
-    # Initialize model (False = not verbose? or parallel? Synb0 init arg is 'verbose')
-    try:
-        SyNb0 = Synb0(verbose=False)
-        print("Model initialized.", file=sys.stderr, flush=True)
-    except TypeError:
-        print("Retrying init without verbose arg...", file=sys.stderr, flush=True)
-        SyNb0 = Synb0() 
-        print("Model initialized (fallback).", file=sys.stderr, flush=True)
-
-    print("Predicting...", file=sys.stderr, flush=True)
-    # Use config-like checks if needed, but hardcoded for now
-    rev_b0_data = SyNb0.predict(b0_data, t1_data)
-    print("Prediction done.", file=sys.stderr, flush=True)
-    
-    print(f"Saving to {{out_file}}", file=sys.stderr, flush=True)
-    nib.Nifti1Image(rev_b0_data, b0_img.affine, b0_img.header).to_filename(out_file)
-
-if __name__ == "__main__":
-    try:
-        run_synb0(
-            r"{str(b0_in_mni)}",
-            r"{str(t1w_norm_atlas)}",
-            r"{str(syn_b0_path)}"
-        )
-        print("Synb0 prediction complete.", file=sys.stderr, flush=True)
-    except Exception as e:
-        # Check for OOM or other massive errors
-        print(f"Error: {{e}}", file=sys.stderr, flush=True)
-        sys.exit(1)
-"""
-                with open(script_path, "w") as f:
-                    f.write(script_content)
-                    
-                # Execute
-                cmd = f"{sys.executable} {str(script_path)}"
-                # Pass the modified environment (Forced CPU)
-                run_cmd(cmd, env=cmd_env)
-                
+                self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
+                dipy.synb0_estimation(
+                    in_file=b0_in_mni,
+                    t1_file=t1w_norm_atlas,
+                    out_file=syn_b0_path
+                )
             except Exception as e:
                  raise ProcessingError(f"Synb0 estimation failed: {e}")
                  
