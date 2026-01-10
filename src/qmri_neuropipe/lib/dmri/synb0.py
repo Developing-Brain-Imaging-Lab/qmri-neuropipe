@@ -223,21 +223,82 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
+            # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
+            # Run in isolated subprocess to avoid TF/Torch conflicts
             try:
+                import sys
+                import os
+                
+                # Check for GPUs
                 if self.config.gpu_ids is not None:
-                    import os
                     gpus = self.config.gpu_ids
                     if isinstance(gpus, int):
                         gpus = [gpus]
                     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
                     self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
                 
-                self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
-                dipy.synb0_estimation(
-                    in_file=b0_in_mni,
-                    t1_file=t1w_norm_atlas,
-                    out_file=syn_b0_path
-                )
+                self.logger.info(f"Running Synb0 estimation (isolated process) using {t1w_path.name}...")
+                
+                # Create temporary script for isolation
+                script_path = output_dir / "run_synb0_isolated.py"
+                # Ensure we escape backslashes if on Windows, but paths are usually Posix here.
+                # Use raw string for paths to be safe.
+                script_content = f"""
+import os
+import sys
+import logging
+# Ensure we can import modules from the environment
+try:
+    import dipy.nn.tf.synb0  # Force TF import here in isolation
+    from dipy.nn.tf.synb0 import Synb0
+except ImportError:
+    # Fallback for newer DIPY versions if structure changed, or try generic
+    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0")
+    import dipy.nn.synb0 as synb0_mod
+    Synb0 = synb0_mod.Synb0
+
+import nibabel as nib
+import numpy as np
+
+def run_synb0(b0_file, t1_file, out_file):
+    print(f"Loading files: {{b0_file}}, {{t1_file}}")
+    b0_img = nib.load(b0_file)
+    t1_img = nib.load(t1_file)
+    
+    b0_data = b0_img.get_fdata()
+    t1_data = t1_img.get_fdata()
+    
+    if b0_data.ndim == 4:
+        b0_data = b0_data[..., 0]
+        
+    print("Initializing model...")
+    # Initialize model (False = not verbose? or parallel? Synb0 init arg is 'verbose')
+    SyNb0 = Synb0(verbose=False)
+    print("Predicting...")
+    rev_b0_data = SyNb0.predict(b0_data, t1_data)
+    
+    print(f"Saving to {{out_file}}")
+    nib.Nifti1Image(rev_b0_data, b0_img.affine, b0_img.header).to_filename(out_file)
+
+if __name__ == "__main__":
+    try:
+        run_synb0(
+            r"{str(b0_in_mni)}",
+            r"{str(t1w_norm_atlas)}",
+            r"{str(syn_b0_path)}"
+        )
+        print("Synb0 prediction complete.")
+    except Exception as e:
+        print(f"Error: {{e}}")
+        sys.exit(1)
+"""
+                with open(script_path, "w") as f:
+                    f.write(script_content)
+                    
+                # Execute
+                cmd = f"{sys.executable} {script_path}"
+                run_cmd(cmd, logger=self.logger)
+                
             except Exception as e:
                  raise ProcessingError(f"Synb0 estimation failed: {e}")
                  
