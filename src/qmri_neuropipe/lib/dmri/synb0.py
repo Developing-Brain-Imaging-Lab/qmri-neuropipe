@@ -257,23 +257,23 @@ except Exception:
 
 # Ensure we can import modules from the environment
 try:
-    print("DEBUG: Importing tensorflow...", flush=True)
+    print("DEBUG: Importing tensorflow...", file=sys.stderr, flush=True)
     import tensorflow as tf
-    print(f"DEBUG: TensorFlow Version: {{tf.__version__}}", flush=True)
+    print(f"DEBUG: TensorFlow Version: {{tf.__version__}}", file=sys.stderr, flush=True)
     
-    print("DEBUG: Importing dipy...", flush=True)
+    print("DEBUG: Importing dipy...", file=sys.stderr, flush=True)
     import dipy
-    print(f"DEBUG: DIPY Version: {{dipy.__version__}}", flush=True)
+    print(f"DEBUG: DIPY Version: {{dipy.__version__}}", file=sys.stderr, flush=True)
 
-    print("DEBUG: Importing dipy.nn.tf.synb0...", flush=True)
+    print("DEBUG: Importing dipy.nn.tf.synb0...", file=sys.stderr, flush=True)
     import dipy.nn.tf.synb0  # Force TF import here in isolation
     from dipy.nn.tf.synb0 import Synb0
-    print("DEBUG: Import successful.", flush=True)
+    print("DEBUG: Import successful.", file=sys.stderr, flush=True)
 
 except ImportError as e:
-    print(f"DEBUG: Import failed: {{e}}", flush=True)
+    print(f"DEBUG: Import failed: {{e}}", file=sys.stderr, flush=True)
     # Fallback for newer DIPY versions if structure changed, or try generic
-    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0", flush=True)
+    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0", file=sys.stderr, flush=True)
     import dipy.nn.synb0 as synb0_mod
     Synb0 = synb0_mod.Synb0
 
@@ -281,7 +281,7 @@ import nibabel as nib
 import numpy as np
 
 def run_synb0(b0_file, t1_file, out_file):
-    print(f"Loading files: {{b0_file}}, {{t1_file}}", flush=True)
+    print(f"Loading files: {{b0_file}}, {{t1_file}}", file=sys.stderr, flush=True)
     b0_img = nib.load(b0_file)
     t1_img = nib.load(t1_file)
     
@@ -291,21 +291,22 @@ def run_synb0(b0_file, t1_file, out_file):
     if b0_data.ndim == 4:
         b0_data = b0_data[..., 0]
         
-    print("Initializing model...", flush=True)
+    print("Initializing model...", file=sys.stderr, flush=True)
     # Initialize model (False = not verbose? or parallel? Synb0 init arg is 'verbose')
     try:
         SyNb0 = Synb0(verbose=False)
-        print("Model initialized.", flush=True)
+        print("Model initialized.", file=sys.stderr, flush=True)
     except TypeError:
-        print("Retrying init without verbose arg...", flush=True)
+        print("Retrying init without verbose arg...", file=sys.stderr, flush=True)
         SyNb0 = Synb0() 
-        print("Model initialized (fallback).", flush=True)
+        print("Model initialized (fallback).", file=sys.stderr, flush=True)
 
-    print("Predicting...", flush=True)
+    print("Predicting...", file=sys.stderr, flush=True)
+    # Use config-like checks if needed, but hardcoded for now
     rev_b0_data = SyNb0.predict(b0_data, t1_data)
-    print("Prediction done.", flush=True)
+    print("Prediction done.", file=sys.stderr, flush=True)
     
-    print(f"Saving to {{out_file}}", flush=True)
+    print(f"Saving to {{out_file}}", file=sys.stderr, flush=True)
     nib.Nifti1Image(rev_b0_data, b0_img.affine, b0_img.header).to_filename(out_file)
 
 if __name__ == "__main__":
@@ -315,9 +316,10 @@ if __name__ == "__main__":
             r"{str(t1w_norm_atlas)}",
             r"{str(syn_b0_path)}"
         )
-        print("Synb0 prediction complete.", flush=True)
+        print("Synb0 prediction complete.", file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"Error: {{e}}", flush=True)
+        # Check for OOM or other massive errors
+        print(f"Error: {{e}}", file=sys.stderr, flush=True)
         sys.exit(1)
 """
                 with open(script_path, "w") as f:
