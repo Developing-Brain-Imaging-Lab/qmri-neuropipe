@@ -245,6 +245,16 @@ class Synb0EstimationStep(BaseProcessingStep):
 import os
 import sys
 import logging
+
+# CRITICAL: Prevent PyTorch from loading to avoid TF/Torch conflict (SegFault).
+# Even if not used directly, dipy.data might try to import it.
+try:
+    sys.modules['torch'] = None
+    sys.modules['dipy.nn.torch'] = None
+    sys.modules['dipy.nn.torch.deepn4'] = None
+except Exception: 
+    pass
+
 # Ensure we can import modules from the environment
 try:
     import dipy.nn.tf.synb0  # Force TF import here in isolation
