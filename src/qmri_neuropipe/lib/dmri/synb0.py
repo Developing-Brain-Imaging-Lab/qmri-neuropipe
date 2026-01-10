@@ -257,11 +257,23 @@ except Exception:
 
 # Ensure we can import modules from the environment
 try:
+    print("DEBUG: Importing tensorflow...", flush=True)
+    import tensorflow as tf
+    print(f"DEBUG: TensorFlow Version: {{tf.__version__}}", flush=True)
+    
+    print("DEBUG: Importing dipy...", flush=True)
+    import dipy
+    print(f"DEBUG: DIPY Version: {{dipy.__version__}}", flush=True)
+
+    print("DEBUG: Importing dipy.nn.tf.synb0...", flush=True)
     import dipy.nn.tf.synb0  # Force TF import here in isolation
     from dipy.nn.tf.synb0 import Synb0
-except ImportError:
+    print("DEBUG: Import successful.", flush=True)
+
+except ImportError as e:
+    print(f"DEBUG: Import failed: {{e}}", flush=True)
     # Fallback for newer DIPY versions if structure changed, or try generic
-    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0")
+    print("Warning: dipy.nn.tf.synb0 not found, trying dipy.nn.synb0", flush=True)
     import dipy.nn.synb0 as synb0_mod
     Synb0 = synb0_mod.Synb0
 
@@ -269,7 +281,7 @@ import nibabel as nib
 import numpy as np
 
 def run_synb0(b0_file, t1_file, out_file):
-    print(f"Loading files: {{b0_file}}, {{t1_file}}")
+    print(f"Loading files: {{b0_file}}, {{t1_file}}", flush=True)
     b0_img = nib.load(b0_file)
     t1_img = nib.load(t1_file)
     
@@ -279,17 +291,21 @@ def run_synb0(b0_file, t1_file, out_file):
     if b0_data.ndim == 4:
         b0_data = b0_data[..., 0]
         
-    print("Initializing model...")
+    print("Initializing model...", flush=True)
     # Initialize model (False = not verbose? or parallel? Synb0 init arg is 'verbose')
     try:
         SyNb0 = Synb0(verbose=False)
+        print("Model initialized.", flush=True)
     except TypeError:
-        SyNb0 = Synb0() # Fallback if signature differs
+        print("Retrying init without verbose arg...", flush=True)
+        SyNb0 = Synb0() 
+        print("Model initialized (fallback).", flush=True)
 
-    print("Predicting...")
+    print("Predicting...", flush=True)
     rev_b0_data = SyNb0.predict(b0_data, t1_data)
+    print("Prediction done.", flush=True)
     
-    print(f"Saving to {{out_file}}")
+    print(f"Saving to {{out_file}}", flush=True)
     nib.Nifti1Image(rev_b0_data, b0_img.affine, b0_img.header).to_filename(out_file)
 
 if __name__ == "__main__":
@@ -299,9 +315,9 @@ if __name__ == "__main__":
             r"{str(t1w_norm_atlas)}",
             r"{str(syn_b0_path)}"
         )
-        print("Synb0 prediction complete.")
+        print("Synb0 prediction complete.", flush=True)
     except Exception as e:
-        print(f"Error: {{e}}")
+        print(f"Error: {{e}}", flush=True)
         sys.exit(1)
 """
                 with open(script_path, "w") as f:
