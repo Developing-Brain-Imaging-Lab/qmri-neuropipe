@@ -296,8 +296,8 @@ if __name__ == "__main__":
                     f.write(script_content)
                     
                 # Execute
-                cmd = f"{sys.executable} {script_path}"
-                run_cmd(cmd, logger=self.logger)
+                cmd = f"{sys.executable} {str(script_path)}" # Ensure path is str
+                run_cmd(cmd)
                 
             except Exception as e:
                  raise ProcessingError(f"Synb0 estimation failed: {e}")
