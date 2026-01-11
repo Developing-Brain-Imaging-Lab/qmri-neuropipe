@@ -254,6 +254,11 @@ def main(
         "--omp-nthreads",
         help="Number of OpenMP threads"
     ),
+    gpu_ids: Optional[str] = typer.Option(
+        None,
+        "--gpu-ids",
+        help="GPU IDs to use (e.g. '0' or '0,1')"
+    ),
     
     # Execution control
     skip_existing: Optional[bool] = typer.Option(
@@ -346,6 +351,15 @@ def main(
     """
     
     try:
+        # Parse gpu_ids
+        gpu_ids_list = None
+        if gpu_ids is not None:
+            try:
+                gpu_ids_list = [int(x.strip()) for x in gpu_ids.split(',')]
+            except ValueError:
+                console.print(f"[bold red]Error:[/bold red] Invalid gpu_ids format: {gpu_ids}. Expected comma-separated integers.")
+                raise typer.Exit(code=1)
+
         # Collect CLI arguments (only non-None values)
         # Note: pipeline and level are NOT part of PipelineConfig dataclass
         # They control which workflow runs, not how it runs
@@ -359,6 +373,8 @@ def main(
             'n_cpus': n_cpus,
             'memory_gb': memory_gb,
             'use_gpu': use_gpu,
+            'gpu_ids': gpu_ids_list,
+            'omp_nthreads': omp_nthreads,
             'skip_existing': skip_existing,
             'stop_on_error': stop_on_error,
             'log_level': log_level,
