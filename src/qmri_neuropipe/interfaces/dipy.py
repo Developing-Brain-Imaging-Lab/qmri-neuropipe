@@ -349,6 +349,7 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     fit_kwargs.pop('nthreads', None)
     fit_kwargs.pop('smoothing_fwhm', None)
     fit_kwargs.pop('grad_nonlin', None)
+    fit_kwargs.pop('sub_method', None)  # Fix for NLLS/WLLS not accepting sub_method
     
     # Handle Legacy defaults
     if fit_method != 'RESTORE' and 'return_leverages' not in fit_kwargs:
