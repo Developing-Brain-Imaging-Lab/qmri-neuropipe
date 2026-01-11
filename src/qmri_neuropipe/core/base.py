@@ -939,28 +939,9 @@ queue sub,ses from {subjects_file}
         #             self.logger.error("Stopping pipeline due to error")
         #             break
         
-        # Generate summary
-        total = n_success + n_failed + n_skipped
-        self.logger.info("=" * 60)
-        self.logger.info(f"Pipeline execution summary:")
-        self.logger.info(f"  Total subjects/sessions: {total}")
-        self.logger.info(f"  Successfully processed: {n_success}")
-        self.logger.info(f"  Failed: {n_failed}")
-        self.logger.info(f"  Skipped (existing): {n_skipped}")
+
         
-        if failed_subjects:
-            self.logger.warning(f"Failed subjects: {', '.join(failed_subjects)}")
-        
-        self.logger.info("=" * 60)
-        
-        # Save final provenance
-        self.provenance.save()
-        
-        # Exit with error code if any failures
-        if n_failed > 0:
-            raise PipelineError(
-                f"Pipeline completed with {n_failed} failed subjects/sessions"
-            )
+
     
     def _setup_logging(self) -> logging.Logger:
         """
