@@ -952,23 +952,7 @@ getenv = True
         self.logger.info(f"Generated HTCondor submit file: {submit_file}")
         self.logger.info(f"To submit, run: condor_submit {submit_file}")
                 
-        #         n_success += 1
-        #         self.logger.info(
-        #             f"Successfully processed {subject}{sessions}"
-        #         )
-                
-        #     except Exception as e:
-        #         n_failed += 1
-        #         failed_subjects.append(f"{subject}{sessions}")
-        #         self.logger.error(
-        #             f"Failed to process {subject}{sessions}: {e}",
-        #             exc_info=self.config.get('debug', False)
-        #         )
-                
-        #         # Continue with next subject unless configured to stop
-        #         if self.config.get('stop_on_error', False):
-        #             self.logger.error("Stopping pipeline due to error")
-        #             break
+
         
 
         
