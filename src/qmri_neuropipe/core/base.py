@@ -891,6 +891,17 @@ class BasePipeline(ABC):
 
         # Write subjects file with optional GPU assignment
         gpu_ids = self.config.gpu_ids
+        if gpu_ids is not None:
+             if isinstance(gpu_ids, int):
+                 gpu_ids = [gpu_ids]
+             elif isinstance(gpu_ids, str):
+                 try:
+                     gpu_ids = [int(x.strip()) for x in gpu_ids.split(',')]
+                 except ValueError:
+                     self.logger.warning(f"Could not parse gpu_ids string: {gpu_ids}")
+                     # Fallback to None or keep as string which might fail later? 
+                     # Better to set to None or handle gracefully.
+                     gpu_ids = None
         
         with open(subjects_file, "w") as f:
             for i, (sub, ses) in enumerate(subjects_entries):
