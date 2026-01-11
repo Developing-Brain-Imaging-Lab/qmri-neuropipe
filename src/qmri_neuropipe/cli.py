@@ -300,6 +300,15 @@ def main(
         "--jobs", "-j",
         help="Number of parallel jobs (subjects) to run locally"
     ),
+    subjects_file: Optional[Path] = typer.Option(
+        None,
+        "--subjects-file",
+        help="Path to text file containing 'subject,session' list (for HTCondor submission)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True
+    ),
     submit: bool = typer.Option(
         False,
         "--submit",
@@ -346,6 +355,7 @@ def main(
             'work_dir': work_dir,
             'participant_label': participant_label,
             'session_label': session_label,
+            'subjects_file': subjects_file,
             'n_cpus': n_cpus,
             'memory_gb': memory_gb,
             'use_gpu': use_gpu,

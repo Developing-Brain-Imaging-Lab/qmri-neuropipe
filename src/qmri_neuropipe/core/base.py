@@ -873,16 +873,22 @@ class BasePipeline(ABC):
         self.config.save(config_path)
         
         # Write subjects file
-        with open(subjects_file, "w") as f:
-            for sub, ses in data:
-                # Format: sub,ses (or just sub if no ses)
-                # But CLI expects -p sub -s ses.
-                # If ses is None, passing -s None might be weird.
-                # Adjust arguments in submit file logic below.
-                if ses:
-                    f.write(f"{sub},{ses}\n")
-                else:
-                    f.write(f"{sub},\n") # Trailing comma for 2 args?
+        if self.config.subjects_file and self.config.subjects_file.exists():
+            self.logger.info(f"Using custom subjects list from: {self.config.subjects_file}")
+            # We assume the user provided file is in "sub,ses" format (CSV-like)
+            import shutil
+            shutil.copy(self.config.subjects_file, subjects_file)
+        else:
+            with open(subjects_file, "w") as f:
+                for sub, ses in data:
+                    # Format: sub,ses (or just sub if no ses)
+                    # But CLI expects -p sub -s ses.
+                    # If ses is None, passing -s None might be weird.
+                    # Adjust arguments in submit file logic below.
+                    if ses:
+                        f.write(f"{sub},{ses}\n")
+                    else:
+                        f.write(f"{sub},\n") # Trailing comma for 2 args?
         
         # Construct submit content
         # Note: We assume qmri-neuropipe is in PATH or use absolute path

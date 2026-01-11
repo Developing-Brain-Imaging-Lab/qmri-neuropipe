@@ -75,6 +75,7 @@ class PipelineConfig:
     # Subject/session selection
     participant_label: Optional[List[str]] = None
     session_label: Optional[List[str]] = None
+    subjects_file: Optional[Path] = None
     
     # Computational resources
     n_cpus: int = 1
@@ -107,6 +108,8 @@ class PipelineConfig:
             self.output_dir = Path(self.output_dir)
         if self.work_dir and not isinstance(self.work_dir, Path):
             self.work_dir = Path(self.work_dir)
+        if self.subjects_file and not isinstance(self.subjects_file, Path):
+            self.subjects_file = Path(self.subjects_file)
         
         # Set work_dir to output_dir/work if not specified
         if self.work_dir is None and self.output_dir:
@@ -161,6 +164,7 @@ class PipelineConfig:
             'work_dir': config_data.get('work_dir'),
             'participant_label': config_data.get('participant_label'),
             'session_label': config_data.get('session_label'),
+            'subjects_file': config_data.get('subjects_file'),
             'n_cpus': config_data.get('n_cpus', 1),
             'memory_gb': config_data.get('memory_gb', 8.0),
             'use_gpu': config_data.get('use_gpu', False),
@@ -326,6 +330,7 @@ class PipelineConfig:
             'work_dir': str(self.work_dir) if self.work_dir else None,
             'participant_label': self.participant_label,
             'session_label': self.session_label,
+            'subjects_file': str(self.subjects_file) if self.subjects_file else None,
             'n_cpus': self.n_cpus,
             'memory_gb': self.memory_gb,
             'use_gpu': self.use_gpu,
