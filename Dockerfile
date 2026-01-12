@@ -39,7 +39,7 @@ RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Minif
     bash /tmp/miniforge.sh -b -p $CONDA_DIR && \
     rm /tmp/miniforge.sh && \
     mamba install -y -c mrtrix3 -c conda-forge mrtrix3 python=3.10 pip && \
-    mamba clean --all --yes
+    conda clean --all --yes
 
 # --------------------------------------------------------------------------------
 # 3. FSL (Manual Install)

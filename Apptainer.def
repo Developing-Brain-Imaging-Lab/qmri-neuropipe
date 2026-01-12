@@ -36,7 +36,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # Use mamba (included in Miniforge) for better dependency resolution
     # Explicitly specify channels to help the solver
     mamba install -y -c mrtrix3 -c conda-forge mrtrix3 python=3.10 pip
-    mamba clean --all --yes
+    conda clean --all --yes
 
     # --------------------------------------------------------------------------------
     # 3. FSL (Manual Install)
