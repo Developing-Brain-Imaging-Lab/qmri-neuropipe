@@ -1,0 +1,68 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author Dean
+    Version 0.0.1
+    Description qmri-neuropipe container
+    License MIT
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # --------------------------------------------------------------------------------
+    # 1. System Dependencies
+    # --------------------------------------------------------------------------------
+    apt-get update && apt-get install -y \
+        wget curl gnupg software-properties-common git build-essential \
+        python3 python3-pip python3-venv \
+        zlib1g-dev bc dc file libfontconfig1 libfreetype6 \
+        libgl1-mesa-dev libgl1-mesa-dri libglu1-mesa-dev libgomp1 \
+        libice6 libxcursor1 libxft2 libxinerama1 libxrandr2 \
+        libxrender1 libxt6 sudo
+
+    # --------------------------------------------------------------------------------
+    # 2. NeuroDebian (FSL, MRtrix3)
+    # --------------------------------------------------------------------------------
+    wget -O- http://neuro.debian.net/lists/jammy.us-nh.full | tee /etc/apt/sources.list.d/neurodebian.sources.list
+    apt-key adv --recv-keys --keyserver hkps://keyserver.ubuntu.com 0xA5D32F012649A5A9
+    
+    apt-get update && apt-get install -y fsl-core mrtrix3
+
+    # --------------------------------------------------------------------------------
+    # 3. Convert3D (C3D)
+    # --------------------------------------------------------------------------------
+    mkdir -p /opt/c3d
+    wget https://sourceforge.net/projects/c3d/files/c3d/1.0.0/c3d-1.0.0-Linux-x86_64.tar.gz/download -O /tmp/c3d.tar.gz
+    tar -xzf /tmp/c3d.tar.gz -C /opt/c3d --strip-components=1
+    rm /tmp/c3d.tar.gz
+
+    # --------------------------------------------------------------------------------
+    # 4. FreeSurfer (Optional/Placeholder)
+    # --------------------------------------------------------------------------------
+    # Refer to Dockerfile for download URLs if full install is needed.
+    # mkdir -p /opt/freesurfer
+
+    # --------------------------------------------------------------------------------
+    # 5. Python Package
+    # --------------------------------------------------------------------------------
+    cd /app
+    pip3 install --upgrade pip
+    pip3 install ".[all]"
+
+%files
+    # Copy current directory (the repo) to /app inside container
+    . /app
+
+%environment
+    export FSLDIR=/usr/share/fsl/5.0
+    export PATH=$FSLDIR/bin:$PATH
+    export FSLOUTPUTTYPE=NIFTI_GZ
+    export C3DPATH=/opt/c3d/bin
+    export PATH=$C3DPATH:$PATH
+    export LC_ALL=C
+    # export FREESURFER_HOME=/opt/freesurfer
+    # export PATH=$FREESURFER_HOME/bin:$PATH
+
+%runscript
+    exec qmri-neuropipe "$@"

@@ -257,7 +257,6 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
-            # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
             try:
                 # Prepare arguments
                 gpu_ids = self.config.gpu_ids
@@ -303,9 +302,7 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   interpolator="nearestNeighbor")
 
 
-            #Apply mask to synthetic and real b0
-            #run_cmd(f"fslmaths {syn_b0_native_path} -mas {t1w_mask_2_dwi} {syn_b0_native_path}")
-            #run_cmd(f"fslmaths {b0_path} -mas {t1w_mask_2_dwi} {b0_path}")
+
             
             #Force 4D for syn_b0_native
             img_syn = nib.load(str(syn_b0_native_path))
@@ -327,11 +324,7 @@ class Synb0EstimationStep(BaseProcessingStep):
             
             real_pe = real_meta.get("PhaseEncodingDirection", "j-")
             
-            # Invert PE
-            # if real_pe.endswith("-"):
-            #     syn_pe = real_pe.rstrip("-")
-            # else:
-            #     syn_pe = real_pe + "-"
+
                 
             syn_meta = {
                 "PhaseEncodingDirection": real_pe,

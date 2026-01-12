@@ -19,7 +19,6 @@ from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
 from qmri_neuropipe.lib.dmri.grad_nonlin import TortoiseGradNonlinCorrectStep
 from qmri_neuropipe.lib.common.registration import CoregistrationStep
 from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
-from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
 from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
 from qmri_neuropipe.lib.dmri.merge import MergeStep
 
@@ -76,7 +75,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         # 0. Gradient Check (Initial Data Verification)
         # New config key: dmri.preprocessing.grad_check.enabled
-        # from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep # Moved to top-level imports
+
         grad_check_cfg = dmri_cfg.get('grad_check', {})
         if grad_check_cfg.get('enabled', False):
             self.logger.info("Adding GradientCheckStep (initial verification)...")
