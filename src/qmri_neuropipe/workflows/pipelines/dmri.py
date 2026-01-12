@@ -2012,6 +2012,20 @@ class DMRIPipeline(BasePipeline):
             preprocessed_context['preprocessed_dwis'] = [loaded_dwi]
             preprocessed_context['preprocessed_masks'] = [loaded_mask]
             
+            # Recover GNL Map if it exists (for modeling)
+            # We look for *desc-gnl_tensor* in the output directory
+            gnl_candidates = list(output_dir.glob(f"sub-{subject}*_desc-gnl_tensor*.nii.gz"))
+            if gnl_candidates:
+                 # Pick the one matching session if present
+                 match = gnl_candidates[0]
+                 if session:
+                      # prioritize one that has ses-{session}
+                      ses_matches = [g for g in gnl_candidates if f"ses-{session}" in g.name]
+                      if ses_matches: match = ses_matches[0]
+                 
+                 self.logger.info(f"Recovered GNL Tensor Map for modeling: {match.name}")
+                 preprocessed_context['gnl_map'] = match
+            
             if reporter:
                 # 0. Reporting: Inputs (Matches PreprocessingWorkflow.run logic)
                 if dwi_files:
@@ -2174,6 +2188,14 @@ class DMRIPipeline(BasePipeline):
                 )
                 updated_dwis.append(updated_dwi_obj)
                 updated_masks.append(new_mask_obj)
+            
+            # --- Save GNL Map if present ---
+            gnl_map = preprocessed_context.get("gnl_map")
+            if gnl_map and isinstance(gnl_map, Path) and gnl_map.exists():
+                 dest_gnl = dwi_final_dir / gnl_map.name
+                 self.logger.info(f"Saving final GNL Tensor Map: {dest_gnl}")
+                 shutil.copy(gnl_map, dest_gnl)
+            # -------------------------------
                 
             # Update context with the relocated files
             preprocessed_context['preprocessed_dwis'] = updated_dwis

@@ -915,11 +915,11 @@ class BasePipeline(ABC):
         # Construct submit content
         req_gpus = ""
         gpu_arg = ""
-        queue_line = "queue sub,ses from {subjects_file}"
+        queue_line = f"queue sub,ses from {subjects_file}"
         
         if gpu_ids:
             gpu_arg = " --gpu-ids $(gpu)"
-            queue_line = "queue sub,ses,gpu from {subjects_file}"
+            queue_line = f"queue sub,ses,gpu from {subjects_file}"
             # Note: We do NOT set request_gpus here to avoid Condor masking devices
             # This assumes the user wants manual control over specific device IDs
         elif self.config.use_gpu:
