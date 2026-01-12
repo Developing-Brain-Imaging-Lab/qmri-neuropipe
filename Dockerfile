@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     bc \
     dc \
     file \
+    libxkbcommon0 \
+    libdbus-1-3 \
     && rm -rf /var/lib/apt/lists/*
 
 # --------------------------------------------------------------------------------
@@ -36,9 +38,8 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /tmp/miniforge.sh && \
     bash /tmp/miniforge.sh -b -p $CONDA_DIR && \
     rm /tmp/miniforge.sh && \
-    conda config --add channels mrtrix3 && \
-    conda install -y mrtrix3 python=3.10 pip && \
-    conda clean --all --yes
+    mamba install -y -c mrtrix3 -c conda-forge mrtrix3 python=3.10 pip && \
+    mamba clean --all --yes
 
 # --------------------------------------------------------------------------------
 # 3. FSL (Manual Install)

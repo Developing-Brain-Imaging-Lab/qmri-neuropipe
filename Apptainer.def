@@ -17,7 +17,9 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         wget curl gnupg git build-essential \
         libgl1-mesa-dev libfontconfig1 libfreetype6 \
         libxrender1 libxext6 libsm6 sudo \
-        bc dc file
+        bc dc file \
+        libxkbcommon0 \
+        libdbus-1-3
 
     # --------------------------------------------------------------------------------
     # 2. Miniforge & MRtrix3 & Python Env
@@ -30,10 +32,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     bash /tmp/miniforge.sh -b -p $CONDA_DIR
     rm /tmp/miniforge.sh
     
-    # Miniforge already sets conda-forge as priority. Just add mrtrix3.
-    conda config --add channels mrtrix3
-    conda install -y mrtrix3 python=3.10 pip
-    conda clean --all --yes
+    # Miniforge already sets conda-forge as priority. 
+    # Use mamba (included in Miniforge) for better dependency resolution
+    # Explicitly specify channels to help the solver
+    mamba install -y -c mrtrix3 -c conda-forge mrtrix3 python=3.10 pip
+    mamba clean --all --yes
 
     # --------------------------------------------------------------------------------
     # 3. FSL (Manual Install)
