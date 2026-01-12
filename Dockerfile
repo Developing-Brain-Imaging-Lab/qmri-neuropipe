@@ -28,15 +28,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # --------------------------------------------------------------------------------
-# 2. Miniconda & MRtrix3 & Python Env
+# 2. Miniforge & MRtrix3 & Python Env
 # --------------------------------------------------------------------------------
 ENV CONDA_DIR=/opt/conda
 ENV PATH=$CONDA_DIR/bin:$PATH
 
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
-    rm /tmp/miniconda.sh && \
-    conda config --add channels conda-forge && \
+RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /tmp/miniforge.sh && \
+    bash /tmp/miniforge.sh -b -p $CONDA_DIR && \
+    rm /tmp/miniforge.sh && \
     conda config --add channels mrtrix3 && \
     conda install -y mrtrix3 python=3.10 pip && \
     conda clean --all --yes
