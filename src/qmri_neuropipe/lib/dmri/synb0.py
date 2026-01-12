@@ -18,6 +18,40 @@ from ...core.types import ImageFile, DWIFile, ImageLike
 from ...interfaces import dipy, freesurfer, fsl, c3d, ants
 from ..common.mask import mask_brain    
 from ...io.bids import build_bids_name
+import multiprocessing
+import sys
+import traceback
+
+def _run_synb0_worker(in_file, t1_file, out_file, gpu_ids=None):
+    """
+    Worker function to run Synb0 estimation in a separate process.
+    This ensures GPU memory is released when the process terminates.
+    """
+    try:
+        # Set CUDA_VISIBLE_DEVICES if provided
+        if gpu_ids is not None:
+             import os
+             gpus = gpu_ids
+             if isinstance(gpus, int):
+                 gpus = [gpus]
+             os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
+             print(f"Synb0 Worker: Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+        
+        # Import inside the worker process to avoid initializing TF in main process
+        from ...interfaces import dipy
+        
+        print(f"Synb0 Worker: Running estimation...")
+        dipy.synb0_estimation(
+            in_file=in_file,
+            t1_file=t1_file,
+            out_file=out_file
+        )
+        print("Synb0 Worker: Finished successfully.")
+        
+    except Exception:
+        print("Synb0 Worker failed with error:")
+        traceback.print_exc()
+        sys.exit(1)
 
 class Synb0EstimationStep(BaseProcessingStep):
     """
@@ -223,23 +257,31 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   
     
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
+            # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
             try:
-                if self.config.gpu_ids is not None:
-                    import os
-                    gpus = self.config.gpu_ids
-                    if isinstance(gpus, int):
-                        gpus = [gpus]
-                    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, gpus))
-                    self.logger.info(f"Setting CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']}")
+                # Prepare arguments
+                gpu_ids = self.config.gpu_ids
                 
-                self.logger.info(f"Running Synb0 estimation (using {t1w_path.name})...")
-                dipy.synb0_estimation(
-                    in_file=b0_in_mni,
-                    t1_file=t1w_norm_atlas,
-                    out_file=syn_b0_path
+                self.logger.info(f"Launching Synb0 estimation in a separate process to manage GPU memory...")
+                
+                # Launch process
+                p = multiprocessing.Process(
+                    target=_run_synb0_worker,
+                    kwargs={
+                        'in_file': b0_in_mni,
+                        't1_file': t1w_norm_atlas, 
+                        'out_file': syn_b0_path,
+                        'gpu_ids': gpu_ids
+                    }
                 )
+                p.start()
+                p.join()
+                
+                if p.exitcode != 0:
+                    raise ProcessingError(f"Synb0 estimation subprocess failed with exit code {p.exitcode}")
+                
             except Exception as e:
-                 raise ProcessingError(f"Synb0 estimation failed: {e}")
+                 raise ProcessingError(f"Synb0 estimation execution failed: {e}")
                  
             #Now inverse warp the synthetic to native b0 space
             # Chain: Synthetic -> T1w -> DWI 
