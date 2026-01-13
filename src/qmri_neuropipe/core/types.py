@@ -19,13 +19,17 @@ class ImageFile:
 class DWIFile(ImageFile):
     bval: Optional[Path] = None
     bvec: Optional[Path] = None
+    Delta: Optional[Path] = None
+    delta: Optional[Path] = None
 
     def __repr__(self) -> str:
         ents = ",".join(f"{k}-{v}" for k, v in self.entities.items())
         return (
             f"DWIFile({ents}, img={self.img.name}, "
             f"bval={self.bval.name if self.bval else None}, "
-            f"bvec={self.bvec.name if self.bvec else None})"
+            f"bvec={self.bvec.name if self.bvec else None}, "
+            f"Delta={self.Delta.name if self.Delta else None}, "
+            f"delta={self.delta.name if self.delta else None})"
         )
     
 

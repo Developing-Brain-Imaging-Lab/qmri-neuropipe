@@ -70,6 +70,8 @@ class MergeStep(BaseProcessingStep):
         out_nii = merge_dir / out_name
         out_bval = out_nii.with_suffix("").with_suffix(".bval")
         out_bvec = out_nii.with_suffix("").with_suffix(".bvec")
+        out_Delta = merge_dir / (out_name.replace(".nii.gz", ".Delta"))
+        out_delta = merge_dir / (out_name.replace(".nii.gz", ".delta"))
         out_index = merge_dir / "index.txt"
         
         out_acqp = merge_dir / "acqparams.txt"
@@ -84,7 +86,9 @@ class MergeStep(BaseProcessingStep):
                 entities=ents,
                 bval=out_bval,
                 bvec=out_bvec,
-                json=first_dwi.json # Approximate JSON from first file
+                json=first_dwi.json, # Approximate JSON from first file
+                Delta=out_Delta if out_Delta.exists() else None,
+                delta=out_delta if out_delta.exists() else None
             )
             
             # Update context
@@ -104,9 +108,11 @@ class MergeStep(BaseProcessingStep):
         in_imgs = [d.img for d in dwi_files]
         fsl.merge(in_files=in_imgs, out_file=out_nii)
         
-        # 2. Merge Bvals/Bvecs
+        # 2. Merge Bvals/Bvecs/Deltas/deltas
         bvals = []
         bvecs = []
+        Deltas = []
+        deltas = []
         
         # 3. Build Index
         # We need to assign an index ID to each volume.
@@ -141,6 +147,26 @@ class MergeStep(BaseProcessingStep):
                 # Check shape (3, N) or (N, 3)
                 if bc.shape[0] != 3: bc = bc.T
                 bvecs.append(bc)
+                
+                # Check for Delta/delta
+                if d.Delta and d.Delta.exists():
+                    D = np.loadtxt(d.Delta)
+                    if D.ndim == 0: D = np.array([D])
+                    if D.size == 1 and n_vols > 1:
+                         # Broadcast scalar to all volumes
+                         D = np.repeat(D, n_vols)
+                    elif D.size != n_vols:
+                         self.logger.warning(f"Delta file size {D.size} mismatch with bvals {n_vols} for {d.img.name}")
+                    Deltas.append(D)
+                    
+                if d.delta and d.delta.exists():
+                    d_s = np.loadtxt(d.delta)
+                    if d_s.ndim == 0: d_s = np.array([d_s])
+                    if d_s.size == 1 and n_vols > 1:
+                         d_s = np.repeat(d_s, n_vols)
+                    elif d_s.size != n_vols:
+                         self.logger.warning(f"delta file size {d_s.size} mismatch with bvals {n_vols} for {d.img.name}")
+                    deltas.append(d_s)
                 
                 # Identify acqp for this file
                 # Use PhaseEncodingDirection and TotalReadoutTime from JSON
@@ -198,12 +224,28 @@ class MergeStep(BaseProcessingStep):
             except Exception as e:
                 raise ProcessingError(f"Failed to parse bval/bvec/json for {d.img}: {e}")
                 
-        # Save merged bval/bvec
+        # Save merged bval/bvec/Delta/delta
         final_bval = np.concatenate(bvals)
         final_bvec = np.concatenate(bvecs, axis=1) # (3, N_total)
         
         np.savetxt(out_bval, final_bval, fmt='%g')
         np.savetxt(out_bvec, final_bvec, fmt='%.6f')
+        
+        if Deltas:
+             if len(Deltas) == len(dwi_files): # Ensure all had it if any
+                 final_Delta = np.concatenate(Deltas)
+                 np.savetxt(out_Delta, final_Delta, fmt='%g')
+             else:
+                 self.logger.warning("Inconsistent Delta files across inputs. Merged Delta file not created.")
+                 out_Delta = None # Prevent saving path to DWIFile
+                 
+        if deltas:
+             if len(deltas) == len(dwi_files):
+                 final_delta = np.concatenate(deltas)
+                 np.savetxt(out_delta, final_delta, fmt='%g')
+             else:
+                 self.logger.warning("Inconsistent delta files across inputs. Merged delta file not created.")
+                 out_delta = None
         
         # Save index
         np.savetxt(out_index, np.array(full_index), fmt='%d', newline=' ') # space separated row? FSL usually accepts col or row.
@@ -222,7 +264,9 @@ class MergeStep(BaseProcessingStep):
             entities=ents,
             bval=out_bval,
             bvec=out_bvec,
-            json=first_dwi.json
+            json=first_dwi.json,
+            Delta=out_Delta if out_Delta and out_Delta.exists() else None,
+            delta=out_delta if out_delta and out_delta.exists() else None
         )
         
         context["dwi_files"] = [merged_dwi]

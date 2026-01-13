@@ -38,6 +38,8 @@ def bids_find_dwi(root) -> list[DWIFile]:
         json_path = _sidecar(img, ".json")
         bval_path = _sidecar(img, ".bval")
         bvec_path = _sidecar(img, ".bvec")
+        Delta_path = _sidecar(img, ".Delta")
+        delta_path = _sidecar(img, ".delta")
 
         dwi = DWIFile(
             entities=ent,
@@ -45,6 +47,8 @@ def bids_find_dwi(root) -> list[DWIFile]:
             json=json_path if json_path.exists() else None,
             bval=bval_path if bval_path.exists() else None,
             bvec=bvec_path if bvec_path.exists() else None,
+            Delta=Delta_path if Delta_path.exists() else None,
+            delta=delta_path if delta_path.exists() else None,
         )
         results.append(dwi)
 

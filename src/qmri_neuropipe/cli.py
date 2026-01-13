@@ -477,24 +477,106 @@ def main(
         console.print(f"\n[blue]Loading BIDS dataset from:[/blue] {config.bids_dir}")
         loader = DataLoader(config.bids_dir)
         
-        # Create and run pipeline
-        console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
-        if pipeline_name == 'dmri':
-            from .workflows.pipelines.dmri import DMRIPipeline
-            pipeline_obj = DMRIPipeline(config)
-        elif pipeline_name == 'anat':
-            from .workflows.pipelines.anat import AnatPipeline
-            pipeline_obj = AnatPipeline(config)
-        else:
-            raise ConfigurationError(
-                f"Unsupported pipeline: {pipeline_name}",
-                details=f"Available pipelines: dmri, anat"
-            )
+        # Determine subjects/sessions to process
+        subjects_to_run = config.participant_label
+        sessions_to_run = config.session_label
+
+        # If parallel execution requested
+        if jobs > 1 and not submit:
+             console.print(f"\n[bold blue]Running in PARALLEL mode with {jobs} workers.[/bold blue]")
+             
+             # 1. Get List of Tasks (Subject/Session pairs)
+             tasks = []
+             
+             if subjects_to_run:
+                  # CLI/Config explicit subjects
+                  all_subs = subjects_to_run
+                  for sub in all_subs:
+                      if sessions_to_run:
+                           for ses in sessions_to_run:
+                                tasks.append((sub, ses))
+                      else:
+                           tasks.append((sub, None))
+                           
+             elif subjects_file and subjects_file.exists():
+                  # Subjects File (Explicit pairs)
+                  console.print(f"Reading subjects from file: {subjects_file}")
+                  with open(subjects_file, 'r') as f:
+                      for line in f:
+                          line = line.strip()
+                          if not line or line.startswith('#'): continue
+                          parts = line.split(',')
+                          s_sub = parts[0].strip()
+                          s_ses = parts[1].strip() if len(parts) > 1 else None
+                          tasks.append((s_sub, s_ses))
+                          
+             else:
+                  # Discovery/All
+                  all_subs = loader.get_subjects()
+                  for sub in all_subs:
+                       tasks.append((sub, None))
+             
+             console.print(f"Found {len(tasks)} tasks to distribute.")
+             
+             import concurrent.futures
+             from rich.progress import Progress
+             
+             # Serialize Config
+             config_dict = config.to_dict()
+             
+             results = []
+             # Use ProcessPoolExecutor
+             with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
+                  futures = {}
+                  for i, (sub, ses) in enumerate(tasks):
+                       # Round robin GPU
+                       g_id = None
+                       if gpu_ids_list:
+                            g_id = gpu_ids_list[i % len(gpu_ids_list)]
+                       
+                       f = executor.submit(_run_parallel_worker, sub, ses, config_dict, g_id, pipeline_name)
+                       futures[f] = (sub, ses)
+
+                  # Monitor
+                  with Progress() as progress:
+                       task_p = progress.add_task("[green]Processing...", total=len(tasks))
+                       
+                       for f in concurrent.futures.as_completed(futures):
+                           sub_id, ses_id = futures[f]
+                           try:
+                               res = f.result()
+                               results.append(res)
+                           except Exception as e:
+                               console.print(f"[red]Exception in task {sub_id}/{ses_id}: {e}[/red]")
+                               results.append({'n_failed': 1})
+                           progress.advance(task_p)
+                           
+             # Aggregate Stats
+             stats = {'n_success': 0, 'n_failed': 0, 'n_skipped': 0}
+             for r in results:
+                  stats['n_success'] += r.get('n_success', 0)
+                  stats['n_failed'] += r.get('n_failed', 0)
+                  stats['n_skipped'] += r.get('n_skipped', 0)
         
-        # Run pipeline
-        console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
-        stats = pipeline_obj.run(subjects=config.participant_label,
-                                 sessions=config.session_label)
+        else:
+            # Create and run pipeline
+            console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
+            if pipeline_name == 'dmri':
+                from .workflows.pipelines.dmri import DMRIPipeline
+                pipeline_obj = DMRIPipeline(config)
+            elif pipeline_name == 'anat':
+                from .workflows.pipelines.anat import AnatPipeline
+                pipeline_obj = AnatPipeline(config)
+            else:
+                raise ConfigurationError(
+                    f"Unsupported pipeline: {pipeline_name}",
+                    details=f"Available pipelines: dmri, anat"
+                )
+            
+            # Run pipeline
+            console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
+            stats = pipeline_obj.run(subjects=config.participant_label,
+                                     sessions=config.session_label)
         
         if stats and stats.get('n_failed', 0) > 0:
              console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
@@ -516,6 +598,63 @@ def main(
             console.print_exception()
         raise typer.Exit(code=1)
 
+
+def _run_parallel_worker(
+    subject: str,
+    session: Optional[str],
+    config_dict: dict,
+    gpu_id: Optional[int],
+    pipeline_name: str
+) -> dict:
+    """
+    Worker function for parallel pipeline execution.
+    """
+    import os
+    from qmri_neuropipe.core import PipelineConfig
+    
+    # 1. Isolate GPU Environment
+    if gpu_id is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # Force re-initialization of CUDA context in libraries if possible?
+        # Process isolation (multiprocessing) handles this naturally.
+        
+    # 2. Reconstruct Config
+    # Assuming config_dict derived from asdict(config)
+    # We might need to handle Path objects if json serialized? 
+    # But multiprocessing uses pickle, so Paths are preserved.
+    try:
+        config = PipelineConfig(**config_dict)
+    except Exception:
+        # Fallback if __init__ differs
+        config = PipelineConfig()
+        for k, v in config_dict.items():
+            if hasattr(config, k):
+                setattr(config, k, v)
+                
+    # 3. Initialize Pipeline
+    try:
+        if pipeline_name == 'dmri':
+            from qmri_neuropipe.workflows.pipelines.dmri import DMRIPipeline
+            pipeline_obj = DMRIPipeline(config)
+        elif pipeline_name == 'anat':
+            from qmri_neuropipe.workflows.pipelines.anat import AnatPipeline
+            pipeline_obj = AnatPipeline(config)
+        else:
+             return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': f"Unknown pipeline {pipeline_name}"}
+        
+        # 4. Run (Single Subject mode)
+        # Note: pipeline.run signature is (subjects=..., sessions=...)
+        stats = pipeline_obj.run(
+            subjects=[subject], 
+            sessions=[session] if session else None
+        )
+        return stats
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in worker for {subject}: {e}")
+        traceback.print_exc()
+        return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
 
 if __name__ == "__main__":
     app()

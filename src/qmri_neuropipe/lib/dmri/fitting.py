@@ -113,6 +113,9 @@ class DTIFittingStep(BaseProcessingStep):
             if gnl_map:
                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY: {gnl_map}")
                 dipy_kwargs['grad_nonlin'] = gnl_map
+            
+            if hasattr(dwi, 'Delta') and dwi.Delta: dipy_kwargs['Delta_file'] = dwi.Delta
+            if hasattr(dwi, 'delta') and dwi.delta: dipy_kwargs['delta_file'] = dwi.delta
                 
             fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **dipy_kwargs)
             
@@ -228,6 +231,9 @@ class DKIFittingStep(BaseProcessingStep):
                 else:
                      self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY DKI: {gnl_map}")
                      fit_kwargs['grad_nonlin'] = gnl_map
+            
+             if hasattr(dwi, 'Delta') and dwi.Delta: fit_kwargs['Delta_file'] = dwi.Delta
+             if hasattr(dwi, 'delta') and dwi.delta: fit_kwargs['delta_file'] = dwi.delta
              
              fit_dki(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **fit_kwargs)
         else:
@@ -529,6 +535,9 @@ class MAPMRIFittingStep(BaseProcessingStep):
                 else:
                      self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY MAPMRI: {gnl_map}")
                      map_kwargs['grad_nonlin'] = gnl_map
+            
+             if hasattr(dwi, 'Delta') and dwi.Delta: map_kwargs['Delta_file'] = dwi.Delta
+             if hasattr(dwi, 'delta') and dwi.delta: map_kwargs['delta_file'] = dwi.delta
                      
              fit_mapmri(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **map_kwargs)
         else:

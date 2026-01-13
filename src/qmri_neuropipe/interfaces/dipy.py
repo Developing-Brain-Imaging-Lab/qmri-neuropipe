@@ -9,6 +9,18 @@ from ..core.utils import extract_image_path, ensure_dir
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
 
+def _load_timings(Delta_file: Optional[Path], delta_file: Optional[Path]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Helper to load diffusion timing files."""
+    import numpy as np
+    big_delta = None
+    small_delta = None
+    if Delta_file and Delta_file.exists():
+         big_delta = np.loadtxt(str(Delta_file))
+    if delta_file and delta_file.exists():
+         small_delta = np.loadtxt(str(delta_file))
+    return big_delta, small_delta
+
+
 def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: Optional[int] = None, model: str = "ridge", nthreads: int = 1):
     """
         Run Patch2Self denoising.
@@ -434,6 +446,8 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     gnl_chunk = kwargs['gnl_chunk'] # (N, ...)
     bvals = kwargs['bvals']
     bvecs = kwargs['bvecs'] # (N_gradients, 3)
+    big_delta = kwargs.get('big_delta')
+    small_delta = kwargs.get('small_delta')
     model_class = kwargs['model_class']
     model_kwargs = kwargs.get('model_kwargs', {})
     
@@ -458,7 +472,7 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         
         # Create new gradient table
         # Optimized: minimal check
-        vox_gtab = gradient_table(bvals, bvecs=rot_bvecs)
+        vox_gtab = gradient_table(bvals, bvecs=rot_bvecs, big_delta=big_delta, small_delta=small_delta)
         
         # Instantiate Model
         model = model_class(vox_gtab, **model_kwargs)
@@ -474,7 +488,7 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         
     return np.array(res_params)
 
-def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_kwargs, nthreads=1):
+def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_kwargs, nthreads=1, big_delta=None, small_delta=None):
     """
     Driver to execute GNL-corrected fitting.
     """
@@ -512,6 +526,8 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
                 'gnl_chunk': chunks_gnl[i],
                 'bvals': bvals,
                 'bvecs': bvecs,
+                'big_delta': big_delta,
+                'small_delta': small_delta,
                 'model_class': model_class,
                 'model_kwargs': model_kwargs
             }
@@ -534,6 +550,8 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
             'gnl_chunk': gnl_flat,
             'bvals': bvals,
             'bvecs': bvecs,
+            'big_delta': big_delta,
+            'small_delta': small_delta,
             'model_class': model_class,
             'model_kwargs': model_kwargs
         }
@@ -612,6 +630,8 @@ def fit_dti(
     fit_method: str = "WLLS",
     metrics: list[str] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"],
     nthreads: int = 1,
+    Delta_file: Optional[Path] = None,
+    delta_file: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -635,6 +655,10 @@ def fit_dti(
         Metrics to calculate: fa, md, ad, rd, color_fa.
     nthreads : int
         Number of CPUs to use (not currently fully utilized by standard DIPY fit, but reserved for future parallelization).
+    Delta_file: Path, optional
+        Path to Big Delta timings.
+    delta_file: Path, optional
+        Path to small delta timings.
     """
     import numpy as np
     import multiprocessing
@@ -661,7 +685,10 @@ def fit_dti(
          raise ValueError("Gradient files (bval/bvec) are required but not provided or found in input DWIFile.")
          
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
-    gtab = gradient_table(bvals, bvecs=bvecs)
+    big_delta, small_delta = _load_timings(Delta_file, delta_file)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    if big_delta is not None and small_delta is not None:
+         print(f"  - Using custom diffusion times (Delta/delta)")
 
     # Handle optional smoothing
     smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
@@ -717,7 +744,9 @@ def fit_dti(
                 bvecs=bvecs,
                 model_class=dipy_dti.TensorModel,
                 model_kwargs=model_kwargs,
-                nthreads=nthreads
+                nthreads=nthreads,
+                big_delta=big_delta,
+                small_delta=small_delta
              )
              
              dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
@@ -838,6 +867,8 @@ def fit_dki(
     mask_file: Optional[Path] = None,
     metrics: list[str] = ["mk", "ak", "rk", "fa", "md"],
     nthreads: int = 1,
+    Delta_file: Optional[Path] = None,
+    delta_file: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -865,7 +896,10 @@ def fit_dki(
          raise ValueError("Gradient files (bval/bvec) are required but not provided or found in input DWIFile.")
 
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
-    gtab = gradient_table(bvals, bvecs=bvecs)
+    big_delta, small_delta = _load_timings(Delta_file, delta_file)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    if big_delta is not None and small_delta is not None:
+         print(f"  - Using custom diffusion times (Delta/delta)")
     
     # Handle optional smoothing
     smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
@@ -931,7 +965,9 @@ def fit_dki(
                 bvecs=bvecs,
                 model_class=ModelClass,
                 model_kwargs=gnl_kwargs, 
-                nthreads=nthreads
+                nthreads=nthreads,
+                big_delta=big_delta,
+                small_delta=small_delta
             )
             dkifit = FitClass(dkimodel, vol_params)
             
@@ -1008,6 +1044,8 @@ def fit_mapmri(
     global_constraints: bool = False,
     metrics: list[str] = ["rtop", "rtap", "rtpp", "qiv", "msd"],
     nthreads: int = 1,
+    Delta_file: Optional[Path] = None,
+    delta_file: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -1031,7 +1069,10 @@ def fit_mapmri(
          raise ValueError("Gradient files (bval/bvec) are required but not provided or found in input DWIFile.")
 
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
-    gtab = gradient_table(bvals, bvecs=bvecs)
+    big_delta, small_delta = _load_timings(Delta_file, delta_file)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    if big_delta is not None and small_delta is not None:
+         print(f"  - Using custom diffusion times (Delta/delta)")
 
     # Handle optional smoothing
     smoothing_fwhm = kwargs.pop('smoothing_fwhm', None)
@@ -1071,7 +1112,9 @@ def fit_mapmri(
             bvecs=bvecs,
             model_class=mapmri.MapmriModel,
             model_kwargs=gnl_kwargs,
-            nthreads=nthreads
+            nthreads=nthreads,
+            big_delta=big_delta,
+            small_delta=small_delta
         )
         map_fit = mapmri.MapmriFit(map_model, vol_params)
         
