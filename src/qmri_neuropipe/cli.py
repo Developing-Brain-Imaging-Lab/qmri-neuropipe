@@ -619,17 +619,25 @@ def _run_parallel_worker(
         # Process isolation (multiprocessing) handles this naturally.
         
     # 2. Reconstruct Config
-    # Assuming config_dict derived from asdict(config)
-    # We might need to handle Path objects if json serialized? 
-    # But multiprocessing uses pickle, so Paths are preserved.
+    # Filter keys to match PipelineConfig fields to avoid TypeError on extra keys
+    # derived from config_data or other sources in to_dict()
+    valid_keys = PipelineConfig.__annotations__.keys()
+    filtered_dict = {k: v for k, v in config_dict.items() if k in valid_keys}
+    
     try:
-        config = PipelineConfig(**config_dict)
+        config = PipelineConfig(**filtered_dict)
     except Exception:
-        # Fallback if __init__ differs
+        # Fallback
         config = PipelineConfig()
         for k, v in config_dict.items():
             if hasattr(config, k):
                 setattr(config, k, v)
+
+    # Force Path conversion explicitly (fixes TypeError in parallel mode)
+    if config.bids_dir: config.bids_dir = Path(config.bids_dir)
+    if config.output_dir: config.output_dir = Path(config.output_dir)
+    if config.work_dir: config.work_dir = Path(config.work_dir)
+    if config.subjects_file: config.subjects_file = Path(config.subjects_file)
                 
     # 3. Initialize Pipeline
     try:
