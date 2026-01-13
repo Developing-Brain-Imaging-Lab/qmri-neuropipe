@@ -649,6 +649,12 @@ def _run_parallel_worker(
     if config.output_dir: config.output_dir = Path(config.output_dir)
     if config.work_dir: config.work_dir = Path(config.work_dir)
     if config.subjects_file: config.subjects_file = Path(config.subjects_file)
+
+    # CRITICAL: Disable recursive parallelism in the worker
+    # The worker is already running in a parallel slot. The internal pipeline run should be serial.
+    config.set('jobs', 1)
+    if 'jobs' in config.config_data:
+        config.config_data['jobs'] = 1
                 
     # 3. Initialize Pipeline
     try:
