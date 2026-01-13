@@ -196,7 +196,10 @@ class CoregistrationStep(BaseProcessingStep):
                  out_shape = nib.load(output_img).shape
                  # For 4D DWI, check 4th dim. For 3D, check all?
                  # Main issue is num volumes.
-                 if len(in_shape) == 4 and len(out_shape) == 4:
+                 if len(in_shape) != len(out_shape):
+                     dims_consistent = False
+                     self.logger.info(f"Dimension mismatch (Rank: {len(in_shape)} vs {len(out_shape)}). Re-running.")
+                 elif len(in_shape) == 4 and len(out_shape) == 4:
                      if in_shape[3] != out_shape[3]:
                          dims_consistent = False
                          self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
