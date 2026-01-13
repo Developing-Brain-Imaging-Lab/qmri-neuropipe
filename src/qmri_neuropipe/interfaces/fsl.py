@@ -396,7 +396,18 @@ def eddy(
 
     # Fix: Ensure shutil is imported if used later (it is used at line 335)
     import shutil
-    env_parts = ["env", f"CUDA_VISIBLE_DEVICES={cuda_device}"] if cuda else ["env", f"OMP_NUM_THREADS={nthreads}"]
+    
+    # Only set CUDA_VISIBLE_DEVICES if explicitly requested via argument AND not running in pre-isolated env
+    # In parallel mode, os.environ["CUDA_VISIBLE_DEVICES"] is already set to the specific GPU.
+    # Prepending 'env CUDA_VISIBLE_DEVICES=...' overrides the isolation (resetting to physical GPU X).
+    
+    env_parts = ["env"]
+    if cuda:
+        # If env var is NOT set, we set it. If it IS set, we assume isolation is managed externally.
+        if "CUDA_VISIBLE_DEVICES" not in os.environ:
+             env_parts.append(f"CUDA_VISIBLE_DEVICES={cuda_device}")
+    else:
+        env_parts.append(f"OMP_NUM_THREADS={nthreads}")
 
     cmd_parts = [
         *env_parts,
