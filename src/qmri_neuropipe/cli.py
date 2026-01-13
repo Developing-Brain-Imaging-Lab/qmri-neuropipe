@@ -578,12 +578,14 @@ def main(
             stats = pipeline_obj.run(subjects=config.participant_label,
                                      sessions=config.session_label)
         
+
         if stats and stats.get('n_failed', 0) > 0:
              console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
              console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
              raise typer.Exit(code=1)
         
-        console.print("\n[bold green]Pipeline completed successfully![/bold green]\n")
+        console.print("\n[bold green]Pipeline completed successfully![/bold green]")
+        console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}\n")
         
     except ConfigurationError as e:
         console.print(f"\n[bold red]Configuration Error:[/bold red] {e.message}")
@@ -651,10 +653,15 @@ def _run_parallel_worker(
     if config.subjects_file: config.subjects_file = Path(config.subjects_file)
 
     # CRITICAL: Disable recursive parallelism in the worker
-    # The worker is already running in a parallel slot. The internal pipeline run should be serial.
     config.set('jobs', 1)
     if 'jobs' in config.config_data:
         config.config_data['jobs'] = 1
+
+    # Force cleaner logging for workers (unless debug requested)
+    if not config.debug:
+        config.log_level = "WARNING"
+        # We might also want to set verbose to False
+        config.verbose = False
                 
     # 3. Initialize Pipeline
     try:
@@ -676,9 +683,8 @@ def _run_parallel_worker(
         return stats
         
     except Exception as e:
-        import traceback
-        print(f"Error in worker for {subject}: {e}")
-        traceback.print_exc()
+        # In batch mode, we don't want to print exception traceback to console for every failure 
+        # unless debug is on. We return the error.
         return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
 
 if __name__ == "__main__":

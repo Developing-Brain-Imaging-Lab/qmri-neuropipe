@@ -581,6 +581,48 @@ class PreprocessingWorkflow(BaseWorkflow):
                              new_dwis.append(out_dwi)
                              new_masks.append(out_mask if out_mask is not None else mask)
                              
+                             # Accumulate QC Metrics for Export
+                             # We create a record for this image
+                             if "qc_metrics" in result or "outlier_stats" in result:
+                                  record = {
+                                      "subject": context.get("subject"),
+                                      "session": context.get("session"),
+                                      "file_name": out_dwi.img.name if hasattr(out_dwi, 'img') else "unknown"
+                                  }
+                                  if "qc_metrics" in result:
+                                      record.update(result["qc_metrics"])
+                                  if "outlier_stats" in result:
+                                      record["outliers"] = result["outlier_stats"]
+                                  
+                                  # Add to global list in context (requires list init outside loop)
+                                  if "all_qc_metrics" not in context:
+                                       context["all_qc_metrics"] = []
+                                  
+                                  # Avoid duplication if we loop multiple steps? 
+                                  # We should probably upsert based on filename?
+                                  # Or just append separate records for separate steps?
+                                  # Ideally we want one row per subject/image with all metrics.
+                                  # Since we loop steps, we build up the record?
+                                  # `new_dwis` replaces `current_dwis` each step.
+                                  # This structure makes it hard to aggregate ACROSS steps for the same image easily 
+                                  # without a persistent object tracking metadata.
+                                  
+                                  # Alternative: Use a sidecar dictionary in context mapping filename -> metrics
+                                  if "qc_registry" not in context: context["qc_registry"] = {}
+                                  
+                                  img_key = out_dwi.img.name
+                                  if img_key not in context["qc_registry"]:
+                                       context["qc_registry"][img_key] = record
+                                  else:
+                                       # Update existing
+                                       record.pop("subject", None)
+                                       record.pop("session", None)
+                                       record.pop("file_name", None)
+                                       context["qc_registry"][img_key].update(record)
+                                  
+                                  # Update the list view for final export
+                                  context["all_qc_metrics"] = list(context["qc_registry"].values())
+                             
                              # Reporting
                              if reporter:
                                  figures_dir = output_dir / "figures"
@@ -637,6 +679,42 @@ class PreprocessingWorkflow(BaseWorkflow):
         # Save Final Outputs
         self._save_final_outputs(context)
         
+        # Save QC Metrics CSV
+        try:
+             from qmri_neuropipe.lib.reporting.export import save_qc_metrics_csv
+             
+             # Collect metrics from context
+             # Helper to extract metrics for all processed files
+             qc_list = []
+             preproc_dwis = context.get("preprocessed_dwis", [])
+             
+             # We might have stored metrics in context slightly differently per step overrides...
+             # But steps modify the 'context' copy within _execute_processing, and we return the final context.
+             # Actually, _execute_processing updates 'preprocessed_dwis' but doesn't explicitly store 
+             # the per-image context with metrics in the main context list.
+             # Wait, the `_execute_processing` has `new_dwis` and `new_masks` lists.
+             # We lost the per-image metadata like 'qc_metrics' unless we attached it to the DWIFile object?
+             # DWIFile dataclass has 'json' and 'entities'. It doesn't have a specific 'metrics' field.
+             
+             # We need to look at where we can grab these metrics.
+             # `_report_step` accesses `current_arg` which had the metrics.
+             # But `_execute_processing` loop discards `result` dictionary after reporting/saving intermediate. 
+             # It only appends `out_dwi` to `new_dwis`.
+             
+             # FIX: We need to accumulate metrics in `_execute_processing`.
+             # I will modify `_execute_processing` below to store metrics in context["all_qc_metrics"].
+             
+             all_qc = context.get("all_qc_metrics", [])
+             if all_qc:
+                 qc_csv = self.config.output_dir / "qc" / "group_qc_metrics.csv"
+                 self.logger.info(f"Exporting QC metrics to {qc_csv}")
+                 save_qc_metrics_csv(all_qc, qc_csv)
+                 
+        except ImportError:
+             self.logger.warning("Could not import export module. QC CSV not saved.")
+        except Exception as e:
+             self.logger.warning(f"Failed to save QC CSV: {e}")
+
         return context
 
     def _save_global_intermediate(self, step, output_dir, context):
