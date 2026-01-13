@@ -529,10 +529,10 @@ def main(
              with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
                   futures = {}
                   for i, (sub, ses) in enumerate(tasks):
-                       # Round robin GPU
+                       # Round robin GPU using merged config (supports CLI and YAML)
                        g_id = None
-                       if gpu_ids_list:
-                            g_id = gpu_ids_list[i % len(gpu_ids_list)]
+                       if config.gpu_ids:
+                            g_id = config.gpu_ids[i % len(config.gpu_ids)]
                        
                        f = executor.submit(_run_parallel_worker, sub, ses, config_dict, g_id, pipeline_name)
                        futures[f] = (sub, ses)
