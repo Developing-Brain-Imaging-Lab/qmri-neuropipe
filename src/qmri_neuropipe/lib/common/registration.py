@@ -14,6 +14,7 @@ from ...core.run import run_cmd
 from ...core.types import ImageLike, DWIFile, ImageFile
 from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
 from ...io.bids import build_bids_name
+from ...core.utils import check_nifti_integrity
 
 
 class NonlinearRegistrationStep(BaseProcessingStep):
@@ -185,40 +186,45 @@ class CoregistrationStep(BaseProcessingStep):
         # Skip if exists?
         should_run = True
         if output_img.exists() and not kwargs.get('force', False):
-             # Check timestamps: if input is newer than output, we MUST re-run
-             in_mtime = in_path.stat().st_mtime
-             out_mtime = output_img.stat().st_mtime
-             
-             # Check dimensions consistency (especially for Outlier Removal re-runs)
-             dims_consistent = True
-             try:
-                 in_shape = nib.load(in_path).shape
-                 out_shape = nib.load(output_img).shape
-                 # For 4D DWI, check 4th dim. For 3D, check all?
-                 # Main issue is num volumes.
-                 if len(in_shape) != len(out_shape):
-                     dims_consistent = False
-                     self.logger.info(f"Dimension mismatch (Rank: {len(in_shape)} vs {len(out_shape)}). Re-running.")
-                 elif len(in_shape) == 4 and len(out_shape) == 4:
-                     if in_shape[3] != out_shape[3]:
-                         dims_consistent = False
-                         self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
-             except Exception as e:
-                 # If read fails, assume incompatible/bad output
-                 self.logger.warning(f"Could not check dimensions: {e}. Re-running.")
-                 dims_consistent = False
-
-             if not dims_consistent or in_mtime > out_mtime:
-                 if in_mtime > out_mtime:
-                      self.logger.info(f"Input ({in_path.name}) is newer than output. Re-running coregistration.")
-                      self.logger.info(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, Diff={in_mtime-out_mtime:.2f}s")
-                 else:
-                      self.logger.info("Dimension mismatch (or read error). Re-running coregistration.")
-                 should_run = True
+             # 0. Check Integrity
+             if not check_nifti_integrity(output_img):
+                  self.logger.warning(f"Output file corrupted: {output_img}. Re-running.")
+                  should_run = True
              else:
-                 self.logger.info(f"Skipping coregistration (output exists and is up-to-date): {output_img}")
-                 self.logger.debug(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, In Shape={in_shape}, Out Shape={out_shape}")
-                 should_run = False
+                 # Check timestamps: if input is newer than output, we MUST re-run
+                 in_mtime = in_path.stat().st_mtime
+                 out_mtime = output_img.stat().st_mtime
+                 
+                 # Check dimensions consistency (especially for Outlier Removal re-runs)
+                 dims_consistent = True
+                 try:
+                     in_shape = nib.load(in_path).shape
+                     out_shape = nib.load(output_img).shape
+                     # For 4D DWI, check 4th dim. For 3D, check all?
+                     # Main issue is num volumes.
+                     if len(in_shape) != len(out_shape):
+                         dims_consistent = False
+                         self.logger.info(f"Dimension mismatch (Rank: {len(in_shape)} vs {len(out_shape)}). Re-running.")
+                     elif len(in_shape) == 4 and len(out_shape) == 4:
+                         if in_shape[3] != out_shape[3]:
+                             dims_consistent = False
+                             self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
+                 except Exception as e:
+                     # If read fails, assume incompatible/bad output
+                     self.logger.warning(f"Could not check dimensions: {e}. Re-running.")
+                     dims_consistent = False
+    
+                 if not dims_consistent or in_mtime > out_mtime:
+                     if in_mtime > out_mtime:
+                          self.logger.info(f"Input ({in_path.name}) is newer than output. Re-running coregistration.")
+                          self.logger.info(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, Diff={in_mtime-out_mtime:.2f}s")
+                     else:
+                          self.logger.info("Dimension mismatch (or read error). Re-running coregistration.")
+                     should_run = True
+                 else:
+                     self.logger.info(f"Skipping coregistration (output exists and is up-to-date): {output_img}")
+                     self.logger.debug(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, In Shape={in_shape}, Out Shape={out_shape}")
+                     should_run = False
                  
         # Get nthreads from kwargs or config
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
@@ -611,6 +617,9 @@ class CoregistrationStep(BaseProcessingStep):
 
         if not output_img.exists():
              raise ProcessingError(f"Coregistration step finished but output not found: {output_img}")
+             
+        if not check_nifti_integrity(output_img):
+             raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
 
         if context is not None:
              context["current_image"] = result

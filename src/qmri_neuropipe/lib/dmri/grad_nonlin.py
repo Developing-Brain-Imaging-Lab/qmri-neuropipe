@@ -7,7 +7,9 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...core.run import run_cmd
 from ...interfaces import tortoise
 from ...io.bids import build_bids_name
+from ...io.bids import build_bids_name
 from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
+from ...core.utils import check_nifti_integrity
 
 class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
     """
@@ -64,9 +66,17 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         output_map = output_dir / build_bids_name({**input.entities, "desc": new_desc})
         
         # Check if output exists
+        should_run = True
         if output_map.exists() and not kwargs.get('force', False):
-             self.logger.info(f"Skipping TORTOISE GNL calculation (Output exists: {output_map.name})")
-        else:
+             if check_nifti_integrity(output_map):
+                 self.logger.info(f"Skipping TORTOISE GNL calculation (Output exists: {output_map.name})")
+                 should_run = False
+             else:
+                 self.logger.warning(f"GNL output corrupt: {output_map}. Re-running.")
+                 output_map.unlink()
+                 # Proceed to run
+
+        if should_run:
             # Determine Gradient Cofficients
             coeffs = self.grad_coeffs
             if not coeffs: coeffs = kwargs.get('grad_coeffs')
