@@ -619,20 +619,31 @@ def _run_parallel_worker(
         # Process isolation (multiprocessing) handles this naturally.
         
     # 2. Reconstruct Config
-    # Filter keys to match PipelineConfig fields to avoid TypeError on extra keys
-    # derived from config_data or other sources in to_dict()
-    valid_keys = PipelineConfig.__annotations__.keys()
-    filtered_dict = {k: v for k, v in config_dict.items() if k in valid_keys}
+    # We need to separate standard fields from the rest (which goes into config_data)
+    # PipelineConfig.__init__ takes standard fields as args, plus config_data dict
+    
+    # annotations might include ClassVars etc., so be careful, but filtering by keys in dict should be safe
+    # We want to pass known fields as kwargs, and unexpected ones (like 'dmri') in config_data
+    
+    valid_keys = set(PipelineConfig.__annotations__.keys())
+    if 'config_data' in valid_keys:
+        valid_keys.remove('config_data')
+        
+    standard_args = {k: v for k, v in config_dict.items() if k in valid_keys}
     
     try:
-        config = PipelineConfig(**filtered_dict)
+        # Pass standard args as kwargs, and the FULL dict as config_data
+        # This ensures 'dmri', 'bids', etc. are all available in config_data,
+        # while standard attributes are properly set on the instance.
+        config = PipelineConfig(**standard_args, config_data=config_dict)
     except Exception:
         # Fallback
         config = PipelineConfig()
-        for k, v in config_dict.items():
+        for k, v in standard_args.items():
             if hasattr(config, k):
                 setattr(config, k, v)
-
+        config.config_data = config_dict
+        
     # Force Path conversion explicitly (fixes TypeError in parallel mode)
     if config.bids_dir: config.bids_dir = Path(config.bids_dir)
     if config.output_dir: config.output_dir = Path(config.output_dir)
