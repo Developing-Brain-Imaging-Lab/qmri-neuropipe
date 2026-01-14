@@ -35,8 +35,9 @@ def fit_dti_cli(
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
     method: str = typer.Option("WLLS", "--method", help="Fitting method (WLLS, OLS, NLLS, RESTORE)"),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads for fitting"),
-    smoothing: Optional[float] = typer.Option(None, "--smoothing", help="Sigma/FWHM for smoothing (optional)"),
-    metrics: List[str] = typer.Option(["fa", "md", "ad", "rd", "color_fa", "tensor"], "--metric", help="Metrics to save"),
+    smoothing: Optional[float] = typer.Option(None, help="Gaussian smoothing FWHM (mm)."),
+    metrics: List[str] = typer.Option(["fa", "md", "ad", "rd", "color_fa", "tensor"], help="Metrics to calculate."),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
     Fit Diffusion Tensor Imaging (DTI) model.
@@ -64,6 +65,7 @@ def fit_dti_cli(
             fit_method=method,
             metrics=metrics,
             nthreads=nthreads,
+            grad_nonlin=grad_nonlin,
             **kwargs
         )
         console.print("[bold green]Success![/bold green]")
@@ -83,8 +85,9 @@ def fit_dki_cli(
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     smoothing: Optional[float] = typer.Option(None, "--smoothing", help="Sigma/FWHM for smoothing (optional)"),
-    mean_signal: bool = typer.Option(False, "--mean-signal/--no-mean-signal", help="Use Mean Signal DKI (MSDKI)"),
-    metrics: List[str] = typer.Option(["mk", "ak", "rk", "fa", "md"], "--metric", help="Metrics to save"),
+    mean_signal: bool = typer.Option(False, "--mean-signal", help="Use Mean Signal DKI (MSDKI)."),
+    metrics: List[str] = typer.Option(["mk", "ak", "rk", "fa", "md"], help="Metrics to calculate."),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
     Fit Diffusion Kurtosis Imaging (DKI) model.
@@ -114,6 +117,7 @@ def fit_dki_cli(
             mask_file=mask,
             metrics=metrics,
             nthreads=nthreads,
+            grad_nonlin=grad_nonlin,
             **kwargs
         )
         console.print("[bold green]Success![/bold green]")
@@ -196,8 +200,9 @@ def fit_mapmri_cli(
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     laplacian: bool = typer.Option(True, "--laplacian/--no-laplacian", help="Use Laplacian regularization"),
-    positivity: bool = typer.Option(True, "--positivity/--no-positivity", help="Enforce positivity constraint"),
-    metrics: List[str] = typer.Option(["rtop", "rtap", "rtpp", "qiv", "msd"], "--metric", help="Metrics to save"),
+    positivity: bool = typer.Option(True, help="Enforce positivity constraint."),
+    metrics: List[str] = typer.Option(["rtop", "rtap", "rtpp", "qiv", "msd"], help="Metrics to calculate."),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
     Fit MAP-MRI model.
@@ -219,7 +224,8 @@ def fit_mapmri_cli(
             laplacian=laplacian,
             positivity=positivity,
             metrics=metrics,
-            nthreads=nthreads
+            nthreads=nthreads,
+            grad_nonlin=grad_nonlin,
         )
         console.print("[bold green]Success![/bold green]")
     except Exception as e:

@@ -38,6 +38,7 @@ qmri-tools fit-dti -i <dwi.nii.gz> -o <output_dir> --bval <dwi.bval> --bvec <dwi
 - `--nthreads`: Number of parallel threads (default: 1).
 - `--smoothing`: Optional Gaussian smoothing sigma (or FWHM) to apply before fitting.
 - `--metric`: List of metrics to save. Default: `fa`, `md`, `ad`, `rd`, `color_fa`, `tensor`.
+- `--grad-nonlin`: Path to gradient nonlinearity tensor file for voxel-wise correction.
 
 ---
 
@@ -54,6 +55,7 @@ qmri-tools fit-dki -i <dwi.nii.gz> -o <output_dir> ...
 - Standard inputs (`input`, `output-dir`, `bval`, `bvec`, `mask`, `nthreads`).
 - `--mean-signal`: Enable Mean Signal DKI (MSDKI) for better robustness at high b-values.
 - `--metric`: Default: `mk`, `ak`, `rk`, `fa`, `md`.
+- `--grad-nonlin`: Path to gradient nonlinearity tensor file.
 
 ---
 
@@ -104,4 +106,5 @@ qmri-tools fit-mapmri -i <dwi.nii.gz> -o <output_dir> ...
 - `--laplacian/--no-laplacian`: Use Laplacian regularization (default: True).
 - `--positivity/--no-positivity`: Enforce positivity constraint (default: True).
 - `--metric`: Default: `rtop`, `rtap`, `rtpp`, `qiv`, `msd`.
+- `--grad-nonlin`: Path to gradient nonlinearity tensor file.
 
