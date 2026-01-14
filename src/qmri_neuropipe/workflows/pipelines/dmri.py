@@ -821,6 +821,30 @@ class PreprocessingWorkflow(BaseWorkflow):
             if dwi.json and dwi.json.exists():
                 shutil.copy(dwi.json, target_json)
 
+        # Save GNL Map if present
+        gnl_map = context.get("gnl_map")
+        if gnl_map and isinstance(gnl_map, Path) and gnl_map.exists():
+             # We assume the GNL map belongs to the same session/subject as the DWIs.
+             # We use the target_dir from the last iteration (or derived from context)
+             
+             # If no DWIs were processed, we might skip this, but usually we have DWIs.
+             if dwis:
+                 # Re-derive target dir from the first processed DWI to be safe
+                 # (assuming all go to same session folder in this workflow context)
+                 d0 = dwis[0]
+                 ents0 = d0.entities.copy()
+                 sub0 = ents0.get("sub") or context.get("subject", "unknown")
+                 ses0 = ents0.get("ses") # Might be None
+                 
+                 t_dir = base_out / f"sub-{sub0}"
+                 if ses0: t_dir /= f"ses-{ses0}"
+                 t_dir /= "dwi"
+                 t_dir.mkdir(parents=True, exist_ok=True)
+                 
+                 target_gnl = t_dir / gnl_map.name
+                 self.logger.info(f"Saving GNL Tensor Map: {target_gnl}")
+                 shutil.copy(gnl_map, target_gnl)
+
     def recover_intermediates(self, work_dir: Path, output_dir: Path):
         """
         Recover intermediate data from the final output directory back to the working directory.
