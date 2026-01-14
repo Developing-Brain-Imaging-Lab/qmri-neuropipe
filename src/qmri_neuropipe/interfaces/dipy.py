@@ -470,9 +470,19 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Rotate bvecs: bvecs_new = bvecs @ R.T
         rot_bvecs = np.dot(bvecs, rot_mat.T)
         
+        # Recalculate b-values and normalize b-vectors to satisfy Gtab requirements
+        # Effective b-value scales with square of gradient amplitude change
+        norms = np.linalg.norm(rot_bvecs, axis=1)
+        new_bvals = bvals * (norms ** 2)
+        
+        # Normalize bvecs (handle zero norms safely, though unlikely for non-b0)
+        safe_norms = norms.copy()
+        safe_norms[safe_norms == 0] = 1.0
+        new_bvecs = rot_bvecs / safe_norms[:, None]
+        
         # Create new gradient table
         # Optimized: minimal check
-        vox_gtab = gradient_table(bvals, bvecs=rot_bvecs, big_delta=big_delta, small_delta=small_delta)
+        vox_gtab = gradient_table(new_bvals, bvecs=new_bvecs, big_delta=big_delta, small_delta=small_delta)
         
         # Instantiate Model
         model = model_class(vox_gtab, **model_kwargs)
