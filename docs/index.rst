@@ -11,6 +11,7 @@ Welcome to qmri-neuropipe's documentation!
    data_organization
    usage
    hosting
+   source/user_guide/cli_tools
    workflows/anatomical
    workflows/diffusion
    modeling

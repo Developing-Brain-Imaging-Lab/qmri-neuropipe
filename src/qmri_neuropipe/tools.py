@@ -133,6 +133,10 @@ def fit_noddi_cli(
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
     iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
+    # Dmipy specific defaults
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    distribution: str = typer.Option("Watson", "--distribution", help="Distribution type (Watson, Bingham)"),
+    model_type: str = typer.Option("standard", "--model-type", help="Model structure (standard, smt)"),
 ):
     """
     Fit NODDI model.
@@ -153,7 +157,10 @@ def fit_noddi_cli(
                 mask_file=mask,
                 nthreads=nthreads,
                 parallel_diffusivity=parallel_diff,
-                iso_diffusivity=iso_diff
+                iso_diffusivity=iso_diff,
+                solver=solver,
+                distribution=distribution,
+                model_type=model_type
             )
         elif backend.lower() == 'amico':
             from qmri_neuropipe.interfaces.amico import fit_noddi
@@ -218,3 +225,6 @@ def fit_mapmri_cli(
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
+
+if __name__ == "__main__":
+    app()

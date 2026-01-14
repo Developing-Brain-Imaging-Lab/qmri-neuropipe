@@ -24,6 +24,7 @@ dependencies = [
 ]
 [project.scripts]
 qmri-neuropipe = "qmri_neuropipe.cli:app"
+qmri-tools = "qmri_neuropipe.tools:app"
 
 [tool.setuptools.package-data]
 "qmri_neuropipe.lib.reporting" = ["*.html"]
