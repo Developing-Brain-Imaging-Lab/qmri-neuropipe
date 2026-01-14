@@ -25,6 +25,10 @@ from qmri_neuropipe.io import DataLoader
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
 console = Console()
 
+# Register subcommands
+from . import tools
+app.add_typer(tools.app, name="tools", help="Direct access to modeling tools (fitting, etc.)")
+
 
 def _print_args(config: PipelineConfig, **extra_kwargs):
     """
