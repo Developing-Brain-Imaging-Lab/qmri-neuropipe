@@ -623,6 +623,14 @@ class PreprocessingWorkflow(BaseWorkflow):
                                   # Update the list view for final export
                                   context["all_qc_metrics"] = list(context["qc_registry"].values())
                              
+                             # Collect GNL Map if present (for per-image step)
+                             if isinstance(result, dict) and "gnl_map" in result:
+                                 if "gnl_maps" not in context:
+                                     context["gnl_maps"] = []
+                                 gnl_path = result["gnl_map"]
+                                 if gnl_path not in context["gnl_maps"]:
+                                     context["gnl_maps"].append(gnl_path)
+                             
                              # Reporting
                              if reporter:
                                  figures_dir = output_dir / "figures"
@@ -821,27 +829,33 @@ class PreprocessingWorkflow(BaseWorkflow):
             if dwi.json and dwi.json.exists():
                 shutil.copy(dwi.json, target_json)
 
-        # Save GNL Map if present
-        gnl_map = context.get("gnl_map")
-        if gnl_map and isinstance(gnl_map, Path) and gnl_map.exists():
-             # We assume the GNL map belongs to the same session/subject as the DWIs.
-             # We use the target_dir from the last iteration (or derived from context)
+        # Save GNL Maps if present (handling per-image saving)
+        gnl_maps = context.get("gnl_maps", [])
+        # Fallback for old single-map context
+        if not gnl_maps and context.get("gnl_map"):
+             gnl_maps = [context.get("gnl_map")]
              
-             # If no DWIs were processed, we might skip this, but usually we have DWIs.
-             if dwis:
-                 # Re-derive target dir from the first processed DWI to be safe
-                 # (assuming all go to same session folder in this workflow context)
-                 d0 = dwis[0]
-                 ents0 = d0.entities.copy()
-                 sub0 = ents0.get("sub") or context.get("subject", "unknown")
-                 ses0 = ents0.get("ses") # Might be None
+        for gnl_map in gnl_maps:
+            if gnl_map and isinstance(gnl_map, Path) and gnl_map.exists():
+                 # We try to infer the target directory based on entities in the filename
+                 # or fallback to the general session folder.
                  
-                 t_dir = base_out / f"sub-{sub0}"
-                 if ses0: t_dir /= f"ses-{ses0}"
+                 # Re-parse entities from GNL map name
+                 # It should have sub-XX_ses-YY_...
+                 from qmri_neuropipe.io.bids import get_entities_from_path
+                 g_ents = get_entities_from_path(gnl_map)
+                 
+                 sub_g = g_ents.get("sub") or context.get("subject", "unknown")
+                 ses_g = g_ents.get("ses")
+                 
+                 t_dir = base_out / f"sub-{sub_g}"
+                 if ses_g: t_dir /= f"ses-{ses_g}"
                  t_dir /= "dwi"
                  t_dir.mkdir(parents=True, exist_ok=True)
                  
                  target_gnl = t_dir / gnl_map.name
+                 
+                 # Avoid overwriting if existing? Should be fine to overwrite final output.
                  self.logger.info(f"Saving GNL Tensor Map: {target_gnl}")
                  shutil.copy(gnl_map, target_gnl)
 
