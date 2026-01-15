@@ -404,9 +404,15 @@ def main(
         if analysis_level is None:
             analysis_level = config.config_data.get('level')
         
+
         # Set defaults if still not specified
         if pipeline_name is None:
-            pipeline_name = 'dmri'
+            # Smart default: If relaxometry explicitly configured and dmri not, use relaxometry
+            if config.config_data.get('relaxometry') and not config.config_data.get('dmri'):
+                pipeline_name = 'relaxometry'
+            else:
+                pipeline_name = 'dmri'
+
         if analysis_level is None:
             analysis_level = 'participant'
         
@@ -559,6 +565,7 @@ def main(
                   stats['n_failed'] += r.get('n_failed', 0)
                   stats['n_skipped'] += r.get('n_skipped', 0)
         
+
         else:
             # Create and run pipeline
             console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
@@ -568,10 +575,13 @@ def main(
             elif pipeline_name == 'anat':
                 from .workflows.pipelines.anat import AnatPipeline
                 pipeline_obj = AnatPipeline(config)
+            elif pipeline_name == 'relaxometry':
+                from .workflows.pipelines.relaxometry import RelaxometryPipeline
+                pipeline_obj = RelaxometryPipeline(config)
             else:
                 raise ConfigurationError(
                     f"Unsupported pipeline: {pipeline_name}",
-                    details=f"Available pipelines: dmri, anat"
+                    details=f"Available pipelines: dmri, anat, relaxometry"
                 )
             
             # Run pipeline
@@ -669,9 +679,13 @@ def _run_parallel_worker(
         if pipeline_name == 'dmri':
             from qmri_neuropipe.workflows.pipelines.dmri import DMRIPipeline
             pipeline_obj = DMRIPipeline(config)
+
         elif pipeline_name == 'anat':
             from qmri_neuropipe.workflows.pipelines.anat import AnatPipeline
             pipeline_obj = AnatPipeline(config)
+        elif pipeline_name == 'relaxometry':
+            from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryPipeline
+            pipeline_obj = RelaxometryPipeline(config)
         else:
              return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': f"Unknown pipeline {pipeline_name}"}
         

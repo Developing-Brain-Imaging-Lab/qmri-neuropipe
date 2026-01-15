@@ -232,5 +232,72 @@ def fit_mapmri_cli(
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
+
+@app.command("run-relaxometry")
+def run_relaxometry_cli(
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    spgr: List[Path] = typer.Option(..., "--spgr", help="SPGR Input(s) (4D or multiple 3D)."),
+    ssfp: List[Path] = typer.Option([], "--ssfp", help="SSFP Input(s)."),
+    irspgr: List[Path] = typer.Option([], "--irspgr", help="IR-SPGR Input(s) for HIFI."),
+    b1: List[Path] = typer.Option([], "--b1", help="B1 Map/AFI Inputs."),
+    t1w: Optional[Path] = typer.Option(None, "--t1w", help="Structural T1w for coregistration."),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
+    config_file: Optional[Path] = typer.Option(None, "--config", "-c", help="Configuration YAML file."),
+):
+    """
+    Run Relaxometry Pipeline (DESPOT1/2/HIFI/mcDESPOT).
+    Includes Preprocessing, B1 Mapping, Fitting, and Post-processing.
+    """
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    console.print(f"[bold blue]Running Relaxometry Pipeline[/bold blue]")
+    
+    from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryWorkflow
+    from qmri_neuropipe.core import PipelineConfig
+    from qmri_neuropipe.core.types import ImageFile
+    import logging
+    
+    # Load Config
+    cfg = PipelineConfig()
+    if config_file:
+        cfg.load_yaml(config_file)
+        
+    # Setup Logger
+    logger = logging.getLogger("relaxometry")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        ch = logging.StreamHandler()
+        ch.setFormatter(logging.Formatter('%(message)s'))
+        logger.addHandler(ch)
+        
+    # Prepare Context input
+    context = {'relax_files': []}
+    
+    # helper
+    def _add_files(paths, acq_tag, suffix=""):
+        for p in paths:
+             ents = {'acq': acq_tag, 'suffix': suffix} # Minimal entities
+             context['relax_files'].append(ImageFile(img=p, entities=ents, bids_dir=p.parent))
+             
+    _add_files(spgr, 'spgr')
+    _add_files(ssfp, 'ssfp')
+    _add_files(irspgr, 'irspgr')
+    _add_files(b1, 'afi', 'b1')
+    
+    if t1w:
+         context['t1w_file'] = ImageFile(img=t1w, entities={'suffix': 'T1w'})
+    
+    workflow = RelaxometryWorkflow(config=cfg, logger=logger, provenance={})
+    
+    try:
+        workflow.run(output_dir=output_dir, context=context, final_output_dir=output_dir)
+        console.print("[bold green]Relaxometry Pipeline Completed![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
 if __name__ == "__main__":
     app()
