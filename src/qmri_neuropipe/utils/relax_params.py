@@ -7,10 +7,14 @@ from ..core.types import ImageFile
 
 def _extract_bids_param(img: ImageFile, key: str, default=None) -> Any:
     """Safely extract parameter from ImageFile sidecar."""
-    if img.json and img.json.exists():
-        with open(img.json) as f:
-            data = json.load(f)
-            return data.get(key, default)
+
+    if img.json:
+        if isinstance(img.json, dict):
+            return img.json.get(key, default)
+        elif hasattr(img.json, 'exists') and img.json.exists():
+            with open(img.json) as f:
+                data = json.load(f)
+                return data.get(key, default)
     # Fallback: check entities? (e.g. TR in filename?) Unlikely for accurate fitting.
     return default
 
