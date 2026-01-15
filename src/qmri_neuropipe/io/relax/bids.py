@@ -69,11 +69,12 @@ def bids_find_relax(search_dir: Path) -> List[ImageFile]:
              
              import json
              jdata = {}
+
              if json_file.exists():
                   try:
                        with open(json_file) as jf: jdata = json.load(jf)
                   except: pass
              
-             files.append(ImageFile(img=f, entities=entities, json=jdata, bids_dir=search_dir.parent))
+             files.append(ImageFile(img=f, entities=entities, json=jdata))
              
     return files
