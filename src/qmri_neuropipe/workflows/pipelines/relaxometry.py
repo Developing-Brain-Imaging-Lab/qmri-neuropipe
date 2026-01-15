@@ -230,8 +230,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         # If modeling section exists, we respect it strictly?
         # Let's support: modeling: despot1: enabled: true
         
-        run_despot1 = model_cfg.get("despot1", {}).get("enabled", True) # Default on
-        run_despot2 = model_cfg.get("despot2", {}).get("enabled", True) # Default on
+        run_despot1 = model_cfg.get("despot1", {}).get("enabled", False) # Default False
+        use_hifi = model_cfg.get("despot1", {}).get("use_hifi", True)
+        
+        run_despot2 = model_cfg.get("despot2", {}).get("enabled", False) # Default False
+        use_mcdespot = model_cfg.get("despot2", {}).get("mcdespot", True)
         
         # Check inputs availability
         has_spgr = bool(spgr_moco)
