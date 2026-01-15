@@ -17,9 +17,11 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
     Registers all volumes to the volume with the highest Flip Angle (highest SNR).
     """
     
-    def __init__(self, config, logger, provenance, method="ants"):
+
+    def __init__(self, config, logger, provenance, method="ants", options: dict = None):
         super().__init__(config, logger, provenance)
         self.method = method
+        self.options = options or {}
         
     def run(self, 
             images: List[ImageFile], 
@@ -100,25 +102,27 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             self.logger.info(f"Registering {img.img.name} -> {ref_path.name}")
             
             # Execute Registration (Rigid)
+
             if self.method == 'ants':
-                # Use ants.registration (Quick rigid)
-                # Need wrapper or direct call?
-                # Assuming simple rigid interface exists or wrap antsRegistrationSyNQuick
+                # Custom options for ANTs
+                # Default logic: Rigid (-t r)
+                # If options provided, override construction or append?
+                # Supporting basic flags: 'transform_type' (t), 'threads' (n)
+                # Or raw args string?
+                # User asked for "pass along fsl flirt or ants options"
                 
-                # cmd: antsRegistrationSyNQuick.sh -d 3 -f <ref> -m <moving> -o <out_prefix> -t r
-                # We need to construct output prefix logic for ANTs
+                transform = self.options.get('transform_type', 'r') # default rigid
+                threads = self.options.get('threads', 4) # default 4
+                
+                # Construct base cmd
                 prefix = str(out_path).replace(".nii.gz", "").replace(".nii", "")
                 
-                # Call ANTs interface directly?
-                # I'll rely on a run_cmd valid call or the `interfaces.ants` if I knew it.
-                # Since I didn't verify `interfaces.ants`, I'll use run_cmd directly for `antsRegistrationSyNQuick.sh`
+                cmd = f"antsRegistrationSyNQuick.sh -d 3 -f {ref_path} -m {img.img} -o {prefix} -t {transform} -n {threads}" 
                 
-                cmd = f"antsRegistrationSyNQuick.sh -d 3 -f {ref_path} -m {img.img} -o {prefix} -t r -n 2" # -n 2 threads
-                
-                # Check if output is named consistently. 
-                # antsRegistrationSyNQuick -o prefix -> outputs prefixWarped.nii.gz
-                # We want just out_path.
-                # So we rename after.
+                # Append extra raw args if needed?
+                # e.g. options={'args': '-x Mask.nii.gz'}
+                if 'args' in self.options:
+                     cmd += f" {self.options['args']}"
                 
                 run_cmd(cmd, label="ants_moco")
                 
@@ -126,13 +130,33 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                 if warped.exists():
                      warped.rename(out_path)
                      
-                # Add check for Mat? 
-            
             elif self.method == 'fsl':
                 # FLIRT
-                # flirt -in <in> -ref <ref> -out <out> -dof 6
                 from ...interfaces.fsl import flirt
-                flirt(in_file=img.img, ref_file=ref_path, out_file=out_path, dof=6)
+                # Map options dict to flirt args
+                # supported: dof, cost, searchcost, interp...
+                
+                flirt_kwargs = {
+                    'in_file': img.img,
+                    'ref_file': ref_path,
+                    'out_file': out_path,
+                    'dof': self.options.get('dof', 6), # Default 6 (Rigid)
+                }
+                
+                # Optional args supported by wrapper or we pass as raw?
+                # Our wrapper usually accepts specific args.
+                # If wrapper doesn't support 'cost', we might need to modify wrapper or use run_cmd?
+                # Let's check wrapper signature... we assumed it exists.
+                # Standard pattern: kwargs passed to run_cmd or built?
+                # Let's just pass self.options content that matches FLIRT flags if possible.
+                
+                # Basic ones
+                if 'cost' in self.options: flirt_kwargs['cost'] = self.options['cost']
+                if 'bins' in self.options: flirt_kwargs['bins'] = self.options['bins']
+                if 'searchcost' in self.options: flirt_kwargs['searchcost'] = self.options['searchcost']
+                if 'interp' in self.options: flirt_kwargs['interp'] = self.options['interp']
+                
+                flirt(**flirt_kwargs)
                 
             corrected_images.append(ImageFile(img=out_path, entities=ents, json=img.json))
             

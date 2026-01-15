@@ -8,9 +8,11 @@ from ...core import BaseWorkflow, PipelineConfig
 from ...core.types import ImageFile
 from ...io.bids import build_bids_name, get_entities_from_path
 
+
 # Import Steps
 from ...lib.relax.motion import SPGRMotionCorrectionStep
 from ...lib.relax.b1 import B1MappingStep
+from ...lib.common.reorient import ReorientStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
 from ...utils.relax_params import generate_acq_params
 
@@ -24,6 +26,12 @@ class RelaxometryWorkflow(BaseWorkflow):
         relax_cfg = self.config.get("relaxometry", {})
         preproc_cfg = relax_cfg.get("preprocessing", {})
         
+
+        # 0. Reorientation
+        reorient_cfg = preproc_cfg.get("reorient", {})
+        if reorient_cfg.get("enabled", False):
+             self.add_step(ReorientStep(self.config, self.logger, self.provenance))
+
         # 1. Denoising
         den_cfg = preproc_cfg.get("denoising", {})
         if den_cfg.get("enabled", True):
@@ -36,11 +44,16 @@ class RelaxometryWorkflow(BaseWorkflow):
              self.add_step(GibbsUnringingStep(self.config, self.logger, self.provenance,
                                               method=gibbs_cfg.get("method", "mrtrix")))
 
+
         # 3. Motion Correction
         moco_cfg = preproc_cfg.get("motion_correction", {})
         if moco_cfg.get("enabled", True):
+             # Extract extra options (exclude 'enabled' and 'method')
+             moco_opts = {k:v for k,v in moco_cfg.items() if k not in ['enabled', 'method']}
+             
              self.add_step(SPGRMotionCorrectionStep(self.config, self.logger, self.provenance,
-                                                    method=moco_cfg.get("method", "ants")))
+                                                    method=moco_cfg.get("method", "ants"),
+                                                    options=moco_opts))
         
         # 4. B1 Mapping
         b1_cfg = preproc_cfg.get("b1", {})
@@ -125,13 +138,18 @@ class RelaxometryWorkflow(BaseWorkflow):
         # Re-think: Denoise/Gibbs is per-image. Motion is group.
         # Group Run:
         
-        # A. Denoise & Gibbs (Per Image)
+
+        # A. Denoise/Gibbs/Reorient (Per Image)
         def _pre_proc_list(img_list, modality_name):
              out_list = []
              for img in img_list:
                  curr = img
                  for step in self.steps:
-                     if isinstance(step, (DenoisingStep, GibbsUnringingStep)):
+                     # Check step types strictly
+                     if isinstance(step, (DenoisingStep, GibbsUnringingStep, ReorientStep)):
+                         # ReorientStep usually takes 1 arg.
+                         # Denoising/Gibbs take 1 arg + kwargs.
+                         # Standard pattern: step.run(img, output_dir=...)
                          curr = step.run(curr, output_dir=output_dir)
                  out_list.append(curr)
              return out_list
@@ -195,79 +213,99 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              b1_map = b1_step.run(curr_b1, reference_image=ref_img, output_dir=output_dir, b1_ref_image=b1_ref)
              
-        # 5. Fitting
+
+        # 5. Fitting Strategy
+        model_cfg = relax_cfg.get("modeling", {})
         fit_out_dir = output_dir / "fitting"
         fit_out_dir.mkdir(exist_ok=True)
         
-        # Determine strategy
-        # DESPOT1-HIFI? (SPGR + IR-SPGR)
-        if spgr_moco and ir_den:
-             self.logger.info("Running DESPOT1-HIFI Fitting...")
-             res = fit_despot1_hifi(
-                 spgr_file=spgr_moco[0], # Assuming merged? Or list? Wrapper expects single path? 
-                 # Wrapper expects single file.
-                 # If we have multiple 3D files, we usually need to MERGE them for the binary?
-                 # Binary: --spgr=file.nii.gz 
-                 # Does binary accept comma list? 
-                 # qmri_fit_despot1 usually expects 4D file.
-                 # CHECK: "Expects 4D VFA NIfTI" in plan.
-                 # So we MUST merge if multiple.
-                 irspgr_file=ir_den[0], # Merge logic needed if multiple
-                 params_file=params_json,
-                 out_dir=fit_out_dir,
-                 out_base="despot1_hifi"
-             )
-             context.update(res)
-             # Use generated B1 for subsequent DESPOT2?
-             if "b1" in res: b1_map = ImageFile(img=res["b1"], entities={})
-             
-        elif spgr_moco and not ssfp_moco:
-             # DESPOT1
-             self.logger.info("Running DESPOT1 Fitting...")
-             # Merge SPGR
-             from ...interfaces.fsl import merge
-             spgr_4d = output_dir / "spgr_4d.nii.gz"
-             merge(spgr_moco, spgr_4d, dimension='t')
-             
-             res = fit_despot1(
-                 spgr_file=spgr_4d,
-                 params_file=params_json,
-                 out_dir=fit_out_dir,
-                 b1_file=b1_map,
-                 out_base="despot1"
-             )
-             context.update(res)
+        # Helper to check if model enabled (default True if not config present but files exist?)
+        # User requested specific config pattern.
+        # If modeling section exists, we respect it strictly?
+        # Let's support: modeling: despot1: enabled: true
+        
+        run_despot1 = model_cfg.get("despot1", {}).get("enabled", True) # Default on
+        run_despot2 = model_cfg.get("despot2", {}).get("enabled", True) # Default on
+        
+        # Check inputs availability
+        has_spgr = bool(spgr_moco)
+        has_ir = bool(ir_den)
+        has_ssfp = bool(ssfp_moco)
+        
+        # --- DESPOT1 / HIFI ---
+        if run_despot1 and has_spgr:
+            # Determine HIFI or Standard
+            # If IR exists, prefer HIFI? Or Configurable?
+            # modeling.despot1.hifi : bool ?
+            d1_cfg = model_cfg.get("despot1", {})
+            use_hifi = d1_cfg.get("use_hifi", True) # Default prefer High-Fi if available
+            
+            # Merge SPGR (Required for both)
+            from ...interfaces.fsl import merge
+            spgr_4d = output_dir / "spgr_4d.nii.gz"
+            merge(spgr_moco, spgr_4d, dimension='t')
+            
+            if has_ir and use_hifi:
+                 self.logger.info("Running DESPOT1-HIFI Fitting...")
+                 res = fit_despot1_hifi(
+                     spgr_file=spgr_4d, 
+                     irspgr_file=ir_den[0], # Merge if multiple?
+                     params_file=params_json,
+                     out_dir=fit_out_dir,
+                     out_base="despot1_hifi"
+                 )
+            else:
+                 self.logger.info("Running DESPOT1 Standard Fitting...")
+                 res = fit_despot1(
+                     spgr_file=spgr_4d,
+                     params_file=params_json,
+                     out_dir=fit_out_dir,
+                     b1_file=b1_map,
+                     out_base="despot1"
+                 )
+            context.update(res)
+            # Update B1 if HIFI generated it
+            if "b1" in res and not b1_map: 
+                b1_map = ImageFile(img=res["b1"], entities={})
 
-        # DESPOT2 / mcDESPOT
-        if spgr_moco and ssfp_moco:
-             # Need T1 map. Assuming DESPOT1 ran or we run it now?
-             # Usually DESPOT2 requires T1 map.
-             # If we just ran DESPOT1/HIFI, we have T1.
-             if "t1" not in context:
-                  # Run DESPOT1 first
-                  # See above block.
-                  pass
-                  
+        # --- DESPOT2 / mcDESPOT ---
+        if run_despot2 and has_ssfp and has_spgr:
+             # Requires T1 map (from DESPOT1)
              t1_map = context.get("t1")
-             
-             # Merge SSFP
-             from ...interfaces.fsl import merge
-             ssfp_4d = output_dir / "ssfp_4d.nii.gz"
-             merge(ssfp_moco, ssfp_4d, dimension='t')
-             
-             # 2-Component (mcDESPOT) or 1-Component?
-             # Configurable?
-             # Default to simple Despot2 first?
-             # Or if user requested?
-             # Let's run DESPOT2 (1-comp)
-             res2 = fit_despot2(
-                 ssfp_file=ssfp_4d,
-                 t1_file=t1_map,
-                 b1_file=b1_map or t1_map, # Fallback?
-                 params_file=params_json,
-                 out_dir=fit_out_dir
-             )
-             context.update(res2)
+             if not t1_map:
+                  self.logger.warning("DESPOT2 requested but no T1 map found (DESPOT1 failed or disabled?). Skipping DESPOT2.")
+             else:
+                  self.logger.info("Running DESPOT2 Fitting...")
+                  
+                  # Merge SSFP
+                  from ...interfaces.fsl import merge
+                  ssfp_4d = output_dir / "ssfp_4d.nii.gz"
+                  merge(ssfp_moco, ssfp_4d, dimension='t')
+                  
+                  # Check mcDESPOT vs DESPOT2
+                  # modeling.despot2.mcdespot : bool
+                  d2_cfg = model_cfg.get("despot2", {})
+                  use_mcdespot = d2_cfg.get("mcdespot", False)
+                  
+                  if use_mcdespot:
+                       self.logger.info("Running mcDESPOT (2-Component) Fitting...")
+                       res2 = fit_despot2_fm(
+                           ssfp_file=ssfp_4d,
+                           t1_file=t1_map,
+                           b1_file=b1_map or t1_map,
+                           params_file=params_json,
+                           out_dir=fit_out_dir
+                       )
+                  else:
+                       self.logger.info("Running DESPOT2 (1-Component) Fitting...")
+                       res2 = fit_despot2(
+                           ssfp_file=ssfp_4d,
+                           t1_file=t1_map,
+                           b1_file=b1_map or t1_map, # Fallback B1=T1 is weird but if B1 missing?
+                           params_file=params_json,
+                           out_dir=fit_out_dir
+                       )
+                  context.update(res2)
 
 
         # 6. Post-Processing (Coreg/Norm/Stats)
