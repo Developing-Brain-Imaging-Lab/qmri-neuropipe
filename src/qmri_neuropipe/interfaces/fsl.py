@@ -686,6 +686,52 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     return out_p
 
 
+def flirt(
+    in_file: Union[str, Path, ImageLike],
+    ref_file: Union[str, Path, ImageLike],
+    out_file: Union[str, Path],
+    omat: Optional[Union[str, Path]] = None,
+    dof: int = 12,
+    cost: str = "corratio",
+    bins: int = 256,
+    searchcost: str = "corratio",
+    usesqform: bool = True,
+    interp: str = "trilinear",
+    **kwargs
+):
+    """
+    Run FSL FLIRT.
+    """
+    ensure_dir(Path(out_file).parent)
+    
+    cmd = [
+        "flirt",
+        f"-in {in_file}",
+        f"-ref {ref_file}",
+        f"-out {out_file}",
+        f"-dof {dof}",
+        f"-cost {cost}", 
+        f"-searchcost {searchcost}",
+        f"-bins {bins}",
+        f"-interp {interp}"
+    ]
+    
+    if omat:
+        cmd.append(f"-omat {omat}")
+        
+    if usesqform:
+        cmd.append("-usesqform")
+
+    # Handle kwargs
+    for k, v in kwargs.items():
+        if len(k) == 1: cmd.append(f"-{k} {v}")
+        else: cmd.append(f"--{k}={v}") 
+
+    run_cmd(" ".join(cmd), label=f"flirt ({dof} dof)")
+    return out_file
+
+
+
 def fast(
     in_files: Union[Path, ImageLike, list[Union[Path, ImageLike]]],
     out_base: Path,
