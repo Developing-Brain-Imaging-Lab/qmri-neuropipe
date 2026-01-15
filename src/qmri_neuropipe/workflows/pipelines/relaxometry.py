@@ -9,10 +9,13 @@ from ...core.types import ImageFile
 from ...io.bids import build_bids_name, get_entities_from_path
 
 
+
 # Import Steps
 from ...lib.relax.motion import SPGRMotionCorrectionStep
 from ...lib.relax.b1 import B1MappingStep
 from ...lib.common.reorient import ReorientStep
+from ...lib.common.denoise import DenoisingStep
+from ...lib.common.gibbs import GibbsUnringingStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
 from ...utils.relax_params import generate_acq_params
 
