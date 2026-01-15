@@ -217,7 +217,10 @@ class RelaxometryWorkflow(BaseWorkflow):
              b1_map = b1_step.run(curr_b1, reference_image=ref_img, output_dir=output_dir, b1_ref_image=b1_ref)
              
 
+
         # 5. Fitting Strategy
+        relax_cfg = self.config.get("relaxometry", {})
+
         model_cfg = relax_cfg.get("modeling", {})
         fit_out_dir = output_dir / "fitting"
         fit_out_dir.mkdir(exist_ok=True)
