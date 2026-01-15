@@ -53,8 +53,12 @@ def bids_find_relax(search_dir: Path) -> List[ImageFile]:
              is_relax = True
         elif 'vfa' in suffix or 'vfa' in name.lower():
              is_relax = True
-        elif 'b1' in suffix or 'b1' in acq:
+
+        elif 'b1' in suffix or 'b1' in acq or 'tb1afi' in suffix.lower():
              is_relax = True
+             if 'tb1afi' in suffix.lower():
+                  # Force ACQ tag if missing, to help workflow identify it
+                  entities['acq'] = 'afi'
              
         if is_relax:
              # Load Sidecar
