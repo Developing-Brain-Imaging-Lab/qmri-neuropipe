@@ -30,135 +30,130 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             reference_image: Optional[ImageFile] = None
            ) -> List[ImageFile]:
            
+
+
         output_dir = ensure_dir(output_dir)
-        
+        processed_outputs = []
+
         # 1. Identify Reference (Max Flip Angle)
         if not reference_image:
-            max_fa = -1.0
-            ref_idx = 0
-            
-            for i, img in enumerate(images):
-                # Handle 4D: If image is 4D, we might need to split it? 
-                # Or assume input is list of 3D or 4D?
-                # Usually VFA is acquired as separate files or one 4D. 
-                # If 4D, we need to extract volumes first?
-                # User's plan said "Input: Motion-corrected 4D VFA". 
-                # Actually, input TO this step is raw 4D VFA.
-                
-                # If input is a LIST of ImageFiles, assume each is a 3D volume (or one 4D).
-                # If it's a single 4D file in a list, we need to split it for motion correction?
-                # Or use a 4D motion correction tool.
-                
-                # Check dimensions
-                try:
-                    p_img = nib.load(img.img)
-                    dims = p_img.shape
-                    
-                    if len(dims) == 4 and dims[3] > 1:
-                        # It is 4D. Step handles splitting?
-                        # For now assume list of separate files (DESPOT usually separate scans).
-                        # If 4D, we might treat the first volume as index?
-                        pass
-                except:
-                    pass
-                
-                fa =  _extract_bids_param(img, "FlipAngle", 0.0)
-                if isinstance(fa, list): fa = max(fa) if fa else 0.0 # If 4D and list
-                
-                if fa > max_fa:
-                    max_fa = fa
-                    ref_idx = i
-                    
-            reference_image = images[ref_idx]
-            self.logger.info(f"Selected reference image (FA={max_fa}): {reference_image.img.name}")
-
-        # 2. Register each image to Reference
-        corrected_images = []
-        
-        # Prepare reference path
+             max_fa = -1.0
+             ref_img_candidate = None
+             for img in images:
+                 fa = _extract_bids_param(img, "FlipAngle", 0.0)
+                 if isinstance(fa, list): fa = max(fa) if fa else 0.0
+                 if float(fa) > max_fa:
+                     max_fa = float(fa)
+                     ref_img_candidate = img
+             
+             if not ref_img_candidate:
+                 ref_img_candidate = images[0]
+                 
+             reference_image = ref_img_candidate
+             self.logger.info(f"Selected reference image (FA={max_fa}): {reference_image.img.name}")
+             
+        # Ensure Reference is 3D
         ref_path = Path(reference_image.img)
-        
+        try:
+            ref_nii = nib.load(ref_path)
+            if len(ref_nii.shape) == 4 and ref_nii.shape[3] > 1:
+                 # Extract vol 0 as temp ref
+                 temp_ref = output_dir / "temp_ref.nii.gz"
+                 # Using fslroi directly via run_cmd
+                 cmd = f"fslroi {ref_path} {temp_ref} 0 1"
+                 run_cmd(cmd, label="fslroi_ref")
+                 ref_path = temp_ref
+        except Exception as e:
+            self.logger.warning(f"Could not check dimensions of ref: {e}")
+
+        # 2. Process Inputs
         for img in images:
-            # Skip if it is the reference? (Just copy)
-            is_ref = (img.img == reference_image.img)
+            # Check if 4D
+            is_4d = False
+            try:
+                nii = nib.load(img.img)
+                if len(nii.shape) == 4 and nii.shape[3] > 1:
+                    is_4d = True
+            except:
+                pass
             
+            # Prepare Output Name
             ents = dict(img.entities)
-            ents['desc'] = 'moco'
+            
+            # Naming Logic: Force desc to {Modality}preproc
+            # e.g. sub-01_acq-spgr_desc-SPGRpreproc_VFA.nii.gz
+            acq_label = ents.get('acq', '').upper()
+            if not acq_label: acq_label = "Moco" # Fallback
+            
+            new_desc = f"{acq_label}preproc"
+            ents['desc'] = new_desc
+            
             out_name = build_bids_name(ents)
             out_path = output_dir / out_name
             
+            # Check if exists and valid
             if out_path.exists() and not force:
-                self.logger.info(f"Skipping Motion Correction (Exists): {out_name}")
-                corrected_images.append(ImageFile(img=out_path, entities=ents, json=img.json)) # Keep original JSON
-                continue
-            
-            if is_ref:
-                # Copy reference
-                import shutil
-                shutil.copy(img.img, out_path)
-                corrected_images.append(ImageFile(img=out_path, entities=ents, json=img.json))
-                continue
-                
-            self.logger.info(f"Registering {img.img.name} -> {ref_path.name}")
-            
-            # Execute Registration (Rigid)
+                try: 
+                    check = nib.load(out_path)
+                    if is_4d and (len(check.shape) != 4 or check.shape[3] < 2):
+                         self.logger.warning(f"Existing output {out_name} appears truncated. Re-running.")
+                    else:
+                         self.logger.info(f"Skipping Motion Correction (Exists): {out_name}")
+                         processed_outputs.append(ImageFile(img=out_path, entities=ents, json=img.json))
+                         continue
+                except:
+                    pass 
 
-            if self.method == 'ants':
-                # Custom options for ANTs
-                # Default logic: Rigid (-t r)
-                # If options provided, override construction or append?
-                # Supporting basic flags: 'transform_type' (t), 'threads' (n)
-                # Or raw args string?
-                # User asked for "pass along fsl flirt or ants options"
-                
-                transform = self.options.get('transform_type', 'r') # default rigid
-                threads = self.options.get('threads', 4) # default 4
-                
-                # Construct base cmd
-                prefix = str(out_path).replace(".nii.gz", "").replace(".nii", "")
-                
-                cmd = f"antsRegistrationSyNQuick.sh -d 3 -f {ref_path} -m {img.img} -o {prefix} -t {transform} -n {threads}" 
-                
-                # Append extra raw args if needed?
-                # e.g. options={'args': '-x Mask.nii.gz'}
-                if 'args' in self.options:
-                     cmd += f" {self.options['args']}"
-                
-                run_cmd(cmd, label="ants_moco")
-                
-                warped = Path(f"{prefix}Warped.nii.gz")
-                if warped.exists():
-                     warped.rename(out_path)
-                     
-            elif self.method == 'fsl':
-                # FLIRT
-                from ...interfaces.fsl import flirt
-                # Map options dict to flirt args
-                # supported: dof, cost, searchcost, interp...
-                
-                flirt_kwargs = {
-                    'in_file': img.img,
-                    'ref_file': ref_path,
-                    'out_file': out_path,
-                    'dof': self.options.get('dof', 6), # Default 6 (Rigid)
-                }
-                
-                # Optional args supported by wrapper or we pass as raw?
-                # Our wrapper usually accepts specific args.
-                # If wrapper doesn't support 'cost', we might need to modify wrapper or use run_cmd?
-                # Let's check wrapper signature... we assumed it exists.
-                # Standard pattern: kwargs passed to run_cmd or built?
-                # Let's just pass self.options content that matches FLIRT flags if possible.
-                
-                # Basic ones
-                if 'cost' in self.options: flirt_kwargs['cost'] = self.options['cost']
-                if 'bins' in self.options: flirt_kwargs['bins'] = self.options['bins']
-                if 'searchcost' in self.options: flirt_kwargs['searchcost'] = self.options['searchcost']
-                if 'interp' in self.options: flirt_kwargs['interp'] = self.options['interp']
-                
-                flirt(**flirt_kwargs)
-                
-            corrected_images.append(ImageFile(img=out_path, entities=ents, json=img.json))
+            self.logger.info(f"Processing Motion Correction for: {img.img.name}")
             
-        return corrected_images
+            if is_4d:
+                from ...interfaces.fsl import split, merge
+                self.logger.info(f"  Input is 4D. Splitting and registering {nii.shape[3]} volumes...")
+                
+                split_dir = output_dir / f"temp_split_{img.img.stem}"
+                split_dir.mkdir(exist_ok=True)
+                split_prefix = split_dir / "vol"
+                
+                vols = split(img.img, split_prefix)
+                
+                corrected_vols = []
+                for i, vol in enumerate(vols):
+                    vol_out = split_dir / f"vol{i:04d}_moco.nii.gz"
+                    self._register(vol, ref_path, vol_out)
+                    corrected_vols.append(vol_out)
+                    
+                merge(corrected_vols, out_path, dimension='t')
+                
+                import shutil
+                shutil.rmtree(split_dir)
+                
+            else:
+                self._register(img.img, ref_path, out_path)
+                
+            processed_outputs.append(ImageFile(img=out_path, entities=ents, json=img.json))
+            
+        return processed_outputs
+
+    def _register(self, in_file, ref_file, out_file):
+        """Helper to run registration."""
+        if self.method == 'ants':
+             transform = self.options.get('transform_type', 'r') 
+             threads = self.options.get('threads', 4)
+             prefix = str(out_file).replace(".nii.gz", "").replace(".nii", "")
+             cmd = f"antsRegistrationSyNQuick.sh -d 3 -f {ref_file} -m {in_file} -o {prefix} -t {transform} -n {threads}"
+             if 'args' in self.options: cmd += f" {self.options['args']}"
+             run_cmd(cmd, label="ants_moco")
+             warped = Path(f"{prefix}Warped.nii.gz")
+             if warped.exists(): warped.rename(out_file)
+             
+        elif self.method == 'fsl':
+             from ...interfaces.fsl import flirt
+             flirt_kwargs = {
+                 'in_file': in_file, 'ref_file': ref_file, 'out_file': out_file,
+                 'dof': self.options.get('dof', 6)
+             }
+             for k in ['cost', 'bins', 'searchcost', 'interp']:
+                 if k in self.options: flirt_kwargs[k] = self.options[k]
+             flirt(**flirt_kwargs)
+
 

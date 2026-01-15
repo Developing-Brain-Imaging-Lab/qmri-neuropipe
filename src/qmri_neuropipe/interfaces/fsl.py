@@ -124,7 +124,49 @@ def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t"
     if not out_p.exists():
          run_cmd(cmd, label="fslmerge")
          
+
     return out_p
+
+
+def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -> List[Path]:
+    """
+    Wrapper for fslsplit.
+    Splits a 4D file into 3D volumes.
+    
+    Args:
+        in_file: Input 4D file.
+        out_basename: Basename for output files (e.g. /path/to/vol_).
+        dimension: Dimension to split along. Default 't'.
+        
+    Returns:
+        List of generated file paths.
+    """
+    in_p = extract_image_path(in_file)
+    out_base = ensure_path(out_basename) # Just ensuring parent? no, out_basename is a prefix usually?
+    # fslsplit <input> <output_basename> -t
+    
+    # Ensure parent exists
+    if out_base.parent:
+        out_base.parent.mkdir(parents=True, exist_ok=True)
+        
+    cmd = f"fslsplit {in_p} {out_base} -{dimension}"
+    run_cmd(cmd, label="fslsplit")
+    
+    # Identify outputs
+    # fslsplit produces vol0000.nii.gz, vol0001.nii.gz ...
+    # We need to glob them to return sorted list
+    # The output basename is treated as a prefix.
+    # If out_base is "vol", outputs are "vol0000.nii.gz"
+    
+    # Use parent to glob
+    parent = out_base.parent
+    prefix = out_base.name
+    
+    # Glob pattern: prefix + 4 digits + .nii.gz (or .nii)
+    # FSL usually output .nii.gz if FSLOUTPUTTYPE is NIFTI_GZ
+    # We can just glob prefix* and sort
+    files = sorted(list(parent.glob(f"{prefix}*")))
+    return files
 
 
 def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, warp: Path = None, premat: Path = None, interp: str = "spline", extra_args: str = ""):
