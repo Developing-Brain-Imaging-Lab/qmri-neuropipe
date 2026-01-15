@@ -191,11 +191,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco
         
+
         # 3. Parameter Generation
         # Generate params.json from *Original* or *Processed*? Original usually has JSON. Processed usually inherit.
         # Use Processed.
+        ir_final = ir_moco if 'ir_moco' in locals() else ir_den
         params_json = output_dir / "acq_params.json"
-        generate_acq_params(spgr_moco, ssfp_moco, ir_den, output_path=params_json)
+        generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
         
         # 4. B1 Mapping
         b1_step = next((s for s in self.steps if isinstance(s, B1MappingStep)), None)
