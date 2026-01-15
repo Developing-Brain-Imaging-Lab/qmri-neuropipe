@@ -122,8 +122,10 @@ class B1MappingStep(BaseProcessingStep):
         # Check for explicit TRRatio (n)
         n_ratio = json_data.get('TRRatio')
         
+
         if n_ratio:
              self.logger.info(f"Using provided TRRatio from JSON: {n_ratio}")
+             n_ratio = float(n_ratio)
         else:
             # Fallback to TR calculation
             tr = json_data.get('RepetitionTime')
@@ -132,7 +134,7 @@ class B1MappingStep(BaseProcessingStep):
             if isinstance(tr, list) and len(tr) == 2:
                 tr1, tr2 = sorted(tr) 
                 tr1, tr2 = tr[0], tr[1]
-                n_ratio = tr2 / tr1
+                n_ratio = float(tr2 / tr1)
             else:
                 self.logger.warning("AFI: RepetitionTime not a list of 2 in JSON and no TRRatio found. Assuming n=5 for testing.")
                 if not tr or not isinstance(tr, list):
