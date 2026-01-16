@@ -210,26 +210,31 @@ class RelaxometryWorkflow(BaseWorkflow):
         if not mask_step:
              mask_step = BrainMaskingStep(self.config, self.logger, self.provenance, method=mask_method)
              
-        self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")
-        # Save mask to anat dir. Use reference entities but ensure correct suffix.
-        # return_mask=True gives us the mask object.
-        masked_ref, mask_obj = mask_step.run(ref_img, output_dir=anat_out_dir, return_mask=True)
-        
-        # Rename mask to sub-XX_desc-brain-mask.nii.gz as requested
+        # Prepare Target Mask Name
         subj = context.get('subject')
         sess = context.get('session')
         mask_name_base = f"sub-{subj}"
         if sess: mask_name_base += f"_ses-{sess}"
         target_mask_name = anat_out_dir / f"{mask_name_base}_desc-brain-mask.nii.gz"
         
-        if mask_obj.img != target_mask_name:
-             shutil.move(mask_obj.img, target_mask_name)
+        if target_mask_name.exists():
+             self.logger.info(f"Skipping Brain Masking (Exists): {target_mask_name}")
              mask_file = target_mask_name
+             context['brain_mask'] = mask_file
         else:
-             mask_file = mask_obj.img
-        
-        context['brain_mask'] = mask_file
-        self.logger.info(f"Generated Brain Mask: {mask_file}")
+             self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")
+             # Save mask to anat dir. Use reference entities but ensure correct suffix.
+             # return_mask=True gives us the mask object.
+             masked_ref, mask_obj = mask_step.run(ref_img, output_dir=anat_out_dir, return_mask=True)
+             
+             if mask_obj.img != target_mask_name:
+                  shutil.move(mask_obj.img, target_mask_name)
+                  mask_file = target_mask_name
+             else:
+                  mask_file = mask_obj.img
+             
+             context['brain_mask'] = mask_file
+             self.logger.info(f"Generated Brain Mask: {mask_file}")
         # 3. Parameter Generation (to anat dir)
         # Let's save ACQ params to anat dir as it is a result
         ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
@@ -309,34 +314,48 @@ class RelaxometryWorkflow(BaseWorkflow):
             sess = context.get('session')
             base_prefix = f"sub-{subj}"
             if sess: base_prefix += f"_ses-{sess}"
-
-            if has_ir and use_hifi:
-                 self.logger.info("Running DESPOT1-HIFI Fitting...")
-                 # Handle IR list (usually 1 file)
-                 ir_in = ir_final[0] if isinstance(ir_final, list) else ir_final
-                 
-                 res = fit_despot1_hifi(
-                     spgr_file=spgr_4d, 
-                     irspgr_file=ir_in,
-                     params_file=params_json,
-                     out_dir=fit_out_dir,
-                     out_base=f"{base_prefix}_despot1_hifi",
-                     mask_file=mask_file
-                 )
+            
+            despot1_base = f"{base_prefix}_despot1_hifi" if (has_ir and use_hifi) else f"{base_prefix}_despot1"
+            expected_t1 = fit_out_dir / f"{despot1_base}_T1map.nii.gz"
+            expected_m0 = fit_out_dir / f"{despot1_base}_M0map.nii.gz"
+            
+            if expected_t1.exists() and expected_m0.exists():
+                 self.logger.info(f"Skipping DESPOT1 Fitting (Exists): {expected_t1}")
+                 res = {
+                     't1': expected_t1,
+                     'm0': expected_m0
+                 }
+                 # Add potential other outputs if they exist
+                 if (fit_out_dir / f"{despot1_base}_B1map.nii.gz").exists():
+                     res['b1'] = fit_out_dir / f"{despot1_base}_B1map.nii.gz"
             else:
-                 self.logger.info("Running DESPOT1 Standard Fitting...")
-                 res = fit_despot1(
-                     spgr_file=spgr_4d,
-                     params_file=params_json,
-                     out_dir=fit_out_dir,
-                     b1_file=b1_map,
-                     out_base=f"{base_prefix}_despot1",
-                     mask_file=mask_file
-                 )
+                if has_ir and use_hifi:
+                     self.logger.info("Running DESPOT1-HIFI Fitting...")
+                     # Handle IR list (usually 1 file)
+                     ir_in = ir_final[0] if isinstance(ir_final, list) else ir_final
+                     
+                     res = fit_despot1_hifi(
+                         spgr_file=spgr_4d, 
+                         irspgr_file=ir_in,
+                         params_file=params_json,
+                         out_dir=fit_out_dir,
+                         out_base=despot1_base,
+                         mask_file=mask_file
+                     )
+                else:
+                     self.logger.info("Running DESPOT1 Standard Fitting...")
+                     res = fit_despot1(
+                         spgr_file=spgr_4d,
+                         params_file=params_json,
+                         out_dir=fit_out_dir,
+                         b1_file=b1_map,
+                         out_base=despot1_base,
+                         mask_file=mask_file
+                     )
             context.update(res)
             # Update B1 if HIFI generated it
             if "b1" in res and not b1_map: 
-                b1_map = ImageFile(img=res["b1"], entities={})
+                b1_map = ImageFile(img=Path(res["b1"]), entities={})
 
         # --- DESPOT2 / mcDESPOT ---
         if run_despot2 and has_ssfp and has_spgr:
@@ -363,28 +382,44 @@ class RelaxometryWorkflow(BaseWorkflow):
                   base_prefix = f"sub-{subj}"
                   if sess: base_prefix += f"_ses-{sess}"
 
-                  if use_mcdespot:
-                       self.logger.info("Running mcDESPOT (2-Component) Fitting...")
-                       res2 = fit_despot2_fm(
-                           ssfp_file=ssfp_4d,
-                           t1_file=t1_map,
-                           b1_file=b1_map or t1_map,
-                           params_file=params_json,
-                           out_dir=fit_out_dir,
-                           out_base=f"{base_prefix}_despot2_fm",
-                           mask_file=mask_file
-                       )
+                  despot2_base = f"{base_prefix}_despot2_fm" if use_mcdespot else f"{base_prefix}_despot2"
+                  expected_t2 = fit_out_dir / f"{despot2_base}_T2map.nii.gz"
+                  expected_mwf = fit_out_dir / f"{despot2_base}_MWFmap.nii.gz" # Only for mcDESPOT really?
+                  
+                  # Check key output (T2)
+                  if expected_t2.exists():
+                       self.logger.info(f"Skipping DESPOT2 Fitting (Exists): {expected_t2}")
+                       res2 = {
+                           't2': expected_t2
+                       }
+                       if use_mcdespot and expected_mwf.exists():
+                           res2['mwf'] = expected_mwf
+                       # Check for others (tau, off_res/fm)
+                       if (fit_out_dir / f"{despot2_base}_Taumap.nii.gz").exists():
+                           res2['tau'] = fit_out_dir / f"{despot2_base}_Taumap.nii.gz"
                   else:
-                       self.logger.info("Running DESPOT2 (1-Component) Fitting...")
-                       res2 = fit_despot2(
-                           ssfp_file=ssfp_4d,
-                           t1_file=t1_map,
-                           b1_file=b1_map or t1_map, # Fallback B1=T1 is weird but if B1 missing?
-                           params_file=params_json,
-                           out_dir=fit_out_dir,
-                           out_base=f"{base_prefix}_despot2",
-                           mask_file=mask_file
-                       )
+                      if use_mcdespot:
+                           self.logger.info("Running mcDESPOT (2-Component) Fitting...")
+                           res2 = fit_despot2_fm(
+                               ssfp_file=ssfp_4d,
+                               t1_file=t1_map,
+                               b1_file=b1_map or t1_map,
+                               params_file=params_json,
+                               out_dir=fit_out_dir,
+                               out_base=despot2_base,
+                               mask_file=mask_file
+                           )
+                      else:
+                           self.logger.info("Running DESPOT2 (1-Component) Fitting...")
+                           res2 = fit_despot2(
+                               ssfp_file=ssfp_4d,
+                               t1_file=t1_map,
+                               b1_file=b1_map or t1_map, # Fallback B1=T1 is weird but if B1 missing?
+                               params_file=params_json,
+                               out_dir=fit_out_dir,
+                               out_base=despot2_base,
+                               mask_file=mask_file
+                           )
                   context.update(res2)
 
 
