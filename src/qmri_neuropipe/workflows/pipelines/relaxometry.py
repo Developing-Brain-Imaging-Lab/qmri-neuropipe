@@ -214,10 +214,20 @@ class RelaxometryWorkflow(BaseWorkflow):
         # Save mask to anat dir. Use reference entities but ensure correct suffix.
         # return_mask=True gives us the mask object.
         masked_ref, mask_obj = mask_step.run(ref_img, output_dir=anat_out_dir, return_mask=True)
-        mask_file = mask_obj.img
         
-        # Ensure mask name is BIDS compliant (it inherits from ref_img usually)
-        # If necessary, rename? BrainMaskingStep usually produces _mask.nii.gz
+        # Rename mask to sub-XX_desc-brain-mask.nii.gz as requested
+        subj = context.get('subject')
+        sess = context.get('session')
+        mask_name_base = f"sub-{subj}"
+        if sess: mask_name_base += f"_ses-{sess}"
+        target_mask_name = anat_out_dir / f"{mask_name_base}_desc-brain-mask.nii.gz"
+        
+        if mask_obj.img != target_mask_name:
+             shutil.move(mask_obj.img, target_mask_name)
+             mask_file = target_mask_name
+        else:
+             mask_file = mask_obj.img
+        
         context['brain_mask'] = mask_file
         self.logger.info(f"Generated Brain Mask: {mask_file}")
         # 3. Parameter Generation (to anat dir)
