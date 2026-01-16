@@ -195,7 +195,28 @@ class RelaxometryWorkflow(BaseWorkflow):
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco
         
-
+        context['processed_spgr'] = spgr_moco
+        context['processed_ssfp'] = ssfp_moco
+        
+        # C. Brain Masking (Early)
+        # Run on SPGR Reference Image (MoCo Target)
+        mask_cfg = relax_cfg.get("masking", {})
+        mask_method = mask_cfg.get("method", "fsl")
+        
+        mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
+        if not mask_step:
+             mask_step = BrainMaskingStep(self.config, self.logger, self.provenance, method=mask_method)
+             
+        self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")
+        # Save mask to anat dir. Use reference entities but ensure correct suffix.
+        # return_mask=True gives us the mask object.
+        masked_ref, mask_obj = mask_step.run(ref_img, output_dir=anat_out_dir, return_mask=True)
+        mask_file = mask_obj.img
+        
+        # Ensure mask name is BIDS compliant (it inherits from ref_img usually)
+        # If necessary, rename? BrainMaskingStep usually produces _mask.nii.gz
+        context['brain_mask'] = mask_file
+        self.logger.info(f"Generated Brain Mask: {mask_file}")
         # 3. Parameter Generation (to anat dir)
         # Let's save ACQ params to anat dir as it is a result
         ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
@@ -287,7 +308,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                      irspgr_file=ir_in,
                      params_file=params_json,
                      out_dir=fit_out_dir,
-                     out_base=f"{base_prefix}_despot1_hifi"
+                     out_base=f"{base_prefix}_despot1_hifi",
+                     mask_file=mask_file
                  )
             else:
                  self.logger.info("Running DESPOT1 Standard Fitting...")
@@ -296,7 +318,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                      params_file=params_json,
                      out_dir=fit_out_dir,
                      b1_file=b1_map,
-                     out_base=f"{base_prefix}_despot1"
+                     out_base=f"{base_prefix}_despot1",
+                     mask_file=mask_file
                  )
             context.update(res)
             # Update B1 if HIFI generated it
@@ -336,7 +359,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                            b1_file=b1_map or t1_map,
                            params_file=params_json,
                            out_dir=fit_out_dir,
-                           out_base=f"{base_prefix}_despot2_fm"
+                           out_base=f"{base_prefix}_despot2_fm",
+                           mask_file=mask_file
                        )
                   else:
                        self.logger.info("Running DESPOT2 (1-Component) Fitting...")
@@ -346,57 +370,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                            b1_file=b1_map or t1_map, # Fallback B1=T1 is weird but if B1 missing?
                            params_file=params_json,
                            out_dir=fit_out_dir,
-                           out_base=f"{base_prefix}_despot2"
+                           out_base=f"{base_prefix}_despot2",
+                           mask_file=mask_file
                        )
                   context.update(res2)
 
-        # 6. Brain Masking
-        # Mask final maps using BrainMaskingStep
-        # Strategy: Generate mask from T1 map (or SPGR ref), apply to all maps.
-        t1_map = context.get("t1")
-        if t1_map:
-             mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
-             
-             # Load masking config
-             mask_cfg = relax_cfg.get("masking", {})
-             method = mask_cfg.get("method", "fsl")
-             # User requested "synthstrip" or others to be available
-             
-             if not mask_step:
-                 mask_step = BrainMaskingStep(self.config, self.logger, self.provenance, method=method)
-             
-             # Run on T1 map to get mask (T1 map has good contrast)
-             # Mask Output in anat dir
-             # We request return_mask=True so the binary mask is saved
-             masked_t1, mask_obj = mask_step.run(ImageFile(img=Path(t1_map), entities=spgr_files[0].entities), output_dir=anat_out_dir, return_mask=True)
-             
-             # Apply mask to all maps in context
-             mask_file = mask_obj.img
-             from ...interfaces.fsl import apply_mask
-             
-             for k in ["t1", "t2", "m0", "mwf", "tau", "b1", "chi_sq"]:
-                  v = context.get(k)
-                  if v and isinstance(v, (str, Path)):
-                      # Assuming these are in anat_out_dir or fmap_out_dir
-                      # Overwrite or create new? "masked" suffix?
-                      # Standard: overwrite or keep original as 'raw'?
-                      # User asked for "Adding in brain masking step at the end".
-                      # Usually implies final outputs should be masked.
-                      # We will overwrite or suffix. Let's suffix to be safe.
-                      p = Path(v)
-                      # Ensure path exists
-                      if p.exists():
-                          masked_out = p.parent / f"{p.stem}_masked{p.suffix}"
-                          apply_mask(p, mask_file, masked_out)
-                          context[k] = masked_out # Update context to point to masked
-                          self.logger.info(f"Applied brain mask to {k}: {masked_out.name}")
 
-             # Also mask B1 explicitly if it was an object
-             if b1_map and isinstance(b1_map, ImageFile):
-                   masked_b1 = b1_map.img.parent / f"{b1_map.img.stem}_masked{b1_map.img.suffix}"
-                   apply_mask(b1_map.img, mask_file, masked_b1)
-                   # context['b1'] might have been string from dict above, or object here. 
-                   # Ensure consistency.
 
 
 
