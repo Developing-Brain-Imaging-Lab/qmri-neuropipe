@@ -420,6 +420,8 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     
     model = mapmri.MapmriModel(gtab, **fit_kwargs)
     fit = model.fit(data_chunk)
+    if hasattr(fit, 'mapmri_params'):
+        return fit.mapmri_params
     return fit.model_params
 
 def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
@@ -494,7 +496,14 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Most models stick params in model_params
         # Some might use other attributes? (e.g. MAPMRI has q-space indices?)
         # But generally fit.model_params is the vector representation.
-        res_params.append(fit.model_params)
+        if hasattr(fit, 'mapmri_params'):
+             res_params.append(fit.mapmri_params)
+        elif hasattr(fit, 'model_params'):
+             res_params.append(fit.model_params)
+        else:
+             # Fallback: maybe qspace_indices?
+             # For now, raise AttributeError if standard attrs missing
+             raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params'.")
         
     return np.array(res_params)
 
