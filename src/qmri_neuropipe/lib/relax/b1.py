@@ -224,7 +224,7 @@ class B1MappingStep(BaseProcessingStep):
 
         arg = (r*n_ratio - 1)/(n_ratio-r)
         arg[arg>1] = 1
-        arg[arg<-1] = -1
+        arg[arg<0] = 1
         
         alpha_act = np.arccos(arg)
         b1_map = alpha_act / flip_angle_rad
