@@ -64,7 +64,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         b1_cfg = preproc_cfg.get("b1", {})
         self.add_step(B1MappingStep(self.config, self.logger, self.provenance,
                                     method=b1_cfg.get("method", "afi"),
-                                    smoothing_fwhm=b1_cfg.get("smoothing_fwhm", 2.0)))
+                                    smoothing_fwhm=b1_cfg.get("smoothing_fwhm", 0.0)))
         
     def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
         self.logger.info("Starting RelaxometryWorkflow")

@@ -18,7 +18,7 @@ class B1MappingStep(BaseProcessingStep):
     2. If External: Registers/Resamples to SPGR Reference.
     """
     
-    def __init__(self, config, logger, provenance, method="afi", smoothing_fwhm: float = 2.0):
+    def __init__(self, config, logger, provenance, method="afi", smoothing_fwhm: float = 0.0):
         super().__init__(config, logger, provenance)
         self.method = method # 'afi', 'external', 'hifi'
         self.smoothing_fwhm = float(smoothing_fwhm if smoothing_fwhm is not None else 0.0)
@@ -224,7 +224,7 @@ class B1MappingStep(BaseProcessingStep):
 
         arg = (r*n_ratio - 1)/(n_ratio-r)
         arg[arg>1] = 1
-        arg[arg<0] = 1
+        arg[arg<-1] = -1
         
         alpha_act = np.arccos(arg)
         b1_map = alpha_act / flip_angle_rad
