@@ -118,7 +118,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         # 1. Directory Structure
         work_dir = self.config.work_dir
         if work_dir:
-            intermediate_dir = work_dir / "anat" / "intermediate"
+            # Construct sub/ses path for working directory
+            subj = context.get('subject')
+            sess = context.get('session')
+            wd_subj = work_dir / f"sub-{subj}"
+            if sess:
+                wd_subj = wd_subj / f"ses-{sess}"
+            intermediate_dir = wd_subj / "anat" / "intermediate"
         else:
              intermediate_dir = anat_out_dir / "intermediate"
         intermediate_dir.mkdir(parents=True, exist_ok=True)
