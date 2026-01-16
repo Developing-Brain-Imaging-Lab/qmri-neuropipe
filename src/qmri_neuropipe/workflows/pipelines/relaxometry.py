@@ -17,6 +17,7 @@ from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
+from ...lib.common.stats import ROIStatsStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
 from ...utils.relax_params import generate_acq_params
 
@@ -203,7 +204,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         
         # C. Brain Masking (Early)
         # Run on SPGR Reference Image (MoCo Target)
-        mask_cfg = relax_cfg.get("masking", {})
+        # Check preprocessing.brain_masking first, then relaxometry.masking
+        mask_cfg = preproc_cfg.get("brain_masking", {})
+        if not mask_cfg:
+             mask_cfg = relax_cfg.get("masking", {})
+             
         mask_method = mask_cfg.get("method", "fsl")
         
         mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
@@ -437,13 +442,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         # Gather all quantitative maps generated
         maps = []
         for k, v in context.items():
-             if k in ["t1", "t2", "m0", "mwf", "tau", "b1"] and isinstance(v, (Path, str)):
+             if k in ["t1", "t2", "m0", "mwf", "tau", "b1", "f0", "t1_fast", "t1_slow", "t2_fast", "t2_slow"] and isinstance(v, (Path, str)):
                   # Convert Path to ImageFile if needed
                   # Context usually stores Path from wrapper return
                   # Check if it's in fit_out_dir to be sure it's ours
                   if str(fit_out_dir) in str(v):
                       maps.append((k, ImageFile(img=Path(v), entities={}))) # Entities?
-             elif k in ["t1", "t2", "m0", "mwf", "tau", "b1"] and isinstance(v, ImageFile):
+             elif k in ["t1", "t2", "m0", "mwf", "tau", "b1", "f0", "t1_fast", "t1_slow", "t2_fast", "t2_slow"] and isinstance(v, ImageFile):
                   maps.append((k, v))
 
         if t1w_anat and maps:
@@ -453,9 +458,9 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Reuse CoregistrationStep logic or call interface directly.
              # We want to Save the transform.
              # Use SPGR Ref (motion corrected)
-             spgr_ref = context.get('relax_reference') # Or updated one?
+             spgr_ref = context.get('relax_reference') # Usually valid
              
-             from ...interfaces.fsl import flirt, applywarp
+             from ...interfaces.fsl import flirt, applywarp, fast
              
              # Coreg Output Dir
              post_out = output_dir / "derivatives"
@@ -463,43 +468,71 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              # Calculate Transform
              xfm_mat = post_out / "spgr_to_t1w.mat"
-             # flirt -in <spgr> -ref <t1w> -omat <mat>
-             flirt(in_file=spgr_ref.img, ref_file=t1w_anat.img, out_file=post_out / "spgr_in_t1w.nii.gz", omat=xfm_mat, dof=6)
+             spgr_in_t1w = post_out / "spgr_in_t1w.nii.gz"
              
-             # 2. Apply to All Maps
+             if xfm_mat.exists():
+                  self.logger.info("Skipping Coregistration Calculation (Exists)")
+             else:
+                  self.logger.info("Calculating Coregistration (SPGR -> T1w)")
+                  # flirt -in <spgr> -ref <t1w> -omat <mat>
+                  flirt(in_file=spgr_ref.img, ref_file=t1w_anat.img, out_file=spgr_in_t1w, omat=xfm_mat, dof=6)
+             
+             # 2. Apply to All Maps (and setup stats target)
              registered_maps = []
+             
+             # Get Template Warp (T1w -> MNI) if available
+             template_warp = context.get('template_warp')
+             template_ref = context.get('template_ref')
+             
+             # Segmentation Source?
+             # 1. Context 'segmentation' (e.g. from previous Anat step)
+             # 2. Or Generate NEW one on T1w
+             seg_file = context.get('segmentation')
+             if not seg_file or not seg_file.img.exists():
+                  # Attempt to generate simple segmentation using FAST on T1w
+                  self.logger.info("No segmentation found in context. Running FAST on T1w...")
+                  fast_out_base = post_out / "t1w_fast"
+                  # fast wrapper: checks existence internally
+                  fast(in_files=t1w_anat.img, out_base=fast_out_base, img_type=1) 
+                  # FAST produces <base>_seg.nii.gz
+                  seg_path = post_out / "t1w_fast_seg.nii.gz"
+                  if seg_path.exists():
+                      seg_file = ImageFile(img=seg_path, entities=t1w_anat.entities)
+             
+             stats_step = ROIStatsStep(self.config, self.logger, self.provenance)
+             
              for map_name, map_img in maps:
+                 # A. T1w Space
                  out_name = f"{map_name}_in_t1w.nii.gz"
                  out_path = post_out / out_name
                  
-                 # Apply XFM
-                 applywarp(in_file=map_img.img, ref_file=t1w_anat.img, out_file=out_path, premat=xfm_mat, interp="trilinear")
+                 final_map_for_stats = None
                  
-                 # 3. Apply Normalization (if T1w -> MNI exists)
-                 # Check context for 'template_warp' or similar from Anat Workflow?
-                 # If this workflow is run AFTER Anat, context might have 'anat_to_template_warp'.
-                 template_warp = context.get('template_warp')
-                 template_ref = context.get('template_ref')
+                 if out_path.exists():
+                      self.logger.info(f"Skipping Resampling to T1w (Exists): {out_name}")
+                      final_map_for_stats = ImageFile(img=out_path, entities=map_img.entities)
+                 else:
+                      # Apply XFM
+                      applywarp(in_file=map_img.img, ref_file=t1w_anat.img, out_file=out_path, premat=xfm_mat, interp="trilinear")
+                      final_map_for_stats = ImageFile(img=out_path, entities=map_img.entities)
                  
-                 final_map = out_path
+                 # B. MNI Space (if warp available)
                  if template_warp and template_ref:
                       norm_out = post_out / f"{map_name}_in_mni.nii.gz"
-                      # applywarp using warp
-                      applywarp(in_file=map_img.img, ref_file=template_ref, out_file=norm_out, warp=template_warp, premat=xfm_mat) # Premat + Warp combines? 
-                      # FSL applywarp: --premat is applied to input before warp. Yes.
-                      final_map = norm_out
                       
-                 # 4. ROI Stats (if Segmentation exists)
-                 # Check context for 'segmentation' (in same space as final_map)
-                 # If final_map is MNI, need MNI Seg. If T1w, need T1w Seg.
-                 seg = context.get('segmentation')
-                 
-                 if seg:
-                      # Check space compatibility or assume user ensures?
-                      # Simple check: affine match?
-                      from ...lib.common.stats import ROIStatsStep
-                      stats_step = ROIStatsStep(self.config, self.logger, self.provenance)
-                      stats_step.run(ImageFile(img=final_map, entities={}), seg, output_dir=post_out)
+                      if norm_out.exists():
+                           self.logger.info(f"Skipping Normalization to MNI (Exists): {norm_out.name}")
+                           # If seg is in MNI, use this? usually seg is in T1w or specific method. Both valid.
+                           # Prioritize T1w stats if segmentation is in T1w.
+                      else:
+                           # applywarp using warp
+                           # FSL: --premat is applied to input before warp. 
+                           applywarp(in_file=map_img.img, ref_file=template_ref, out_file=norm_out, warp=template_warp, premat=xfm_mat)
+                           
+                 # C. ROI Stats
+                 # Run on T1w space map using T1w space segmentation
+                 if seg_file and final_map_for_stats:
+                      stats_step.run(final_map_for_stats, seg_file, output_dir=post_out)
 
 
         # 7. Save Intermediates (if requested and using separate work_dir)
@@ -509,7 +542,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              # If using work_dir, intermediate_dir != final_inter_dir (paths differ)
              # But if they point to same location (user set work_dir=output_dir/anat), check existence.
              if intermediate_dir != final_inter_dir and intermediate_dir.exists():
-                 import shutil
+
                  self.logger.info(f"Saving intermediate files to {final_inter_dir}")
                  try:
                      # Remove destination if exists to ensure clean copy? Or merge?
