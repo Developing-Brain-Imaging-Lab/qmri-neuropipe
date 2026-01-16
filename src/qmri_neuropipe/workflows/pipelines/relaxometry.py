@@ -219,9 +219,10 @@ class RelaxometryWorkflow(BaseWorkflow):
         # Prepare Target Mask Name
         subj = context.get('subject')
         sess = context.get('session')
-        mask_name_base = f"sub-{subj}"
-        if sess: mask_name_base += f"_ses-{sess}"
-        target_mask_name = anat_out_dir / f"{mask_name_base}_desc-brain-mask.nii.gz"
+        base_prefix = f"sub-{subj}"
+        if sess: base_prefix += f"_ses-{sess}"
+        
+        target_mask_name = anat_out_dir / f"{base_prefix}_desc-brain-mask.nii.gz"
         
         if target_mask_name.exists():
              self.logger.info(f"Skipping Brain Masking (Exists): {target_mask_name}")
@@ -253,12 +254,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         
         # BIDS Name: sub-XX[_ses-YY]_desc-AcqParams.json
         # Manual construction to ensure exact format requested
-        subj = context['subject']
-        sess = context.get('session')
-        params_name = f"sub-{subj}"
-        if sess: 
-            params_name += f"_ses-{sess}"
-        params_name += "_desc-AcqParams.json"
+        params_name = f"{base_prefix}_desc-AcqParams.json"
 
         params_json = anat_out_dir / params_name
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
@@ -368,10 +364,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             merge(spgr_moco, spgr_4d, dimension='t')
             
             # Construct Base Name
-            subj = context.get('subject')
-            sess = context.get('session')
-            base_prefix = f"sub-{subj}"
-            if sess: base_prefix += f"_ses-{sess}"
+            # base_prefix already defined
             
             despot1_base = f"{base_prefix}_despot1_hifi" if (has_ir and use_hifi) else f"{base_prefix}_despot1"
             expected_t1 = fit_out_dir / f"{despot1_base}_T1map.nii.gz"
@@ -435,10 +428,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                   use_mcdespot = d2_cfg.get("mcdespot", False)
                   
                   # Construct Base Name
-                  subj = context.get('subject')
-                  sess = context.get('session')
-                  base_prefix = f"sub-{subj}"
-                  if sess: base_prefix += f"_ses-{sess}"
+                  # base_prefix already defined
 
                   despot2_base = f"{base_prefix}_despot2_fm" if use_mcdespot else f"{base_prefix}_despot2"
                   expected_t2 = fit_out_dir / f"{despot2_base}_T2map.nii.gz"
