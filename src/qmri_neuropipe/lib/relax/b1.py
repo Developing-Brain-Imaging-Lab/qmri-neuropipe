@@ -229,9 +229,6 @@ class B1MappingStep(BaseProcessingStep):
         alpha_act = np.arccos(arg)
         b1_map = alpha_act / flip_angle_rad
         
-        # Clip crazy values
-        #b1_map = np.clip(b1_map, 0, 2.0) # B1 usually 0.5 to 1.5
-        
         # Save
         # Save Intermediate: sub-XX_desc-preproc_TB1AFI
         # Use entities from input
