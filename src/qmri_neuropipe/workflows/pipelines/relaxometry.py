@@ -128,7 +128,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         fmap_out_dir.mkdir(parents=True, exist_ok=True)
         
         # 1. Directory Structure
-        work_dir = self.config.get_work_dir()
+        work_dir = self.config.work_dir
         if work_dir:
             intermediate_dir = work_dir / "anat" / "intermediate"
         else:
