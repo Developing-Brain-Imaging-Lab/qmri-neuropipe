@@ -34,8 +34,14 @@ class B1MappingStep(BaseProcessingStep):
         
         ents = dict(b1_image.entities)
         # Final Output Name: sub-XX_TB1map.nii.gz
-        # Filter entities to minimal set
-        minimal_ents = {k: v for k, v in ents.items() if k in ['subject', 'session']}
+        # Filter entities to minimal set (ensure sub/ses keys exist)
+        minimal_ents = {}
+        # Normalize to short keys for build_bids_name
+        if 'subject' in ents: minimal_ents['sub'] = ents['subject']
+        if 'sub' in ents: minimal_ents['sub'] = ents['sub']
+        if 'session' in ents: minimal_ents['ses'] = ents['session']
+        if 'ses' in ents: minimal_ents['ses'] = ents['ses']
+
         minimal_ents['suffix'] = 'TB1map' # Force suffix
         
         out_name = build_bids_name(minimal_ents)
@@ -198,7 +204,12 @@ class B1MappingStep(BaseProcessingStep):
         # Use entities from input
         afi_ents = dict(afi_image.entities)
         # Keep sub/ses, add/overwrite desc/suffix
-        afi_inter_ents = {k: v for k, v in afi_ents.items() if k in ['subject', 'session']}
+        afi_inter_ents = {}
+        if 'subject' in afi_ents: afi_inter_ents['sub'] = afi_ents['subject']
+        if 'sub' in afi_ents: afi_inter_ents['sub'] = afi_ents['sub']
+        if 'session' in afi_ents: afi_inter_ents['ses'] = afi_ents['session']
+        if 'ses' in afi_ents: afi_inter_ents['ses'] = afi_ents['ses']
+        
         afi_inter_ents['desc'] = 'preproc'
         afi_inter_ents['suffix'] = 'TB1AFI'
         

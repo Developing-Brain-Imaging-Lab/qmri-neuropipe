@@ -271,6 +271,12 @@ class RelaxometryWorkflow(BaseWorkflow):
             spgr_4d = intermediate_dir / "spgr_4d.nii.gz"
             merge(spgr_moco, spgr_4d, dimension='t')
             
+            # Construct Base Name
+            subj = context.get('subject')
+            sess = context.get('session')
+            base_prefix = f"sub-{subj}"
+            if sess: base_prefix += f"_ses-{sess}"
+
             if has_ir and use_hifi:
                  self.logger.info("Running DESPOT1-HIFI Fitting...")
                  # Handle IR list (usually 1 file)
@@ -281,7 +287,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                      irspgr_file=ir_in,
                      params_file=params_json,
                      out_dir=fit_out_dir,
-                     out_base="despot1_hifi"
+                     out_base=f"{base_prefix}_despot1_hifi"
                  )
             else:
                  self.logger.info("Running DESPOT1 Standard Fitting...")
@@ -290,7 +296,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                      params_file=params_json,
                      out_dir=fit_out_dir,
                      b1_file=b1_map,
-                     out_base="despot1"
+                     out_base=f"{base_prefix}_despot1"
                  )
             context.update(res)
             # Update B1 if HIFI generated it
@@ -316,6 +322,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                   d2_cfg = model_cfg.get("despot2", {})
                   use_mcdespot = d2_cfg.get("mcdespot", False)
                   
+                  # Construct Base Name
+                  subj = context.get('subject')
+                  sess = context.get('session')
+                  base_prefix = f"sub-{subj}"
+                  if sess: base_prefix += f"_ses-{sess}"
+
                   if use_mcdespot:
                        self.logger.info("Running mcDESPOT (2-Component) Fitting...")
                        res2 = fit_despot2_fm(
@@ -323,7 +335,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                            t1_file=t1_map,
                            b1_file=b1_map or t1_map,
                            params_file=params_json,
-                           out_dir=fit_out_dir
+                           out_dir=fit_out_dir,
+                           out_base=f"{base_prefix}_despot2_fm"
                        )
                   else:
                        self.logger.info("Running DESPOT2 (1-Component) Fitting...")
@@ -332,7 +345,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                            t1_file=t1_map,
                            b1_file=b1_map or t1_map, # Fallback B1=T1 is weird but if B1 missing?
                            params_file=params_json,
-                           out_dir=fit_out_dir
+                           out_dir=fit_out_dir,
+                           out_base=f"{base_prefix}_despot2"
                        )
                   context.update(res2)
 
