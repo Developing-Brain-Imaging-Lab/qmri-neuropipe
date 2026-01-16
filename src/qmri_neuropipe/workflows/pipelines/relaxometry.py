@@ -196,10 +196,21 @@ class RelaxometryWorkflow(BaseWorkflow):
         context['processed_ssfp'] = ssfp_moco
         
 
-        # 3. Parameter Generation (to anat dir or intermediate?)
+        # 3. Parameter Generation (to anat dir)
         # Let's save ACQ params to anat dir as it is a result
         ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
-        params_json = intermediate_dir / "acq_params.json" # Use intermediate
+        
+        # BIDS Name: sub-XX[_ses-YY]_desc-AcqParams.json
+        acq_ents = {'subject': context['subject']}
+        if context.get('session'): acq_ents['session'] = context['session']
+        acq_ents['desc'] = 'AcqParams'
+        acq_ents['suffix'] = 'json'
+        
+        params_name = build_bids_name(acq_ents)
+        # Ensure extension if not added by builder (depends on implementation)
+        if not params_name.endswith('.json'): params_name += '.json'
+        
+        params_json = anat_out_dir / params_name
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
         
         # 4. B1 Mapping (to fmap dir)

@@ -33,11 +33,12 @@ class B1MappingStep(BaseProcessingStep):
         output_dir = ensure_dir(output_dir)
         
         ents = dict(b1_image.entities)
-        ents['desc'] = 'preproc' # Aligned B1
-        ents['space'] = getattr(reference_image.entities, 'get', lambda k,d: d)('space', 'native') 
-        # Inherit space from ref?
+        # Final Output Name: sub-XX_TB1map.nii.gz
+        # Filter entities to minimal set
+        minimal_ents = {k: v for k, v in ents.items() if k in ['subject', 'session']}
+        minimal_ents['suffix'] = 'TB1map' # Force suffix
         
-        out_name = build_bids_name(ents)
+        out_name = build_bids_name(minimal_ents)
         out_path = output_dir / out_name
         
         if out_path.exists() and not force:
@@ -193,7 +194,15 @@ class B1MappingStep(BaseProcessingStep):
         b1_map = np.clip(b1_map, 0, 2.0) # B1 usually 0.5 to 1.5
         
         # Save
-        out_name = output_dir / f"{afi_image.img.stem}_B1.nii.gz"
+        # Save Intermediate: sub-XX_desc-preproc_TB1AFI
+        # Use entities from input
+        afi_ents = dict(afi_image.entities)
+        # Keep sub/ses, add/overwrite desc/suffix
+        afi_inter_ents = {k: v for k, v in afi_ents.items() if k in ['subject', 'session']}
+        afi_inter_ents['desc'] = 'preproc'
+        afi_inter_ents['suffix'] = 'TB1AFI'
+        
+        out_name = output_dir / build_bids_name(afi_inter_ents)
         nib.save(nib.Nifti1Image(b1_map, img_nii.affine, img_nii.header), out_name)
         
         return out_name
