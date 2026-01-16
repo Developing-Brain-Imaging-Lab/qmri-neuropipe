@@ -193,7 +193,12 @@ class GibbsUnringingStep(BaseProcessingStep):
              raise ProcessingError("No input image provided")
         
         output_dir = self.get_step_output_dir(output_dir)
-        output_img = output_dir / build_bids_name({**input_img.entities, "desc": "gibbs-corrected"})
+        
+        # Append to desc (e.g. SPGRdenoised -> SPGRdenoisedGibbs)
+        old_desc = input_img.entities.get('desc', '')
+        new_desc = f"{old_desc}Gibbs" if old_desc else "Gibbs"
+        
+        output_img = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
                
         # Check if output exists
         if output_img.exists() and not kwargs.get('force', False):

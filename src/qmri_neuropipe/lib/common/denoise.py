@@ -191,8 +191,18 @@ class DenoisingStep(BaseProcessingStep):
              raise ProcessingError("No input image provided")
 
         output_dir = self.get_step_output_dir(output_dir)
-        output_img_path = output_dir / build_bids_name({**input_img.entities, "desc": "denoised"})
-        noise_map_path  = output_dir / build_bids_name({**input_img.entities, "desc": "NoiseMap"})
+        
+        # Append to desc to preserve modality info (e.g. SPGRreor -> SPGRreordenoised)
+        old_desc = input_img.entities.get('desc', '')
+        # Avoid duplication if rerun? 
+        # denoise shouldn't be in old_desc theoretically if we are running it now
+        new_desc = f"{old_desc}denoised" if old_desc else "denoised"
+        
+        output_img_path = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
+        
+        # Noise map usually shares basename
+        noise_map_desc = f"{new_desc}NoiseMap"
+        noise_map_path  = output_dir / build_bids_name({**input_img.entities, "desc": noise_map_desc})
         
         # Check if output exists
         if output_img_path.exists() and not kwargs.get('force', False):

@@ -173,7 +173,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Usually SSFP registered to SPGR reference.
              # Pass ALL concatenated? Or run separately with same ref?
              # Run SPGR first to get Ref stable.
-             spgr_moco = moco_step.run(spgr_den, output_dir=output_dir, reference_image=ref_img)
+             spgr_moco = moco_step.run(spgr_den, output_dir=output_dir, reference_image=ref_img, modality="SPGR")
              # Update ref to the motion corrected version of the ref image
              # Find new ref path in spgr_moco matching ref_img entities
              # For simpler logic, just use the first transformed SPGR if ref was 0.
@@ -183,10 +183,10 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              # Register SSFP to same SPGR Ref
              if ssfp_den:
-                 ssfp_moco = moco_step.run(ssfp_den, output_dir=output_dir, reference_image=ref_img)
+                 ssfp_moco = moco_step.run(ssfp_den, output_dir=output_dir, reference_image=ref_img, modality="SSFP")
                  
              if ir_den:
-                 ir_moco = moco_step.run(ir_den, output_dir=output_dir, reference_image=ref_img)
+                 ir_moco = moco_step.run(ir_den, output_dir=output_dir, reference_image=ref_img, modality="IR-SPGR")
                  
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco

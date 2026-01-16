@@ -6,7 +6,7 @@ import nibabel as nib
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
-from ...core.utils import ensure_dir
+from ...core.utils import ensure_dir, run_cmd
 from ...io.bids import build_bids_name
 from ...interfaces import ants, fsl # Assuming ants interface exists or use direct
 from ...utils.relax_params import _extract_bids_param
@@ -27,10 +27,10 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             images: List[ImageFile], 
             output_dir: Path, 
             force: bool = False,
-            reference_image: Optional[ImageFile] = None
+            reference_image: Optional[ImageFile] = None,
+            modality: Optional[str] = None
            ) -> List[ImageFile]:
            
-
 
         output_dir = ensure_dir(output_dir)
         processed_outputs = []
@@ -82,7 +82,11 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             
             # Naming Logic: Force desc to {Modality}preproc
             # e.g. sub-01_acq-spgr_desc-SPGRpreproc_VFA.nii.gz
-            acq_label = ents.get('acq', '').upper()
+            if modality:
+                acq_label = modality.upper()
+            else:
+                acq_label = ents.get('acq', '').upper()
+                
             if not acq_label: acq_label = "Moco" # Fallback
             
             new_desc = f"{acq_label}preproc"
