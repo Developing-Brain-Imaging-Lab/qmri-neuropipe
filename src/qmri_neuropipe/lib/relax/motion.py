@@ -6,7 +6,8 @@ import nibabel as nib
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
-from ...core.utils import ensure_dir, run_cmd
+from ...core.utils import ensure_dir
+from ...core.run import run_cmd
 from ...io.bids import build_bids_name
 from ...interfaces import ants, fsl # Assuming ants interface exists or use direct
 from ...utils.relax_params import _extract_bids_param
