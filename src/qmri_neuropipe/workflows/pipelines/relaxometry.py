@@ -63,7 +63,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         # 4. B1 Mapping
         b1_cfg = preproc_cfg.get("b1", {})
         self.add_step(B1MappingStep(self.config, self.logger, self.provenance,
-                                    method=b1_cfg.get("method", "afi")))
+                                    method=b1_cfg.get("method", "afi"),
+                                    smoothing_fwhm=b1_cfg.get("smoothing_fwhm", 2.0)))
         
     def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
         self.logger.info("Starting RelaxometryWorkflow")
@@ -228,11 +229,16 @@ class RelaxometryWorkflow(BaseWorkflow):
              context['brain_mask'] = mask_file
         else:
              self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")
-             # Save mask to anat dir. Use reference entities but ensure correct suffix.
+             # Save intermediate mask files to intermediate_dir (e.g. anat/intermediate/brainmasking or just anat/intermediate)
              # return_mask=True gives us the mask object.
-             masked_ref, mask_obj = mask_step.run(ref_img, output_dir=anat_out_dir, return_mask=True)
+             # We let it output to intermediate_dir. 
+             # BrainMaskingStep usually creates a subfolder 'brainmasking' inside output_dir?
+             # Let's check BrainMaskingStep impl... defaulting to intermediate_dir
+             masked_ref, mask_obj = mask_step.run(ref_img, output_dir=intermediate_dir, return_mask=True)
              
              if mask_obj.img != target_mask_name:
+                  # Move ONLY the final mask to anat_out_dir
+                  import shutil
                   shutil.move(mask_obj.img, target_mask_name)
                   mask_file = target_mask_name
              else:
@@ -240,6 +246,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              context['brain_mask'] = mask_file
              self.logger.info(f"Generated Brain Mask: {mask_file}")
+             
         # 3. Parameter Generation (to anat dir)
         # Let's save ACQ params to anat dir as it is a result
         ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
@@ -261,20 +268,66 @@ class RelaxometryWorkflow(BaseWorkflow):
         b1_map = None
         
         if b1_files and b1_step:
-             # Identify if AFI pair exists
-             # If B1 files > 1, assume AFI pair? Or Magnitude/Phase?
-             # If step method is 'afi', expects map + ref? 
-             # Or raw AFI calculation?
-             # My B1MappingStep assumes inputs are Map + Ref.
-             # If inputs are Raw AFI (2 volumes), we need to calculate map first?
-             # "AFI logic: Coregister B1 Reference -> SPGR Reference" suggests we ALREADY have a B1 Map.
-             # Assuming input is B1 Map.
+             # Identiy if AFI pair exists
              curr_b1 = b1_files[0] 
-             # Check for separate ref?
              b1_ref = None # Extract from b1_files if distinct?
              
-             # Output to fmap dir
-             b1_map = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_out_dir, b1_ref_image=b1_ref)
+             # Output to fmap/intermediate to keep fmap clean
+             fmap_inter_dir = fmap_out_dir / "intermediate"
+             fmap_inter_dir.mkdir(parents=True, exist_ok=True)
+             
+             b1_map_inter = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
+             
+             # Move final Map to fmap_out_dir
+             # Warning: b1_map_inter.img might be 'TB1map.nii.gz' or similar. 
+             # We want standard BIDS name? It generates sub-XX_ses-YY_TB1map.nii.gz
+             final_b1_path = fmap_out_dir / b1_map_inter.img.name
+             
+             import shutil
+             if b1_map_inter.img.exists():
+                 if b1_map_inter.img != final_b1_path:
+                      shutil.move(b1_map_inter.img, final_b1_path)
+                 b1_map = ImageFile(img=final_b1_path, entities=b1_map_inter.entities)
+             else:
+                 # It might already be there if we resumed?
+                 # But we ran step with fmap_inter_dir. If resume logic inside step checks existing in OUTPUT dir...
+                 # Resume check inside B1MappingStep.run uses output_dir. 
+                 # So if we changed output_dir to fmap_inter, it won't see the one in fmap_out_dir.
+                 # Fix: Check fmap_out_dir/TB1Map first?
+                 pass
+                 
+             # Wait, if we use fmap_inter for run(), resume check looks in fmap_inter. 
+             # If we moved it last time, it won't find it and re-run.
+             # We should check existence in FINAL location first.
+             
+             # BIDS Name assumption
+             # B1MappingStep generates using BIDS Utils.
+             # Let's reconstruct expected name to check existence
+             expected_b1_name = fmap_out_dir / f"{base_prefix}_TB1map.nii.gz" # Approx?
+             # Actually B1MappingStep uses input entities to generate name.
+             
+             # If we want to support Resume properly with Move:
+             # We should rely on `b1_map` result. 
+             # If we pass fmap_inter_dir, it will generate there. 
+             # If we want to avoid re-run, check final destination first.
+             
+             # Optimization:
+             # 1. Check if final B1 map exists in fmap_out_dir
+             # 2. If yes, use it.
+             # 3. If no, run step (into intermediate), then move.
+             
+             # We need to guess the final name though? Or search?
+             # B1MappingStep output name is predictable if we know entities.
+             # Let's search fmap_out_dir for *TB1map*?
+             existing_b1 = list(fmap_out_dir.glob("*TB1map.nii.gz"))
+             if existing_b1 and not self.config.get("force_rerun", False):
+                  self.logger.info(f"Found existing B1 Map: {existing_b1[0].name}")
+                  b1_map = ImageFile(img=existing_b1[0], entities={}) # Entities?
+             else:
+                  b1_map_inter = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
+                  final_path = fmap_out_dir / b1_map_inter.img.name
+                  shutil.move(b1_map_inter.img, final_path)
+                  b1_map = ImageFile(img=final_path, entities=b1_map_inter.entities)
              
 
 

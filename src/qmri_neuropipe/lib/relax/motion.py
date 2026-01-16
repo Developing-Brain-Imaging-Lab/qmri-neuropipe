@@ -137,6 +137,13 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                 
             processed_outputs.append(ImageFile(img=out_path, entities=ents, json=img.json))
             
+        # Cleanup temp ref if it was created
+        if ref_path.name == "temp_ref.nii.gz" and ref_path.exists():
+            try:
+                ref_path.unlink()
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temp ref: {e}")
+            
         return processed_outputs
 
     def _register(self, in_file, ref_file, out_file):

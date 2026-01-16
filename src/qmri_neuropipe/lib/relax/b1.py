@@ -18,9 +18,10 @@ class B1MappingStep(BaseProcessingStep):
     2. If External: Registers/Resamples to SPGR Reference.
     """
     
-    def __init__(self, config, logger, provenance, method="afi"):
+    def __init__(self, config, logger, provenance, method="afi", smoothing_fwhm: float = 2.0):
         super().__init__(config, logger, provenance)
         self.method = method # 'afi', 'external', 'hifi'
+        self.smoothing_fwhm = float(smoothing_fwhm if smoothing_fwhm is not None else 0.0)
         
     def run(self, 
             b1_image: ImageFile, 
@@ -59,48 +60,86 @@ class B1MappingStep(BaseProcessingStep):
             import nibabel as nib
             img = nib.load(b1_image.img)
             
-            # Identify if Raw AFI (4th dim = 2)
-            is_raw_afi = (len(img.shape) == 4 and img.shape[3] == 2)
+            # Identify if Raw AFI (4th dim exists and > 1)
+            is_raw_afi = (len(img.shape) == 4 and img.shape[3] >= 2)
             
-            b1_map_path = b1_image.img
-            # Setup Reference for Registration
-            # If Raw: use 1st volume (S1) as moving ref
-            # If Map: use provided b1_ref_image OR map itself (less ideal)
+            b1_map_path = b1_image.img # Default if already map
             
             if is_raw_afi:
-                 self.logger.info("Detected Raw AFI Input (2 volumes). Computing B1 Map...")
-                 # Calculate B1 Map
-                 b1_map_path = self._compute_afi(b1_image, output_dir)
+                 self.logger.info("Detected Raw AFI Input (4D). Aligning before computation...")
                  
-                 # Ref for registration is the first volume of raw AFI
-                 # Extract vol 0
-                 ref_moving = output_dir / f"{b1_image.img.stem}_vol0.nii.gz"
-                 # nibabel slicing
-                 img_data = img.get_fdata()
-                 vol0 = img_data[..., 0]
-                 nib.save(nib.Nifti1Image(vol0, img.affine, img.header), ref_moving)
-                 moving = ref_moving
+                 # 1. Split 4D
+                 from ...interfaces.fsl import split, merge, flirt, applywarp
+                 
+                 # Temp dir for split
+                 tmp_split = output_dir / "tmp_afi_split"
+                 tmp_split.mkdir(exist_ok=True)
+                 
+                 split_base = tmp_split / "vol"
+                 vols = split(b1_image.img, split_base)
+                 
+                 if len(vols) < 2:
+                     raise ValueError("AFI input seems to be 4D but found less than 2 volumes.")
+                     
+                 # 2. Register Vol 0 (S1) to Reference
+                 # Use Rigid (6 DOF)
+                 vol0 = vols[0]
+                 mat_file = output_dir / "afi_to_spgr.mat"
+                 
+                 if not mat_file.exists() or force:
+                      flirt(in_file=vol0, ref_file=reference_image.img, out_file=tmp_split / "vol0_aligned_ref.nii.gz", omat=mat_file, dof=6)
+                 
+                 # 3. Apply Transform to ALL volumes independently
+                 aligned_vols = []
+                 for i, v in enumerate(vols):
+                     out_v = tmp_split / f"vol{i}_aligned.nii.gz"
+                     # applywarp or flirt -applyxfm
+                     cmd = f"flirt -in {v} -ref {reference_image.img} -out {out_v} -init {mat_file} -applyxfm"
+                     from ...core.run import run_cmd
+                     run_cmd(cmd, label=f"apply_afi_prop_{i}")
+                     aligned_vols.append(out_v)
+                     
+                 # 4. Merge back to 4D
+                 aligned_afi_path = output_dir / f"{b1_image.img.stem}_aligned.nii.gz"
+                 merge(aligned_vols, aligned_afi_path, dimension='t')
+                 
+                 # Cleanup split
+                 import shutil
+                 shutil.rmtree(tmp_split)
+                 
+                 # Update B1 Image object to point to aligned data
+                 aligned_afi_img = ImageFile(img=aligned_afi_path, entities=b1_image.entities, json=b1_image.json)
+                 
+                 # 5. Compute Map from Aligned Data
+                 b1_map_path = self._compute_afi(aligned_afi_img, output_dir)
+                 
+                 # Move result to final if needed? _compute_afi returns path to generated map
+                 # Ensure it goes to out_path
+                 if b1_map_path != out_path:
+                      import shutil
+                      shutil.move(b1_map_path, out_path)
+                      
             else:
                  # Input is already a map? Or separate files?
                  # Assuming Map if single volume or user pre-processed.
                  moving = b1_ref_image.img if b1_ref_image else b1_image.img
-
-            # 1. Register B1 Ref -> SPGR Ref
-            # Use Rigid (intra-subject)
-            prefix = str(output_dir / "b1_to_spgr_")
-            mat_file = output_dir / "b1_to_spgr.mat"
-            
-            from ...interfaces.fsl import flirt, applywarp
-            
-            # Calculate transform
-            flirt(in_file=moving, ref_file=reference_image.img, out_file=output_dir / "b1_ref_aligned.nii.gz", omat=mat_file, dof=6)
-            
-            # Apply to B1 Map
-            self.logger.info("Applying transform to B1 Map")
-            # Apply XFM to the computed (or input) map
-            cmd = f"flirt -in {b1_map_path} -ref {reference_image.img} -out {out_path} -init {mat_file} -applyxfm"
-            from ...core.run import run_cmd
-            run_cmd(cmd, label="apply_b1_transform")
+                 
+                 # 1. Register B1 Ref -> SPGR Ref
+                 # Use Rigid (intra-subject)
+                 prefix = str(output_dir / "b1_to_spgr_")
+                 mat_file = output_dir / "b1_to_spgr.mat"
+                 
+                 from ...interfaces.fsl import flirt, applywarp
+                 
+                 # Calculate transform
+                 flirt(in_file=moving, ref_file=reference_image.img, out_file=output_dir / "b1_ref_aligned.nii.gz", omat=mat_file, dof=6)
+                 
+                 # Apply to B1 Map
+                 self.logger.info("Applying transform to B1 Map")
+                 # Apply XFM to the computed (or input) map
+                 cmd = f"flirt -in {b1_map_path} -ref {reference_image.img} -out {out_path} -init {mat_file} -applyxfm"
+                 from ...core.run import run_cmd
+                 run_cmd(cmd, label="apply_b1_transform")
             
         elif self.method == 'external':
              # Just resample to match grid if needed, assuming already aligned? 
@@ -117,36 +156,32 @@ class B1MappingStep(BaseProcessingStep):
     def _compute_afi(self, afi_image: ImageFile, output_dir: Path) -> Path:
         """
         Calculate B1 map from AFI (2-volume 4D) data.
-        B1 = arccos( (r*n - 1) / (n - r) ) / nominal_FA
-        Where r = S1/S2, n = TR2/TR1
+        B1 = arccos( (r*n - 1) / (n - r) ) / nominal_FA   (Standard)
+        Here using r = S2/S1 (Long/Short).
+        Derived: val = (n - r) / (n*r - 1)
         """
         import numpy as np
+        import scipy.ndimage as nd
         
-
         # 1. Get Parameters (TRRatio, TR1, TR2, FA)
         json_data = afi_image.json or {}
         
         # Check for explicit TRRatio (n)
         n_ratio = json_data.get('TRRatio')
         
-
         if n_ratio:
              self.logger.info(f"Using provided TRRatio from JSON: {n_ratio}")
              n_ratio = float(n_ratio)
         else:
             # Fallback to TR calculation
             tr = json_data.get('RepetitionTime')
-            tr1, tr2 = 0.0, 0.0
-            
             if isinstance(tr, list) and len(tr) == 2:
-                tr1, tr2 = sorted(tr) 
-                tr1, tr2 = tr[0], tr[1]
-                n_ratio = float(tr2 / tr1)
+                # TR1 is Short, TR2 is Long usually? 
+                # Standards: TR1 = 20ms, TR2 = 100ms -> n=5.
+                tr_sorted = sorted(tr)
+                n_ratio = float(tr_sorted[1] / tr_sorted[0])
             else:
                 self.logger.warning("AFI: RepetitionTime not a list of 2 in JSON and no TRRatio found. Assuming n=5 for testing.")
-                if not tr or not isinstance(tr, list):
-                     raise ValueError(f"AFI Calculation requires 'RepetitionTime' as [TR1, TR2] or 'TRRatio' in JSON.")
-                # If we are here, we might have crashed above, but let's be robust
                 n_ratio = 5.0 # Fallback
         
         flip_angle_deg = json_data.get('FlipAngle')
@@ -162,33 +197,47 @@ class B1MappingStep(BaseProcessingStep):
         img_nii = nib.load(afi_image.img)
         data = img_nii.get_fdata()
         
+        # Check dim
+        if data.shape[3] < 2:
+             raise ValueError("AFI data must have at least 2 volumes.")
+             
         s1 = data[..., 0]
         s2 = data[..., 1]
         
+        # Smoothing (if requested)
+        if self.smoothing_fwhm > 0:
+            self.logger.info(f"Applying Gaussian Smoothing (FWHM={self.smoothing_fwhm}mm)")
+            
+            # Convert FWHM to Sigma (voxels)
+            # sigma = FWHM / 2.355
+            # sigma_vox = sigma / vox_size
+            vox_sizes = img_nii.header.get_zooms()[:3]
+            sigmas = [(self.smoothing_fwhm / 2.355) / v for v in vox_sizes]
+            
+            s1 = nd.gaussian_filter(s1, sigma=sigmas)
+            s2 = nd.gaussian_filter(s2, sigma=sigmas)
+            
         # Masking? (Avoid div by zero)
-        mask = (s1 > 10) & (s2 > 10) # Simple threshold
+        mask = (s1 > 1e-5) & (s2 > 1e-5) # Simple threshold
         
-        # Ratio r = S2 / S1 ? Or S1 / S2?
-        # Yarnykh: r = S2/S1 (where S1 is short TR, S2 is long TR signal... NO)
-        # Equation: alpha = arccos( (r*n - 1) / (n - r) )
-        # If n = TR2/TR1 > 1.
-        # Check limits.
-        # Implemented formula:
-        # r = S2 / S1 ?
-        # Let's try standard approx.
-        # r = S1 / S2 (Short / Long). Expect S1 < S2 due to T1 recovery? 
-        # Actually Long TR = more recovery = Higher signal.
-        # So S2 > S1. r < 1.
-        # n > 1.
-        # (r*n - 1) / (n - r).
+        # Ratio Calculation
+        # User requested: Ratio = S2 / S1 (Second / First)
+        # Assuming r = S2/S1
         
-        r = np.zeros_like(s1)
-        r[mask] = s1[mask] / s2[mask] # S1 (short) / S2 (long)
+        r_val = np.zeros_like(s1)
+        r_val[mask] = s2[mask] / s1[mask]
         
-        # B1 Map = alpha_actual / alpha_nominal
-        # alpha_actual = arccos ...
+        # Formula for r = S2/S1 (Long/Short)
+        # val = (n - r) / (n*r - 1)
         
-        val = (r * n_ratio - 1) / (n_ratio - r)
+        numerator = (n_ratio - r_val)
+        denominator = (n_ratio * r_val - 1)
+        
+        val = np.zeros_like(r_val)
+        valid_div = (np.abs(denominator) > 1e-6) & mask
+        
+        val[valid_div] = numerator[valid_div] / denominator[valid_div]
+        
         # clip to [-1, 1] for arccos
         val = np.clip(val, -1.0, 1.0)
         
