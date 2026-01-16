@@ -1104,44 +1104,58 @@ def fit_mapmri(
     map_kwargs.setdefault('positivity_constraint', positivity)
     map_kwargs.setdefault('global_constraints', global_constraints)
     
-    map_model = mapmri.MapmriModel(gtab, **map_kwargs)
-    
-    if kwargs.get('grad_nonlin'):
-        grad_nonlin = Path(kwargs['grad_nonlin'])
-        
-        # Generic kwargs for GNL
-        gnl_kwargs = map_kwargs.copy()
-        gnl_kwargs.pop('grad_nonlin', None)
-        gnl_kwargs = {k:v for k,v in gnl_kwargs.items() if k not in ['n_cpus', 'nthreads']}
-        
-        vol_params = _execute_gnl_fit(
-            data=data,
-            mask=mask,
-            gnl_map_path=grad_nonlin,
-            bvals=bvals,
-            bvecs=bvecs,
-            model_class=mapmri.MapmriModel,
-            model_kwargs=gnl_kwargs,
-            nthreads=nthreads,
-            big_delta=big_delta,
-            small_delta=small_delta
-        )
-        map_fit = mapmri.MapmriFit(map_model, vol_params)
-        
-    elif nthreads > 1:
-        worker_kwargs = map_kwargs.copy()
-        
-        vol_params = _parallel_fit_driver(
-             data, 
-             mask, 
-             gtab, 
-             _mapmri_worker, 
-             nthreads, 
-             worker_kwargs=worker_kwargs
-        )
-        map_fit = mapmri.MapmriFit(map_model, vol_params)
+    # Extract GNL path and remove from kwargs passed to Model
+    if 'grad_nonlin' in map_kwargs:
+        grad_nonlin_path = map_kwargs.pop('grad_nonlin')
+        if grad_nonlin_path:
+             grad_nonlin = Path(grad_nonlin_path)
+        else:
+             grad_nonlin = None
     else:
-        map_fit = map_model.fit(data, mask=mask)
+        grad_nonlin = None
+
+    try:
+        if grad_nonlin:
+             print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
+             vol_params = _execute_gnl_fit(
+                data=data,
+                mask=mask,
+                gnl_map_path=grad_nonlin,
+                bvals=bvals,
+                bvecs=bvecs,
+                model_class=mapmri.MapmriModel,
+                model_kwargs=map_kwargs,
+                nthreads=nthreads,
+                big_delta=big_delta,
+                small_delta=small_delta
+             )
+             # Instantiate dummy model for fit object creation
+             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
+             mapfit = mapmri.MapmriFit(map_model, vol_params)
+             
+        elif nthreads > 1:
+             # Parallel
+             worker_kwargs = map_kwargs.copy()
+             vol_params = _parallel_fit_driver(
+                data,
+                mask,
+                gtab,
+                _mapmri_worker,
+                nthreads,
+                worker_kwargs=worker_kwargs
+             )
+             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
+             mapfit = mapmri.MapmriFit(map_model, vol_params)
+             
+        else:
+             # Serial
+             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
+             mapfit = map_model.fit(data, mask=mask)
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise RuntimeError(f"MAPMRI fitting failed: {e}") from e
     
     output_files = {}
     # Save Outputs
