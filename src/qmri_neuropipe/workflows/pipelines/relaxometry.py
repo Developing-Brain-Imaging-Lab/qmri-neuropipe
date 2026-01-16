@@ -106,20 +106,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         if not spgr_files:
              raise ValueError("No SPGR images found. Cannot proceed with Relaxometry.")
              
-        # Select Reference (Max FA SPGR)
-        # SPGR Motion Step handles finding ref internally or we pass it? 
-        # Better to identify globally for B1/Coreg steps.
-        # Find Ref here:
-        ref_img = spgr_files[0] # Default
-        max_fa = -1
-        # Helper extraction from utilities
-        from ...utils.relax_params import _extract_bids_param
-        for img in spgr_files:
-             fa = _extract_bids_param(img, "FlipAngle", 0.0)
-             if isinstance(fa, list): fa = max(fa) if fa else 0.0
-             if float(fa) > max_fa:
-                 max_fa = float(fa)
-                 ref_img = img
+        # Reference selection deferred until after preprocessing
+
         
         # BIDS Standard Output Paths
         anat_out_dir = output_dir / "anat"
@@ -135,8 +123,8 @@ class RelaxometryWorkflow(BaseWorkflow):
              intermediate_dir = anat_out_dir / "intermediate"
         intermediate_dir.mkdir(parents=True, exist_ok=True)
         
-        context['relax_reference'] = ref_img
-        self.logger.info(f"Selected Relaxometry Reference: {ref_img.img.name}")
+        
+
 
         # 2. Preprocessing Loop
         
@@ -157,6 +145,23 @@ class RelaxometryWorkflow(BaseWorkflow):
         spgr_pre = _pre_proc_list(spgr_files, "SPGR")
         ssfp_pre = _pre_proc_list(ssfp_files, "SSFP")
         ir_pre = _pre_proc_list(irspgr_files, "IRSPGR")
+
+        # Select Reference from Preprocessed SPGR (Max FA)
+        # Ensures reference is reoriented/denoised like the rest
+        ref_img = spgr_pre[0] # Default
+        max_fa = -1
+        from ...utils.relax_params import _extract_bids_param
+        
+        for img in spgr_pre:
+             # Extract FA from original entities or JSON sidecar (still valid)
+             fa = _extract_bids_param(img, "FlipAngle", 0.0)
+             if isinstance(fa, list): fa = max(fa) if fa else 0.0
+             if float(fa) > max_fa:
+                 max_fa = float(fa)
+                 ref_img = img
+                 
+        context['relax_reference'] = ref_img
+        self.logger.info(f"Selected Relaxometry Reference (Preprocessed): {ref_img.img.name}")
         
         # B. Motion Correction (Group)
         moco_step = next((s for s in self.steps if isinstance(s, SPGRMotionCorrectionStep)), None)
@@ -440,6 +445,26 @@ class RelaxometryWorkflow(BaseWorkflow):
                       stats_step.run(ImageFile(img=final_map, entities={}), seg, output_dir=post_out)
 
 
+        # 7. Save Intermediates (if requested and using separate work_dir)
+        save_inter = self.config.get("save_intermediates", False)
+        if save_inter:
+             final_inter_dir = anat_out_dir / "intermediate"
+             # If using work_dir, intermediate_dir != final_inter_dir (paths differ)
+             # But if they point to same location (user set work_dir=output_dir/anat), check existence.
+             if intermediate_dir != final_inter_dir and intermediate_dir.exists():
+                 import shutil
+                 self.logger.info(f"Saving intermediate files to {final_inter_dir}")
+                 try:
+                     # Remove destination if exists to ensure clean copy? Or merge?
+                     # copytree(dirs_exist_ok=True) merges/overwrites.
+                     if not final_inter_dir.exists():
+                         final_inter_dir.mkdir(parents=True)
+                     
+                     # Using copytree with dirs_exist_ok=True
+                     shutil.copytree(intermediate_dir, final_inter_dir, dirs_exist_ok=True)
+                 except Exception as e:
+                     self.logger.warning(f"Failed to copy intermediates: {e}")
+
         return context
 
 from ...core import BasePipeline
@@ -479,7 +504,9 @@ class RelaxometryPipeline(BasePipeline):
             return
 
         # Prepare Output
-        output_dir = self._get_output_dir(subject, session) / 'relaxometry'
+        # Prepare Output
+        output_dir = self._get_output_dir(subject, session)
+
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Prepare Context
