@@ -217,35 +217,19 @@ class B1MappingStep(BaseProcessingStep):
             s1 = nd.gaussian_filter(s1, sigma=sigmas)
             s2 = nd.gaussian_filter(s2, sigma=sigmas)
             
-        # Masking? (Avoid div by zero)
-        mask = (s1 > 1e-5) & (s2 > 1e-5) # Simple threshold
+
         
-        # Ratio Calculation
-        # User requested: Ratio = S2 / S1 (Second / First)
-        # Assuming r = S2/S1
+        r = s2 / s1
+        r[r>1] = 1
+
+        arg = (r*n_ratio - 1)/(n_ratio-r)
+        arg[arg>1] = 1
+        arg[arg<-1] = -1
         
-        r_val = np.zeros_like(s1)
-        r_val[mask] = s2[mask] / s1[mask]
-        
-        # Formula for r = S2/S1 (Long/Short)
-        # val = (n - r) / (n*r - 1)
-        
-        numerator = (n_ratio - r_val)
-        denominator = (n_ratio * r_val - 1)
-        
-        val = np.zeros_like(r_val)
-        valid_div = (np.abs(denominator) > 1e-6) & mask
-        
-        val[valid_div] = numerator[valid_div] / denominator[valid_div]
-        
-        # clip to [-1, 1] for arccos
-        val = np.clip(val, -1.0, 1.0)
-        
-        alpha_act = np.arccos(val)
+        alpha_act = np.arccos(arg)
         b1_map = alpha_act / flip_angle_rad
         
         # Clip crazy values
-        b1_map[~mask] = 0
         b1_map = np.clip(b1_map, 0, 2.0) # B1 usually 0.5 to 1.5
         
         # Save
