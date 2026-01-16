@@ -15,6 +15,7 @@ from ...lib.relax.motion import SPGRMotionCorrectionStep
 from ...lib.relax.b1 import B1MappingStep
 from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
+from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
 from ...utils.relax_params import generate_acq_params
@@ -120,28 +121,25 @@ class RelaxometryWorkflow(BaseWorkflow):
                  max_fa = float(fa)
                  ref_img = img
         
+        # BIDS Standard Output Paths
+        anat_out_dir = output_dir / "anat"
+        fmap_out_dir = output_dir / "fmap"
+        anat_out_dir.mkdir(parents=True, exist_ok=True)
+        fmap_out_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 1. Directory Structure
+        work_dir = self.config.get_work_dir()
+        if work_dir:
+            intermediate_dir = work_dir / "anat" / "intermediate"
+        else:
+             intermediate_dir = anat_out_dir / "intermediate"
+        intermediate_dir.mkdir(parents=True, exist_ok=True)
+        
         context['relax_reference'] = ref_img
         self.logger.info(f"Selected Relaxometry Reference: {ref_img.img.name}")
 
         # 2. Preprocessing Loop
-        processed_spgr = []
-        processed_ssfp = []
-        processed_ir = []
         
-        # Process SPGR
-        for img in spgr_files:
-             curr = img
-             for step in self.steps:
-                 if isinstance(step, (B1MappingStep)): continue # Post-moco
-                 # Denoise/Gibbs/Moco
-                 # Moco needs special handling for list? Or loop?
-                 # SPGRMotionCorrectionStep expects List[ImageFile]
-                 pass
-                 
-        # Re-think: Denoise/Gibbs is per-image. Motion is group.
-        # Group Run:
-        
-
         # A. Denoise/Gibbs/Reorient (Per Image)
         def _pre_proc_list(img_list, modality_name):
              out_list = []
@@ -152,20 +150,19 @@ class RelaxometryWorkflow(BaseWorkflow):
                      if isinstance(step, (DenoisingStep, GibbsUnringingStep, ReorientStep)):
                          # ReorientStep usually takes 1 arg.
                          # Denoising/Gibbs take 1 arg + kwargs.
-                         # Standard pattern: step.run(img, output_dir=...)
-                         curr = step.run(curr, output_dir=output_dir)
+                         curr = step.run(curr, output_dir=intermediate_dir)
                  out_list.append(curr)
              return out_list
 
-        spgr_den = _pre_proc_list(spgr_files, "SPGR")
-        ssfp_den = _pre_proc_list(ssfp_files, "SSFP")
-        ir_den = _pre_proc_list(irspgr_files, "IRSPGR")
+        spgr_pre = _pre_proc_list(spgr_files, "SPGR")
+        ssfp_pre = _pre_proc_list(ssfp_files, "SSFP")
+        ir_pre = _pre_proc_list(irspgr_files, "IRSPGR")
         
         # B. Motion Correction (Group)
         moco_step = next((s for s in self.steps if isinstance(s, SPGRMotionCorrectionStep)), None)
         
-        spgr_moco = spgr_den
-        ssfp_moco = ssfp_den
+        spgr_moco = spgr_pre
+        ssfp_moco = ssfp_pre
         # IR?
         
         if moco_step:
@@ -173,33 +170,28 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Usually SSFP registered to SPGR reference.
              # Pass ALL concatenated? Or run separately with same ref?
              # Run SPGR first to get Ref stable.
-             spgr_moco = moco_step.run(spgr_den, output_dir=output_dir, reference_image=ref_img, modality="SPGR")
-             # Update ref to the motion corrected version of the ref image
-             # Find new ref path in spgr_moco matching ref_img entities
-             # For simpler logic, just use the first transformed SPGR if ref was 0.
-             # Or re-identify.
-             # SPGRMotionCorrectionStep output usually aligns to ref. 
-             # Ref image itself is just copied.
+             # NOTE: Output dir for moco is anat_out_dir (Final Preproc)
+             spgr_moco = moco_step.run(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR")
              
              # Register SSFP to same SPGR Ref
-             if ssfp_den:
-                 ssfp_moco = moco_step.run(ssfp_den, output_dir=output_dir, reference_image=ref_img, modality="SSFP")
+             if ssfp_pre:
+                 ssfp_moco = moco_step.run(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP")
                  
-             if ir_den:
-                 ir_moco = moco_step.run(ir_den, output_dir=output_dir, reference_image=ref_img, modality="IR-SPGR")
+             if ir_pre:
+                 # Ensure IR is also processed
+                 ir_moco = moco_step.run(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR")
                  
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco
         
 
-        # 3. Parameter Generation
-        # Generate params.json from *Original* or *Processed*? Original usually has JSON. Processed usually inherit.
-        # Use Processed.
-        ir_final = ir_moco if 'ir_moco' in locals() else ir_den
-        params_json = output_dir / "acq_params.json"
+        # 3. Parameter Generation (to anat dir or intermediate?)
+        # Let's save ACQ params to anat dir as it is a result
+        ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
+        params_json = intermediate_dir / "acq_params.json" # Use intermediate
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
         
-        # 4. B1 Mapping
+        # 4. B1 Mapping (to fmap dir)
         b1_step = next((s for s in self.steps if isinstance(s, B1MappingStep)), None)
         b1_map = None
         
@@ -216,7 +208,8 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Check for separate ref?
              b1_ref = None # Extract from b1_files if distinct?
              
-             b1_map = b1_step.run(curr_b1, reference_image=ref_img, output_dir=output_dir, b1_ref_image=b1_ref)
+             # Output to fmap dir
+             b1_map = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_out_dir, b1_ref_image=b1_ref)
              
 
 
@@ -224,8 +217,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         relax_cfg = self.config.get("relaxometry", {})
 
         model_cfg = relax_cfg.get("modeling", {})
-        fit_out_dir = output_dir / "fitting"
-        fit_out_dir.mkdir(exist_ok=True)
+        # Output to anat dir
+        fit_out_dir = anat_out_dir 
         
         # Helper to check if model enabled (default True if not config present but files exist?)
         # User requested specific config pattern.
@@ -240,7 +233,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         
         # Check inputs availability
         has_spgr = bool(spgr_moco)
-        has_ir = bool(ir_den)
+        has_ir = bool(ir_pre) # Start with pre as moco might be missing
+        if 'ir_moco' in locals() and ir_moco: has_ir = True # Upgrade if moco exists
         has_ssfp = bool(ssfp_moco)
         
         # --- DESPOT1 / HIFI ---
@@ -253,14 +247,17 @@ class RelaxometryWorkflow(BaseWorkflow):
             
             # Merge SPGR (Required for both)
             from ...interfaces.fsl import merge
-            spgr_4d = output_dir / "spgr_4d.nii.gz"
+            spgr_4d = intermediate_dir / "spgr_4d.nii.gz"
             merge(spgr_moco, spgr_4d, dimension='t')
             
             if has_ir and use_hifi:
                  self.logger.info("Running DESPOT1-HIFI Fitting...")
+                 # Handle IR list (usually 1 file)
+                 ir_in = ir_final[0] if isinstance(ir_final, list) else ir_final
+                 
                  res = fit_despot1_hifi(
                      spgr_file=spgr_4d, 
-                     irspgr_file=ir_den[0], # Merge if multiple?
+                     irspgr_file=ir_in,
                      params_file=params_json,
                      out_dir=fit_out_dir,
                      out_base="despot1_hifi"
@@ -290,7 +287,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                   
                   # Merge SSFP
                   from ...interfaces.fsl import merge
-                  ssfp_4d = output_dir / "ssfp_4d.nii.gz"
+                  ssfp_4d = intermediate_dir / "ssfp_4d.nii.gz"
                   merge(ssfp_moco, ssfp_4d, dimension='t')
                   
                   # Check mcDESPOT vs DESPOT2
@@ -317,6 +314,54 @@ class RelaxometryWorkflow(BaseWorkflow):
                            out_dir=fit_out_dir
                        )
                   context.update(res2)
+
+        # 6. Brain Masking
+        # Mask final maps using BrainMaskingStep
+        # Strategy: Generate mask from T1 map (or SPGR ref), apply to all maps.
+        t1_map = context.get("t1")
+        if t1_map:
+             mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
+             
+             # Load masking config
+             mask_cfg = relax_cfg.get("masking", {})
+             method = mask_cfg.get("method", "fsl")
+             # User requested "synthstrip" or others to be available
+             
+             if not mask_step:
+                 mask_step = BrainMaskingStep(self.config, self.logger, self.provenance, method=method)
+             
+             # Run on T1 map to get mask (T1 map has good contrast)
+             # Mask Output in anat dir
+             mask_obj = mask_step.run(ImageFile(img=Path(t1_map), entities=spgr_files[0].entities), output_dir=anat_out_dir)
+             
+             # Apply mask to all maps in context
+             mask_file = mask_obj.img
+             from ...interfaces.fsl import apply_mask
+             
+             for k in ["t1", "t2", "m0", "mwf", "tau", "b1", "chi_sq"]:
+                  v = context.get(k)
+                  if v and isinstance(v, (str, Path)):
+                      # Assuming these are in anat_out_dir or fmap_out_dir
+                      # Overwrite or create new? "masked" suffix?
+                      # Standard: overwrite or keep original as 'raw'?
+                      # User asked for "Adding in brain masking step at the end".
+                      # Usually implies final outputs should be masked.
+                      # We will overwrite or suffix. Let's suffix to be safe.
+                      p = Path(v)
+                      # Ensure path exists
+                      if p.exists():
+                          masked_out = p.parent / f"{p.stem}_masked{p.suffix}"
+                          apply_mask(p, mask_file, masked_out)
+                          context[k] = masked_out # Update context to point to masked
+                          self.logger.info(f"Applied brain mask to {k}: {masked_out.name}")
+
+             # Also mask B1 explicitly if it was an object
+             if b1_map and isinstance(b1_map, ImageFile):
+                   masked_b1 = b1_map.img.parent / f"{b1_map.img.stem}_masked{b1_map.img.suffix}"
+                   apply_mask(b1_map.img, mask_file, masked_b1)
+                   # context['b1'] might have been string from dict above, or object here. 
+                   # Ensure consistency.
+
 
 
         # 6. Post-Processing (Coreg/Norm/Stats)
