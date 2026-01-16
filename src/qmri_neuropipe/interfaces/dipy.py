@@ -424,6 +424,8 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
         return fit.mapmri_params
     if hasattr(fit, 'mapmri_coeffs'):
         return fit.mapmri_coeffs
+    if hasattr(fit, 'mapmri_coeff'):
+        return fit.mapmri_coeff
     return fit.model_params
 
 def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
@@ -502,12 +504,14 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
              res_params.append(fit.mapmri_params)
         elif hasattr(fit, 'mapmri_coeffs'):
              res_params.append(fit.mapmri_coeffs)
+        elif hasattr(fit, 'mapmri_coeff'):
+             res_params.append(fit.mapmri_coeff)
         elif hasattr(fit, 'model_params'):
              res_params.append(fit.model_params)
         else:
              # Fallback: maybe qspace_indices?
              # For now, raise AttributeError if standard attrs missing
-             raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params' nor 'mapmri_coeffs'.")
+             raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params' nor 'mapmri_coeff'.")
         
     return np.array(res_params)
 
