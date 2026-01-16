@@ -201,15 +201,14 @@ class RelaxometryWorkflow(BaseWorkflow):
         ir_final = ir_moco if 'ir_moco' in locals() else ir_pre
         
         # BIDS Name: sub-XX[_ses-YY]_desc-AcqParams.json
-        acq_ents = {'subject': context['subject']}
-        if context.get('session'): acq_ents['session'] = context['session']
-        acq_ents['desc'] = 'AcqParams'
-        acq_ents['suffix'] = 'json'
-        
-        params_name = build_bids_name(acq_ents)
-        # Ensure extension if not added by builder (depends on implementation)
-        if not params_name.endswith('.json'): params_name += '.json'
-        
+        # Manual construction to ensure exact format requested
+        subj = context['subject']
+        sess = context.get('session')
+        params_name = f"sub-{subj}"
+        if sess: 
+            params_name += f"_ses-{sess}"
+        params_name += "_desc-AcqParams.json"
+
         params_json = anat_out_dir / params_name
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
         
@@ -354,7 +353,8 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              # Run on T1 map to get mask (T1 map has good contrast)
              # Mask Output in anat dir
-             mask_obj = mask_step.run(ImageFile(img=Path(t1_map), entities=spgr_files[0].entities), output_dir=anat_out_dir)
+             # We request return_mask=True so the binary mask is saved
+             masked_t1, mask_obj = mask_step.run(ImageFile(img=Path(t1_map), entities=spgr_files[0].entities), output_dir=anat_out_dir, return_mask=True)
              
              # Apply mask to all maps in context
              mask_file = mask_obj.img
