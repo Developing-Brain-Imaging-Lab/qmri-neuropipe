@@ -72,6 +72,10 @@ class RelaxometryWorkflow(BaseWorkflow):
         # Or we extract from 'relax_files' list?
         relax_files: List[ImageFile] = context.get('relax_files', [])
         
+        # Initialize config
+        relax_cfg = self.config.get("relaxometry", {})
+        preproc_cfg = relax_cfg.get("preprocessing", {})
+        
         spgr_files = []
         ssfp_files = []
         irspgr_files = []
@@ -195,8 +199,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco
         
-        context['processed_spgr'] = spgr_moco
-        context['processed_ssfp'] = ssfp_moco
+
         
         # C. Brain Masking (Early)
         # Run on SPGR Reference Image (MoCo Target)
@@ -256,8 +259,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
 
         # 5. Fitting Strategy
-        relax_cfg = self.config.get("relaxometry", {})
-
+        # relax_cfg already loaded
         model_cfg = relax_cfg.get("modeling", {})
         # Output to anat dir
         fit_out_dir = anat_out_dir 
