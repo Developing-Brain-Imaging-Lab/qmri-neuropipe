@@ -769,9 +769,9 @@ def flirt(
         cmd.append(extra_args)
 
     # Handle kwargs
+    # FSL FLIRT uses single dash for options (e.g. -wmseg, -verbose)
     for k, v in kwargs.items():
-        if len(k) == 1: cmd.append(f"-{k} {v}")
-        else: cmd.append(f"--{k}={v}") 
+        cmd.append(f"-{k} {v}")
 
     run_cmd(" ".join(cmd), label=f"flirt ({dof} dof)")
     return out_file
