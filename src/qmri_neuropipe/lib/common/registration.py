@@ -428,7 +428,10 @@ class CoregistrationStep(BaseProcessingStep):
                     fsl_extra_opts = {k: v for k, v in options.items() if k not in known_args}
                     
                     # Calculate transform
-                    fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, extra_args=extra_args, extra_opts=fsl_extra_opts)
+                    fsl.flirt(in_file=moving_for_reg, ref_file=target, 
+                              out_file=output_img, omat=output_mat, 
+                              dof=dof, cost=cost, extra_args=extra_args, 
+                              **fsl_extra_opts)
                     
                     if is_dwi:
                         if apply_method == 'mrtrix':

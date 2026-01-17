@@ -42,29 +42,29 @@ class DTIFittingStep(BaseProcessingStep):
         model_out = output_dir / "DTI"
         model_out.mkdir(parents=True, exist_ok=True)
         
-        # Check for existing outputs (Logic moved from should_skip)
-        skip = hasattr(self.config, 'skip_existing') and self.config.skip_existing
-        existing_results = {}
+        # Check for existing outputs
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
         
-        if skip:
-            ents = dwi.entities.copy()
-            ents['model'] = 'DTI'
-            if 'desc' in ents: del ents['desc']
-            if 'suffix' in ents: del ents['suffix']
-            
-            # Check for key output (FA)
-            fa_path = model_out / build_bids_name(ents, suffix='FA')
-            
-            if fa_path.exists():
-                 self.logger.info(f"Skipping DTI fit for {dwi.img.name} (Found existing outputs)")
-                 # Collect existing
-                 for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
-                 for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
-                 for p in model_out.glob("*_AD.nii.gz"): existing_results['AD'] = p
-                 for p in model_out.glob("*_RD.nii.gz"): existing_results['RD'] = p
-                 
-                 context.setdefault('modeling_results', {})['DTI'] = existing_results
-                 return context
+        ents = dwi.entities.copy()
+        ents['model'] = 'DTI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        # Check for key output (FA)
+        fa_path = model_out / build_bids_name(ents, suffix='FA')
+        
+        if fa_path.exists() and not force:
+             self.logger.info(f"Skipping DTI fit for {dwi.img.name} (Found existing outputs)")
+             # Collect existing
+             existing_results = {}
+             for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
+             for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
+             for p in model_out.glob("*_AD.nii.gz"): existing_results['AD'] = p
+             for p in model_out.glob("*_RD.nii.gz"): existing_results['RD'] = p
+             
+             context.setdefault('modeling_results', {})['DTI'] = existing_results
+             return context
 
         self.logger.info(f"Running DTI fit ({self.method}) on {dwi.img.name}")
         
@@ -174,29 +174,29 @@ class DKIFittingStep(BaseProcessingStep):
         model_out = output_dir / "DKI"
         model_out.mkdir(parents=True, exist_ok=True)
         
-        # Check for existing outputs (Logic moved from should_skip)
-        skip = hasattr(self.config, 'skip_existing') and self.config.skip_existing
-        existing_results = {}
+        # Check for existing outputs
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
         
-        if skip:
-             ents = dwi.entities.copy()
-             ents['model'] = 'DKI'
-             if 'desc' in ents: del ents['desc']
-             if 'suffix' in ents: del ents['suffix']
-             
-             mk_path = model_out / build_bids_name(ents, suffix='mk')
-             mk_path_upper = model_out / build_bids_name(ents, suffix='MK')
-             
-             if mk_path.exists() or mk_path_upper.exists():
-                  self.logger.info(f"Skipping DKI fit for {dwi.img.name} (Found existing outputs)")
-                  # Collect
-                  for p in model_out.glob("*_*.nii.gz"):
-                        # Heuristic: suffix is last part
-                        name_part = p.name.replace('.nii.gz', '')
-                        suffix = name_part.split('_')[-1]
-                        existing_results[suffix] = p
-                  context.setdefault('modeling_results', {})['DKI'] = existing_results
-                  return context
+        ents = dwi.entities.copy()
+        ents['model'] = 'DKI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        mk_path = model_out / build_bids_name(ents, suffix='mk')
+        mk_path_upper = model_out / build_bids_name(ents, suffix='MK')
+        
+        if (mk_path.exists() or mk_path_upper.exists()) and not force:
+             self.logger.info(f"Skipping DKI fit for {dwi.img.name} (Found existing outputs)")
+             # Collect
+             existing_results = {}
+             for p in model_out.glob("*_*.nii.gz"):
+                   # Heuristic: suffix is last part
+                   name_part = p.name.replace('.nii.gz', '')
+                   suffix = name_part.split('_')[-1]
+                   existing_results[suffix] = p
+             context.setdefault('modeling_results', {})['DKI'] = existing_results
+             return context
         
         self.logger.info(f"Running DKI fit ({self.method}) on {dwi.img.name}")
         
@@ -268,28 +268,28 @@ class NODDIFittingStep(BaseProcessingStep):
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        skip = self.config.skip_existing if hasattr(self.config, 'skip_existing') else False
-        if skip:
-             # NODDI
-             ents = dwi.entities.copy()
-             ents['model'] = 'NODDI'
-             if 'desc' in ents: del ents['desc']
-             if 'suffix' in ents: del ents['suffix']
-             
-             # AMICO/DMIPY use odi, vic, icvf
-             odi_path = model_out / build_bids_name(ents, suffix='ODI')
-             icvf_path = model_out / build_bids_name(ents, suffix='ICVF')
-             
-             if odi_path.exists() or icvf_path.exists():
-                  self.logger.info(f"Skipping NODDI fit for {dwi.img.name} (Found NODDI outputs)")
-                  # Populate Context
-                  results = {}
-                  for p in model_out.glob("*.nii.gz"):
-                        name_part = p.name.replace('.nii.gz', '')
-                        suffix = name_part.split('_')[-1]
-                        results[suffix] = p
-                  context.setdefault('modeling_results', {})['NODDI'] = results
-                  return context
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        
+        ents = dwi.entities.copy()
+        ents['model'] = 'NODDI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        # AMICO/DMIPY use odi, vic, icvf
+        odi_path = model_out / build_bids_name(ents, suffix='ODI')
+        icvf_path = model_out / build_bids_name(ents, suffix='ICVF')
+        
+        if (odi_path.exists() or icvf_path.exists()) and not force:
+             self.logger.info(f"Skipping NODDI fit for {dwi.img.name} (Found NODDI outputs)")
+             # Populate Context
+             results = {}
+             for p in model_out.glob("*.nii.gz"):
+                   name_part = p.name.replace('.nii.gz', '')
+                   suffix = name_part.split('_')[-1]
+                   results[suffix] = p
+             context.setdefault('modeling_results', {})['NODDI'] = results
+             return context
         
         self.logger.info(f"Running NODDI fit ({self.method}) on {dwi.img.name}")
         
@@ -418,26 +418,26 @@ class SANDIFittingStep(BaseProcessingStep):
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        skip = self.config.skip_existing if hasattr(self.config, 'skip_existing') else False
-        if skip:
-             # SANDI
-             ents = dwi.entities.copy()
-             ents['model'] = 'SANDI'
-             if 'desc' in ents: del ents['desc']
-             if 'suffix' in ents: del ents['suffix']
-             
-             fsoma_path = model_out / build_bids_name(ents, suffix='fsoma')
-             
-             if fsoma_path.exists():
-                  self.logger.info(f"Skipping SANDI fit for {dwi.img.name} (Found SANDI outputs)")
-                  # Populate Context
-                  results = {}
-                  for p in model_out.glob("*.nii.gz"):
-                        name_part = p.name.replace('.nii.gz', '')
-                        suffix = name_part.split('_')[-1]
-                        results[suffix] = p
-                  context.setdefault('modeling_results', {})['sandi'] = results
-                  return context
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        
+        ents = dwi.entities.copy()
+        ents['model'] = 'SANDI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        fsoma_path = model_out / build_bids_name(ents, suffix='fsoma')
+        
+        if fsoma_path.exists() and not force:
+             self.logger.info(f"Skipping SANDI fit for {dwi.img.name} (Found SANDI outputs)")
+             # Populate Context
+             results = {}
+             for p in model_out.glob("*.nii.gz"):
+                   name_part = p.name.replace('.nii.gz', '')
+                   suffix = name_part.split('_')[-1]
+                   results[suffix] = p
+             context.setdefault('modeling_results', {})['sandi'] = results
+             return context
         
         self.logger.info(f"Running SANDI fit ({self.method}) on {dwi.img.name}")
         
@@ -480,26 +480,26 @@ class MAPMRIFittingStep(BaseProcessingStep):
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        skip = self.config.skip_existing if hasattr(self.config, 'skip_existing') else False
-        if skip:
-             # MAPMRI
-             ents = dwi.entities.copy()
-             ents['model'] = 'MAPMRI'
-             if 'desc' in ents: del ents['desc']
-             if 'suffix' in ents: del ents['suffix']
-             
-             rtop_path = model_out / build_bids_name(ents, suffix='rtop')
-             
-             if rtop_path.exists():
-                  self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found MAPMRI outputs)")
-                  # Populate Context
-                  results = {}
-                  for p in model_out.glob("*.nii.gz"):
-                        name_part = p.name.replace('.nii.gz', '')
-                        suffix = name_part.split('_')[-1]
-                        results[suffix] = p
-                  context.setdefault('modeling_results', {})['mapmri'] = results
-                  return context
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        
+        ents = dwi.entities.copy()
+        ents['model'] = 'MAPMRI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        rtop_path = model_out / build_bids_name(ents, suffix='rtop')
+        
+        if rtop_path.exists() and not force:
+             self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found MAPMRI outputs)")
+             # Populate Context
+             results = {}
+             for p in model_out.glob("*.nii.gz"):
+                   name_part = p.name.replace('.nii.gz', '')
+                   suffix = name_part.split('_')[-1]
+                   results[suffix] = p
+             context.setdefault('modeling_results', {})['mapmri'] = results
+             return context
         
         self.logger.info(f"Running MAPMRI fit ({self.method}) on {dwi.img.name}")
         
@@ -577,45 +577,34 @@ class CSDFittingStep(BaseProcessingStep):
         from ...io.bids import build_bids_name, get_entities_from_path
 
         # Check for existing outputs (using final BIDS names)
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        
         # We need to construct the expected filenames to check existence
         ent_base = get_entities_from_path(dwi.img)
         if 'desc' in ent_base: del ent_base['desc']
         ent_base['model'] = 'CSD'
         
-        # Approximate check: if we expect wmfod (3-tissue) or fod (1-tissue), check for those
-        # If algo implied 3-tissue but we only find 1, we might re-run. 
-        # For simplicity, if we find *any* expected CSD output, we skip? 
-        # Or better, check for the main one.
-        
-        # Let's check for likely outputs based on method?
-        # msmt_csd usually produces wmFOD, gmFOD, csfFOD
-        # csd usually produces FOD
-        
-        # Using a heuristic: check if typical output exists
-        # 'wmFOD' for msmt, 'FOD' for csd
-        
+        # Approximate check: check if likely outputs exist
         check_suffixes = ['wmFOD', 'FOD'] 
         existing_found = False
         
-        skip = self.config.skip_existing if hasattr(self.config, 'skip_existing') else False
+        for s in check_suffixes:
+             p = model_out / build_bids_name({**ent_base, 'suffix': s})
+             if p.exists():
+                 existing_found = True
+                 break
         
-        if skip:
-            for s in check_suffixes:
-                 p = model_out / build_bids_name({**ent_base, 'suffix': s})
-                 if p.exists():
-                     existing_found = True
-                     break
-            
-            if existing_found:
-                 self.logger.info(f"Skipping CSD fit for {dwi.img.name} (Found CSD outputs)")
-                 # Populate Context with existing results
-                 results = {}
-                 for p in model_out.glob("*FOD.nii.gz"):
-                      name_part = p.name.replace('.nii.gz', '')
-                      suffix = name_part.split('_')[-1]
-                      results[suffix] = p
-                 context.setdefault('modeling_results', {})['CSD'] = results
-                 return context
+        if existing_found and not force:
+             self.logger.info(f"Skipping CSD fit for {dwi.img.name} (Found CSD outputs)")
+             # Populate Context with existing results
+             results = {}
+             for p in model_out.glob("*FOD.nii.gz"):
+                  name_part = p.name.replace('.nii.gz', '')
+                  suffix = name_part.split('_')[-1]
+                  results[suffix] = p
+             context.setdefault('modeling_results', {})['CSD'] = results
+             return context
         
         self.logger.info(f"Running CSD fit ({fod_algo}) on {dwi.img.name}")
         
@@ -715,27 +704,27 @@ class FWDTIFittingStep(BaseProcessingStep):
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        skip = hasattr(self.config, 'skip_existing') and self.config.skip_existing
-        existing_results = {}
+        # Logic: Skip if output exists unless force is True
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
         
-        if skip:
-            ents = dwi.entities.copy()
-            ents['model'] = 'FWDTI'
-            if 'desc' in ents: del ents['desc']
-            if 'suffix' in ents: del ents['suffix']
-            
-            # Check for key output (FA)
-            fa_path = model_out / build_bids_name(ents, suffix='FA')
-            
-            if fa_path.exists():
-                 self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found existing outputs)")
-                 # Collect existing
-                 for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
-                 for p in model_out.glob("*_FW.nii.gz"): existing_results['FW'] = p
-                 for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
-                 
-                 context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
-                 return context
+        ents = dwi.entities.copy()
+        ents['model'] = 'FWDTI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        # Check for key output (FA)
+        fa_path = model_out / build_bids_name(ents, suffix='FA')
+        
+        if fa_path.exists() and not force:
+             self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found existing outputs)")
+             # Collect existing
+             existing_results = {}
+             for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
+             for p in model_out.glob("*_FW.nii.gz"): existing_results['FW'] = p
+             for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
+             
+             context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
+             return context
 
         self.logger.info(f"Running FWE-DTI fit ({self.method}) on {dwi.img.name}")
         

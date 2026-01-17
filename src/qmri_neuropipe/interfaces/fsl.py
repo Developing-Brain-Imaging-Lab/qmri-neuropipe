@@ -739,6 +739,7 @@ def flirt(
     searchcost: str = "corratio",
     usesqform: bool = True,
     interp: str = "trilinear",
+    extra_args: str = "",
     **kwargs
 ):
     """
@@ -763,6 +764,9 @@ def flirt(
         
     if usesqform:
         cmd.append("-usesqform")
+
+    if extra_args:
+        cmd.append(extra_args)
 
     # Handle kwargs
     for k, v in kwargs.items():
