@@ -411,6 +411,7 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
 
 def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.mapmri as mapmri
+    import numpy as np
     
     fit_kwargs = kwargs.copy()
     fit_kwargs.pop('n_cpus', None)
@@ -418,8 +419,24 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     fit_kwargs.pop('smoothing_fwhm', None)
     fit_kwargs.pop('grad_nonlin', None)
     
+    # Check if metrics requested
+    metrics = fit_kwargs.pop('metrics', None)
+    
     model = mapmri.MapmriModel(gtab, **fit_kwargs)
     fit = model.fit(data_chunk)
+    
+    if metrics:
+        res = []
+        for m in metrics:
+            if m == 'rtop': res.append(fit.rtop())
+            elif m == 'rtap': res.append(fit.rtap())
+            elif m == 'rtpp': res.append(fit.rtpp())
+            elif m == 'qiv': res.append(fit.qiv())
+            elif m == 'msd': res.append(fit.msd())
+            # Add more if needed
+        # Stack results: (N, n_metrics)
+        return np.stack(res, axis=-1)
+    
     if hasattr(fit, 'mapmri_params'):
         return fit.mapmri_params
     if hasattr(fit, 'mapmri_coeffs'):
@@ -496,22 +513,38 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Fit
         fit = model.fit(vox_data)
         
-        # Collect parameters
-        # Most models stick params in model_params
-        # Some might use other attributes? (e.g. MAPMRI has q-space indices?)
-        # But generally fit.model_params is the vector representation.
-        if hasattr(fit, 'mapmri_params'):
-             res_params.append(fit.mapmri_params)
-        elif hasattr(fit, 'mapmri_coeffs'):
-             res_params.append(fit.mapmri_coeffs)
-        elif hasattr(fit, 'mapmri_coeff'):
-             res_params.append(fit.mapmri_coeff)
-        elif hasattr(fit, 'model_params'):
-             res_params.append(fit.model_params)
+        # Check if Metrics requested (in kwargs passed to model constructor? No, passed in generic kwargs to worker)
+        # We need to extract 'metrics' from 'model_kwargs' which we passed in _execute_gnl_fit
+        metrics = model_kwargs.get('metrics')
+        
+        if metrics:
+            # We assume the fit object has methods corresponding to metric names
+            m_res = []
+            for m in metrics:
+                 # Standardize lookup
+                 if m == 'rtop' and hasattr(fit, 'rtop'): val = fit.rtop()
+                 elif m == 'rtap' and hasattr(fit, 'rtap'): val = fit.rtap()
+                 elif m == 'rtpp' and hasattr(fit, 'rtpp'): val = fit.rtpp()
+                 elif m == 'qiv' and hasattr(fit, 'qiv'): val = fit.qiv()
+                 elif m == 'msd' and hasattr(fit, 'msd'): val = fit.msd()
+                 elif hasattr(fit, m): val = getattr(fit, m) # generic property?
+                 else: val = 0.0 # Nan?
+                 m_res.append(val)
+            res_params.append(m_res)
         else:
-             # Fallback: maybe qspace_indices?
-             # For now, raise AttributeError if standard attrs missing
-             raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params' nor 'mapmri_coeff'.")
+            # Collect parameters
+            # Most models stick params in model_params
+            if hasattr(fit, 'mapmri_params'):
+                 res_params.append(fit.mapmri_params)
+            elif hasattr(fit, 'mapmri_coeffs'):
+                 res_params.append(fit.mapmri_coeffs)
+            elif hasattr(fit, 'mapmri_coeff'):
+                 res_params.append(fit.mapmri_coeff)
+            elif hasattr(fit, 'model_params'):
+                 res_params.append(fit.model_params)
+            else:
+                 # Fallback
+                 raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params' nor 'mapmri_coeff'.")
         
     return np.array(res_params)
 
@@ -1131,10 +1164,16 @@ def fit_mapmri(
     else:
         grad_nonlin = None
 
+    # We will pass 'metrics' to the workers so they compute them locally.
+    # This avoids the issue of reconstructing MapmriFit which requires hidden internal state (mu, R, lopt).
+    map_kwargs['metrics'] = metrics
+
     try:
+        final_data = None
+        
         if grad_nonlin:
              print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
-             vol_params = _execute_gnl_fit(
+             final_data = _execute_gnl_fit(
                 data=data,
                 mask=mask,
                 gnl_map_path=grad_nonlin,
@@ -1146,14 +1185,11 @@ def fit_mapmri(
                 big_delta=big_delta,
                 small_delta=small_delta
              )
-             # Instantiate dummy model for fit object creation
-             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
-             mapfit = mapmri.MapmriFit(map_model, vol_params)
              
         elif nthreads > 1:
              # Parallel
              worker_kwargs = map_kwargs.copy()
-             vol_params = _parallel_fit_driver(
+             final_data = _parallel_fit_driver(
                 data,
                 mask,
                 gtab,
@@ -1161,14 +1197,23 @@ def fit_mapmri(
                 nthreads,
                 worker_kwargs=worker_kwargs
              )
-             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
-             mapfit = mapmri.MapmriFit(map_model, vol_params)
              
         else:
-             # Serial
+             # Serial - Use worker logic for consistency or just direct loop?
+             # Direct fit allows using MapmriFit if we trust it works for single thread?
+             # But serial fit usually returns MapmriFit object.
+             # However, to unify output handling (metrics array), let's use the single-thread driver or manual loop.
+             # Or just allow regular fit and extract metrics here.
              map_model = mapmri.MapmriModel(gtab, **map_kwargs)
+             # map_kwargs has 'metrics' inside which Model doesn't accept? 
+             # We should pop it if using direct model init.
+             mk = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
+             map_model = mapmri.MapmriModel(gtab, **mk)
              mapfit = map_model.fit(data, mask=mask)
-            
+             
+             # Extract manually to match structure
+             # final_data will be dict {metric: volume}
+             
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1192,31 +1237,47 @@ def fit_mapmri(
         "Metrics": metrics
     }
     
-    for metric in metrics:
+    # Handling Serial vs Parallel/GNL output
+    # Parallel/GNL returns numpy array (X,Y,Z, N_metrics)
+    # Serial returns MapmriFit object
+    
+    is_array = isinstance(final_data, np.ndarray)
+    
+    for i, metric in enumerate(metrics):
         metric_suffix = metric.upper()
-        # Create output path
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
         
-        if metric == 'rtop':
-             nib.save(nib.Nifti1Image(map_fit.rtop(), img.affine), str(out_path))
-        elif metric == 'rtap':
-             nib.save(nib.Nifti1Image(map_fit.rtap(), img.affine), str(out_path))
-        elif metric == 'rtpp':
-             nib.save(nib.Nifti1Image(map_fit.rtpp(), img.affine), str(out_path))
-        elif metric == 'qiv':
-             # Note: suffix was QIV previously?
-             nib.save(nib.Nifti1Image(map_fit.qiv(), img.affine), str(out_path))
-        elif metric == 'msd':
-             nib.save(nib.Nifti1Image(map_fit.msd(), img.affine), str(out_path))
-             
-        output_files[metric] = out_path
+        val = None
+        if is_array:
+            # final_data is (X,Y,Z, n_metrics)
+            # Assuming encoded order matches 'metrics' list
+            if final_data.ndim == 4:
+                val = final_data[..., i]
+            else:
+                # Should be 4D if metrics > 1, or 3D if 1?
+                # _parallel_fit_driver returns 4D if worker returns array.
+                # If only 1 metric, might be 3D.
+                if len(metrics) == 1:
+                     val = final_data
+                else:
+                     val = final_data[..., i]
+        else:
+            # Serial Fit Object
+            if metric == 'rtop': val = mapfit.rtop()
+            elif metric == 'rtap': val = mapfit.rtap()
+            elif metric == 'rtpp': val = mapfit.rtpp()
+            elif metric == 'qiv': val = mapfit.qiv()
+            elif metric == 'msd': val = mapfit.msd()
         
-        # Save sidecar
-        sidecar_path = str(out_path).replace('.nii.gz', '.json')
-        with open(sidecar_path, 'w') as f:
-             json.dump(sidecar, f, indent=4)
-
+        if val is not None:
+             nib.save(nib.Nifti1Image(val, img.affine), str(out_path))
+             output_files[metric] = out_path
+             
+             sidecar_path = str(out_path).replace('.nii.gz', '.json')
+             with open(sidecar_path, 'w') as f:
+                  json.dump(sidecar, f, indent=4)
+ 
     return output_files
 
 
