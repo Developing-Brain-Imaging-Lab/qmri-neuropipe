@@ -2093,7 +2093,10 @@ class DMRIPipeline(BasePipeline):
 
         preprocessed_context = None
         
-        if self.config.skip_existing and expected_preproc_path.exists():
+        force_run = self.config.get("dmri", {}).get("force_run", False) or self.config.get("force", False)
+        
+        # Check if already processed (Skip unless forced)
+        if expected_preproc_path.exists() and not force_run:
             self.logger.info(f"Skipping preprocessing (Final output exists: {expected_preproc_path})")
             
             # Load existing results into context so modeling can use them

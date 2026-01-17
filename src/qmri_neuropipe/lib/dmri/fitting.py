@@ -33,6 +33,22 @@ class DTIFittingStep(BaseProcessingStep):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "DTI"
+        ents = dwi.entities.copy()
+        ents['model'] = 'DTI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        fa_path = model_out / build_bids_name(ents, suffix='FA')
+        return fa_path.exists()
+
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         # Resolve inputs
         dwi = context.get('current_image') if isinstance(context, dict) else context
@@ -169,6 +185,23 @@ class DKIFittingStep(BaseProcessingStep):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "DKI"
+        ents = dwi.entities.copy()
+        ents['model'] = 'DKI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        mk_path = model_out / build_bids_name(ents, suffix='mk')
+        mk_path_upper = model_out / build_bids_name(ents, suffix='MK')
+        return mk_path.exists() or mk_path_upper.exists()
+
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         dwi = context if not isinstance(context, dict) else context.get('current_image')
         model_out = output_dir / "DKI"
@@ -260,6 +293,23 @@ class NODDIFittingStep(BaseProcessingStep):
         elif isinstance(self.config, dict):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
+
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "NODDI"
+        ents = dwi.entities.copy()
+        ents['model'] = 'NODDI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        odi_path = model_out / build_bids_name(ents, suffix='ODI')
+        icvf_path = model_out / build_bids_name(ents, suffix='ICVF')
+        return odi_path.exists() or icvf_path.exists()
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         from ...io.bids import build_bids_name, get_entities_from_path
@@ -412,6 +462,22 @@ class SANDIFittingStep(BaseProcessingStep):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "sandi"
+        ents = dwi.entities.copy()
+        ents['model'] = 'SANDI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        fsoma_path = model_out / build_bids_name(ents, suffix='fsoma')
+        return fsoma_path.exists()
+
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         dwi = context if not isinstance(context, dict) else context.get('current_image')
         model_out = output_dir / "sandi"
@@ -473,6 +539,22 @@ class MAPMRIFittingStep(BaseProcessingStep):
         elif isinstance(self.config, dict):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
+
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "mapmri"
+        ents = dwi.entities.copy()
+        ents['model'] = 'MAPMRI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        rtop_path = model_out / build_bids_name(ents, suffix='rtop')
+        return rtop_path.exists()
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         dwi = context if not isinstance(context, dict) else context.get('current_image')
@@ -563,6 +645,25 @@ class CSDFittingStep(BaseProcessingStep):
         elif isinstance(self.config, dict):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs # e.g. lmax, response_algo ('dhollander')
+
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "CSD"
+        from ...io.bids import get_entities_from_path, build_bids_name
+        
+        ent_base = get_entities_from_path(dwi.img)
+        if 'desc' in ent_base: del ent_base['desc']
+        ent_base['model'] = 'CSD'
+        
+        check_suffixes = ['wmFOD', 'FOD']
+        for s in check_suffixes:
+            p = model_out / build_bids_name({**ent_base, 'suffix': s})
+            if p.exists(): return True
+        return False
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         dwi = context if not isinstance(context, dict) else context.get('current_image')
@@ -694,6 +795,22 @@ class FWDTIFittingStep(BaseProcessingStep):
         elif isinstance(self.config, dict):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
+
+    def should_skip(self, context, output_dir):
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        if not dwi: return False
+        
+        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
+        if force: return False
+        
+        model_out = output_dir / "FWE_DTI"
+        ents = dwi.entities.copy()
+        ents['model'] = 'FWDTI'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        fa_path = model_out / build_bids_name(ents, suffix='FA')
+        return fa_path.exists()
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         # Resolve inputs
