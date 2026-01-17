@@ -250,6 +250,26 @@ class BaseProcessingStep(ABC):
         """
         pass
     
+    @staticmethod
+    def check_output_validity(path: Path, min_size: int = 100) -> bool:
+        """
+        Check if an output file is valid (exists and has non-zero size).
+        
+        Args:
+            path: Path to check
+            min_size: Minimum size in bytes (default 100 bytes for header)
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        if not path.exists(): return False
+        try:
+            if path.stat().st_size < min_size: return False
+        except OSError:
+            return False
+            
+        return True
+    
     def _log_provenance(self, *args, result: Any, **kwargs) -> None:
         """
         Log provenance information for this step.

@@ -204,8 +204,8 @@ class DenoisingStep(BaseProcessingStep):
         noise_map_desc = f"{new_desc}NoiseMap"
         noise_map_path  = output_dir / build_bids_name({**input_img.entities, "desc": noise_map_desc})
         
-        # Check if output exists
-        if output_img_path.exists() and not kwargs.get('force', False):
+        # Check if output exists and is valid
+        if self.check_output_validity(output_img_path) and not kwargs.get('force', False):
              self.logger.info(f"Skipping {self.method} denoising (Output exists: {output_img_path.name})")
              # Reconstruct result object
              if isinstance(input_img, DWIFile):

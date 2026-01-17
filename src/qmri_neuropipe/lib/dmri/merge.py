@@ -76,8 +76,16 @@ class MergeStep(BaseProcessingStep):
         
         out_acqp = merge_dir / "acqparams.txt"
         
-        # Check if outputs exist
-        if out_nii.exists() and out_bval.exists() and out_bvec.exists() and out_index.exists() and out_acqp.exists() and not kwargs.get('force', False):
+        # Check if outputs exist and are valid
+        outputs_valid = (
+            self.check_output_validity(out_nii) and 
+            out_bval.exists() and 
+            out_bvec.exists() and 
+            out_index.exists() and 
+            out_acqp.exists()
+        )
+        
+        if outputs_valid and not kwargs.get('force', False):
             self.logger.info(f"Skipping Merge (Outputs exist: {out_nii})")
             
             # Load result

@@ -2080,6 +2080,11 @@ class DMRIPipeline(BasePipeline):
         first_dwi = dwi_files[0]
         final_ents = dict(first_dwi.entities)
         final_ents['desc'] = 'preproc'
+        # Remove entities that are merged away (e.g. dir, run if merged)
+        if 'dir' in final_ents: del final_ents['dir']
+        # If we have multiple runs, 'run' might also be removed, but usually run is kept if processing per run.
+        # But here we assume 1 session. Merged file usually drops 'dir'.
+        
         expected_preproc_name = build_bids_name(final_ents, suffix='dwi')
         if not expected_preproc_name.endswith('.nii.gz'): expected_preproc_name += '.nii.gz'
         

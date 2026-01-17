@@ -200,8 +200,8 @@ class GibbsUnringingStep(BaseProcessingStep):
         
         output_img = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
                
-        # Check if output exists
-        if output_img.exists() and not kwargs.get('force', False):
+        # Check if output exists and is valid
+        if self.check_output_validity(output_img) and not kwargs.get('force', False):
              self.logger.info(f"Skipping {self.method} gibbs unringing (Output exists: {output_img.name})")
              # Reconstruct result object
              if isinstance(input_img, DWIFile):
