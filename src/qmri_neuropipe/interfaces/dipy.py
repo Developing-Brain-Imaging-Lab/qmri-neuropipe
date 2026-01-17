@@ -472,7 +472,9 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     big_delta = kwargs.get('big_delta')
     small_delta = kwargs.get('small_delta')
     model_class = kwargs['model_class']
-    model_kwargs = kwargs.get('model_kwargs', {})
+    # Copy model_kwargs so we can safely modify
+    full_kwargs = kwargs.get('model_kwargs', {}).copy()
+    metrics = full_kwargs.pop('metrics', None)
     
     res_params = []
     
@@ -508,14 +510,15 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         vox_gtab = gradient_table(new_bvals, bvecs=new_bvecs, big_delta=big_delta, small_delta=small_delta)
         
         # Instantiate Model
-        model = model_class(vox_gtab, **model_kwargs)
+        # Use filtered kwargs (without metrics)
+        model = model_class(vox_gtab, **full_kwargs)
         
         # Fit
         fit = model.fit(vox_data)
         
-        # Check if Metrics requested (in kwargs passed to model constructor? No, passed in generic kwargs to worker)
-        # We need to extract 'metrics' from 'model_kwargs' which we passed in _execute_gnl_fit
-        metrics = model_kwargs.get('metrics')
+        # Check if Metrics requested
+        # metrics extracted earlier
+
         
         if metrics:
             # We assume the fit object has methods corresponding to metric names
