@@ -349,7 +349,34 @@ class CoregistrationStep(BaseProcessingStep):
 
                     # 2. Apply via MRtrix
                     temp_mif_in = output_dir / "temp_input.mif"
-                    mrtrix.mrconvert(in_file=in_path, out_file=temp_mif_in, nthreads=nthreads, force=True)
+                    
+                    # Ensure Gradients are embedded in the MIF
+                    conv_kwargs = {'in_file': in_path, 'out_file': temp_mif_in, 'nthreads': nthreads, 'force': True}
+                    if is_dwi:
+                         bvec_in = getattr(input_image, 'bvec', None)
+                         bval_in = getattr(input_image, 'bval', None)
+                         
+                         if not bvec_in or not bval_in:
+                             # Try sidecars based on filename
+                             candidate_bvec = in_path.with_suffix("").with_suffix(".bvec")
+                             # Handle double suffix .nii.gz -> .nii -> .bvec if needed, but .with_suffix(".bvec") on .nii.gz yields .nii.bvec usually? 
+                             # Path("foo.nii.gz").with_suffix("") is "foo.nii". .with_suffix(".bvec") is "foo.bvec".
+                             # But in_path might be .nii.gz.
+                             
+                             # Reliable way:
+                             base_path = str(in_path).split(".nii")[0]
+                             candidate_bvec = Path(base_path + ".bvec")
+                             candidate_bval = Path(base_path + ".bval")
+
+                             if candidate_bvec.exists() and candidate_bval.exists():
+                                 bvec_in = candidate_bvec
+                                 bval_in = candidate_bval
+                         
+                         if bvec_in and bval_in:
+                             conv_kwargs['in_bvec'] = bvec_in
+                             conv_kwargs['in_bval'] = bval_in
+                             
+                    mrtrix.mrconvert(**conv_kwargs)
                     
                     mrtrix_transform = output_dir / "transform_mrtrix.txt"
                     mrtrix.transformconvert(
