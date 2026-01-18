@@ -260,14 +260,24 @@ class CoregistrationStep(BaseProcessingStep):
                          if not subject_id:
                               raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
                          
+                         # Define Output Files
                          reg_lta = output_dir / "bbregister.lta"
                          transform_file = output_dir / "coreg_dwi_to_anat.mat"
-                         
-                         # Determine SUBJECTS_DIR
+
+                         # Determine SUBJECTS_DIR and Subject ID from context logic
                          subjects_dir = None
                          if context and 'freesurfer_dir' in context:
-                             # context['freesurfer_dir'] points to sub-XXX folder
-                             subjects_dir = Path(context['freesurfer_dir']).parent
+                             # context['freesurfer_dir'] points to the specific subject folder (e.g. sub-01)
+                             fs_rec_path = Path(context['freesurfer_dir'])
+                             subjects_dir = fs_rec_path.parent
+                             # IMPORTANT: Use the folder name as the ID, as FS expects the ID to exist in SUBJECTS_DIR
+                             subject_id = fs_rec_path.name
+                         elif not context.get('freesurfer_dir'):
+                             # Fallback/Warning: If we don't have the dir in context, we might be guessing
+                             self.logger.warning("Freesurfer directory not found in context. Assuming standard BIDS derivative structure if possible, or relying on system SUBJECTS_DIR.")
+                             # Try to guess based on config?
+                             # For now, let's hope subject_id is enough if SUBJECTS_DIR is set externally
+                             pass
                          
                          freesurfer.bbregister(
                              in_file=moving_for_reg,
