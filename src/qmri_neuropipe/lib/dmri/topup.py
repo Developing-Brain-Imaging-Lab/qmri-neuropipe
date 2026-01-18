@@ -110,55 +110,62 @@ class TopupStep(BaseProcessingStep):
                 else:
                     # Optional Coregistration to first b0
                     if distcorr_cfg.get('coregister_inputs', False):
-                        self.logger.info(f"Coregistering Topup inputs to the first volume (FLIRT dof 6)...")
-                        
-                        # Identify reference
-                        ref_img = group[0]
-                        # We need paths
+                        self.logger.info(f"Coregistering Topup inputs using MCFLIRT...")
                         from ...core.utils import extract_image_path
                         from ...core.types import ImageFile, DWIFile
-                        ref_path = extract_image_path(ref_img)
+                        import shutil
                         
-                        new_group = [ref_img] # First one is reference, keep as is
+                        # 1. Merge all b0 inputs into 4D volume
+                        merged_b0 = topup_dir / f"{base_name}_merged_b0.nii.gz"
+                        self.logger.debug(f"  Merging b0s -> {merged_b0}")
+                        fsl.merge(group, merged_b0, dimension='t')
                         
-                        for i, mov_img in enumerate(group[1:], start=1):
-                            mov_path = extract_image_path(mov_img)
-                            # Define output for coregistered b0
-                            coreg_out = topup_dir / f"{base_name}_input{i}_coreg.nii.gz"
+                        # 2. Run MCFLIRT on the formatted 4D volume
+                        # (Registers to volume 0 by default, which matches our 'ref_img = group[0]' logic)
+                        mcf_b0 = topup_dir / f"{base_name}_merged_b0_mcf.nii.gz"
+                        self.logger.debug(f"  Running MCFLIRT -> {mcf_b0}")
+                        fsl.mcflirt(merged_b0, mcf_b0, ref_vol=0, extra_args="-stages 3 -dof 6")
+                        
+                        # 3. Split the motion-corrected 4D volume back into 3D files
+                        split_prefix = topup_dir / f"{base_name}_mcf_split_"
+                        self.logger.debug(f"  Splitting corrected volume...")
+                        split_files = fsl.split(mcf_b0, split_prefix, dimension='t')
+                        
+                        if len(split_files) != len(group):
+                            raise RuntimeError(f"MCFLIRT split produced {len(split_files)} files, expected {len(group)}")
                             
-                            self.logger.debug(f"  Registering {mov_path.name} -> {ref_path.name}")
-                            fsl.flirt(in_file=mov_path, ref_file=ref_path, out_file=coreg_out, dof=6)
-                            
-                            import shutil
-                            
-                            # Preserve metadata (JSON sidecar) for Topup
-                            mov_json = getattr(mov_img, 'json', None)
-                            if not mov_json and hasattr(mov_img, 'path'): 
-                                candidate = Path(mov_img.path).with_suffix('.json')
+                        # 4. Wrap split files as DWIFiles with original metadata
+                        new_group = []
+                        for i, (split_path, original_img) in enumerate(zip(split_files, group)):
+                            # Identify original JSON from the source image
+                            mov_json = getattr(original_img, 'json', None)
+                            if not mov_json and hasattr(original_img, 'path'): 
+                                candidate = Path(original_img.path).with_suffix('.json')
                                 if candidate.exists(): mov_json = candidate
                             elif not mov_json:
-                                candidate = mov_path.with_suffix('').with_suffix('.json')
+                                orig_path = extract_image_path(original_img)
+                                candidate = orig_path.with_suffix('').with_suffix('.json')
                                 if candidate.exists(): mov_json = candidate
 
-                            # Copy JSON if found
+                            # Copy JSON to accompany the split file
                             if mov_json and mov_json.exists():
-                                coreg_json = coreg_out.with_suffix('').with_suffix('.json')
-                                # Fix potential double suffix issues
-                                coreg_json = coreg_out.parent / (coreg_out.name.split('.')[0] + '.json')
-                                shutil.copy(mov_json, coreg_json)
+                                split_json = split_path.parent / (split_path.name.split('.')[0] + '.json')
+                                shutil.copy(mov_json, split_json)
                             else:
-                                coreg_json = None
-                                self.logger.warning(f"Could not find JSON sidecar for {mov_path.name}. Topup might fail.")
+                                split_json = None
+                                self.logger.warning(f"Could not find JSON sidecar for input {i}. Topup might fail to detect PE direction.")
 
-                            # Create dummy bval/bvec for the coregistered b0 (FLIRT output is 3D b0)
-                            coreg_bval = coreg_out.parent / (coreg_out.name.split('.')[0] + '.bval')
-                            coreg_bvec = coreg_out.parent / (coreg_out.name.split('.')[0] + '.bvec')
-                            coreg_bval.write_text("0\n")
-                            coreg_bvec.write_text("0 0 0\n")
+                            # Create dummy bval/bvec for the split 3D file
+                            split_bval = split_path.parent / (split_path.name.split('.')[0] + '.bval')
+                            split_bvec = split_path.parent / (split_path.name.split('.')[0] + '.bvec')
+                            split_bval.write_text("0\n")
+                            split_bvec.write_text("0 0 0\n")
 
-                            # Wrap in DWIFile
-                            ents = getattr(mov_img, 'entities', {})
-                            new_img_obj = DWIFile(img=coreg_out, bval=coreg_bval, bvec=coreg_bvec, json=coreg_json, entities=ents)
+                            # Copy entities
+                            ents = getattr(original_img, 'entities', {})
+                            
+                            # Wrap
+                            new_img_obj = DWIFile(img=split_path, bval=split_bval, bvec=split_bvec, json=split_json, entities=ents)
                             new_group.append(new_img_obj)
                             
                         # Use the new group for topup

@@ -138,6 +138,38 @@ def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t"
     return out_p
 
 
+
+def mcflirt(
+    in_file: ImageLike | Path,
+    out_file: Path,
+    ref_vol: int = 0,
+    cost: str = "normcorr",
+    bins: int = 256,
+    dof: int = 6,
+    scaling: float = 6.0,
+    smooth: float = 1.0,
+    rotation: int = 0,
+    verbose: int = 0,
+    stages: int = 3,
+    extra_args: str = ""
+) -> Path:
+    """
+    Wrapper for FSL mcflirt.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    # mcflirt -in <input> -out <output> -refvol <vol> ...
+    
+    if out_p.exists():
+        return out_p
+        
+    cmd = f"mcflirt -in {in_p} -out {out_p} -refvol {ref_vol} -cost {cost} -bins {bins} -dof {dof} -scaling {scaling} -smooth {smooth} -rotation {rotation} -stages {stages} {extra_args}"
+    
+    run_cmd(cmd, label="mcflirt")
+    return out_p
+
+
 def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -> List[Path]:
     """
     Wrapper for fslsplit.
