@@ -118,19 +118,16 @@ class ReconAllStep(BaseProcessingStep):
              self.logger.info(f"Creating brain mask from FS output...")
              freesurfer.mri_binarize(brain_mgz, mask_nii, min_val=1)
              
-             # Update Context
+             # Define new image objects
+             entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'T1w'}
+             new_img = ImageFile(path=t1w_nii, entities=entities)
+             
+             mask_entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'mask'}
+             new_mask = ImageFile(path=mask_nii, entities=mask_entities)
+
+             # Update Context if available
              if context:
-                 # Update current image to the FS-derived T1w
-                 # Need to wrap in ImageFile? Or just path (BaseProcessingStep generic usually handles paths)
-                 # Reconstruct ImageFile with entities
-                 entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'T1w'}
-                 new_img = ImageFile(path=t1w_nii, entities=entities)
-                 
                  context['current_image'] = new_img
-                 
-                 # Update mask
-                 mask_entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'mask'}
-                 new_mask = ImageFile(path=mask_nii, entities=mask_entities)
                  context['brain_mask'] = new_mask
                  
                  self.logger.info("Updated pipeline context to use FreeSurfer-derived structural images.")
