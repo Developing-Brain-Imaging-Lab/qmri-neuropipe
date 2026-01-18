@@ -84,7 +84,7 @@ def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, nthreads: Optional
     return out_file, mask_out
 
 
-def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1"):
+def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1", fsl_mat_out: Path = None):
     """
     Run FreeSurfer bbregister.
     
@@ -107,6 +107,12 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
     subject_id = str(target_file)
     
     cmd = f"bbregister --s {subject_id} --mov {in_p} --reg {out_reg} --{contrast_type}"
+    
+    if fsl_mat_out:
+        fsl_mat = Path(fsl_mat_out)
+        fsl_mat.parent.mkdir(parents=True, exist_ok=True)
+        cmd += f" --fsl-mat {fsl_mat}"
+        
     run_cmd(cmd, label="bbregister")
     
     return out_reg

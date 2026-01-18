@@ -489,6 +489,7 @@ def mrtransform(
     template: Optional[Path] = None,
     interp: str = "cubic",
     datatype: str = None,
+    strides: Optional[Union[Path, str]] = None,
     nthreads: int = 1,
     force: bool = False,
     **kwargs
@@ -504,6 +505,7 @@ def mrtransform(
         template: Template image (for regridding).
         interp: Interpolation ('nearest', 'linear', 'cubic', 'sinc'). Default 'cubic'.
         datatype: Output data type.
+        strides: Set strides (logical orientation) of output image. Can be path or string (e.g. '-1,2,3').
         nthreads: Number of threads.
         force: Force overwrite.
         **kwargs: Additional flags.
@@ -530,6 +532,9 @@ def mrtransform(
         
     if datatype:
         cmd.extend(["-datatype", datatype])
+    
+    if strides:
+        cmd.extend(["-strides", str(strides)])
         
     if nthreads > 1:
         cmd.extend(["-nthreads", str(nthreads)])
@@ -537,7 +542,6 @@ def mrtransform(
     if force:
         cmd.append("-force")
     
-    # cmd.extend(["-strides", str(template)]) # REMOVED: Applying 3D template strides to 4D DWI causes dimension loss.
     cmd.append("-reorient_fod no")
     cmd.append("-quiet")
     

@@ -236,288 +236,217 @@ class CoregistrationStep(BaseProcessingStep):
             self.logger.info(f"Application method: {apply_method}")
 
             # --- Pre-Registration: Ensure Moving Image is 3D ---
-            # If input is 4D DWI, we need a 3D reference (b0 or mean b0) for:
-            # 1. Defining the native grid for resampling target (if requested)
-            # 2. Being the 'moving' image for registration
             moving_for_reg = in_path
             
             if is_dwi:
                  # Extract b0 or mean b0
                  b0_path = output_dir / "temp_b0_ref.nii.gz"
-                 # Ensure we don't re-extract if it exists (though run_cmd might handle checks, explicit check is cheap)
                  if not b0_path.exists():
                      run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
                  moving_for_reg = b0_path
 
-            # --- Output Resolution Handling ---
-            # Check for output_resolution option ('anatomical' [default] or 'dwi'/'native')
-            # 'native' means we want the result in DWI space.
-            # So we must DOWNsample the Target (T1w) to the DWI grid BEFORE registration.
-            out_res = options.get('output_resolution', 'anatomical').lower()
-            if out_res in ['dwi', 'native']:
-                self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
-                
-                # Define path for resampled target
-                # Avoid double extension if using stem that might have dots
-                safe_stem = in_path.name.replace(".nii.gz", "").replace(".nii", "")
-                resampled_target = output_dir / f"target_resampled_to_dwi_{safe_stem}.nii.gz"
-                
-                try:
-                    interpolator = options.get("interpolation", "linear").lower() # Normalize case
-                    
-                    if self.method == 'ants':
-                         # ANTsPy expects: linear, nearestNeighbor, bspline...
-                         if interpolator == 'nearest': interpolator = 'nearestNeighbor'
-                         elif interpolator == 'cubic': interpolator = 'bspline'
-                         
-                         # Use moving_for_reg (3D) as reference
-                         ants.resample_to_image(target, moving_for_reg, resampled_target, interpolator=interpolator, nthreads=nthreads)
-                         
-                    elif self.method == 'fsl':
-                        # FLIRT: trilinear, nearestneighbour, sinc, spline
-                        fsl_interp = interpolator
-                        if interpolator == 'linear': fsl_interp = 'trilinear'
-                        elif interpolator == 'nearest': fsl_interp = 'nearestneighbour'
-                        elif interpolator == 'bspline': fsl_interp = 'spline'
-                        elif interpolator == 'cubic': fsl_interp = 'spline'
-                        
-                        fsl.resample_to_image(target, moving_for_reg, resampled_target, interpolator=fsl_interp)
-                    else:
-                        self.logger.warning(f"Resampling not implemented for method '{self.method}'. Using original target.")
-                        resampled_target = target
-
-                    if resampled_target.exists():
-                        target = resampled_target
-                        self.logger.info(f"Target updated to resampled image: {target}")
-                        
-                except Exception as e:
-                     self.logger.error(f"Failed to resample target: {e}.")
-                     # If user explicitly asked for native, we should not fail silently
-                     raise ProcessingError(f"Failed to resample target to native resolution: {e}")
-
             try:
-                if self.method == 'ants':
-                    # ANTs registration
-                    transform_type = options.get("transform_type", "Rigid")
-                    interpolator = options.get("interpolation", "linear")
+                # --- Logic Branch: Application Method ---
+                if apply_method == 'mrtrix' and options.get('output_resolution') == 'native':
+                    # NATIVE RESOLUTION via MRtrix
+                    self.logger.info("Executing Native Resolution Coregistration via MRtrix (DWI -> Anat)...")
                     
-                    # moving_for_reg is already prepared above
+                    # 1. Calculate Registration
+                    transform_file = None
+                    transform_type = 'flirt' 
                     
-                    warped, prefix = ants.registration(
-                        fixed_file=target, 
-                        moving_file=moving_for_reg, 
-                        out_prefix=output_transform, 
-                        transform_type=transform_type,
-                        interpolator=interpolator,
-                        nthreads=nthreads,
-                        **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation', 'apply_method']}
+                    if self.method == 'freesurfer':
+                         subject_id = context.get('subject') if context else None
+                         if not subject_id:
+                              raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
+                         
+                         reg_lta = output_dir / "bbregister.lta"
+                         transform_file = output_dir / "coreg_dwi_to_anat.mat"
+                         
+                         freesurfer.bbregister(
+                             in_file=moving_for_reg,
+                             target_file=subject_id,
+                             out_reg_file=reg_lta,
+                             contrast_type='t2',
+                             fsl_mat_out=transform_file
+                         )
+                         
+                    elif self.method == 'ants':
+                         transform_file = output_dir / "coreg_dwi_to_anat_0GenericAffine.mat"
+                         out_prefix = output_dir / "coreg_dwi_to_anat_"
+                         
+                         ants.registration(
+                             fixed_file=target,
+                             moving_file=moving_for_reg,
+                             out_prefix=out_prefix,
+                             transform_type='Rigid',
+                             nthreads=nthreads
+                         )
+                         
+                         if not transform_file.exists():
+                              transform_file = Path(str(out_prefix) + "0GenericAffine.mat")
+                         
+                         if not transform_file.exists():
+                              raise ProcessingError(f"ANTs registration failed to produce transform: {transform_file}")
+                          
+                         # Convert ANTs -> FSL for consistency
+                         fsl_mat = output_dir / "coreg_dwi_to_anat_fsl.mat"
+                         c3d.ants2fsl(target, moving_for_reg, transform_file, fsl_mat)
+                         transform_file = fsl_mat
+                         
+                    else:
+                         transform_file = output_dir / "coreg_dwi_to_anat.mat"
+                         fsl.flirt(
+                             in_file=moving_for_reg,
+                             ref_file=target,
+                             out_matrix_file=transform_file,
+                             dof=6,
+                             nthreads=nthreads
+                         )
+
+                    # 2. Apply via MRtrix
+                    temp_mif_in = output_dir / "temp_input.mif"
+                    mrtrix.mrconvert(in_file=in_path, out_file=temp_mif_in, nthreads=nthreads, force=True)
+                    
+                    mrtrix_transform = output_dir / "transform_mrtrix.txt"
+                    mrtrix.transformconvert(
+                        in_transform=transform_file,
+                        out_mrtrix_transform=mrtrix_transform,
+                        operation="flirt_import",
+                        ref_image=target, 
+                        in_image=moving_for_reg, 
+                        force=True
                     )
+                    
+                    # Apply transform with STRIDES logic
+                    temp_mif_out = output_dir / "temp_output.mif"
+                    mrtrix.mrtransform(
+                        in_file=temp_mif_in,
+                        out_file=temp_mif_out,
+                        linear_transform=mrtrix_transform,
+                        strides=target, 
+                        nthreads=nthreads,
+                        force=True
+                    )
+                    
+                    # Export to NIfTI
+                    out_bvec = output_img.with_suffix("").with_suffix(".bvec")
+                    out_bval = output_img.with_suffix("").with_suffix(".bval")
+                    
+                    mrtrix.mrconvert(
+                        in_file=temp_mif_out,
+                        out_file=output_img,
+                        export_grad_fsl=(out_bvec, out_bval),
+                        nthreads=nthreads,
+                        force=True
+                    )
+                    
+                    if temp_mif_in.exists(): temp_mif_in.unlink()
+                    if temp_mif_out.exists(): temp_mif_out.unlink()
+                    
+                    mrtrix_rotated_bvecs = out_bvec
 
-                    # Now we have the transform. We must apply it to the FULL 4D image.
-                    if is_dwi:
-                         # Application
-                         if apply_method == 'mrtrix':
-                             # Identify ANTs Transform (prefix0GenericAffine.mat)
-                             # ants.registration returns 'prefix', which is a LIST of transforms usually
-                             # e.g. [ ...0GenericAffine.mat ]
-                             ants_transform = None
-                             for t in prefix:
-                                 if str(t).endswith("0GenericAffine.mat"):
-                                     ants_transform = Path(t)
-                                     break
-                             
-                             if not ants_transform:
-                                 # Fallback guess
-                                 ants_transform = Path(str(output_transform) + "0GenericAffine.mat")
-                                 
-                             if not ants_transform.exists():
-                                 raise ProcessingError(f"Could not find ANTs transform for MRTrix application: {ants_transform}")
+                else:
+                    # --- STANDARD LOGIC ---
+                    out_res = options.get('output_resolution', 'anatomical').lower()
+                    if out_res in ['dwi', 'native']:
+                        self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
+                        resampled_target = output_dir / f"target_resampled.nii.gz"
+                        
+                        interp = options.get("interpolation", "linear").lower()
+                        if self.method == 'ants':
+                             if interp == 'nearest': interp = 'nearestNeighbor'
+                             elif interp == 'cubic': interp = 'bspline'
+                             ants.resample_to_image(target, moving_for_reg, resampled_target, interpolator=interp, nthreads=nthreads)
+                        elif self.method == 'fsl':
+                            fsl_interp = interp
+                            if interp == 'linear': fsl_interp = 'trilinear'
+                            elif interp == 'nearest': fsl_interp = 'nearestneighbour'
+                            fsl.resample_to_image(target, moving_for_reg, resampled_target, interpolator=fsl_interp)
+                        else:
+                            resampled_target = target
+    
+                        if resampled_target.exists():
+                            target = resampled_target
 
-                             self.logger.info("Applying ANTs transform using MRTrix (with gradient reorientation)...")
-                             
-                             # MRTrix needs the transform in its format or FSL/ITK?
-                             # mrtransform -linear using ITK/ANTs needs checking.
-                             # `mrtransform` supports FSL via -linear (import) but ANTs?
-                             # Usually we convert ANTs to FSL first if using mrtransform's fsl support,
-                             # OR we use `transformconvert itk_import`.
-                             # My updated apply_mrtrix_transform supports 'flirt' type (via transformconvert flirt_import).
-                             # If ANTs produces ITK format, we might need 'itk_import'.
-                             # For now, let's convert ANTs -> FSL, then use MRTrix via FSL mode (safer if transformconvert handles it easily).
-                             # Or better: `transformconvert` has `itk_import` operation.
-                             
-                             # Let's try converting ANTs -> FSL mat using c3d (we already have it) -> then MRTrix.
-                             # This is robust because we know how to handle FSL mat in mrtrix wrapper.
-                             
-                             fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
-                             # We need moving_for_reg as ref for conversion
-                             c3d.ants2fsl(target, moving_for_reg, ants_transform, fsl_mat)
-                             
-                             # Now apply using MRTrix
-                             _, mrtrix_rotated_bvecs, _ = mrtrix.apply_mrtrix_transform(
-                                 dwi_file=input_image,
-                                 out_dwi=output_img,
-                                 transform_file=fsl_mat,
-                                 transform_type='flirt',
-                                 ref_image=target,
-                                 interp=interpolator,
-                                 nthreads=nthreads,
-                                 force=True
-                             )
-                             
-                         else:
-                             # Native ANTs Apply
-                             self.logger.info(f"Applying transform to full 4D DWI (native/ANTs, interpolation={interpolator})...")
+                    if self.method == 'ants':
+                        transform_type = options.get("transform_type", "Rigid")
+                        warped, prefix = ants.registration(
+                            fixed_file=target, 
+                            moving_file=moving_for_reg, 
+                            out_prefix=output_transform, 
+                            transform_type=transform_type,
+                            nthreads=nthreads,
+                            **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation', 'apply_method']}
+                        )
+    
+                        if is_dwi:
                              ants.apply_transforms(
                                  fixed_file=target,
                                  moving_file=in_path,
                                  out_file=output_img,
-                                 transforms=prefix, # Now prefix IS the list of transforms
-                                 interpolator=interpolator, 
-                                 imagetype=3, # 3 = Time Series (4D)
+                                 transforms=prefix, 
+                                 interpolator=options.get("interpolation", "linear"), 
+                                 imagetype=3,
                                  nthreads=nthreads
                              )
-                    else:
-                        # Standard 3D copy
+                        elif warped and Path(warped).exists():
+                              import shutil
+                              shutil.copy(warped, output_img)
+
+                    elif self.method == 'fsl':
+                        output_mat = output_transform.with_suffix(".mat")
+                        dof = options.get("dof", 6)
+                        cost = options.get("cost", "normmi")
+                        
+                        if cost == 'bbr':
+                            try:
+                                from ..anat.segmentation import generate_wm_segmentation
+                                wm_seg = generate_wm_segmentation(target, output_dir, method=options.get('wm_seg_method', 'fast'), nthreads=nthreads)
+                                options['wmseg'] = wm_seg
+                            except: pass
+
+                        known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
+                        fsl_opts = {k: v for k, v in options.items() if k not in known_args}
+                        
+                        fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, **fsl_opts)
+                        
+                        if is_dwi:
+                            fsl.flirt(in_file=in_path, ref_file=target, apply_xfm=True, init=output_mat, out_file=output_img, interp=options.get("interpolation", "trilinear"))
+                    
+                    elif self.method == 'freesurfer':
+                        output_dat = output_transform.with_suffix(".dat")
+                        freesurfer.bbregister(in_file=in_path, target_file=target, out_reg_file=output_dat, contrast_type="t2")
                         import shutil
-                        if warped and Path(warped).exists():
-                             shutil.copy(warped, output_img)
-                        else:
-                             self.logger.warning("ANTs registration reported success but warped file not found?")
-                
-                elif self.method == 'fsl':
-                    # FSL FLIRT
-                    output_mat = output_transform.with_suffix(".mat")
-                    dof = options.get("dof", 6)
-                    cost = options.get("cost", "normmi")
-                    extra_args = options.get("extra_args", "")
-                    
-                    # --- BBR Handling ---
-                    if cost == 'bbr':
-                        self.logger.info("BBR cost function requested. Ensuring WM segmentation is available...")
-                        try:
-                            from ..anat.segmentation import generate_wm_segmentation
-                            wm_seg_method = options.get('wm_seg_method', 'fast')
-                            
-                            # Generate/Get WM segmentation of the target (structural)
-                            # We use output_dir for the segmentation artifacts
-                            wm_seg = generate_wm_segmentation(
-                                target, 
-                                output_dir, 
-                                method=wm_seg_method, 
-                                nthreads=nthreads
-                            )
-                            
-                            # Pass to FSL FLIRT
-                            # FLIRT expects -wmseg <path>
-                            options['wmseg'] = wm_seg
-                            self.logger.info(f"Using WM segmentation for BBR: {wm_seg}")
-                            
-                        except ImportError:
-                            self.logger.error("Could not import segmentation module. Skipping BBR specific setup, which might fail.")
-                        except Exception as e:
-                            self.logger.error(f"Failed to generate WM segmentation for BBR: {e}. BBR might fail.")
-                            raise ProcessingError(f"BBR segmentation failed: {e}")
+                        shutil.copy(in_path, output_img) 
+                        self.logger.warning("Freesurfer bbregister only calculates transform. Image not resampled.")
 
-                    if is_dwi and not moving_for_reg:
-                         # Fallback if somehow not set (unlikely)
-                         moving_for_reg = in_path
-
-                    
-                    # Collect extra options (exclude known args)
-                    known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
-                    fsl_extra_opts = {k: v for k, v in options.items() if k not in known_args}
-                    
-                    # Calculate transform
-                    fsl.flirt(in_file=moving_for_reg, ref_file=target, 
-                              out_file=output_img, omat=output_mat, 
-                              dof=dof, cost=cost, extra_args=extra_args, 
-                              **fsl_extra_opts)
-                    
-                    if is_dwi:
-                        if apply_method == 'mrtrix':
-                             self.logger.info("Applying FLIRT transform using MRTrix (with gradient reorientation)...")
-                             # use output_mat directly
-                             interp = options.get("interpolation", "cubic")
-                             if interp == 'linear': interp = 'linear' # matching mrtrix names? cubic is default. mrtransform accepts linear/cubic/sinc/nearest.
-                             # Check mapping: flirt 'trilinear' -> mrtrix 'linear'?
-                             
-                             _, mrtrix_rotated_bvecs, _ = mrtrix.apply_mrtrix_transform(
-                                 dwi_file=input_image,
-                                 out_dwi=output_img,
-                                 transform_file=output_mat,
-                                 transform_type='flirt',
-                                 ref_image=target,
-                                 interp=interp,
-                                 nthreads=nthreads,
-                                 force=True
-                             )
-                        else:
-                            # FLIRT Apply
-                            # FLIRT produced a 3D output (resampled B0).
-                            # We need to apply the matrix to the full 4D DWI.
-                            self.logger.info("Applying FLIRT transform to full 4D DWI...")
-                            # flirt -applyxfm -init <mat> -in <4D> -ref <target> -out <4D_out>
-                            
-                            apply_cmd = f"flirt -applyxfm -init {output_mat} -in {in_path} -ref {target} -out {output_img}"
-                            # Note: We overwrite the 3D output from the first flirt call with the 4D output
-                            run_cmd(apply_cmd, label="flirt_apply_4d")
-                    
-                elif self.method == 'freesurfer':
-                    # FreeSurfer BBRegister
-                    output_dat = output_transform.with_suffix(".dat")
-                    freesurfer.bbregister(
-                        in_file=in_path, 
-                        target_file=target, 
-                        out_reg_file=output_dat, 
-                        contrast_type="t2"
-                    )
-                    
-                    # NOTE: bbregister does NOT produce a resampled image by default. 
-                    # For now we duplicate input to output to allow pipeline continuation,
-                    # but log a clear warning.
-                    import shutil
-                    shutil.copy(in_path, output_img) 
-                    self.logger.warning("Freesurfer bbregister only calculates transform. Image not resampled.")
-
-                else:
-                     raise ValueError(f"Unknown coregistration method: {self.method}")
+                    else:
+                         raise ValueError(f"Unknown coregistration method: {self.method}")
 
             except Exception as e:
                  raise ProcessingError(f"Coregistration failed: {e}", step_name="coregistration") from e
 
-            # Rotation (Run only if coreg ran)
+            # --- Rotation Logic ---
             if is_dwi:
-                 # Standard Rigid/Affine registration of dMRI requires bvec rotation.
-                 rotated_bvecs = input_image.bvec # Default
+                 rotated_bvecs = input_image.bvec
                  
-                 # If MRTrix was used, it returned the rotated bvecs (embedded in MIF, then exported)
-                 # We should use that.
                  if apply_method == 'mrtrix' and mrtrix_rotated_bvecs:
                      self.logger.info("Using b-vectors rotated by MRTrix.")
                      rotated_bvecs = mrtrix_rotated_bvecs
-                     
                  else:
-                     # Manual Rotation Fallback
                      if self.method == 'fsl':
-                         # Rotate bvecs for FSL
                          mat_file = output_transform.with_suffix(".mat")
-                         if hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists() and mat_file.exists():
+                         if hasattr(input_image, 'bvec') and input_image.bvec and mat_file.exists():
                              new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
                              try:
-                                 self.logger.info("Rotating b-vectors...")
                                  fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
                                  rotated_bvecs = new_bvec_path
-                             except Exception as e:
-                                 self.logger.warning(f"Failed to rotate b-vectors: {e}")
+                             except Exception: pass
                      
                      elif self.method == 'ants':
-                         # ANTs rotation logic
-                         # Need to recover or find affine mat.
-                         # In 'should_run' block, we have local variables but might be tricky.
-                         # Re-find best affine candidate
+                         # Search for ANTs affine if consistent
                          ants_affine = None
-                         
-                         # Check locals for 'prefix' (transform list)
                          transform_list = locals().get('prefix', [])
                          for t in transform_list:
                              if str(t).endswith(".mat"):
@@ -532,20 +461,15 @@ class CoregistrationStep(BaseProcessingStep):
                          if ants_affine and ants_affine.exists():
                              fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
                              try:
-                                 # C3d ants2fsl needs refs. 
-                                 # 'moving_for_reg' is defined in this block above.
                                  ref_moving = locals().get('moving_for_reg')
-                                 if not ref_moving:
-                                      ref_moving = output_dir / "temp_b0_ref.nii.gz" if is_dwi else in_path
+                                 if not ref_moving: ref_moving = output_dir / "temp_b0_ref.nii.gz" if is_dwi else in_path
                                  
                                  if ref_moving.exists():
                                      if not fsl_mat.exists():
-                                         self.logger.info("Converting ANTs transform to FSL format for bvec rotation...")
                                          c3d.ants2fsl(target, ref_moving, ants_affine, fsl_mat)
                                      
                                      if fsl_mat.exists() and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
                                          new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
-                                         self.logger.info("Rotating b-vectors (ANTs -> FSL)...")
                                          fsl.rotate_bvecs(input_image.bvec, fsl_mat, new_bvec_path)
                                          rotated_bvecs = new_bvec_path
 
@@ -554,38 +478,21 @@ class CoregistrationStep(BaseProcessingStep):
 
         # --- Result Construction ---
         if is_dwi:
-             # Check if we have a rotated bvec from this run
              final_bvec = locals().get('rotated_bvecs')
-             
              import shutil
              
-             # If not (skipped or failed rotation), look for existing file or use original
              if not final_bvec:
-                 bvec_cand = output_img.parent / (output_img.name.split('.')[0] + ".bvec")
-                 # Check strict suffix replacement to avoid double extensions if name has dots?
-                 # safest is output_img.with_suffix("").with_suffix(".bvec") if .nii.gz 
-                 # But we handled double extension logic for output_img construction.
-                 # Let's use string replace of extension.
                  base_name = output_img.name
                  for ext in ['.nii.gz', '.nii']:
                      if base_name.endswith(ext):
                          base_name = base_name[:-len(ext)]
                          break
-                 
                  bvec_cand = output_dir / (base_name + ".bvec")
-                 
-                 if bvec_cand.exists():
-                     final_bvec = bvec_cand
+                 if bvec_cand.exists(): final_bvec = bvec_cand
                  elif input_image.bvec and input_image.bvec.exists():
-                     # Copy original bvec if no rotation happened (e.g. rigid with no rotation? Unlikely for coreg)
-                     # But if we did coreg, we SHOULD have rotated. 
-                     # If we are here, maybe rotation failed or method didn't support it (e.g. freesurfer without manual fallback).
-                     # Copying original is better than nothing, but we warn?
-                     # Actually generic ANTs/FSL logic above tries to rotate.
-                     shutil.copy(input_image.bvec, bvec_cand)
-                     final_bvec = bvec_cand
+                      shutil.copy(input_image.bvec, bvec_cand)
+                      final_bvec = bvec_cand
              
-             # Ensure BVAL is present (Copy)
              final_bval = None
              if input_image.bval and input_image.bval.exists():
                  base_name = output_img.name
@@ -594,12 +501,9 @@ class CoregistrationStep(BaseProcessingStep):
                          base_name = base_name[:-len(ext)]
                          break
                  bval_path = output_dir / (base_name + ".bval")
-                 
-                 if not bval_path.exists():
-                     shutil.copy(input_image.bval, bval_path)
+                 if not bval_path.exists(): shutil.copy(input_image.bval, bval_path)
                  final_bval = bval_path
              
-             # Ensure JSON is present (Copy)
              final_json = None
              if input_image.json and input_image.json.exists():
                  base_name = output_img.name
@@ -608,12 +512,9 @@ class CoregistrationStep(BaseProcessingStep):
                          base_name = base_name[:-len(ext)]
                          break
                  json_path = output_dir / (base_name + ".json")
-                 
-                 if not json_path.exists():
-                     shutil.copy(input_image.json, json_path)
+                 if not json_path.exists(): shutil.copy(input_image.json, json_path)
                  final_json = json_path
 
-             
              result = DWIFile(img=output_img, bvec=final_bvec, bval=final_bval, entities=entities, json=final_json)
         else:
              result = ImageFile(img=output_img, entities=entities)
