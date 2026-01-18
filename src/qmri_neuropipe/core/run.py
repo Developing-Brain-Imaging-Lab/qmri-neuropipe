@@ -26,6 +26,7 @@ def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False, env: d
     import os
     cmd_env = os.environ.copy()
     if env:
+        log.debug(f"[ENV] Overrides: {env}")
         cmd_env.update(env)
     
     if n_threads:
@@ -40,10 +41,13 @@ def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False, env: d
     
     if proc.returncode != 0:
         tail = "\n".join(proc.stderr.splitlines()[-10:])
+        out_tail = "\n".join(proc.stdout.splitlines()[-20:])
         if console:
             console.print(f"[bold red]Command failed:[/bold red] {label}")
-            console.print(f"[red]{tail}[/red]")
-        raise RuntimeError(f"Command failed ({proc.returncode}): {cmd}\n{proc.stderr}")
+            console.print(f"[red]STDERR:\n{tail}[/red]")
+            console.print(f"[yellow]STDOUT:\n{out_tail}[/yellow]")
+            
+        raise RuntimeError(f"Command failed ({proc.returncode}): {cmd}\nSTDERR:\n{proc.stderr}\nSTDOUT:\n{proc.stdout}")
     
     if proc.stdout.strip():
         # Avoid spamming huge outputs
