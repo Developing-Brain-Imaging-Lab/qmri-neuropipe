@@ -237,7 +237,22 @@ def topup(
             continue
 
         idx = np.where(np.atleast_1d(bvals) == 0)[0]
-        vols = data.get_fdata()[..., idx]
+        
+        raw_data = data.get_fdata()
+        extracted_vols = []
+        
+        if raw_data.ndim == 3:
+            # Single volume 3D file. Assume it matches the single index.
+            extracted_vols = [raw_data]
+        elif raw_data.ndim == 4:
+            # 4D file. Extract specific volumes.
+            # Handle if idx is empty? (Covered by check above)
+            # Slicing with array index preserves dimension at end: (X,Y,Z, N)
+            vols_4d = raw_data[..., idx]
+            # Unpack into list of 3D arrays
+            for i in range(vols_4d.shape[-1]):
+                extracted_vols.append(vols_4d[..., i])
+        
         if aff is None:
             aff = data.affine
             hdr = data.header
@@ -250,12 +265,13 @@ def topup(
 
         # Default to first acqp line if lengths mismatch
         for i, vol_i in enumerate(idx):
-            b0_vols.append(vols[..., i])
-            acqp_idx = index_entries[vol_i] - 1 if vol_i < len(index_entries) else 0
-            acqp_lines.append(acqp_entries[acqp_idx] if acqp_entries else "")
+            if i < len(extracted_vols): # Safety check
+                b0_vols.append(extracted_vols[i])
+                acqp_idx = index_entries[vol_i] - 1 if vol_i < len(index_entries) else 0
+                acqp_lines.append(acqp_entries[acqp_idx] if acqp_entries else "")
+
     
-    # DEBUG: Check acqp lines
-    print(f"DEBUG: acqp_lines collected for Topup: {acqp_lines}")
+
 
     if len(b0_vols) < 1 or not acqp_lines:
         raise RuntimeError("No B0 volumes found for topup input.")

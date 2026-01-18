@@ -97,7 +97,6 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | Non
         return None, None
 
     pe = meta.get("PhaseEncodingDirection")
-    print(f"DEBUG: build_acqp_index: {json_path.name} -> PE={pe}")
     if pe is None:
         return None, None
 
