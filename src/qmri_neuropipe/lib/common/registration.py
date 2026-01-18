@@ -296,13 +296,15 @@ class CoregistrationStep(BaseProcessingStep):
                          
                     else:
                          transform_file = output_dir / "coreg_dwi_to_anat.mat"
+                         temp_reg_out = output_dir / "temp_flirt_calc.nii.gz"
                          fsl.flirt(
                              in_file=moving_for_reg,
                              ref_file=target,
-                             out_matrix_file=transform_file,
-                             dof=6,
-                             nthreads=nthreads
+                             out_file=temp_reg_out,
+                             omat=transform_file,
+                             dof=6
                          )
+                         if temp_reg_out.exists(): temp_reg_out.unlink()
 
                     # 2. Apply via MRtrix
                     temp_mif_in = output_dir / "temp_input.mif"
@@ -409,10 +411,28 @@ class CoregistrationStep(BaseProcessingStep):
                         known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
                         fsl_opts = {k: v for k, v in options.items() if k not in known_args}
                         
-                        fsl.flirt(in_file=moving_for_reg, ref_file=target, out_file=output_img, omat=output_mat, dof=dof, cost=cost, **fsl_opts)
+                        fsl.flirt(
+                            in_file=moving_for_reg, 
+                            ref_file=target, 
+                            out_file=output_img, 
+                            omat=output_mat, 
+                            dof=dof, 
+                            cost=cost, 
+                            extra_opts=fsl_opts
+                        )
                         
                         if is_dwi:
-                            fsl.flirt(in_file=in_path, ref_file=target, apply_xfm=True, init=output_mat, out_file=output_img, interp=options.get("interpolation", "trilinear"))
+                            apply_opts = {
+                                "applyxfm": True,
+                                "init": output_mat,
+                                "interp": options.get("interpolation", "trilinear")
+                            }
+                            fsl.flirt(
+                                in_file=in_path, 
+                                ref_file=target, 
+                                out_file=output_img, 
+                                extra_opts=apply_opts
+                            )
                     
                     elif self.method == 'freesurfer':
                         output_dat = output_transform.with_suffix(".dat")
