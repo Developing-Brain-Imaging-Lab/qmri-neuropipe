@@ -151,6 +151,10 @@ class CoregistrationStep(BaseProcessingStep):
         if not target:
              raise ProcessingError("CoregistrationStep requires a target image (reference).")
 
+        target_path = self._extract_path(target)
+        if not target_path.exists():
+            raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
+
         output_dir = self.get_step_output_dir(output_dir)
         
         options = options or {}

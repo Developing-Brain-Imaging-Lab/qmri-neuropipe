@@ -21,8 +21,12 @@ def mri_convert(in_file: ImageLike | Path, out_file: Path):
     """
     in_p = extract_image_path(in_file)
     out_p = Path(out_file); out_p.parent.mkdir(parents=True, exist_ok=True)
-    if out_p.exists():
+    
+    from ..core.utils import check_nifti_integrity
+    if out_p.exists() and check_nifti_integrity(out_p):
         return
+        
+    if out_p.exists(): out_p.unlink() # Clean up bad file
     run_cmd(f"mri_convert {in_p} {out_file}")
 
 def mri_nu_correct(in_file: ImageLike | Path, out_file: Path):
