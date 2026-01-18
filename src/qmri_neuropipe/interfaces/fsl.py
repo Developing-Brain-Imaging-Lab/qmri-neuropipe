@@ -253,8 +253,11 @@ def topup(
             b0_vols.append(vols[..., i])
             acqp_idx = index_entries[vol_i] - 1 if vol_i < len(index_entries) else 0
             acqp_lines.append(acqp_entries[acqp_idx] if acqp_entries else "")
+    
+    # DEBUG: Check acqp lines
+    print(f"DEBUG: acqp_lines collected for Topup: {acqp_lines}")
 
-    if not b0_vols or not acqp_lines:
+    if len(b0_vols) < 1 or not acqp_lines:
         raise RuntimeError("No B0 volumes found for topup input.")
 
     # Check if outputs exist
