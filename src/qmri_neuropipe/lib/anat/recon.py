@@ -25,11 +25,9 @@ class ReconAllStep(BaseProcessingStep):
         self.args = self.recon_config.get("args", "-all")
         
         # Check global use_freesurfer flag (or nested in generic options)
-        # Assuming it's in anat: { use_freesurfer: true } or anat.preprocessing.use_freesurfer
-        # User said "If this option, lets call it use_freesurfer, is enabled"
-        # We'll check both locations for safety or define it in anat root?
-        # Let's check config.get('anat', {}).get('use_freesurfer')
-        self.use_freesurfer = config.get("anat", {}).get("use_freesurfer", False)
+        # Checking: anat.use_freesurfer OR anat.preprocessing.use_freesurfer
+        self.use_freesurfer = config.get("anat", {}).get("use_freesurfer", False) or \
+                              config.get("anat", {}).get("preprocessing", {}).get("use_freesurfer", False)
 
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer

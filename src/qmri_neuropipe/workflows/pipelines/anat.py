@@ -163,7 +163,18 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         # else run.
         # So T1 loop runs: Resample, Reorient, Denoise, Gibbs, Bias, Sharpen, ReconAll, NonlinReg.
         
-        t1_runnable = [s for s in self.steps if not isinstance(s, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep))]
+        use_fs = self.config.get("anat", {}).get("use_freesurfer", False) or \
+                 self.config.get("anat", {}).get("preprocessing", {}).get("use_freesurfer", False)
+
+        t1_runnable = []
+        for s in self.steps:
+            if isinstance(s, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep)): 
+                 continue
+            if use_fs:
+                 # If using FS, skip standard preproc for T1w
+                 if isinstance(s, (ResampleStep, ReorientStep, DenoisingStep, GibbsUnringingStep, BiasCorrectionStep, SharpeningStep)):
+                      continue
+            t1_runnable.append(s)
         
         # T2 loop runs: Resample...Bias. Not Recon, Nonlin, Mask, Coreg.
         t2_runnable = [s for s in self.steps if not isinstance(s, (ReconAllStep, NonlinearRegistrationStep, BrainMaskingStep, CoregistrationStep, SegmentationStep))] if t2w_files else []
@@ -203,6 +214,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                  for step in self.steps:
                       if isinstance(step, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep)):
                            # Handle Coregistration, Normalization, Segmentation etc separately
+                           continue
+                      
+                      # If using FS, skip standard T1w preproc
+                      if use_fs and isinstance(step, (ResampleStep, ReorientStep, DenoisingStep, GibbsUnringingStep, BiasCorrectionStep, SharpeningStep)):
                            continue
                       
                       step_name = step.__class__.__name__
