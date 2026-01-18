@@ -158,11 +158,11 @@ class TopupStep(BaseProcessingStep):
                                 # Wrap in ImageFile
                                 # Entities? Try to copy
                                 ents = getattr(mov_img, 'entities', {})
-                                new_img_obj = ImageFile(coreg_out, entities=ents)
+                                new_img_obj = ImageFile(entities=ents, img=coreg_out)
                                 new_group.append(new_img_obj)
                             else:
                                 self.logger.warning(f"Could not find JSON sidecar for {mov_path.name}. Topup might fail.")
-                                new_group.append(ImageFile(coreg_out))
+                                new_group.append(ImageFile(entities={}, img=coreg_out))
                             
                         # Use the new group for topup
                         group = new_group
