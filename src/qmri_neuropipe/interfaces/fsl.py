@@ -97,7 +97,11 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     extra_flags = " ".join(_format_extra_opts(extra_opts, prefix="-"))
     
     cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args} {extra_flags}"
-    run_cmd(cmd, label="flirt")
+    stdout = run_cmd(cmd, label="flirt")
+    
+    if not out_p.exists():
+        raise RuntimeError(f"FLIRT finished with exit code 0 but output file was not created: {out_p}\nSTDOUT:\n{stdout}")
+        
     return out_p, Path(omat) if omat else None
 
 
