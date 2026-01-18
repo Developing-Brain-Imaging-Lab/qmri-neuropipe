@@ -273,11 +273,35 @@ class CoregistrationStep(BaseProcessingStep):
                              # IMPORTANT: Use the folder name as the ID, as FS expects the ID to exist in SUBJECTS_DIR
                              subject_id = fs_rec_path.name
                          elif not context.get('freesurfer_dir'):
-                             # Fallback/Warning: If we don't have the dir in context, we might be guessing
-                             self.logger.warning("Freesurfer directory not found in context. Assuming standard BIDS derivative structure if possible, or relying on system SUBJECTS_DIR.")
-                             # Try to guess based on config?
-                             # For now, let's hope subject_id is enough if SUBJECTS_DIR is set externally
-                             pass
+                             # Fallback: Construct paths from BIDS structure
+                             self.logger.warning("Freesurfer directory not found in context. Attempting to reconstruct from BIDS config.")
+                             
+                             bids_dir = self.config.get('bids_dir')
+                             if bids_dir:
+                                 subjects_dir = Path(bids_dir) / 'derivatives' / 'freesurfer'
+                                 
+                                 # Reconstruct Subject ID (FS format: sub-XX_ses-YY)
+                                 # We need sub/ses from context or input_image entities
+                                 sub = context.get('subject') if context else None
+                                 ses = context.get('session') if context else None
+                                 
+                                 if not sub and hasattr(input_image, 'entities'):
+                                      sub = input_image.entities.get('sub')
+                                      if not ses: ses = input_image.entities.get('ses')
+                                 
+                                 if sub:
+                                     candidate_id = f"sub-{sub}"
+                                     if ses: candidate_id += f"_ses-{ses}"
+                                     
+                                     if (subjects_dir / candidate_id).exists():
+                                          subject_id = candidate_id
+                                          self.logger.info(f"Found FreeSurfer subject directory: {subjects_dir / subject_id}")
+                                     else:
+                                          self.logger.warning(f"Constructed FreeSurfer path does not exist: {subjects_dir / candidate_id}")
+                                 else:
+                                      self.logger.warning("Could not determine subject/session for FreeSurfer fallback.")
+                             else:
+                                  self.logger.warning("No 'bids_dir' in config to reconstruct FreeSurfer paths.")
                          
                          freesurfer.bbregister(
                              in_file=moving_for_reg,
