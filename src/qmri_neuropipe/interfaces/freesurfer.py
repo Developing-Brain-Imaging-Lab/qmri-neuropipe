@@ -84,7 +84,7 @@ def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, nthreads: Optional
     return out_file, mask_out
 
 
-def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1", fsl_mat_out: Path = None):
+def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1", fsl_mat_out: Path = None, subjects_dir: Path = None):
     """
     Run FreeSurfer bbregister.
     
@@ -94,6 +94,7 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
                      Standard bbregister expects a subject ID.
         out_reg_file: Output registration file.
         contrast_type: Contrast type ('t1', 't2', 'bold')
+        subjects_dir: Optional override for SUBJECTS_DIR.
     """
     in_p = extract_image_path(in_file)
     out_reg = Path(out_reg_file)
@@ -113,7 +114,11 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
         fsl_mat.parent.mkdir(parents=True, exist_ok=True)
         cmd += f" --fsl-mat {fsl_mat}"
         
-    run_cmd(cmd, label="bbregister")
+    env = {}
+    if subjects_dir:
+        env['SUBJECTS_DIR'] = str(subjects_dir)
+        
+    run_cmd(cmd, label="bbregister", env=env)
     
     return out_reg
 

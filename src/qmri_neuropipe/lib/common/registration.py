@@ -263,12 +263,19 @@ class CoregistrationStep(BaseProcessingStep):
                          reg_lta = output_dir / "bbregister.lta"
                          transform_file = output_dir / "coreg_dwi_to_anat.mat"
                          
+                         # Determine SUBJECTS_DIR
+                         subjects_dir = None
+                         if context and 'freesurfer_dir' in context:
+                             # context['freesurfer_dir'] points to sub-XXX folder
+                             subjects_dir = Path(context['freesurfer_dir']).parent
+                         
                          freesurfer.bbregister(
                              in_file=moving_for_reg,
                              target_file=subject_id,
                              out_reg_file=reg_lta,
                              contrast_type='t2',
-                             fsl_mat_out=transform_file
+                             fsl_mat_out=transform_file,
+                             subjects_dir=subjects_dir
                          )
                          
                     elif self.method == 'ants':
