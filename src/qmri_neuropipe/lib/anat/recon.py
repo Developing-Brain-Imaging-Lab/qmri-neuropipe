@@ -120,10 +120,10 @@ class ReconAllStep(BaseProcessingStep):
              
              # Define new image objects
              entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'T1w'}
-             new_img = ImageFile(path=t1w_nii, entities=entities)
+             new_img = ImageFile(img=t1w_nii, entities=entities)
              
              mask_entities = {'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'mask'}
-             new_mask = ImageFile(path=mask_nii, entities=mask_entities)
+             new_mask = ImageFile(img=mask_nii, entities=mask_entities)
 
              # Update Context if available
              if context:
