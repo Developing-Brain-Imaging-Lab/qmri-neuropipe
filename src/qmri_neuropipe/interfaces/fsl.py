@@ -100,7 +100,12 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     stdout = run_cmd(cmd, label="flirt")
     
     if not out_p.exists():
-        raise RuntimeError(f"FLIRT finished with exit code 0 but output file was not created: {out_p}\nSTDOUT:\n{stdout}")
+        parent_dir = out_p.parent
+        dir_listing = "Directory not found"
+        if parent_dir.exists():
+            dir_listing = "\n".join([str(p.name) for p in parent_dir.iterdir()])
+            
+        raise RuntimeError(f"FLIRT finished with exit code 0 but output file was not created: {out_p}\nSTDOUT:\n{stdout}\n\nContents of {parent_dir}:\n{dir_listing}\n\nCOMMAND:\n{cmd}")
         
     return out_p, Path(omat) if omat else None
 

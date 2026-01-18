@@ -514,7 +514,9 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         model = model_class(vox_gtab, **full_kwargs)
         
         # Fit
-        fit = model.fit(vox_data)
+        # Force 2D input (1, N_grads) to avoid indexing errors in some DIPY models (e.g. DKI iterative fit)
+        # when processing single voxels.
+        fit = model.fit(vox_data[None, :])
         
         # Check if Metrics requested
         # metrics extracted earlier
@@ -532,22 +534,34 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
                  elif m == 'msd' and hasattr(fit, 'msd'): val = fit.msd()
                  elif hasattr(fit, m): val = getattr(fit, m) # generic property?
                  else: val = 0.0 # Nan?
+                 
+                 # Unwrap if array (since we passed batch of 1)
+                 if isinstance(val, (np.ndarray, list)) and np.size(val) == 1:
+                     val = np.array(val).item()
+                 
                  m_res.append(val)
             res_params.append(m_res)
         else:
             # Collect parameters
             # Most models stick params in model_params
             if hasattr(fit, 'mapmri_params'):
-                 res_params.append(fit.mapmri_params)
+                 res = fit.mapmri_params
             elif hasattr(fit, 'mapmri_coeffs'):
-                 res_params.append(fit.mapmri_coeffs)
+                 res = fit.mapmri_coeffs
             elif hasattr(fit, 'mapmri_coeff'):
-                 res_params.append(fit.mapmri_coeff)
+                 res = fit.mapmri_coeff
             elif hasattr(fit, 'model_params'):
-                 res_params.append(fit.model_params)
+                 res = fit.model_params
             else:
                  # Fallback
                  raise AttributeError(f"Fit object {type(fit)} has neither 'model_params' nor 'mapmri_params' nor 'mapmri_coeff'.")
+            
+            # Unwrap (1, P) -> (P,)
+            if hasattr(res, 'ndim') and res.ndim > 1 and res.shape[0] == 1:
+                res = res[0]
+            
+            res_params.append(res)
+
         
     return np.array(res_params)
 
