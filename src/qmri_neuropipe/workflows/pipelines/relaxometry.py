@@ -39,20 +39,20 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # 1. Denoising
         den_cfg = preproc_cfg.get("denoising", {})
-        if den_cfg.get("enabled", True):
+        if den_cfg.get("enabled", False):
              self.add_step(DenoisingStep(self.config, self.logger, self.provenance, 
                                          method=den_cfg.get("method", "mrtrix")))
 
         # 2. Gibbs Ringing
         gibbs_cfg = preproc_cfg.get("degibbs", {})
-        if gibbs_cfg.get("enabled", True):
+        if gibbs_cfg.get("enabled", False):
              self.add_step(GibbsUnringingStep(self.config, self.logger, self.provenance,
                                               method=gibbs_cfg.get("method", "mrtrix")))
 
 
         # 3. Motion Correction
         moco_cfg = preproc_cfg.get("motion_correction", {})
-        if moco_cfg.get("enabled", True):
+        if moco_cfg.get("enabled", False):
              # Extract extra options (exclude 'enabled' and 'method')
              moco_opts = {k:v for k,v in moco_cfg.items() if k not in ['enabled', 'method']}
              

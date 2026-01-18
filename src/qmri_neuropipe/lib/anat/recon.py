@@ -58,7 +58,8 @@ class ReconAllStep(BaseProcessingStep):
              fs_sub_id += f"_ses-{ses}"
 
         # FS Directory
-        fs_dir = self.config.output_dir / "derivatives" / "freesurfer"
+        # Use bids_dir/derivatives/freesurfer to share across pipelines
+        fs_dir = self.config.bids_dir / "derivatives" / "freesurfer"
         subj_dir = fs_dir / fs_sub_id
         
         # Check force run
@@ -136,6 +137,9 @@ class ReconAllStep(BaseProcessingStep):
                  
                  self.logger.info("Updated pipeline context to use FreeSurfer-derived structural images.")
                  return context
-                 
+             else:
+                 # Standalone mode: return the new image directly
+                 return new_img
+                  
         # Fallback if not using FS as primary but just running it
         return context if context else input_image

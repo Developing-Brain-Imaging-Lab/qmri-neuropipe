@@ -136,7 +136,10 @@ class PreprocessingWorkflow(BaseWorkflow):
         # Check config or default to enabled if multiple input files?
         # Let's assume enabled unless disabled.
         merge_cfg = dmri_cfg.get('merging', {})
-        do_merge = merge_cfg.get('enabled', True) # Defaulting to True for now if multiple files?
+        if len(dwi_files) > 1 and merge_cfg.get('enabled', False):
+             do_merge = True
+        else:
+             do_merge = False
         # Logic: If >1 file, and we are doing Topup, we likely want to merge.
         if len(dwi_files) > 1 and context.get('do_topup', False):
              do_merge = True
@@ -147,7 +150,7 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         # 2. Denoising
         denoise_cfg = dmri_cfg.get('denoising', {})
-        if denoise_cfg.get('enabled', True):
+        if denoise_cfg.get('enabled', False):
             method = denoise_cfg.get('method', 'mrtrix')
             params = denoise_cfg.get('parameters', {})
             
@@ -165,7 +168,7 @@ class PreprocessingWorkflow(BaseWorkflow):
             
         # 3. Gibbs Unringing
         degibbs_cfg = dmri_cfg.get('degibbs', {})
-        if degibbs_cfg.get('enabled', True):
+        if degibbs_cfg.get('enabled', False):
             method = degibbs_cfg.get('method', 'mrtrix')
             self.logger.info(f"Adding GibbsUnringingStep (method={method})")
             self.add_step(GibbsUnringingStep(
@@ -187,7 +190,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         # Backward compatibility: if not set, check legacy eddy enabled
         if not motion_method:
-             if legacy_eddy_cfg.get('enabled', True):
+             if legacy_eddy_cfg.get('enabled', False):
                  motion_method = 'eddy'
              else:
                  motion_method = 'none'
@@ -248,7 +251,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         # Check explicit enabled flag in 'dmri.preprocessing.bias_correction' OR top-level legacy 'do_bias_correction' (default False)
         do_bias = bias_cfg.get('enabled') or self.config.get("do_bias_correction", False)
         
-        if do_bias and bias_cfg.get('enabled', True) != False: # Handle explicit 'false' if mixed
+        if do_bias and bias_cfg.get('enabled', False):
              # If bias_cfg exists, use it. If not, fallback to top-level.
              # Careful: if bias_cfg['enabled'] is False, we should skip.
              if bias_cfg.get('enabled') is False:

@@ -57,7 +57,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         # 2. Reorient
         # Always run by default or config? 
         # User said "reorient ... using fslreorient2std" implying it's a step.
-        if anat_cfg.get("reorient", {}).get("enabled", True): # Default True?
+        if anat_cfg.get("reorient", {}).get("enabled", False):
              self.add_step(ReorientStep(self.config, self.logger, self.provenance))
 
         # 3. Denoise
@@ -89,7 +89,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         # If using FreeSurfer, we use its brain mask, so skip this step
         use_fs = anat_cfg.get("use_freesurfer", False)
         
-        if mask_cfg.get("enabled", True) and not use_fs:
+        if mask_cfg.get("enabled", False) and not use_fs:
              self.add_step(BrainMaskingStep(self.config, self.logger, self.provenance, method=mask_cfg.get("method", "ants")))
 
         # 7. Recon-all
@@ -170,7 +170,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         
         # Coregistration: Runs if enabled and T1w & T2w exist.
         coreg_cfg_run = self.config.get("anat", {}).get("preprocessing", {}).get("coregistration", {})
-        do_coreg = (t1w_files and t2w_files and coreg_cfg_run.get("enabled", True))
+        do_coreg = (t1w_files and t2w_files and coreg_cfg_run.get("enabled", False))
         
         # Brain Masking: Runs if step exists in self.steps
         mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
