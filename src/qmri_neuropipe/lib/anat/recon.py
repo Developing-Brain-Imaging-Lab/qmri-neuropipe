@@ -106,8 +106,8 @@ class ReconAllStep(BaseProcessingStep):
                  'sub': sub, 'ses': ses, 'desc': 'preproc', 'suffix': 'T1w'
              })
              
-             t1w_nii = fs_out_dir / f"{out_name}.nii.gz"
-             mask_nii = fs_out_dir / f"{out_name.replace('T1w', 'mask')}.nii.gz"
+             t1w_nii = fs_out_dir / out_name
+             mask_nii = fs_out_dir / out_name.replace('T1w', 'mask')
              
              # Convert brain.mgz
              self.logger.info(f"Converting FS brain.mgz to {t1w_nii.name}")
