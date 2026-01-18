@@ -108,6 +108,38 @@ class TopupStep(BaseProcessingStep):
                 if fieldcoef.exists() and movpar.exists() and field_map.exists() and not kwargs.get('force', False):
                      self.logger.info(f"Skipping Topup group {idx} (outputs exist): {base}")
                 else:
+                    # Optional Coregistration to first b0
+                    if distcorr_cfg.get('coregister_inputs', False):
+                        self.logger.info(f"Coregistering Topup inputs to the first volume (FLIRT dof 6)...")
+                        
+                        # Identify reference
+                        ref_img = group[0]
+                        # We need paths
+                        from ...core.types import extract_image_path, ImageFile
+                        ref_path = extract_image_path(ref_img)
+                        
+                        new_group = [ref_img] # First one is reference, keep as is
+                        
+                        for i, mov_img in enumerate(group[1:], start=1):
+                            mov_path = extract_image_path(mov_img)
+                            # Define output for coregistered b0
+                            # Maybe in a temp subdir or just alongside?
+                            # Use base_name as prefix
+                            coreg_out = topup_dir / f"{base_name}_input{i}_coreg.nii.gz"
+                            
+                            self.logger.debug(f"  Registering {mov_path.name} -> {ref_path.name}")
+                            fsl.flirt(in_file=mov_path, ref_file=ref_path, out_file=coreg_out, dof=6)
+                            
+                            # Add to new group. Wrap in ImageFile if original was ImageFile?
+                            # fsl.topup accepts paths. 
+                            # If original had entities, maybe we lose them?
+                            # TopupStep usually just needs paths or objects to extract paths.
+                            # If we pass Path, it works.
+                            new_group.append(coreg_out)
+                            
+                        # Use the new group for topup
+                        group = new_group
+
                     nthreads = kwargs.get('nthreads', self.config.n_cpus)
                     fsl.topup(group, out_base=base, field_output=True, nthreads=nthreads, config=topup_config)
                 
