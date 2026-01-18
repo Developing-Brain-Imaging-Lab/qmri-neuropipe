@@ -479,6 +479,10 @@ class CoregistrationStep(BaseProcessingStep):
                         known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
                         fsl_opts = {k: v for k, v in options.items() if k not in known_args}
                         
+                        # Ensure we clean up before running to force execution
+                        if output_img.exists(): output_img.unlink()
+                        if output_mat.exists(): output_mat.unlink()
+                        
                         fsl.flirt(
                             in_file=moving_for_reg, 
                             ref_file=target, 
