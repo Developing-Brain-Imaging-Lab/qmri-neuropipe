@@ -112,7 +112,7 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
     if fsl_mat_out:
         fsl_mat = Path(fsl_mat_out)
         fsl_mat.parent.mkdir(parents=True, exist_ok=True)
-        cmd += f" --fsl-mat {fsl_mat}"
+        cmd += f" --fslmat {fsl_mat}"
         
     env = {}
     if subjects_dir:
