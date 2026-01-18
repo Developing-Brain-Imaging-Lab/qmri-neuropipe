@@ -115,7 +115,8 @@ class TopupStep(BaseProcessingStep):
                         # Identify reference
                         ref_img = group[0]
                         # We need paths
-                        from ...core.types import extract_image_path, ImageFile
+                        from ...core.utils import extract_image_path
+                        from ...core.types import ImageFile
                         ref_path = extract_image_path(ref_img)
                         
                         new_group = [ref_img] # First one is reference, keep as is
