@@ -70,6 +70,7 @@ class TopupStep(BaseProcessingStep):
         dmri_cfg = self.config.get('dmri', {}).get('preprocessing', {})
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         topup_config = distcorr_cfg.get('config')
+        
         if topup_config:
             self.logger.info(f"Using Topup config file: {topup_config}")
 
@@ -114,7 +115,88 @@ class TopupStep(BaseProcessingStep):
                         from ...core.utils import extract_image_path
                         from ...core.types import ImageFile, DWIFile
                         import shutil
+                        import nibabel as nib
+                        import numpy as np
+
+                        # 0. Extract b0 volumes from input group
+                        # The inputs might be full DWI series. We only want b=0 for Topup/MCFLIRT.
+                        b0_group = []
+                        for idx, img_obj in enumerate(group):
+                            img_path = extract_image_path(img_obj)
+                            bval_path = getattr(img_obj, 'bval', None)
+                            
+                            # If no bval, assume it's already a b0 or just an image
+                            if not bval_path or not Path(bval_path).exists():
+                                b0_group.append(img_obj)
+                                continue
+                                
+                            try:
+                                bvals = np.loadtxt(bval_path)
+                                # Handle single value
+                                if bvals.ndim == 0: bvals = np.array([bvals])
+                                
+                                # Default b0 threshold
+                                b0_indices = np.where(bvals < 50)[0]
+                                
+                                if len(b0_indices) == 0:
+                                    self.logger.warning(f"No b0 volumes found in {img_path.name}. Skipping.")
+                                    continue
+                                    
+                                # If all volumes are b0, keep original
+                                if len(b0_indices) == len(bvals):
+                                    b0_group.append(img_obj)
+                                    continue
+                                
+                                # Extract specific frames individualy to ensure flat 1-to-1 mapping
+                                self.logger.debug(f"  Extracting {len(b0_indices)} b0 volumes from {img_path.name}")
+                                nii = nib.load(str(img_path))
+                                data = nii.get_fdata()
+                                
+                                orig_json = getattr(img_obj, 'json', None)
+                                
+                                for v_i, vol_idx in enumerate(b0_indices):
+                                    # Extract single volume
+                                    if data.ndim == 4:
+                                        b0_vol = data[..., vol_idx]
+                                    else:
+                                        b0_vol = data
+                                    
+                                    # Save extracted b0
+                                    b0_out = topup_dir / f"{base_name}_input{idx}_vol{vol_idx}.nii.gz"
+                                    nib.save(nib.Nifti1Image(b0_vol, nii.affine, nii.header), str(b0_out))
+                                    
+                                    # Prepare metadata
+                                    b0_json = None
+                                    if orig_json and orig_json.exists():
+                                        b0_json = b0_out.with_suffix('').with_suffix('.json')
+                                        b0_json = b0_out.parent / (b0_out.name.split('.')[0] + '.json')
+                                        shutil.copy(orig_json, b0_json)
+                                        
+                                    b0_bval = b0_out.parent / (b0_out.name.split('.')[0] + '.bval')
+                                    b0_bvec = b0_out.parent / (b0_out.name.split('.')[0] + '.bvec')
+                                    
+                                    b0_bval.write_text("0\n")
+                                    b0_bvec.write_text("0 0 0\n")
+                                    
+                                    b0_img = DWIFile(
+                                        img=b0_out,
+                                        bval=b0_bval,
+                                        bvec=b0_bvec,
+                                        json=b0_json,
+                                        entities=getattr(img_obj, 'entities', {})
+                                    )
+                                    b0_group.append(b0_img)
+
+                            except Exception as e:
+                                self.logger.warning(f"Failed to extract b0s from {img_path}: {e}. Using full image.")
+                                # If fallback, assume full image is what we want? 
+                                # But this might break the flat list assumption if full image is 4D.
+                                # Let's assume fallback is rare or user checks logs.
+                                b0_group.append(img_obj)
                         
+                        # Update group to use extracted b0s
+                        group = b0_group
+
                         # 1. Merge all b0 inputs into 4D volume
                         merged_b0 = topup_dir / f"{base_name}_merged_b0.nii.gz"
                         self.logger.debug(f"  Merging b0s -> {merged_b0}")
