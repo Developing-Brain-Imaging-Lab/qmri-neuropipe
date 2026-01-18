@@ -738,24 +738,7 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     return out_p
 
 
-def flirt(
-    in_file: Union[str, Path, ImageLike],
-    ref_file: Union[str, Path, ImageLike],
-    out_file: Union[str, Path],
-    omat: Optional[Union[str, Path]] = None,
-    dof: int = 12,
-    cost: str = "corratio",
-    bins: int = 256,
-    searchcost: str = "corratio",
-    usesqform: bool = True,
-    interp: str = "trilinear",
-    extra_args: str = "",
-    **kwargs
-):
-    """
-    Run FSL FLIRT.
-    """
-    ensure_dir(Path(out_file).parent)
+
     
 
 
