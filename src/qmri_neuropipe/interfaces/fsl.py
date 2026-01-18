@@ -747,34 +747,7 @@ def flirt(
     """
     ensure_dir(Path(out_file).parent)
     
-    cmd = [
-        "flirt",
-        f"-in {in_file}",
-        f"-ref {ref_file}",
-        f"-out {out_file}",
-        f"-dof {dof}",
-        f"-cost {cost}", 
-        f"-searchcost {searchcost}",
-        f"-bins {bins}",
-        f"-interp {interp}"
-    ]
-    
-    if omat:
-        cmd.append(f"-omat {omat}")
-        
-    if usesqform:
-        cmd.append("-usesqform")
 
-    if extra_args:
-        cmd.append(extra_args)
-
-    # Handle kwargs
-    # FSL FLIRT uses single dash for options (e.g. -wmseg, -verbose)
-    for k, v in kwargs.items():
-        cmd.append(f"-{k} {v}")
-
-    run_cmd(" ".join(cmd), label=f"flirt ({dof} dof)")
-    return out_file
 
 
 
