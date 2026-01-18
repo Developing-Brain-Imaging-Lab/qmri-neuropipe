@@ -77,6 +77,7 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     """
     Wrapper for FSL FLIRT.
     """
+    print(f"DEBUG: Entering fsl.flirt. Outfile: {out_file}")
     in_p = extract_image_path(in_file)
     ref_p = extract_image_path(ref_file)
     out_p = ensure_dir(out_file)

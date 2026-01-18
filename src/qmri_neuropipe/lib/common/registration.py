@@ -487,6 +487,7 @@ class CoregistrationStep(BaseProcessingStep):
                         if output_img.exists(): output_img.unlink()
                         if output_mat.exists(): output_mat.unlink()
                         
+                        self.logger.info(f"DEBUG: Calling fsl.flirt with in={moving_for_reg}, ref={target}, out={output_img}")
                         fsl.flirt(
                             in_file=moving_for_reg, 
                             ref_file=target, 
