@@ -191,6 +191,11 @@ def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -
     if out_base.parent:
         out_base.parent.mkdir(parents=True, exist_ok=True)
         
+    
+    # Use parent to glob
+    parent = out_base.parent
+    prefix = out_base.name
+
     # Glob pattern: prefix + 4 digits + .nii.gz (or .nii)
     # FSL usually output .nii.gz if FSLOUTPUTTYPE is NIFTI_GZ
     
