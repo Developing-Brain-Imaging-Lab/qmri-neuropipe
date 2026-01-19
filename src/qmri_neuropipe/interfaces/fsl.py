@@ -191,22 +191,24 @@ def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -
     if out_base.parent:
         out_base.parent.mkdir(parents=True, exist_ok=True)
         
+    # Glob pattern: prefix + 4 digits + .nii.gz (or .nii)
+    # FSL usually output .nii.gz if FSLOUTPUTTYPE is NIFTI_GZ
+    
+    # OUTPUT CLEANUP:
+    # Since fslsplit globs matches to return, existing stale files (e.g. from a prior run with more volumes)
+    # can cause total file count to exceed expectation.
+    # We must clean potential outputs before running.
+    stale_files = list(parent.glob(f"{prefix}*"))
+    for sf in stale_files:
+         try:
+             sf.unlink()
+         except Exception:
+             pass
+             
     cmd = f"fslsplit {in_p} {out_base} -{dimension}"
     run_cmd(cmd, label="fslsplit")
     
     # Identify outputs
-    # fslsplit produces vol0000.nii.gz, vol0001.nii.gz ...
-    # We need to glob them to return sorted list
-    # The output basename is treated as a prefix.
-    # If out_base is "vol", outputs are "vol0000.nii.gz"
-    
-    # Use parent to glob
-    parent = out_base.parent
-    prefix = out_base.name
-    
-    # Glob pattern: prefix + 4 digits + .nii.gz (or .nii)
-    # FSL usually output .nii.gz if FSLOUTPUTTYPE is NIFTI_GZ
-    # We can just glob prefix* and sort
     files = sorted(list(parent.glob(f"{prefix}*")))
     return files
 
