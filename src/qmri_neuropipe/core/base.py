@@ -1033,7 +1033,7 @@ getenv = True{concurrency_directive}
         
         try:
             from rich.logging import RichHandler
-            from ..ui import console
+            from .ui import console
             # Use RichHandler unless it confuses DEBUG output (optional preference)
             ch = RichHandler(rich_tracebacks=True, markup=True, console=console)
         except ImportError:
