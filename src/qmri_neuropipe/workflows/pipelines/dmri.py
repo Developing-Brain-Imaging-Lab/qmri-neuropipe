@@ -1290,30 +1290,8 @@ class ModelingWorkflow(BaseWorkflow):
                  **tract_cfg.get('pyafq', {}).get('options', {})
              ))
              
-        # 11. Analysis & Statistics
-        analysis_cfg = dmri_cfg.get('analysis', {})
-        # Also check inside modeling?
-        if not analysis_cfg:
-             analysis_cfg = modeling_cfg.get('analysis', {})
-        
-        # 11.1 Atlas Registration
-        if analysis_cfg.get('atlases', {}):
-             self.logger.info("Adding AtlasRegistrationStep")
-             self.add_step(AtlasRegistrationStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance,
-                 method='ants' # Default
-             ))
-             
-        # 11.2 Statistics Extraction
-        if analysis_cfg.get('full_stats', False):
-             self.logger.info("Adding StatsExtractionStep")
-             self.add_step(StatsExtractionStep(
-                 config=self.config,
-                 logger=self.logger,
-                 provenance=self.provenance
-             ))
+        # 11. Analysis & Statistics -> Moved to SegmentationWorkflow
+        pass
             
     
     def _report_modeling_step(self, reporter, step, dwi, output_dir, report_output_dir=None):
@@ -1752,71 +1730,80 @@ class SegmentationWorkflow(BaseWorkflow):
         
     def build_pipeline(self, context: dict):
         self.steps = [] # Reset steps
-        seg_cfg = self.config.get('dmri', {}).get('segmentation', {})
         
-        if seg_cfg.get('enabled', False):
-            self.logger.info("Adding SegmentationStep")
-            seg_kwargs = dict(seg_cfg)
-            seg_kwargs.pop('enabled', None)
-            
-            self.add_step(SegmentationStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                **seg_kwargs 
-            ))
+        # Pull configs
+        dmri_cfg = self.config.get('dmri', {})
+        analysis_cfg = dmri_cfg.get('analysis', {})
+        modeling_cfg = dmri_cfg.get('modeling', {}) or {}
+        
+        # Fallback for analysis config location
+        if not analysis_cfg:
+             analysis_cfg = modeling_cfg.get('analysis', {})
+             
+        # 1. Atlas Registration
+        if analysis_cfg.get('atlases', {}):
+             self.logger.info("Adding AtlasRegistrationStep (Segmentation Workflow)")
+             self.add_step(AtlasRegistrationStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='ants'
+             ))
+             
+        # 2. Statistics Extraction
+        # Check global flag or implied by existing steps?
+        # Typically we want stats if we have segmentations.
+        # Let's rely on 'full_stats' flag or presence of atlases?
+        # For now, explicit flag or default true if atlases present?
+        # Code used `full_stats` checks.
+        if analysis_cfg.get('full_stats', False) or analysis_cfg.get('atlases', {}):
+             self.logger.info("Adding StatsExtractionStep (Segmentation Workflow)")
+             self.add_step(StatsExtractionStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance
+             ))
 
     def run(self, work_dir: Path, context: dict, reporter=None, final_output_dir: Optional[Path] = None) -> dict:
-        self.logger.info("Starting Segmentation Workflow...")
+        self.logger.info("Starting Segmentation/Analysis Workflow...")
         
-        # Staging: work_dir/stats
-        staging_dir = work_dir / "stats"
+        # Staging: work_dir/analysis
+        staging_dir = work_dir / "analysis"
         staging_dir.mkdir(parents=True, exist_ok=True)
         
-        final_dest = final_output_dir if final_output_dir else staging_dir
-        if final_output_dir: final_output_dir.mkdir(parents=True, exist_ok=True)
-
+        # steps write to staging_dir.
+        # e.g. staging_dir/Atlases, staging_dir/Statistics
+        
         for step in self.steps:
             try:
                 step.run(context, output_dir=staging_dir)
-                
-                # Copy results to final output dir
-                import shutil
-                if final_output_dir:
-                     for f in staging_dir.glob("*.tsv"):
-                         dest = final_output_dir / f.name
-                         shutil.copy(f, dest)
-                
-                # Report
-                if reporter and 'segmentation_stats' in context:
-                    # Try to add a summary table
-                    stats_files = context['segmentation_stats']
-                    if stats_files:
-                        import pandas as pd
-                        try:
-                            df = pd.read_csv(stats_files[-1], sep='\t')
-                            # Summary: Mean across all ROIs for each metric?
-                            # Or just list top ROIs?
-                            # Let's show first 10 rows for verify
-                            preview = df.head(10).to_dict(orient='records')
-                            # Simplify keys for report table
-                            # data = [{"ROI": r["roi_name"], "Metric": r["metric"], "Mean": f"{r['mean']:.4f}"} for r in preview]
-                            # reporter.add_dmri_step("Segmentation Statistics", {}, tables=[{"title": "ROI Stats Preview", "data": data}])
-                            
-                            # Better: Aggregate summary
-                            summary = df.groupby('metric')['mean'].mean().reset_index()
-                            summary_rows = [{"Metric": r['metric'], "Global Mean": f"{r['mean']:.4f}"} for _, r in summary.iterrows()]
-                             
-                            reporter.add_dmri_step("Segmentation Statistics", {"Status": "Completed", "File": str(stats_files[-1])}, 
-                                                   tables=[{"title": "Global Mean per Metric", "data": summary_rows}])
-                        except Exception as e:
-                            self.logger.warning(f"Failed to report stats: {e}")
-
             except Exception as e:
-                self.logger.error(f"Segmentation failed: {e}")
-                if self.config.stop_on_error: raise e
-                    
+                self.logger.error(f"Step {step.__class__.__name__} failed: {e}")
+                # Don't stop? or stop?
+                # Dependent steps might fail.
+                raise e
+
+        # Copy to final output dir
+        if final_output_dir:
+             final_output_dir.mkdir(parents=True, exist_ok=True)
+             import shutil
+             
+             # We want to copy contents of staging_dir to final_output_dir
+             # staging/Atlases -> final/Atlases
+             # staging/Statistics -> final/Statistics
+             
+             for item in staging_dir.iterdir():
+                 dest = final_output_dir / item.name
+                 
+                 if item.is_dir():
+                     if dest.exists():
+                         shutil.rmtree(dest) # clean overwrite? Or merge?
+                     shutil.copytree(item, dest, dirs_exist_ok=True)
+                 else:
+                     shutil.copy2(item, dest)
+                     
         return context
+
 
 # Define complete pipeline
 class DMRIPipeline(BasePipeline):
@@ -2390,15 +2377,18 @@ class DMRIPipeline(BasePipeline):
             self.logger.info("  RUNNING SEGMENTATION         ")
             self.logger.info("="*60)
             
-            # Use work_dir for staging, write final results to output_dir/stats or segmentation_dir
+            # Use work_dir for staging, write final results to output_dir (Root)
+            # We want output_dir/Atlases and output_dir/Statistics
+            # So final_output_dir should be output_dir.
+            
+            # If config has segmentation_dir override, use that.
             if self.config.get('segmentation_dir'):
                  rel_path = output_dir.relative_to(self.config.output_dir)
-                 stats_output_dir = Path(self.config.get('segmentation_dir')) / rel_path
+                 seg_output_dir = Path(self.config.get('segmentation_dir')) / rel_path
             else:
-                 stats_output_dir = output_dir / "stats"
+                 seg_output_dir = output_dir
                  
-            stats_output_dir.mkdir(parents=True, exist_ok=True)
-            preprocessed_context = self.segmentation.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=stats_output_dir)
+            self.segmentation.run(subj_work_dir, preprocessed_context, reporter=reporter, final_output_dir=seg_output_dir)
 
 
         
