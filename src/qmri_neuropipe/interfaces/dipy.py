@@ -1097,7 +1097,7 @@ def fit_dki(
         "ModelName": "Diffusion Kurtosis Imaging",
         "FittingSoftware": "DIPY",
         "InputData": in_path.name,
-        "FittingMethod": "WLLS", # Default for DIPY DKI usually
+        "FittingMethod": kwargs.get('fit_method', 'WLLS'),
         "Metrics": metrics
     }
 

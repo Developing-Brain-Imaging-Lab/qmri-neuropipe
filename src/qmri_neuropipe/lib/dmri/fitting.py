@@ -253,20 +253,30 @@ class DTIFittingStep(BaseProcessingStep):
             
         # Track Outputs for Normalization
         # Collect paths matching pattern in model_out
+        # Track Outputs for Normalization
+        # Collect paths matching pattern in model_out, FILTERED by requested_metrics
         results = {}
-        # Collect paths matching pattern in model_out
-        results = {}
-        # Dynamic collection of all outputs
+        req_norm = [m.strip().lower() for m in requested_metrics]
+        
+        # Ensure tensors are included in check list (legacy)
+        req_norm.append('tensor')
+        req_norm.append('tensormrtrix')
+        req_norm.append('tensorfsl')
+        
         for p in model_out.glob("*.nii.gz"):
              # Assuming BIDS: sub-XX_desc-XX_model-DTI_SUFFIX.nii.gz
              name_part = p.name.replace('.nii.gz', '')
              if '_' in name_part:
                  suffix = name_part.split('_')[-1]
-                 # Handle special cases if any
-                 results[suffix] = p
+                 
+                 check_suffix = suffix.lower()
+                 if check_suffix == 'decfa': check_suffix = 'color_fa'
+                 
+                 if check_suffix in req_norm:
+                     results[suffix] = p
              else:
                  # Fallback?
-                 results[name_part] = p
+                 pass
         
         context.setdefault('modeling_results', {})['DTI'] = results
         return context
@@ -310,7 +320,7 @@ class DKIFittingStep(BaseProcessingStep):
                 requested_metrics = getattr(self.config, 'metrics')
         
         if not requested_metrics:
-             requested_metrics = ["mk", "ak", "rk", "fa", "md"] # Default
+             requested_metrics = ["mk", "ak", "rk", "fa", "md", "ad", "rd"] # Default (7 metrics)
              
         # Check for key output (MK or FA from DKI)
         # DKI outputs typically: MK, AK, RK, FA, MD
@@ -344,8 +354,54 @@ class DKIFittingStep(BaseProcessingStep):
                          missing_metrics.append(m)
              
              if all_found:
-                  should_run = False
-                  self.logger.info(f"Skipping DKI fit (Found all {len(requested_metrics)} requested metrics).")
+                  # PARAMETER CHECK: Validate 'FittingMethod' (Smart Skip)
+                  param_mismatch = False
+                  sidecar_path = None
+                  
+                  # Find a valid sidecar path (prefer MK)
+                  candidates = ['MK', 'mk', list(existing_results.keys())[0]]
+                  for c in candidates:
+                       if c in existing_results:
+                            p = existing_results[c]
+                            s = p.parent / (p.name.split('.')[0] + '.json')
+                            if not s.exists():
+                                 s = Path(str(p).replace('.nii.gz', '.json'))
+                            
+                            if s.exists():
+                                 sidecar_path = s
+                                 break
+                  
+                  if sidecar_path:
+                       try:
+                            import json
+                            with open(sidecar_path, 'r') as f:
+                                 meta = json.load(f)
+                            
+                            prev_method = meta.get('FittingMethod')
+                            current_method = None
+                            
+                            if isinstance(self.config, dict):
+                                 current_method = self.config.get('fit_method')
+                            elif hasattr(self.config, 'fit_method'):
+                                 current_method = self.config.fit_method
+                                 
+                            if not current_method and 'fit_method' in self.kwargs:
+                                 current_method = self.kwargs['fit_method']
+                                 
+                            # If fit method changed, force re-run
+                            # Note: Earlier we fixed fit_dki to actually save this method!
+                            if prev_method and current_method and prev_method != current_method:
+                                 param_mismatch = True
+                                 self.logger.info(f"Re-running DKI fit. Parameter mismatch: Stored='{prev_method}', Config='{current_method}'")
+                                 
+                       except Exception as e:
+                            self.logger.warning(f"Failed to check DKI parameters from sidecar: {e}")
+
+                  if not param_mismatch:
+                       should_run = False
+                       self.logger.info(f"Skipping DKI fit (Found all {len(requested_metrics)} requested metrics).")
+                  else:
+                       pass
              else:
                   self.logger.info(f"Re-running DKI fit. Existing outputs found but missing metrics: {missing_metrics}")
         
@@ -398,10 +454,17 @@ class DKIFittingStep(BaseProcessingStep):
              
         # Track Outputs (for normalization)
         results = {}
+        req_norm = [m.strip().lower() for m in requested_metrics]
+        
         for p in model_out.glob("*.nii.gz"):
              name_part = p.name.replace('.nii.gz', '')
              suffix = name_part.split('_')[-1]
-             results[suffix] = p
+             
+             if suffix.lower() in req_norm:
+                  results[suffix] = p
+             elif suffix.upper() in [m.upper() for m in requested_metrics]: # Fallback check?
+                  results[suffix] = p
+                  
         context.setdefault('modeling_results', {})['DKI'] = results
 
         return context
