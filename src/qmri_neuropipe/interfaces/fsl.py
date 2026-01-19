@@ -542,11 +542,20 @@ def eddy(
     if external_field:
         cmd_parts.append(f"--field={external_field}")
 
-    # Pass JSON sidecar if available
+    # Configurable JSON output
+    # Only pass --json if explicitly requested in extra_opts (via 'json': True)
+    enable_json = False
+    if extra_opts is not None and 'json' in extra_opts:
+        enable_json = bool(extra_opts['json'])
+        # Start fresh or copy to avoid side effects if reused? extra_opts comes from kwargs or config dict
+        # We delete logic outside or just pop here.
+        # But wait, extra_opts is passed by reference potentially?
+        # Safe to delete since we consumed it.
+        del extra_opts['json']
+
+    # Pass JSON sidecar if available AND requested
     json_path = json_file or in_file.json
-    if json_path and json_path.exists():
-         # Eddy expects just the path (and assumes .json? or precise path?)
-         # Usually --json=path/to/file.json
+    if enable_json and json_path and json_path.exists():
          cmd_parts.append(f"--json={json_path}")
 
     cmd_parts.extend(_format_extra_opts(extra_opts))
