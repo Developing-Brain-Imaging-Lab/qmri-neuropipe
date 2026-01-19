@@ -149,7 +149,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
              tpl_p = str(tpl_p) # Ensure string key
              if tpl_p not in template_groups:
                  template_groups[tpl_p] = []
-             template_groups[tpl_p].append((name, label_p))
+             template_groups[tpl_p].append((name, cfg))
              
         # 3. Registration (Template -> Subject)
         
@@ -210,12 +210,27 @@ class AtlasRegistrationStep(BaseProcessingStep):
                  except: pass
              
              # Apply to all atlases in this group
-             for name, label_path in atlases:
+             for name, atlas_cfg in atlases:
+                  # Resolve label path from config
+                  label_path = None
+                  if isinstance(atlas_cfg, (str, Path)):
+                       label_path = atlas_cfg
+                  elif isinstance(atlas_cfg, dict):
+                       label_path = atlas_cfg.get('labels') or atlas_cfg.get('file')
+
                   label_path = Path(label_path)
                   if not label_path.exists():
                       self.logger.warning(f"Atlas {name} label file not found: {label_path}")
                       continue
                       
+                  # Check for Probabilistic flag
+                  is_prob = False
+                  if isinstance(atlas_cfg, dict):
+                       is_prob = atlas_cfg.get('is_probabilistic', False)
+                  
+                  # Interpolator: Linear for Probabilistic (preserve 0-1), Nearest for Label Maps
+                  interp = 'Linear' if is_prob else 'nearestNeighbor'
+
                   # Create Atlas Directory: atlases/{Name}
                   atlas_subdir = atlas_out / name
                   atlas_subdir.mkdir(parents=True, exist_ok=True)
@@ -229,28 +244,39 @@ class AtlasRegistrationStep(BaseProcessingStep):
                   for tx in tx_forward:
                       tx_p = Path(tx)
                       dest = atlas_tx_dir / tx_p.name
-                      shutil.copy2(tx_p, dest)
+                      if not dest.exists(): # Don't overwrite if multiple atlases share same transforms? logic check.
+                           # Actually we are inside the template loop, these are new copies per atlas if we want per-atlas transform logs.
+                           # Or we can just copy.
+                           shutil.copy2(tx_p, dest)
                       final_tx_forward.append(str(dest))
                   
-                  self.logger.info(f"Warping {name} atlas to subject space...")
+                  self.logger.info(f"Warping {name} atlas to subject space (Probabilistic={is_prob}, Interp={interp})...")
                   
                   # BIDS Naming: sub-XX_ses-XX_desc-<atlas-name>_dseg.nii.gz
+                  # For probabilistic, maybe suffix should be 'probseg'? usage of dseg implies discrete.
+                  # But keeping dseg/probseg consistent helps downstream.
                   lbl_ents = dwi.entities.copy()
                   lbl_ents['desc'] = name
-                  lbl_ents['suffix'] = 'dseg'
+                  lbl_ents['suffix'] = 'probseg' if is_prob else 'dseg'
                   
                   out_label_name = build_bids_name(lbl_ents)
                   if not out_label_name.endswith('.nii.gz'): out_label_name += '.nii.gz'
                   
                   out_label = atlas_subdir / out_label_name
                   
+                  # Prepare extra args for ANTs
+                  apply_kwargs = {}
+                  if is_prob:
+                       apply_kwargs['imagetype'] = 3 # TimeSeries/Vector for 4D atlas
+                  
                   ants.apply_transforms(
                      fixed_file=target_img,
                      moving_file=label_path,
                      transforms=final_tx_forward,
                      out_file=out_label,
-                     interpolator='nearestNeighbor',
-                     nthreads=self.nthreads
+                     interpolator=interp,
+                     nthreads=self.nthreads,
+                     **apply_kwargs
                   )
                   
                   registered_atlases[name] = out_label
@@ -403,38 +429,111 @@ class StatsExtractionStep(BaseProcessingStep):
                       
                       lut = lut_map.get(atlas_name, {})
                       
+                      # Retrieve config for this atlas
+                      atlas_cfg = atlases_cfg.get(atlas_name, {})
+                      is_prob = False
+                      if isinstance(atlas_cfg, dict):
+                           is_prob = atlas_cfg.get('is_probabilistic', False)
+
                       try:
                           seg_img = nib.load(str(atlas_path))
-                          seg_data = seg_img.get_fdata().astype(int)
+                          # For probabilistic, we keep floats. For deterministic, we want ints.
+                          if is_prob:
+                               seg_data = seg_img.get_fdata() # Keep float
+                          else:
+                               seg_data = seg_img.get_fdata().astype(int)
                       except Exception as e:
                           self.logger.error(f"Failed to load atlas {atlas_name}: {e}")
                           continue
                           
-                      rois = np.unique(seg_data)
-                      rois = rois[rois > 0]
-                      
                       seg_stats = []
-                      for roi_idx in rois:
-                           roi_mask = (seg_data == roi_idx)
-                           roi_name = lut.get(int(roi_idx), f"Label_{roi_idx}")
+                      
+                      if is_prob:
+                           # PROBABILISTIC / 4D ATLAS
+                           # We iterate over the 4th dimension (Volumes)
+                           if seg_data.ndim != 4:
+                                self.logger.warning(f"Atlas {atlas_name} is marked probabilistic but is not 4D (ndim={seg_data.ndim}). Treating as thresholded map?")
+                                # TODO: Handle 3D probability map (single ROI) case if needed.
+                                # For now, skip or assume dims.
+                                pass
                            
-                           for metric_key, (m_img, m_data) in loaded_maps.items():
-                                if m_data.shape != seg_data.shape: continue
-                                vals = m_data[roi_mask]
-                                vals = vals[np.isfinite(vals)]
-                                vals = vals[vals != 0] # Ignore background/zeros
-                                if vals.size == 0: continue
+                           n_vols = seg_data.shape[3] if seg_data.ndim == 4 else 1
+                           prob_thresh = 0.01  # Ignore voxels with almost 0 weight
+                           
+                           for vol_idx in range(n_vols):
+                                if seg_data.ndim == 4:
+                                     weights = seg_data[..., vol_idx]
+                                else:
+                                     weights = seg_data
                                 
-                                stat = {
-                                    "roi_id": roi_idx,
-                                    "roi_name": roi_name,
-                                    "metric": metric_key,
-                                    "mean": np.mean(vals),
-                                    "median": np.median(vals),
-                                    "std": np.std(vals),
-                                    "count": vals.size
-                                }
-                                seg_stats.append(stat)
+                                roi_name = lut.get(vol_idx, f"ROI_{vol_idx}")
+                                
+                                # Optimization: Skip empty ROIs
+                                if weights.max() <= 0: continue
+                                
+                                mask_bool = weights > prob_thresh
+                                if not np.any(mask_bool): continue
+
+                                for metric_key, (m_img, m_data) in loaded_maps.items():
+                                     if m_data.shape != weights.shape: continue
+                                     
+                                     # Select voxels
+                                     w_vals = weights[mask_bool]
+                                     d_vals = m_data[mask_bool]
+                                     
+                                     # Filter NaNs
+                                     valid = np.isfinite(d_vals) & (d_vals != 0)
+                                     w_vals = w_vals[valid]
+                                     d_vals = d_vals[valid]
+                                     
+                                     if d_vals.size == 0: continue
+                                     
+                                     # Weighted Stats
+                                     w_sum = np.sum(w_vals)
+                                     if w_sum == 0: continue
+                                     
+                                     w_mean = np.sum(d_vals * w_vals) / w_sum
+                                     w_var = np.sum(w_vals * (d_vals - w_mean)**2) / w_sum
+                                     w_std = np.sqrt(w_var)
+                                     
+                                     stat = {
+                                        "roi_id": vol_idx,
+                                        "roi_name": roi_name,
+                                        "metric": metric_key,
+                                        "mean": w_mean,
+                                        "median": 0, # Weighted median is expensive/complex, skipping
+                                        "std": w_std,
+                                        "count": d_vals.size, # Number of voxels > threshold
+                                        "vol_sum": w_sum # Total weight (volume-ish)
+                                     }
+                                     seg_stats.append(stat)
+
+                      else:
+                           # DETERMINISTIC / LABEL MAP
+                           rois = np.unique(seg_data)
+                           rois = rois[rois > 0]
+                           
+                           for roi_idx in rois:
+                                roi_mask = (seg_data == roi_idx)
+                                roi_name = lut.get(int(roi_idx), f"Label_{roi_idx}")
+                                
+                                for metric_key, (m_img, m_data) in loaded_maps.items():
+                                     if m_data.shape != seg_data.shape: continue
+                                     vals = m_data[roi_mask]
+                                     vals = vals[np.isfinite(vals)]
+                                     vals = vals[vals != 0] # Ignore background/zeros
+                                     if vals.size == 0: continue
+                                     
+                                     stat = {
+                                         "roi_id": roi_idx,
+                                         "roi_name": roi_name,
+                                         "metric": metric_key,
+                                         "mean": np.mean(vals),
+                                         "median": np.median(vals),
+                                         "std": np.std(vals),
+                                         "count": vals.size
+                                     }
+                                     seg_stats.append(stat)
                       
                       if seg_stats:
                           df = pd.DataFrame(seg_stats)
