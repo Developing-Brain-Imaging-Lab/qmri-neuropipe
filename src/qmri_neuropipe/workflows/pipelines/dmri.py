@@ -2087,6 +2087,7 @@ class DMRIPipeline(BasePipeline):
             )
     
             # 3a. COPY RAW DATA TO WORK DIRECTORY
+            raw_work_dir = subj_work_dir / "rawdata"
             raw_work_dir.mkdir(parents=True, exist_ok=True)
             
             copied_dwi_files = []
