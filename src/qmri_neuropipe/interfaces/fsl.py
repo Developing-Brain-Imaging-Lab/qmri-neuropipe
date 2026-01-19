@@ -454,6 +454,7 @@ def eddy(
     nthreads: int = 1,
     acqp: Optional[Path] = None,
     index: Optional[Path] = None,
+    json_file: Optional[Path] = None,
     extra_opts: Optional[Dict[str, Any]] = None,
     force: bool = False,
 ) -> DWIFile:
@@ -533,6 +534,13 @@ def eddy(
         cmd_parts.append(f"--topup={topup_base}")
     if external_field:
         cmd_parts.append(f"--field={external_field}")
+
+    # Pass JSON sidecar if available
+    json_path = json_file or in_file.json
+    if json_path and json_path.exists():
+         # Eddy expects just the path (and assumes .json? or precise path?)
+         # Usually --json=path/to/file.json
+         cmd_parts.append(f"--json={json_path}")
 
     cmd_parts.extend(_format_extra_opts(extra_opts))
 
