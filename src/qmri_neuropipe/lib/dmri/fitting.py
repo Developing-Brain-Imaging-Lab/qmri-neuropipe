@@ -67,22 +67,66 @@ class DTIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
+        # Resolve metrics early for smart skip
+        requested_metrics = kwargs.get('metrics')
+        if not requested_metrics:
+            if isinstance(self.config, dict):
+                requested_metrics = self.config.get('metrics', [])
+            elif hasattr(self.config, 'metrics'):
+                requested_metrics = self.config.metrics
+            else:
+                requested_metrics = [] # will trigger default set
+        
+        # Replicate defaults from interface if empty
+        if not requested_metrics:
+             requested_metrics = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
+             
+        # Ensure tensors are checked (legacy behavior always adds them in interface)
+        if "tensor" not in requested_metrics: requested_metrics.append("tensor")
+        if "tensor_mrtrix" not in requested_metrics: requested_metrics.append("tensor_mrtrix")
+
         # Check for key output (FA)
         fa_path = model_out / build_bids_name(ents, suffix='FA')
         
+        # Smart Skip Logic
+        should_run = True
+        existing_results = {}
+        
         if fa_path.exists() and not force:
-             # Collect existing
-             existing_results = {}
-             for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
-             for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
-             for p in model_out.glob("*_AD.nii.gz"): existing_results['AD'] = p
-             for p in model_out.glob("*_RD.nii.gz"): existing_results['RD'] = p
+             # Check if ALL requested metrics exist
+             missing_metrics = []
+             all_found = True
              
-             self.logger.info(f"Skipping DTI fit for {dwi.img.name} (Found existing outputs). Loaded {len(existing_results)} maps.")
+             for m in requested_metrics:
+                 if m == 'tensor': suffix = 'tensor'
+                 elif m == 'tensor_fsl': suffix = 'tensorFSL'
+                 elif m == 'tensor_mrtrix': suffix = 'tensorMRTRIX'
+                 elif m == 'color_fa': suffix = 'DECFA'
+                 else: suffix = m.upper()
+                 
+                 fpath = model_out / build_bids_name(ents, suffix=suffix)
+                 
+                 if fpath.exists():
+                     existing_results[suffix] = fpath
+                 else:
+                     # dynamic glob fallback check
+                     found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                     if found:
+                         existing_results[suffix] = found[0]
+                     else:
+                         all_found = False
+                         missing_metrics.append(m)
              
-             if not existing_results:
-                 self.logger.warning(f"Found FA map {fa_path} but glob collection failed (0 maps found). Check naming conventions.")
+             # Also assume 'FA' is critical, if specific FA file missing but glob found it? 
+             # (handled by check above)
              
+             if all_found:
+                  should_run = False
+                  self.logger.info(f"Skipping DTI fit (Found all {len(requested_metrics)} requested metrics).")
+             else:
+                  self.logger.info(f"Re-running DTI fit. Existing outputs found but missing metrics: {missing_metrics}")
+        
+        if not should_run:
              context.setdefault('modeling_results', {})['DTI'] = existing_results
              return context
 
@@ -216,22 +260,55 @@ class DKIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
+        # Resolve metrics early for smart skip
+        requested_metrics = kwargs.get('metrics')
+        if not requested_metrics:
+            if isinstance(self.config, dict):
+                requested_metrics = self.config.get('metrics')
+            elif hasattr(self.config, 'metrics'):
+                requested_metrics = getattr(self.config, 'metrics')
+        
+        if not requested_metrics:
+             requested_metrics = ["mk", "ak", "rk", "fa", "md"] # Default
+             
         # Check for key output (MK or FA from DKI)
         # DKI outputs typically: MK, AK, RK, FA, MD
         mk_path = model_out / build_bids_name(ents, suffix='MK')
         
-        if mk_path.exists() and not force:
-             # Collect existing
-             existing_results = {}
-             # Patterns: _MK, _AK, _RK, _FA, _MD ...
-             for suffix in ['MK', 'AK', 'RK', 'FA', 'MD', 'RD', 'AD']:
-                 # Search using glob to be safe or predict name
-                 # Safe glob:
-                 found = list(model_out.glob(f"*_{suffix}.nii.gz"))
-                 if found:
-                     existing_results[suffix] = found[0]
-                     
-             self.logger.info(f"Skipping DKI fit for {dwi.img.name} (Found existing outputs). Loaded {len(existing_results)} maps.")
+        # Smart Skip Logic
+        should_run = True
+        existing_results = {}
+        
+        if (mk_path.exists() or (model_out / build_bids_name(ents, suffix='FA')).exists()) and not force:
+             # Check if ALL requested metrics exist
+             missing_metrics = []
+             all_found = True
+             
+             for m in requested_metrics:
+                 suffix = m.upper()
+                 # Predict filename
+                 # Handle special naming if needed (e.g. color_fa -> DECFA)
+                 # But for DKI standard metrics, suffix usually matches metric name
+                 fpath = model_out / build_bids_name(ents, suffix=suffix)
+                 
+                 if fpath.exists():
+                     existing_results[suffix] = fpath
+                 else:
+                     # dynamic glob fallback?
+                     found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                     if found:
+                         existing_results[suffix] = found[0]
+                     else:
+                         all_found = False
+                         missing_metrics.append(m)
+             
+             if all_found:
+                  should_run = False
+                  self.logger.info(f"Skipping DKI fit (Found all {len(requested_metrics)} requested metrics).")
+             else:
+                  self.logger.info(f"Re-running DKI fit. Existing outputs found but missing metrics: {missing_metrics}")
+        
+        if not should_run:
              context.setdefault('modeling_results', {})['DKI'] = existing_results
              return context
 
