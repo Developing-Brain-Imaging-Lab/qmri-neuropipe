@@ -511,6 +511,10 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         
         # Instantiate Model
         # Use filtered kwargs (without metrics)
+        # Ensure min_signal is set to avoid S0=None issues in iterative fits
+        if 'min_signal' not in full_kwargs:
+             full_kwargs['min_signal'] = 1e-6
+
         model = model_class(vox_gtab, **full_kwargs)
         
         # Fit
