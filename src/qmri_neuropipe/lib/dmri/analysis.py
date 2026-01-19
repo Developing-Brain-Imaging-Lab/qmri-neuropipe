@@ -153,7 +153,8 @@ class AtlasRegistrationStep(BaseProcessingStep):
         self.logger.info(f"Registering Template to Subject for Atlas propagation...")
         
         # Using ants.registration
-        reg_res = ants.registration(
+        # Using ants.registration
+        _, tx_forward = ants.registration(
             fixed_file=target_img,
             moving_file=template_img,
             out_prefix=warp_out, # ants wrapper usually handles full path prefixes
@@ -176,9 +177,9 @@ class AtlasRegistrationStep(BaseProcessingStep):
              # Apply transform
              # NearestNeighbor interpolation for labels!
              ants.apply_transforms(
-                 fixed=target_img,
-                 moving=label_path,
-                 transformlist=reg_res['fwdtransforms'], # Template -> Subject
+                 fixed_file=target_img,
+                 moving_file=label_path,
+                 transforms=tx_forward, # Template -> Subject
                  out_file=out_label,
                  interpolator='nearestNeighbor',
                  nthreads=self.nthreads
