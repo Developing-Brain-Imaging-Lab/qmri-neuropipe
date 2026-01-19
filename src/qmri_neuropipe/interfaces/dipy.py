@@ -959,6 +959,7 @@ def fit_dki(
     bval_file: Optional[Path] = None,
     bvec_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
+    fit_method: str = "WLLS",
     metrics: list[str] = ["mk", "ak", "rk", "fa", "md"],
     nthreads: int = 1,
     Delta_file: Optional[Path] = None,
@@ -974,8 +975,8 @@ def fit_dki(
     from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 
     # Resolve iterative parameters if needed
-    if 'fit_method' in kwargs:
-         _resolve_iterative_params(kwargs['fit_method'], kwargs)
+    # Resolve iterative parameters if needed
+    _resolve_iterative_params(fit_method, kwargs)
 
     in_path = extract_image_path(in_file)
     img = nib.load(str(in_path))
@@ -1097,7 +1098,7 @@ def fit_dki(
         "ModelName": "Diffusion Kurtosis Imaging",
         "FittingSoftware": "DIPY",
         "InputData": in_path.name,
-        "FittingMethod": kwargs.get('fit_method', 'WLLS'),
+        "FittingMethod": fit_method,
         "Metrics": metrics
     }
 
