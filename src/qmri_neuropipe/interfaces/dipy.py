@@ -875,29 +875,42 @@ def fit_dti(
     }
     
     for metric in metrics:
-        metric_suffix = metric.upper()
-        if metric == 'color_fa': metric_suffix = 'DECFA'
+        m_norm = metric.strip().lower()
+        metric_suffix = m_norm.upper()
+        if m_norm == 'color_fa': metric_suffix = 'DECFA'
         
         # Build path
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
         
-        if metric == 'fa':
+        saved = False
+        if m_norm == 'fa':
             nib.save(nib.Nifti1Image(dti_fit.fa, img.affine), str(out_path))
-        elif metric == 'md':
+            saved = True
+        elif m_norm == 'md':
             nib.save(nib.Nifti1Image(dti_fit.md, img.affine), str(out_path))
-        elif metric == 'ad':
+            saved = True
+        elif m_norm == 'ad':
             nib.save(nib.Nifti1Image(dti_fit.ad, img.affine), str(out_path))
-        elif metric == 'rd':
+            saved = True
+        elif m_norm == 'rd':
             nib.save(nib.Nifti1Image(dti_fit.rd, img.affine), str(out_path))
-        elif metric == 'color_fa':
+            saved = True
+        elif m_norm == 'color_fa':
             nib.save(nib.Nifti1Image(dti_fit.color_fa, img.affine), str(out_path))
-        elif metric == 'evals':
+            saved = True
+        elif m_norm == 'evals':
              nib.save(nib.Nifti1Image(dti_fit.evals, img.affine), str(out_path))
-        elif metric == 'evecs':
+             saved = True
+        elif m_norm == 'evecs':
              nib.save(nib.Nifti1Image(dti_fit.evecs, img.affine), str(out_path))
+             saved = True
              
-        output_files[metric] = out_path
+        if saved:
+             output_files[m_norm] = out_path
+        elif m_norm not in ['tensor', 'tensor_fsl', 'tensor_mrtrix']:
+             # Tensors are handled separately below, don't warn for them
+             print(f"Warning: Unknown or unhandled DTI metric requested: {metric}")
         
         # Save sidecar
         import json

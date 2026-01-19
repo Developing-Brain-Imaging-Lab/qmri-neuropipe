@@ -1981,101 +1981,15 @@ class DMRIPipeline(BasePipeline):
                  self.logger.warning(f"PDF Generation failed: {e}")
              return
 
-        # Group by reversed phase encoding for TOPUP/EDDY
-        self.logger.info("="*60)
-        self.logger.info("  RUNNING DIFFUSION PIPELINE   ")
-        self.logger.info("="*60)
-        topup_groups = find_reversed_phase_groups(dwi_files)
-        self.logger.info(
-            f"Found {len(dwi_files)} DWI files and {len(topup_groups)} topup group(s) "
-            f"for sub-{subject} {ses}."
-        )
-
-        # 3a. COPY RAW DATA TO WORK DIRECTORY
-        raw_work_dir = subj_work_dir / "rawdata"
-        raw_work_dir.mkdir(parents=True, exist_ok=True)
-        
-        import shutil
-        copied_dwi_files = []
-        for d in dwi_files:
-            # Construct destination path
-            dest_img = raw_work_dir / d.img.name
-            if not dest_img.exists():
-                shutil.copy(d.img, dest_img)
-            
-            # Copy sidecars
-            dest_bval = raw_work_dir / d.bval.name if d.bval else None
-            if d.bval and not dest_bval.exists():
-                shutil.copy(d.bval, dest_bval)
-                
-            dest_bvec = raw_work_dir / d.bvec.name if d.bvec else None
-            if d.bvec and not dest_bvec.exists():
-                shutil.copy(d.bvec, dest_bvec)
-                
-            dest_json = raw_work_dir / d.json.name if d.json else None
-            if d.json and not dest_json.exists():
-                shutil.copy(d.json, dest_json)
-            
-            # Ensure entities match the processing subject/session
-            # This fixes issues where filenames on disk might differ from folder structure (e.g. missing letters in ID)
-            current_entities = d.entities.copy()
-            current_entities['sub'] = subject
-            if session:
-                current_entities['ses'] = session
-            
-            # Create new DWIFile pointing to work dir
-            new_dwi = DWIFile(
-                img=dest_img,
-                json=dest_json,
-                bval=dest_bval,
-                bvec=dest_bvec,
-                entities=current_entities
-            )
-            copied_dwi_files.append(new_dwi)
-            
-        dwi_files = copied_dwi_files
-        
-        # 3b. Re-Group by reversed phase encoding (using local copies)
-        # We need to re-run this because file paths changed
-        topup_groups = find_reversed_phase_groups(dwi_files)
-
-        # 4. Build preprocessing context
-        context = {
-            "subject": subject,
-            "session": session,
-            "current_image": dwi_files[0],
-            "dwi_files": dwi_files,
-            "topup_groups": topup_groups,
-            "t1w_files": t1w_files,
-        }
-
-        # 5. Build the preprocessing workflow/pipeline
-        self.preprocessing.build_pipeline(context)
-
-        
-        # 6. Run preprocessing workflow (writing to WORK DIR)
-        
-        # Attempt to recover intermediates BEFORE checking for final preproc skip
-        # This helps if we resume a run that crashed halfway or if we are re-running with some steps enabled.
-        # But if we skip the whole pipeline below, this recovery is moot but harmless.
-        # However, calling it here allows steps to see files in work_dir immediately.
-        
-        dwi_final_dir = self._get_output_dir(subject, session) / 'dwi'
-        if self.config.get("save_intermediates", False):
-             self.preprocessing.recover_intermediates(subj_work_dir, dwi_final_dir)
-
-        # Check if preprocessing is already done (outputs exist in FINAL output_dir)
+        # Optimization: Check for existing final outputs BEFORE copying raw data
         # We need to reconstruct the expected final filename for the first DWI
-        # This is heuristics since we usually process multiple DWIs merged or single.
-        # Assuming dwi_files[0] is representative.
+        dwi_final_dir = self._get_output_dir(subject, session) / 'dwi'
+        
         from qmri_neuropipe.io.bids import build_bids_name
         first_dwi = dwi_files[0]
         final_ents = dict(first_dwi.entities)
         final_ents['desc'] = 'preproc'
-        # Remove entities that are merged away (e.g. dir, run if merged)
         if 'dir' in final_ents: del final_ents['dir']
-        # If we have multiple runs, 'run' might also be removed, but usually run is kept if processing per run.
-        # But here we assume 1 session. Merged file usually drops 'dir'.
         
         expected_preproc_name = build_bids_name(final_ents, suffix='dwi')
         if not expected_preproc_name.endswith('.nii.gz'): expected_preproc_name += '.nii.gz'
@@ -2083,26 +1997,18 @@ class DMRIPipeline(BasePipeline):
         expected_preproc_path = output_dir / expected_preproc_name
         expected_mask_path = output_dir / expected_preproc_name.replace('_dwi.nii.gz', '_mask.nii.gz')
 
-        if hasattr(self.config, 'debug') and self.config.debug:
-            print(f"DEBUG: Checking preproc path: {expected_preproc_path}")
-            print(f"DEBUG: Exists? {expected_preproc_path.exists()}")
-            print(f"DEBUG: skip_existing? {self.config.skip_existing}")
-
-        preprocessed_context = None
-        
         force_run = self.config.get("dmri", {}).get("force_run", False) or self.config.get("force", False)
-        
+        preprocessed_context = None
+
         # Check if already processed (Skip unless forced)
         if expected_preproc_path.exists() and not force_run:
             self.logger.info(f"Skipping preprocessing (Final output exists: {expected_preproc_path})")
-            
+            # Log optimization
+            self.logger.info("Optimization: Skipping raw data copy & pipeline build.")
+
             # Load existing results into context so modeling can use them
-            # We need to construct DWIFile objects for them
-            # DWIFile and ImageFile are imported globally
-            
             # Load sidecars
-            bval_path = expected_preproc_path.with_suffix("").with_suffix(".bval") # approx
-            # Better check with_name replacement logic or check existence
+            bval_path = expected_preproc_path.with_suffix("").with_suffix(".bval") 
             if not bval_path.exists(): bval_path = Path(str(expected_preproc_path).replace('.nii.gz', '.bval'))
             
             bvec_path = expected_preproc_path.with_suffix("").with_suffix(".bvec")
@@ -2123,87 +2029,136 @@ class DMRIPipeline(BasePipeline):
             mask_ents['suffix'] = 'mask'
             loaded_mask = ImageFile(entities=mask_ents, img=expected_mask_path) if expected_mask_path.exists() else None
             
-            # Reconstruct context
-            preprocessed_context = dict(context)
-            preprocessed_context['preprocessed_dwis'] = [loaded_dwi]
-            preprocessed_context['preprocessed_masks'] = [loaded_mask]
+            # Reconstruct minimal context for downstream
+            preprocessed_context = {
+                "subject": subject,
+                "session": session,
+                "current_image": loaded_dwi, # Best guess
+                "dwi_files": dwi_files,      # Originals
+                "topup_groups": [],          # N/A
+                "t1w_files": t1w_files,
+                "preprocessed_dwis": [loaded_dwi],
+                "preprocessed_masks": [loaded_mask]
+            }
             
-            # Recover GNL Map if it exists (for modeling)
-            # We look for *desc-gnl_tensor* in the output directory
+            # GNL Recovery Logic
             gnl_candidates = list(output_dir.glob(f"sub-{subject}*_desc-gnl_tensor*.nii.gz"))
             if gnl_candidates:
-                 # Pick the one matching session if present
                  match = gnl_candidates[0]
                  if session:
-                      # prioritize one that has ses-{session}
                       ses_matches = [g for g in gnl_candidates if f"ses-{session}" in g.name]
                       if ses_matches: match = ses_matches[0]
-                 
                  self.logger.info(f"Recovered GNL Tensor Map for modeling: {match.name}")
                  preprocessed_context['gnl_map'] = match
-            
-            if reporter:
-                # 0. Reporting: Inputs (Matches PreprocessingWorkflow.run logic)
-                if dwi_files:
-                    reporter.set_dmri_input_summary(f"DWI Files: {len(dwi_files)} (Pipeline Skipped - Output Exists)")
-                    dwi_in = dwi_files[0]
-                    # Use work dir for figures
-                    p_in = subj_work_dir / "report_input_dwi_b0.png"
-                    try:
-                         from qmri_neuropipe.lib.reporting.viz import create_ortho_view
-                         create_ortho_view(dwi_in.img, p_in, title="Input DWI (first volume)")
-                         reporter.add_dmri_input_figure(p_in, caption=dwi_in.img.name)
-                    except Exception:
-                         if p_in.exists():
-                              reporter.add_dmri_input_figure(p_in, caption=dwi_in.img.name)
 
-                # 0.5 Execution Summary
-                preproc_steps = self.preprocessing.steps
-                step_list = []
-                for s in preproc_steps:
-                   step_list.append({
-                       "Step": s.__class__.__name__, 
-                       "Status": "Skipped (Exists)", 
-                       "Duration": "N/A"
-                   })
+            if reporter:
+                # Reporting for Skipped Run
+                reporter.set_dmri_input_summary(f"DWI Files: {len(dwi_files)} (Pipeline Skipped - Output Exists)")
                 
-                # Add Final Output Paths to Summary
                 dmri_outputs = []
                 dmri_outputs.append({"key": "Output DWI", "path": str(expected_preproc_path)})
+                if bval_path.exists(): dmri_outputs.append({"key": "Output Bval", "path": str(bval_path)})
+                if bvec_path.exists(): dmri_outputs.append({"key": "Output Bvec", "path": str(bvec_path)})
+                if dmri_outputs: reporter.set_dmri_outputs(dmri_outputs)
                 
-                if bval_path.exists():
-                    dmri_outputs.append({"key": "Output Bval", "path": str(bval_path)})
-                if bvec_path.exists():
-                    dmri_outputs.append({"key": "Output Bvec", "path": str(bvec_path)})
-                
-                if dmri_outputs:
-                    reporter.set_dmri_outputs(dmri_outputs)
-                
-                if step_list:
-                    reporter.add_dmri_summary("Execution Summary (Skipped Run)", step_list)
-
-                # 1. Verification Step (Preprocessed Output)
-                # We can present this as a "Verification" step or generic step
+                # Add Verification Figure
                 p = subj_work_dir / "report_preproc_dwi_b0.png"
                 fig_list = []
                 try:
                      from qmri_neuropipe.lib.reporting.viz import create_ortho_view
-                     create_ortho_view(expected_preproc_path, p, title="Preprocessed DWI (Existing)")
-                     fig_list.append({"path": str(p), "title": "Preprocessed DWI", "caption": "Existing Output (Recovered)"})
-                except Exception:
-                     if p.exists():
-                          fig_list.append({"path": str(p), "title": "Preprocessed DWI", "caption": "Existing Output (Recovered)"})
-                     
+                     if expected_preproc_path.exists():
+                         create_ortho_view(expected_preproc_path, p, title="Preprocessed DWI (Existing)")
+                         fig_list.append({"path": str(p), "title": "Preprocessed DWI", "caption": "Existing Output (Recovered)"})
+                except Exception: pass
+                
                 reporter.add_dmri_step("Verification (Existing Output)", {"Status": "Verified", "Path": str(expected_preproc_path)}, figures=fig_list)
-                
-                # Recover metrics (Outliers dependencies, QC)
-                self._recover_missed_metrics(reporter, context, subj_work_dir, final_ents, expected_preproc_path)
-                
-                # Recover figures (from intermediate work dir)
-                self._recover_missed_figures(reporter, context, subj_work_dir)
+                self._recover_missed_metrics(reporter, preprocessed_context, subj_work_dir, final_ents, expected_preproc_path)
 
+        if not preprocessed_context:
+            # Group by reversed phase encoding for TOPUP/EDDY
+            self.logger.info("="*60)
+            self.logger.info("  RUNNING DIFFUSION PIPELINE   ")
+            self.logger.info("="*60)
+            topup_groups = find_reversed_phase_groups(dwi_files)
+            self.logger.info(
+                f"Found {len(dwi_files)} DWI files and {len(topup_groups)} topup group(s) "
+                f"for sub-{subject} {ses}."
+            )
+    
+            # 3a. COPY RAW DATA TO WORK DIRECTORY
+            raw_work_dir = subj_work_dir / "rawdata"
+            raw_work_dir.mkdir(parents=True, exist_ok=True)
             
-        else:
+            import shutil
+            copied_dwi_files = []
+            for d in dwi_files:
+                # Construct destination path
+                dest_img = raw_work_dir / d.img.name
+                if not dest_img.exists():
+                    shutil.copy(d.img, dest_img)
+                
+                # Copy sidecars
+                dest_bval = raw_work_dir / d.bval.name if d.bval else None
+                if d.bval and not dest_bval.exists():
+                    shutil.copy(d.bval, dest_bval)
+                    
+                dest_bvec = raw_work_dir / d.bvec.name if d.bvec else None
+                if d.bvec and not dest_bvec.exists():
+                    shutil.copy(d.bvec, dest_bvec)
+                    
+                dest_json = raw_work_dir / d.json.name if d.json else None
+                if d.json and not dest_json.exists():
+                    shutil.copy(d.json, dest_json)
+                
+                # Ensure entities match the processing subject/session
+                # This fixes issues where filenames on disk might differ from folder structure (e.g. missing letters in ID)
+                current_entities = d.entities.copy()
+                current_entities['sub'] = subject
+                if session:
+                    current_entities['ses'] = session
+                
+                # Create new DWIFile pointing to work dir
+                new_dwi = DWIFile(
+                    img=dest_img,
+                    json=dest_json,
+                    bval=dest_bval,
+                    bvec=dest_bvec,
+                    entities=current_entities
+                )
+                copied_dwi_files.append(new_dwi)
+                
+            dwi_files = copied_dwi_files
+            
+            # 3b. Re-Group by reversed phase encoding (using local copies)
+            # We need to re-run this because file paths changed
+            topup_groups = find_reversed_phase_groups(dwi_files)
+    
+            # 4. Build preprocessing context
+            context = {
+                "subject": subject,
+                "session": session,
+                "current_image": dwi_files[0],
+                "dwi_files": dwi_files,
+                "topup_groups": topup_groups,
+                "t1w_files": t1w_files,
+            }
+    
+            # 5. Build the preprocessing workflow/pipeline
+            self.preprocessing.build_pipeline(context)
+    
+            
+            # 6. Run preprocessing workflow (writing to WORK DIR)
+            
+            # Attempt to recover intermediates BEFORE checking for final preproc skip
+            # This helps if we resume a run that crashed halfway or if we are re-running with some steps enabled.
+            # But if we skip the whole pipeline below, this recovery is moot but harmless.
+            # However, calling it here allows steps to see files in work_dir immediately.
+            
+            dwi_final_dir = self._get_output_dir(subject, session) / 'dwi'
+            if self.config.get("save_intermediates", False):
+                 self.preprocessing.recover_intermediates(subj_work_dir, dwi_final_dir)
+
+
             preprocessed_context = self.preprocessing.run(subj_work_dir, context, reporter=reporter)
             
             # --- Save Final Preprocessed Output to Main Output Directory ---
