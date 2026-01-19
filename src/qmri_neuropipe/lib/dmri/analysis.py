@@ -79,7 +79,8 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # Implementation Detail: We need a mapping of "Atlas Name" -> "Label File".
         # Let's assume a simplified config structure or standard FSL atlases.
         
-        atlases_to_reg = self.config.get("analysis", {}).get("atlases", {})
+        analysis_cfg = self.config.get("analysis") or self.config.get("dmri", {}).get("analysis", {})
+        atlases_to_reg = analysis_cfg.get("atlases", {})
         # Example config:
         # analysis:
         #   atlases:
