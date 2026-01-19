@@ -121,10 +121,10 @@ class AtlasRegistrationStep(BaseProcessingStep):
         
         # Using ants.registration
         reg_res = ants.registration(
-            fixed=target_img,
-            moving=template_img,
-            out_prefix=str(warp_out), # ants wrapper usually handles full path prefixes
-            type_of_transform='SyN', # or Affine if quick
+            fixed_file=target_img,
+            moving_file=template_img,
+            out_prefix=warp_out, # ants wrapper usually handles full path prefixes
+            transform_type='SyN', # or Affine if quick
             nthreads=self.nthreads
         )
         
