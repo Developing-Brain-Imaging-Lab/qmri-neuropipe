@@ -66,7 +66,7 @@ class DTIFittingStep(BaseProcessingStep):
         
         # Replicate defaults from interface if empty
         if not requested_metrics:
-             requested_metrics = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
+             requested_metrics = ["fa", "md", "ad", "rd", "color_fa"]
              
         # Ensure tensors are checked (legacy behavior always adds them in interface)
         if "tensor" not in requested_metrics: requested_metrics.append("tensor")
@@ -108,8 +108,62 @@ class DTIFittingStep(BaseProcessingStep):
              # (handled by check above)
              
              if all_found:
-                  should_run = False
-                  self.logger.info(f"Skipping DTI fit (Found all {len(requested_metrics)} requested metrics).")
+                  # PARAMETER CHECK: Validate 'FittingMethod' if using DIPY
+                  # We check the sidecar of the FA map (assuming it represents the set)
+                  param_mismatch = False
+                  sidecar_path = None
+                  
+                  # Find a valid sidecar path (prefer FA)
+                  candidates = ['FA', 'fa', list(existing_results.keys())[0]]
+                  for c in candidates:
+                       if c in existing_results:
+                            p = existing_results[c]
+                            # Try replacing extension
+                            s = p.parent / (p.name.split('.')[0] + '.json')
+                            if not s.exists():
+                                 # Try simplistic extension swap
+                                 s = Path(str(p).replace('.nii.gz', '.json'))
+                            
+                            if s.exists():
+                                 sidecar_path = s
+                                 break
+                  
+                  if sidecar_path and self.method == 'dipy':
+                       try:
+                            import json
+                            with open(sidecar_path, 'r') as f:
+                                 meta = json.load(f)
+                            
+                            prev_method = meta.get('FittingMethod')
+                            
+                            # Resolve current requested method (matching execution logic)
+                            current_method = None
+                            if isinstance(self.config, dict):
+                                 current_method = self.config.get('fit_method')
+                            elif hasattr(self.config, 'fit_method'):
+                                 current_method = self.config.fit_method
+                                 
+                            if not current_method and 'fit_method' in self.kwargs:
+                                 current_method = self.kwargs['fit_method']
+                            if not current_method and 'sub_method' in self.kwargs:
+                                 # Fallback
+                                 current_method = self.kwargs['sub_method']
+                            
+                            # Normalize for comparison? (Usually uppercase/exact match required by DIPY)
+                            
+                            if prev_method and current_method and prev_method != current_method:
+                                 param_mismatch = True
+                                 self.logger.info(f"Re-running DTI fit. Parameter mismatch: Stored='{prev_method}', Config='{current_method}'")
+                                 
+                       except Exception as e:
+                            self.logger.warning(f"Failed to check DTI parameters from sidecar: {e}")
+                  
+                  if not param_mismatch:
+                       should_run = False
+                       self.logger.info(f"Skipping DTI fit (Found all {len(requested_metrics)} requested metrics).")
+                  else:
+                       # Mismatch detected, intentionally leaving should_run = True
+                       pass
              else:
                   self.logger.info(f"Re-running DTI fit. Existing outputs found but missing metrics: {missing_metrics}")
         
