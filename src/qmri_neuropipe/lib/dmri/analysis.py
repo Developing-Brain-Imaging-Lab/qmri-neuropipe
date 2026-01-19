@@ -422,6 +422,7 @@ class StatsExtractionStep(BaseProcessingStep):
                                 if m_data.shape != seg_data.shape: continue
                                 vals = m_data[roi_mask]
                                 vals = vals[np.isfinite(vals)]
+                                vals = vals[vals != 0] # Ignore background/zeros
                                 if vals.size == 0: continue
                                 
                                 stat = {
@@ -440,7 +441,7 @@ class StatsExtractionStep(BaseProcessingStep):
                           ents = dwi.entities.copy()
                           ents['desc'] = atlas_name
                           ents['suffix'] = 'stats'
-                          fname = build_bids_name(ents) + ".tsv"
+                          fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
                           df.to_csv(output_dir / fname, sep='\t', index=False)
                           context.setdefault('segmentation_stats', []).append(output_dir / fname)
 
@@ -464,6 +465,7 @@ class StatsExtractionStep(BaseProcessingStep):
                            if m_data.shape != mask_data.shape: continue
                            vals = m_data[mask_data]
                            vals = vals[np.isfinite(vals)]
+                           vals = vals[vals != 0] # Ignore background/zeros
                            if vals.size == 0: continue
                            
                            stat = {
@@ -481,7 +483,7 @@ class StatsExtractionStep(BaseProcessingStep):
                       ents = dwi.entities.copy()
                       ents['desc'] = seg_type
                       ents['suffix'] = 'stats'
-                      fname = build_bids_name(ents) + ".tsv"
+                      fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
                       df.to_csv(output_dir / fname, sep='\t', index=False)
                       context.setdefault('segmentation_stats', []).append(output_dir / fname)
                       
