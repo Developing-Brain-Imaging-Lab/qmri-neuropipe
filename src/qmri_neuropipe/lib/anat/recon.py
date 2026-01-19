@@ -83,7 +83,7 @@ class ReconAllStep(BaseProcessingStep):
                 in_file=input_image,
                 subject_id=fs_sub_id,
                 subjects_dir=fs_dir,
-                openmp=kwargs.get("nthreads", 8), # Default to reasonable threads
+                openmp=kwargs.get("nthreads") or self.config.get("n_cpus") or 8,
                 extra_args=self.args
              )
         else:
