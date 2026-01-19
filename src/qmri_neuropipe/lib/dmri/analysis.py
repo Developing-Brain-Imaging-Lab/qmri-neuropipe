@@ -229,7 +229,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
                        is_prob = atlas_cfg.get('is_probabilistic', False)
                   
                   # Interpolator: Linear for Probabilistic (preserve 0-1), Nearest for Label Maps
-                  interp = 'Linear' if is_prob else 'nearestNeighbor'
+                  interp = 'linear' if is_prob else 'nearestNeighbor'
 
                   # Create Atlas Directory: atlases/{Name}
                   atlas_subdir = atlas_out / name
