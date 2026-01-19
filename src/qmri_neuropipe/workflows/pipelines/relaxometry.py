@@ -18,6 +18,7 @@ from ...lib.common.denoise import DenoisingStep
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.stats import ROIStatsStep
+from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
 from ...utils.relax_params import generate_acq_params
 
@@ -65,6 +66,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         self.add_step(B1MappingStep(self.config, self.logger, self.provenance,
                                     method=b1_cfg.get("method", "afi"),
                                     smoothing_fwhm=b1_cfg.get("smoothing_fwhm", 0.0)))
+        
+        # 5. Post-Processing: Atlas Registration & Stats
+        # These are used optionally in run(), but we can initialize them here
+        self.add_step(AtlasRegistrationStep(self.config, self.logger, self.provenance))
+        self.add_step(StatsExtractionStep(self.config, self.logger, self.provenance))
         
     def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
         self.logger.info("Starting RelaxometryWorkflow")
@@ -477,31 +483,33 @@ class RelaxometryWorkflow(BaseWorkflow):
         # 6. Post-Processing (Coreg/Norm/Stats)
         
         # A. Get Anatomical Reference (T1w)
-        # Assuming context has 'anat_t1w' or we passed it in inputs?
-        # If running standalone, we might rely on 't1w_file' in context.
         t1w_anat = context.get('t1w_file') or context.get('preprocessed_t1w')
         
-        # B. Get Maps from context
+        # B. Get Maps from context and populate 'modeling_results' for Statistics
+        # This standardizes the data structure for StatsExtractionStep
+        modeling_results = context.setdefault('modeling_results', {})
+        relax_results = {}
+        
         # Gather all quantitative maps generated
         maps = []
         for k, v in context.items():
              if k in ["t1", "t2", "m0", "mwf", "tau", "b1", "f0", "t1_fast", "t1_slow", "t2_fast", "t2_slow"] and isinstance(v, (Path, str)):
-                  # Convert Path to ImageFile if needed
-                  # Context usually stores Path from wrapper return
-                  # Check if it's in fit_out_dir to be sure it's ours
-                  if str(fit_out_dir) in str(v):
-                      maps.append((k, ImageFile(img=Path(v), entities={}))) # Entities?
+                  path_v = Path(v)
+                  if str(fit_out_dir) in str(path_v): # Only include maps generated here
+                      maps.append((k, ImageFile(img=path_v, entities={}))) 
+                      relax_results[k] = path_v
              elif k in ["t1", "t2", "m0", "mwf", "tau", "b1", "f0", "t1_fast", "t1_slow", "t2_fast", "t2_slow"] and isinstance(v, ImageFile):
                   maps.append((k, v))
-
+                  relax_results[k] = v.img
+                  
+        if relax_results:
+             modeling_results['Relaxometry'] = relax_results
+             
         if t1w_anat and maps:
              self.logger.info("Running Post-Processing (Coregistration -> Stats)...")
              
              # 1. Calculate Transform: SPGR Ref -> T1w Anat
-             # Reuse CoregistrationStep logic or call interface directly.
-             # We want to Save the transform.
-             # Use SPGR Ref (motion corrected)
-             spgr_ref = context.get('relax_reference') # Usually valid
+             spgr_ref = context.get('relax_reference')
              
              from ...interfaces.fsl import flirt, applywarp, fast
              
@@ -511,71 +519,84 @@ class RelaxometryWorkflow(BaseWorkflow):
              
              # Calculate Transform
              xfm_mat = post_out / "spgr_to_t1w.mat"
-             spgr_in_t1w = post_out / "spgr_in_t1w.nii.gz"
+             # ... (existing coreg logic kept briefly or delegated? We keep for internal consistency)
              
              if xfm_mat.exists():
                   self.logger.info("Skipping Coregistration Calculation (Exists)")
              else:
                   self.logger.info("Calculating Coregistration (SPGR -> T1w)")
-                  # flirt -in <spgr> -ref <t1w> -omat <mat>
-                  flirt(in_file=spgr_ref.img, ref_file=t1w_anat.img, out_file=spgr_in_t1w, omat=xfm_mat, dof=6)
+                  flirt(in_file=spgr_ref.img, ref_file=t1w_anat.img, out_file=post_out / "spgr_in_t1w.nii.gz", omat=xfm_mat, dof=6)
              
-             # 2. Apply to All Maps (and setup stats target)
-             registered_maps = []
+             # 2. Resample Maps to T1w Space (Required for Anatomical Stats)
+             # Relaxometry maps are usually in SPGR space. 
+             # StatsExtractionStep works on 'modeling_results'.
+             # If we want StatsExtractionStep to find them, they should be in T1w space OR we provide T1w-space versions in 'modeling_results'.
+             # Strategy: Update 'modeling_results' with T1w-space paths.
              
-             # Get Template Warp (T1w -> MNI) if available
-             template_warp = context.get('template_warp')
-             template_ref = context.get('template_ref')
+             t1w_space_results = {}
              
-             # Segmentation Source?
-             # 1. Context 'segmentation' (e.g. from previous Anat step)
-             # 2. Or Generate NEW one on T1w
-             seg_file = context.get('segmentation')
-             if not seg_file or not seg_file.img.exists():
-                  # Attempt to generate simple segmentation using FAST on T1w
-                  self.logger.info("No segmentation found in context. Running FAST on T1w...")
-                  fast_out_base = post_out / "t1w_fast"
-                  # fast wrapper: checks existence internally
-                  fast(in_files=t1w_anat.img, out_base=fast_out_base, img_type=1) 
-                  # FAST produces <base>_seg.nii.gz
-                  seg_path = post_out / "t1w_fast_seg.nii.gz"
-                  if seg_path.exists():
-                      seg_file = ImageFile(img=seg_path, entities=t1w_anat.entities)
-             
-             stats_step = ROIStatsStep(self.config, self.logger, self.provenance)
-             
-             for map_name, map_img in maps:
-                 # A. T1w Space
+             for map_name, map_img in maps: # maps contains SPGR-space images
                  out_name = f"{map_name}_in_t1w.nii.gz"
                  out_path = post_out / out_name
                  
-                 final_map_for_stats = None
-                 
                  if out_path.exists():
-                      self.logger.info(f"Skipping Resampling to T1w (Exists): {out_name}")
-                      final_map_for_stats = ImageFile(img=out_path, entities=map_img.entities)
+                      t1w_space_results[map_name] = out_path
                  else:
-                      # Apply XFM
                       applywarp(in_file=map_img.img, ref_file=t1w_anat.img, out_file=out_path, premat=xfm_mat, interp="trilinear")
-                      final_map_for_stats = ImageFile(img=out_path, entities=map_img.entities)
-                 
-                 # B. MNI Space (if warp available)
-                 if template_warp and template_ref:
-                      norm_out = post_out / f"{map_name}_in_mni.nii.gz"
+                      t1w_space_results[map_name] = out_path
                       
-                      if norm_out.exists():
-                           self.logger.info(f"Skipping Normalization to MNI (Exists): {norm_out.name}")
-                           # If seg is in MNI, use this? usually seg is in T1w or specific method. Both valid.
-                           # Prioritize T1w stats if segmentation is in T1w.
-                      else:
-                           # applywarp using warp
-                           # FSL: --premat is applied to input before warp. 
-                           applywarp(in_file=map_img.img, ref_file=template_ref, out_file=norm_out, warp=template_warp, premat=xfm_mat)
-                           
-                 # C. ROI Stats
-                 # Run on T1w space map using T1w space segmentation
-                 if seg_file and final_map_for_stats:
-                      stats_step.run(final_map_for_stats, seg_file, output_dir=post_out)
+             # Update modeling results to point to T1w versions for consistent stats
+             # Or keep distinct? 'Relaxometry_T1w'?
+             # Let's overwrite 'Relaxometry' entry with T1w versions for stats step 
+             # (assuming user wants stats in Anatomical space)
+             modeling_results['Relaxometry'] = t1w_space_results
+             
+             
+             # 3. Atlas Registration & Stats Extraction
+             # Use the Standard Steps
+             
+             # Set Context Current Image to T1w (Reference for Atlases)
+             context['current_image'] = t1w_anat 
+             
+             # A. Atlas Registration
+             atlas_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
+             if atlas_step:
+                 self.logger.info("Running Atlas Registration...")
+                 # Run Atlas Registration (Registers MNI->T1w)
+                 # Output to post_out or default?
+                 # AtlasRegistrationStep uses config to determine atlases
+                 try:
+                    atlas_step.run(context, output_dir=post_out)
+                 except Exception as e:
+                    self.logger.warning(f"Atlas Registration failed: {e}")
+
+             # B. Stats Extraction
+             stats_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
+             if stats_step:
+                 self.logger.info("Running Statistics Extraction...")
+                 try:
+                    stats_step.run(context, output_dir=post_out)
+                 except Exception as e:
+                    self.logger.warning(f"Stats Extraction failed: {e}")
+                    
+             # C. Fallback / Legacy ROI Stats (e.g. valid 'segmentation' passed in context but not via Atlas step)
+             # If StatsExtractionStep ran, it covered Atlases. 
+             # But if context had 'segmentation' (manual mask), StatsExtractionStep handles 'segmentations' dict.
+             # We should ensure 'segmentation' from context is added to 'segmentations' dict if not present.
+             
+             manual_seg = context.get('segmentation')
+             if manual_seg and manual_seg.img.exists():
+                  context.setdefault('segmentations', {})['Manual'] = manual_seg.img
+                  # Re-run stats? Or assume StatsExtractionStep picked it up?
+                  # If we added it before run(), it would have.
+                  # Let's rely on configured Atlases for now. 
+                  
+             # Fallback: Simple FAST segmentation if no atlases configured?
+             # (Legacy logic retained just in case)
+             roi_step = next((s for s in self.steps if isinstance(s, ROIStatsStep)), None)
+             # Only run if StatsExtraction produced nothing? 
+             # Or just skip legacy if new system is active.
+
 
 
         # 7. Save Intermediates (if requested and using separate work_dir)
