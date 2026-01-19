@@ -2530,7 +2530,37 @@ class DMRIPipeline(BasePipeline):
                       
                       dmri_outputs["Normalized Derivatives"].append({"key": key_name, "path": str(f)})
             
-            # 5. Add to Reporter and Generate
+            # 5. Atlas Outputs (Scanning)
+            atlas_dir = output_dir / "Atlases"
+            if atlas_dir.exists():
+                 dmri_outputs.setdefault("Analysis", [])
+                 for f in atlas_dir.rglob("*.nii.gz"):
+                      # Key: Atlas Name + Label/Warp
+                      name = f.name
+                      atlas_name = "Unknown"
+                      if 'desc-' in name:
+                          atlas_name = name.split('desc-')[1].split('_')[0]
+                      elif 'from-' in name: # Warp
+                          continue # Skip warps in main list? Or include?
+                          
+                      suffix = 'Label'
+                      if 'dseg' in name: suffix = 'Segmentation'
+                      
+                      key_name = f"{atlas_name} {suffix}"
+                      dmri_outputs["Analysis"].append({"key": key_name, "path": str(f)})
+                 
+                 # Also check Statistics CSVs
+                 stats_dir = atlas_dir / "Statistics" # Actually Analysis step writes 'Statistics' under output_dir?
+                 # StatsExtractionStep writes to `output_dir / "Statistics"`.
+                 # We should check that too.
+            
+            stats_out = output_dir / "Statistics"
+            if stats_out.exists():
+                dmri_outputs.setdefault("Statistics", [])
+                for f in stats_out.glob("*.csv"):
+                    dmri_outputs["Statistics"].append({"key": f.name, "path": str(f)})
+            
+            # 6. Add to Reporter and Generate
             if reporter:
                  if dmri_outputs:
                       reporter.set_dmri_outputs(dmri_outputs)
