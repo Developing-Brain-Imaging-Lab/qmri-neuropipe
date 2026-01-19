@@ -123,71 +123,117 @@ class AtlasRegistrationStep(BaseProcessingStep):
              self.logger.info("No atlases configured for registration.")
              return context
              
-        # 3. Registration (Template -> Subject)
-        # We need to warp Template -> Subject to move Labels -> Subject
-        # Or Subject -> Template and use Inverse.
-        # Normalization step might have already run Subject -> Template. 
-        # Check context for 'normalization_warp'?
+        # 2. Parse Atlases and Group by Template
+        # Structure: template_groups[template_path] = list of (atlas_name, label_path)
+        template_groups = {}
         
-        # If we have warp from NormalizationStep (Subject -> Template), we can use the Inverse (Template -> Subject).
+        default_template = norm_cfg.get("template")
         
-        if self.method == 'ants':
-             pass # Use existing ANTswrap if available?
+        for name, cfg in atlases_to_reg.items():
+             label_p = None
+             tpl_p = default_template
              
-        # For simplicity and robustness, let's run a quick registration or re-use.
-        # If we re-use, we need to know where the warp is.
-        # Let's assume we do a fresh registration or use inverse of normalization if stored.
-        
-        # If we don't have existing warp, run registration: Template (Moving) -> Subject (Fixed).
-        # Note: Usually we run Subject -> Template for spatial normalization.
-        # Here we want Labels (in Template) -> Subject.
-        # So we want Transform(Template -> Subject).
-        
-        # Let's run Rigid+Affine+SyN: Template -> Subject FA.
-        
-        warp_out = atlas_out / "warp_template_to_subject"
-        
-        # Check existing
-        # ...
-        
-        self.logger.info(f"Registering Template to Subject for Atlas propagation...")
-        
-        # Using ants.registration
-        # Using ants.registration
-        _, tx_forward = ants.registration(
-            fixed_file=target_img,
-            moving_file=template_img,
-            out_prefix=warp_out, # ants wrapper usually handles full path prefixes
-            transform_type='SyN', # or Affine if quick
-            nthreads=self.nthreads
-        )
-        
-        # 4. Apply Transforms to Atlases
-        registered_atlases = {}
-        
-        for name, label_path in atlases_to_reg.items():
-             label_path = Path(label_path)
-             if not label_path.exists():
-                 self.logger.warning(f"Atlas {name} label file not found: {label_path}")
+             if isinstance(cfg, (str, Path)):
+                 label_p = cfg
+             elif isinstance(cfg, dict):
+                 label_p = cfg.get('labels') or cfg.get('file') # support 'labels' or 'file'
+                 if 'template' in cfg:
+                      tpl_p = cfg['template']
+             
+             if not label_p:
+                 self.logger.warning(f"Atlas {name} missing label path. Skipping.")
                  continue
                  
-             self.logger.info(f"Warping {name} atlas to subject space...")
-             out_label = atlas_out / f"{name}_in_subject.nii.gz"
+             if not tpl_p:
+                  self.logger.warning(f"Atlas {name} has no template defined and no global default. Skipping.")
+                  continue
+                  
+             tpl_p = str(tpl_p) # Ensure string key
+             if tpl_p not in template_groups:
+                 template_groups[tpl_p] = []
+             template_groups[tpl_p].append((name, label_p))
              
-             # Apply transform
-             # NearestNeighbor interpolation for labels!
-             ants.apply_transforms(
-                 fixed_file=target_img,
-                 moving_file=label_path,
-                 transforms=tx_forward, # Template -> Subject
-                 out_file=out_label,
-                 interpolator='nearestNeighbor',
-                 nthreads=self.nthreads
+        # 3. Registration (Template -> Subject)
+        
+        # Warp Output Directory
+        transforms_dir = atlas_out / "transforms"
+        transforms_dir.mkdir(exist_ok=True)
+        
+        registered_atlases = {}
+        
+        # Iterate unique templates
+        for tpl_str, atlases in template_groups.items():
+             tpl_path = Path(tpl_str)
+             if not tpl_path.exists():
+                 self.logger.warning(f"Template not found: {tpl_path}. Skipping associated atlases: {[a[0] for a in atlases]}")
+                 continue
+                 
+             self.logger.info(f"Processing Template group: {tpl_path.name} ({len(atlases)} atlases)")
+             
+             # Define Warp Prefix based on Template Name
+             # We try to be unique: sub-X_ses-Y_from-TemplateName_to-Subject_mode-image_xfm
+             t_name = tpl_path.name.replace('.nii.gz', '').replace('.nii', '')
+             
+             ents = dwi.entities.copy()
+             ents['suffix'] = 'xfm'
+             ents['from'] = 'Template' # Generic 'Template' or specific?
+             ents['to'] = 'Subject'
+             ents['mode'] = 'image'
+             if 'desc' in ents: del ents['desc']
+             
+             # Add desc to distinguish templates if needed, or rely on 'from'? 
+             # BIDS entity 'from' is custom-ish here unless we use 'desc'. 
+             # Let's use desc for template name if possible, or just filename uniqueness.
+             prefix_ents = ents.copy()
+             prefix_ents['desc'] = t_name 
+             
+             warp_prefix_name = build_bids_name(prefix_ents).replace('.nii.gz', '') + "_"
+             warp_out = transforms_dir / warp_prefix_name
+             
+             # Run Registration (Template -> Subject)
+             # Check if we should skip? 
+             # For now, just run. Wrapper usually overwrites or logic handles it.
+             self.logger.info(f"Registering {tpl_path.name} to Subject FA...")
+             
+             _, tx_forward = ants.registration(
+                fixed_file=target_img,
+                moving_file=tpl_path,
+                out_prefix=warp_out, 
+                transform_type='SyN',
+                nthreads=self.nthreads
              )
              
-             registered_atlases[name] = out_label
-             
-        # Populate context
+             # Apply to all atlases in this group
+             for name, label_path in atlases:
+                  label_path = Path(label_path)
+                  if not label_path.exists():
+                      self.logger.warning(f"Atlas {name} label file not found: {label_path}")
+                      continue
+                      
+                  self.logger.info(f"Warping {name} atlas to subject space...")
+                  
+                  # BIDS Naming: sub-XX_ses-XX_desc-<atlas-name>_dseg.nii.gz
+                  lbl_ents = dwi.entities.copy()
+                  lbl_ents['desc'] = name
+                  lbl_ents['suffix'] = 'dseg'
+                  
+                  out_label_name = build_bids_name(lbl_ents)
+                  if not out_label_name.endswith('.nii.gz'): out_label_name += '.nii.gz'
+                  
+                  out_label = atlas_out / out_label_name
+                  
+                  ants.apply_transforms(
+                     fixed_file=target_img,
+                     moving_file=label_path,
+                     transforms=tx_forward,
+                     out_file=out_label,
+                     interpolator='nearestNeighbor',
+                     nthreads=self.nthreads
+                  )
+                  
+                  registered_atlases[name] = out_label
+                  
+        # Populate context with ALL registered atlases
         context.setdefault('segmentations', {})['Atlases'] = registered_atlases
         
         return context
