@@ -101,11 +101,9 @@ class AtlasRegistrationStep(BaseProcessingStep):
         
         norm_cfg = self.config.get("normalization") or self.config.get("dmri", {}).get("normalization", {})
         template_img = norm_cfg.get("template")
+        # Global template is optional if atlases define their own.
         if not template_img:
-             # Default to standard MNI if not specified? 
-             # Or skip if we can't find one.
-             self.logger.warning("No template specified in config['normalization']['template']. Skipping Atlas step.")
-             return context
+             self.logger.debug("No global template specified. Atlases must define their own 'template'.")
              
         # Where are the atlas labels?
         # Usually in same dir as template or specified.
