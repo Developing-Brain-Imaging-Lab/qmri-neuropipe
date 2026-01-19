@@ -314,11 +314,27 @@ class StatsExtractionStep(BaseProcessingStep):
         """
         Load a label lookup table (LUT).
         Expects column with indices and column with names.
-        Supported formats: FreeSurfer (txt), CSV, TSV.
+        Supported formats: FSL XML (.xml), FreeSurfer (txt), CSV, TSV.
         """
         import pandas as pd
+        import xml.etree.ElementTree as ET
         lut = {}
         try:
+            # FSL XML Format
+            if lut_path.suffix.lower() == '.xml':
+                 try:
+                     tree = ET.parse(lut_path)
+                     root = tree.getroot()
+                     # FSL XML structure: <label index="0" x=".." y=".." z="..">LabelName</label>
+                     for label in root.iter('label'):
+                          if 'index' in label.attrib:
+                               idx = int(label.attrib['index'])
+                               name = label.text.strip()
+                               lut[idx] = name
+                     return lut
+                 except Exception as ex:
+                      self.logger.warning(f"Failed to parse XML LUT {lut_path}: {ex}")
+                      return {}
             # Fallback for FS LUT (whitespace separated, # comments)
             if lut_path.suffix == '.txt' or 'FreeSurfer' in lut_path.name:
                  # Custom parser for FS LUT: id name r g b a
