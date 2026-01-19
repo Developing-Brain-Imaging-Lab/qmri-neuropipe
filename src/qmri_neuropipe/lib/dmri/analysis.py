@@ -42,7 +42,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         dwi = context if not isinstance(context, dict) else context.get('current_image')
-        atlas_out = output_dir / "Atlases"
+        atlas_out = output_dir / "atlases"
         atlas_out.mkdir(parents=True, exist_ok=True)
         
         # 1. Identify Target Image (Subject Space)
@@ -173,7 +173,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
              
              # We need a stable place to run registration.
              # Use a generic 'transforms' cache folder for the raw registration output.
-             cache_dir = atlas_out / "transforms"
+             cache_dir = atlas_out / ".transforms_work"
              cache_dir.mkdir(exist_ok=True)
              
              t_name = tpl_path.name.replace('.nii.gz', '').replace('.nii', '')
@@ -254,6 +254,10 @@ class AtlasRegistrationStep(BaseProcessingStep):
                   )
                   
                   registered_atlases[name] = out_label
+             
+             # Clean up cache
+             if cache_dir.exists():
+                 shutil.rmtree(cache_dir, ignore_errors=True)
                   
         # Populate context with ALL registered atlases
         context.setdefault('segmentations', {})['Atlases'] = registered_atlases
