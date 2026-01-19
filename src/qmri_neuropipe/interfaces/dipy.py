@@ -1089,27 +1089,40 @@ def fit_dki(
     }
 
     for metric in metrics:
-        metric_suffix = metric.upper()
+        m_norm = metric.strip().lower()
+        metric_suffix = m_norm.upper()
+        
         # Create output path
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
         
-        if metric == 'mk':
+        saved = False
+        if m_norm == 'mk':
             nib.save(nib.Nifti1Image(dkifit.mk(), img.affine), str(out_path))
-        elif metric == 'ak':
+            saved = True
+        elif m_norm == 'ak':
             nib.save(nib.Nifti1Image(dkifit.ak(), img.affine), str(out_path))
-        elif metric == 'rk':
+            saved = True
+        elif m_norm == 'rk':
             nib.save(nib.Nifti1Image(dkifit.rk(), img.affine), str(out_path))
-        elif metric == 'fa':
+            saved = True
+        elif m_norm == 'fa':
             nib.save(nib.Nifti1Image(dkifit.fa, img.affine), str(out_path))
-        elif metric == 'md':
+            saved = True
+        elif m_norm == 'md':
             nib.save(nib.Nifti1Image(dkifit.md, img.affine), str(out_path))
-        elif metric == 'ad':
+            saved = True
+        elif m_norm == 'ad':
             nib.save(nib.Nifti1Image(dkifit.ad, img.affine), str(out_path))
-        elif metric == 'rd':
+            saved = True
+        elif m_norm == 'rd':
             nib.save(nib.Nifti1Image(dkifit.rd, img.affine), str(out_path))
+            saved = True
             
-        output_files[metric] = out_path
+        if saved:
+             output_files[m_norm] = out_path
+        else:
+             print(f"Warning: Unknown DKI metric requested: {metric}")
         
         # Save sidecar
         sidecar_path = str(out_path).replace('.nii.gz', '.json')
