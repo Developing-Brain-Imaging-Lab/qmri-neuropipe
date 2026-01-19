@@ -1839,6 +1839,7 @@ class DMRIPipeline(BasePipeline):
         return False
 
     def process_subject(self, subject: str, session: Optional[str]):
+        import shutil
         ses = f"ses-{session}" if session else ""
         subj_dir = (Path(self.config.get('bids_dir')) / f'sub-{subject}' / ses)
         anat_dir = (Path(subj_dir / 'anat'))
@@ -2086,10 +2087,8 @@ class DMRIPipeline(BasePipeline):
             )
     
             # 3a. COPY RAW DATA TO WORK DIRECTORY
-            raw_work_dir = subj_work_dir / "rawdata"
             raw_work_dir.mkdir(parents=True, exist_ok=True)
             
-            import shutil
             copied_dwi_files = []
             for d in dwi_files:
                 # Construct destination path
