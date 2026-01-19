@@ -1104,6 +1104,10 @@ def fit_dki(
             nib.save(nib.Nifti1Image(dkifit.fa, img.affine), str(out_path))
         elif metric == 'md':
             nib.save(nib.Nifti1Image(dkifit.md, img.affine), str(out_path))
+        elif metric == 'ad':
+            nib.save(nib.Nifti1Image(dkifit.ad, img.affine), str(out_path))
+        elif metric == 'rd':
+            nib.save(nib.Nifti1Image(dkifit.rd, img.affine), str(out_path))
             
         output_files[metric] = out_path
         

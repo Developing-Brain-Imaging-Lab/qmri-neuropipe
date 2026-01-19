@@ -169,10 +169,19 @@ class DTIFittingStep(BaseProcessingStep):
         # Track Outputs for Normalization
         # Collect paths matching pattern in model_out
         results = {}
-        for p in model_out.glob("*_FA.nii.gz"): results['FA'] = p
-        for p in model_out.glob("*_MD.nii.gz"): results['MD'] = p
-        for p in model_out.glob("*_AD.nii.gz"): results['AD'] = p
-        for p in model_out.glob("*_RD.nii.gz"): results['RD'] = p
+        # Collect paths matching pattern in model_out
+        results = {}
+        # Dynamic collection of all outputs
+        for p in model_out.glob("*.nii.gz"):
+             # Assuming BIDS: sub-XX_desc-XX_model-DTI_SUFFIX.nii.gz
+             name_part = p.name.replace('.nii.gz', '')
+             if '_' in name_part:
+                 suffix = name_part.split('_')[-1]
+                 # Handle special cases if any
+                 results[suffix] = p
+             else:
+                 # Fallback?
+                 results[name_part] = p
         
         context.setdefault('modeling_results', {})['DTI'] = results
         return context
@@ -242,7 +251,7 @@ class DKIFittingStep(BaseProcessingStep):
              fit_kwargs = self.kwargs.copy()
              
              # Robustly checking config for new options (dict or object)
-             opts = ['smoothing_fwhm', 'mean_signal', 'fit_method', 'weights_method', 'return_S0_hat']
+             opts = ['smoothing_fwhm', 'mean_signal', 'fit_method', 'weights_method', 'return_S0_hat', 'metrics']
              
              if isinstance(self.config, dict):
                  for k in opts:
