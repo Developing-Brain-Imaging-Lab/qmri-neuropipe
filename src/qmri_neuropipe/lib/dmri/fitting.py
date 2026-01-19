@@ -71,13 +71,17 @@ class DTIFittingStep(BaseProcessingStep):
         fa_path = model_out / build_bids_name(ents, suffix='FA')
         
         if fa_path.exists() and not force:
-             self.logger.info(f"Skipping DTI fit for {dwi.img.name} (Found existing outputs)")
              # Collect existing
              existing_results = {}
              for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
              for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
              for p in model_out.glob("*_AD.nii.gz"): existing_results['AD'] = p
              for p in model_out.glob("*_RD.nii.gz"): existing_results['RD'] = p
+             
+             self.logger.info(f"Skipping DTI fit for {dwi.img.name} (Found existing outputs). Loaded {len(existing_results)} maps.")
+             
+             if not existing_results:
+                 self.logger.warning(f"Found FA map {fa_path} but glob collection failed (0 maps found). Check naming conventions.")
              
              context.setdefault('modeling_results', {})['DTI'] = existing_results
              return context
@@ -185,30 +189,17 @@ class DKIFittingStep(BaseProcessingStep):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
 
-    def should_skip(self, context, output_dir):
-        dwi = context.get('current_image') if isinstance(context, dict) else context
-        if not dwi: return False
-        
-        force = self.config.get('force', False) or self.config.get('dmri', {}).get('force_run', False)
-        if force: return False
-        
-        model_out = output_dir / "DKI"
-        ents = dwi.entities.copy()
-        ents['model'] = 'DKI'
-        if 'desc' in ents: del ents['desc']
-        if 'suffix' in ents: del ents['suffix']
-        
-        mk_path = model_out / build_bids_name(ents, suffix='mk')
-        mk_path_upper = model_out / build_bids_name(ents, suffix='MK')
-        return mk_path.exists() or mk_path_upper.exists()
-
+    # Removed separate should_skip to ensure context is populated during skip logic in run()
+    
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
-        dwi = context if not isinstance(context, dict) else context.get('current_image')
+        # Resolve inputs
+        dwi = context.get('current_image') if isinstance(context, dict) else context
+        
+        # Output directory for this model
         model_out = output_dir / "DKI"
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        # Logic: Skip if output exists unless force is True
         force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
         
         ents = dwi.entities.copy()
@@ -216,22 +207,28 @@ class DKIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
-        mk_path = model_out / build_bids_name(ents, suffix='mk')
-        mk_path_upper = model_out / build_bids_name(ents, suffix='MK')
+        # Check for key output (MK or FA from DKI)
+        # DKI outputs typically: MK, AK, RK, FA, MD
+        mk_path = model_out / build_bids_name(ents, suffix='MK')
         
-        if (mk_path.exists() or mk_path_upper.exists()) and not force:
-             self.logger.info(f"Skipping DKI fit for {dwi.img.name} (Found existing outputs)")
-             # Collect
+        if mk_path.exists() and not force:
+             # Collect existing
              existing_results = {}
-             for p in model_out.glob("*_*.nii.gz"):
-                   # Heuristic: suffix is last part
-                   name_part = p.name.replace('.nii.gz', '')
-                   suffix = name_part.split('_')[-1]
-                   existing_results[suffix] = p
+             # Patterns: _MK, _AK, _RK, _FA, _MD ...
+             for suffix in ['MK', 'AK', 'RK', 'FA', 'MD', 'RD', 'AD']:
+                 # Search using glob to be safe or predict name
+                 # Safe glob:
+                 found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                 if found:
+                     existing_results[suffix] = found[0]
+                     
+             self.logger.info(f"Skipping DKI fit for {dwi.img.name} (Found existing outputs). Loaded {len(existing_results)} maps.")
              context.setdefault('modeling_results', {})['DKI'] = existing_results
              return context
-        
+
         self.logger.info(f"Running DKI fit ({self.method}) on {dwi.img.name}")
+        
+
         
         # Prepare mask
         if mask and hasattr(mask, 'img'):

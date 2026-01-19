@@ -66,7 +66,8 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # For now, we will look for FSLDIR.
         # Ideally, user config 'normalization.template' provides the template.
         
-        template_img = self.config.get("normalization", {}).get("template")
+        norm_cfg = self.config.get("normalization") or self.config.get("dmri", {}).get("normalization", {})
+        template_img = norm_cfg.get("template")
         if not template_img:
              # Default to standard MNI if not specified? 
              # Or skip if we can't find one.

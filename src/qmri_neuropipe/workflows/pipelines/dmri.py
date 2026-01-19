@@ -1086,7 +1086,9 @@ class ModelingWorkflow(BaseWorkflow):
         # Reset steps to prevent accumulation across subjects
         self.steps = []
         
-        modeling_cfg = self.config.get('dmri', {}).get('modeling', {})
+        modeling_cfg = self.config.get('dmri', {}).get('modeling') or {}
+        self.logger.info(f"Modeling Config keys: {list(modeling_cfg.keys())}")
+        self.logger.info(f"DTI Config: {modeling_cfg.get('dti')}")
         
         # 1. DTI
         # Dependency Check: Auto-enable CSD if TractSeg is requested
