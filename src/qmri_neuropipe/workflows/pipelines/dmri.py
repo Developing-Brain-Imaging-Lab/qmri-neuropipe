@@ -2521,7 +2521,7 @@ class DMRIPipeline(BasePipeline):
                       dmri_outputs["Normalized Derivatives"].append({"key": key_name, "path": str(f)})
             
             # 5. Atlas Outputs (Scanning)
-            atlas_dir = output_dir / "Atlases"
+            atlas_dir = output_dir / "atlases"
             if atlas_dir.exists():
                  dmri_outputs.setdefault("Analysis", [])
                  for f in atlas_dir.rglob("*.nii.gz"):
@@ -2539,16 +2539,14 @@ class DMRIPipeline(BasePipeline):
                       key_name = f"{atlas_name} {suffix}"
                       dmri_outputs["Analysis"].append({"key": key_name, "path": str(f)})
                  
-                 # Also check Statistics CSVs
-                 stats_dir = atlas_dir / "Statistics" # Actually Analysis step writes 'Statistics' under output_dir?
-                 # StatsExtractionStep writes to `output_dir / "Statistics"`.
-                 # We should check that too.
-            
-            stats_out = output_dir / "Statistics"
+            stats_out = output_dir / "statistics"
             if stats_out.exists():
                 dmri_outputs.setdefault("Statistics", [])
-                for f in stats_out.glob("*.csv"):
-                    dmri_outputs["Statistics"].append({"key": f.name, "path": str(f)})
+                for f in stats_out.glob("*.tsv"):
+                     dmri_outputs["Statistics"].append({"key": f.stem, "path": str(f)})
+                for f in stats_out.glob("*.csv"): # Backup/Compat
+                     dmri_outputs["Statistics"].append({"key": f.stem, "path": str(f)})
+
             
             # 6. Add to Reporter and Generate
             if reporter:

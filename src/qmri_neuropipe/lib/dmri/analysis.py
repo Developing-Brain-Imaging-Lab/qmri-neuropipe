@@ -153,9 +153,10 @@ class AtlasRegistrationStep(BaseProcessingStep):
              
         # 3. Registration (Template -> Subject)
         
-        # Warp Output Directory
-        transforms_dir = atlas_out / "transforms"
-        transforms_dir.mkdir(exist_ok=True)
+        # We need to handle warps.
+        # User requested: atlases/{AtlasName}/transforms/
+        # Since we group by template, we register once per template.
+        # We can store the warp in a temporary/shared location and then copy/link to each atlas folder.
         
         registered_atlases = {}
         
@@ -168,38 +169,45 @@ class AtlasRegistrationStep(BaseProcessingStep):
                  
              self.logger.info(f"Processing Template group: {tpl_path.name} ({len(atlases)} atlases)")
              
-             # Define Warp Prefix based on Template Name
-             # We try to be unique: sub-X_ses-Y_from-TemplateName_to-Subject_mode-image_xfm
+             # Run Registration (Template -> Subject) ONCE
+             
+             # We need a stable place to run registration.
+             # Use a generic 'transforms' cache folder for the raw registration output.
+             cache_dir = atlas_out / "transforms"
+             cache_dir.mkdir(exist_ok=True)
+             
              t_name = tpl_path.name.replace('.nii.gz', '').replace('.nii', '')
              
              ents = dwi.entities.copy()
              ents['suffix'] = 'xfm'
-             ents['from'] = 'Template' # Generic 'Template' or specific?
+             ents['from'] = 'Template' 
              ents['to'] = 'Subject'
              ents['mode'] = 'image'
              if 'desc' in ents: del ents['desc']
              
-             # Add desc to distinguish templates if needed, or rely on 'from'? 
-             # BIDS entity 'from' is custom-ish here unless we use 'desc'. 
-             # Let's use desc for template name if possible, or just filename uniqueness.
              prefix_ents = ents.copy()
              prefix_ents['desc'] = t_name 
              
              warp_prefix_name = build_bids_name(prefix_ents).replace('.nii.gz', '') + "_"
-             warp_out = transforms_dir / warp_prefix_name
+             warp_cache_prefix = cache_dir / warp_prefix_name
              
-             # Run Registration (Template -> Subject)
-             # Check if we should skip? 
-             # For now, just run. Wrapper usually overwrites or logic handles it.
              self.logger.info(f"Registering {tpl_path.name} to Subject FA...")
              
              _, tx_forward = ants.registration(
                 fixed_file=target_img,
                 moving_file=tpl_path,
-                out_prefix=warp_out, 
+                out_prefix=warp_cache_prefix, 
                 transform_type='SyN',
                 nthreads=self.nthreads
              )
+             
+             # Fix 'Ensure Dir' artifact (empty folder named as prefix)
+             # ants.registration wrapper calls ensure_dir(out_prefix).
+             artifact_dir = Path(str(warp_cache_prefix))
+             if artifact_dir.exists() and artifact_dir.is_dir():
+                 try:
+                     artifact_dir.rmdir()
+                 except: pass
              
              # Apply to all atlases in this group
              for name, label_path in atlases:
@@ -208,6 +216,22 @@ class AtlasRegistrationStep(BaseProcessingStep):
                       self.logger.warning(f"Atlas {name} label file not found: {label_path}")
                       continue
                       
+                  # Create Atlas Directory: atlases/{Name}
+                  atlas_subdir = atlas_out / name
+                  atlas_subdir.mkdir(parents=True, exist_ok=True)
+                  
+                  # Create Transforms Directory: atlases/{Name}/transforms
+                  atlas_tx_dir = atlas_subdir / "transforms"
+                  atlas_tx_dir.mkdir(exist_ok=True)
+                  
+                  # Copy Warps to Atlas Transforms Dir
+                  final_tx_forward = []
+                  for tx in tx_forward:
+                      tx_p = Path(tx)
+                      dest = atlas_tx_dir / tx_p.name
+                      shutil.copy2(tx_p, dest)
+                      final_tx_forward.append(str(dest))
+                  
                   self.logger.info(f"Warping {name} atlas to subject space...")
                   
                   # BIDS Naming: sub-XX_ses-XX_desc-<atlas-name>_dseg.nii.gz
@@ -218,12 +242,12 @@ class AtlasRegistrationStep(BaseProcessingStep):
                   out_label_name = build_bids_name(lbl_ents)
                   if not out_label_name.endswith('.nii.gz'): out_label_name += '.nii.gz'
                   
-                  out_label = atlas_out / out_label_name
+                  out_label = atlas_subdir / out_label_name
                   
                   ants.apply_transforms(
                      fixed_file=target_img,
                      moving_file=label_path,
-                     transforms=tx_forward,
+                     transforms=final_tx_forward,
                      out_file=out_label,
                      interpolator='nearestNeighbor',
                      nthreads=self.nthreads
@@ -245,7 +269,7 @@ class StatsExtractionStep(BaseProcessingStep):
     - Modeling Results (DTI, NODDI, etc.) -> Metric Maps (FA, MD, ODI...)
     - Segmentations (TractSeg bundles, PyAFQ bundles, Atlas labels)
     
-    Outputs CSV files.
+    Outputs TSV files.
     """
     def __init__(self, config, logger, provenance, nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
@@ -255,202 +279,206 @@ class StatsExtractionStep(BaseProcessingStep):
         elif isinstance(self.config, dict):
              self.nthreads = self.config.get('n_cpus', nthreads)
         self.kwargs = kwargs
-
-    def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
-        out_stats = output_dir / "Statistics"
-        out_stats.mkdir(parents=True, exist_ok=True)
         
-        dwi = context.get('current_image') if isinstance(context, dict) else None
-        subject_id = dwi.entities.get('sub', 'unknown') if dwi else 'unknown'
+    def _load_lut(self, lut_path: Path):
+        """
+        Load a label lookup table (LUT).
+        Expects column with indices and column with names.
+        Supported formats: FreeSurfer (txt), CSV, TSV.
+        """
+        import pandas as pd
+        lut = {}
+        try:
+            # Fallback for FS LUT (whitespace separated, # comments)
+            if lut_path.suffix == '.txt' or 'FreeSurfer' in lut_path.name:
+                 # Custom parser for FS LUT: id name r g b a
+                 with open(lut_path, 'r') as f:
+                     for line in f:
+                         line = line.strip()
+                         if not line or line.startswith('#'): continue
+                         parts = line.split()
+                         if len(parts) >= 2:
+                             try:
+                                 idx = int(parts[0])
+                                 name = parts[1]
+                                 lut[idx] = name
+                             except: pass
+                 return lut
+            
+            # Use pandas for CSV/TSV
+            df = pd.read_csv(lut_path, sep=None, engine='python')
+            # Look for suitable columns
+            cols = df.columns.astype(str).str.lower()
+            
+            idx_col = None
+            name_col = None
+            
+            for c in df.columns:
+                cl = str(c).lower()
+                if any(x in cl for x in ['index', 'id', 'label_id', 'roi_id']):
+                    idx_col = c
+                if any(x in cl for x in ['name', 'label', 'roi_name', 'structure']):
+                    name_col = c
+                    
+            if idx_col and name_col:
+                for _, row in df.iterrows():
+                     lut[int(row[idx_col])] = str(row[name_col])
+            else:
+                self.logger.warning(f"Could not identify ID/Name columns in LUT {lut_path}. Columns: {df.columns}")
+        except Exception as e:
+            self.logger.warning(f"Failed to load LUT {lut_path}: {e}")
+            
+        return lut
+    
+    def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs):
+        """
+        Run statistics extraction.
+        """
+        import pandas as pd
+        import numpy as np
+        import nibabel as nib
+        from scipy.ndimage import label, mean, median, standard_deviation
         
+        output_dir = Path(output_dir)
+        dwi = context.get('current_image')
+        
+        # Lowercase directory logic: 'statistics'
+        output_dir = output_dir / "statistics"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load LUTs
+        analysis_cfg = self.config.get("dmri", {}).get("analysis", {})
+        if not analysis_cfg:
+             analysis_cfg = self.config.get("dmri", {}).get("modeling", {}).get("analysis", {})
+             
+        lut_map = {}
+        atlases_cfg = analysis_cfg.get("atlases", {})
+        for name, cfg in atlases_cfg.items():
+             if isinstance(cfg, dict) and cfg.get('lut'):
+                 lut_map[name] = self._load_lut(Path(cfg['lut']))
+                 
         # 1. Gather Metrics
         # structure: context['modeling_results'][ModelName][MetricName] = Path
         all_models = context.get('modeling_results', {})
-        
         if not all_models:
              self.logger.warning("No modeling results found. Skipping statistics extraction.")
              return context
-             
-        # 2. Gather Segmentations
-        # structure: context['segmentations'][MethodName] = Path (dir or file) or Dict
-        all_segs = context.get('segmentations', {})
-        
-        if not all_segs:
-             self.logger.warning("No segmentations found. Skipping statistics extraction.")
-             return context
-             
-        # 3. Iterate and Compute
-        
-        # We process each Segmentation Source separately (different CSV per source usually cleaner)
-        
-        for seg_source, seg_data in all_segs.items():
-            self.logger.info(f"Extracting statistics for segmentation source: {seg_source}")
-            
-            # Identify ROIs
-            # TractSeg: seg_data is directory with binary masks
-            # PyAFQ: seg_data is directory?
-            # Atlases: seg_data is Dict[AtlasName: Path]
-            
-            rois = {} # name -> path
-            
-            if seg_source == 'TractSeg':
-                 # Directory of masks
-                 seg_dir = Path(seg_data)
-                 if seg_dir.is_dir():
-                     for p in seg_dir.glob("*.nii.gz"):
-                         # Name is filename without ext
-                         name = p.name.replace('.nii.gz', '')
-                         rois[name] = p
-            elif seg_source == 'Atlases':
-                 # Dict of AtlasName -> LabelMap
-                 # Note: LabelMap has multiple integer labels. We need to split them?
-                 # Or compute stats per label ID.
-                 # For simplicity, let's treat each Atlas as a container of ROIs.
-                 # We might handle multi-label maps differently.
-                 pass 
-                 
-            elif seg_source == 'PyAFQ':
-                 # Attempt to find NIfTI bundle masks in the output directory
-                 # Standard structure might contain a 'bundles' subfolder
-                 afq_dir = Path(seg_data)
-                 # Recursively search for bundle masks provided they are nifti
-                 # Common naming: 'CST_L.nii.gz' inside 'bundles'
-                 potential_masks = list(afq_dir.glob("**/bundles/*.nii.gz"))
-                 if not potential_masks:
-                     potential_masks = list(afq_dir.glob("**/*_mask.nii.gz"))
-                     
-                 for p in potential_masks:
-                     name = p.name.replace('.nii.gz', '').replace('_mask', '')
-                     rois[name] = p
-            
-            if not rois and seg_source != 'Atlases':
-                 self.logger.warning(f"No ROI masks found for {seg_source}")
-                 continue
-                 
-            # --- Processing Loop ---
-            
-            # Initialize Data Structure for CSV
-            # Columns: Subject, Segmentation, Model, Metric, ROI, Mean, Median, StdDev
-            
-            csv_rows = []
-            
-            # A. Single-File Masks (TractSeg)
-            if rois:
-                for roi_name, roi_path in rois.items():
-                    # Load mask once
-                    try:
-                        mask_img = nib.load(str(roi_path))
-                        mask_data = mask_img.get_fdata() > 0.5 # Binary
-                    except Exception as e:
-                        self.logger.error(f"Failed to load ROI {roi_name}: {e}")
-                        continue
-                        
-                    if np.sum(mask_data) == 0:
-                        continue
-                        
-                    for model_name, metrics in all_models.items():
-                        for metric_name, metric_path in metrics.items():
-                             # Load Metric
-                             try:
-                                 met_img = nib.load(str(metric_path))
-                                 met_data = met_img.get_fdata()
-                             except Exception as e:
-                                 self.logger.error(f"Failed to load metric {metric_path}: {e}")
-                                 continue
-                             
-                             # Extract values
-                             # Ensure dimensions match
-                             if met_data.shape != mask_data.shape:
-                                  # Resample? Or Skip? 
-                                  # If in same space, should match. TractSeg outputs in DWI space.
-                                  self.logger.warning(f"Shape mismatch: {roi_name} {mask_data.shape} vs {metric_name} {met_data.shape}")
-                                  continue
-                                  
-                             values = met_data[mask_data]
-                             # Remove NaNs/Infs
-                             values = values[np.isfinite(values)]
-                             
-                             if values.size == 0:
-                                  continue
-                                  
-                             row = {
-                                 "Subject": subject_id,
-                                 "SegmentationSource": seg_source,
-                                 "ROI": roi_name,
-                                 "Model": model_name,
-                                 "Metric": metric_name,
-                                 "Mean": np.mean(values),
-                                 "Median": np.median(values),
-                                 "StdDev": np.std(values),
-                                 "Min": np.min(values),
-                                 "Max": np.max(values),
-                                 "VoxelCount": values.size
-                             }
-                             csv_rows.append(row)
 
-            # B. Multi-Label Atlases
-            if seg_source == 'Atlases':
-                 for atlas_name, label_path in seg_data.items():
-                     try:
-                         label_img = nib.load(str(label_path))
-                         label_vol = label_img.get_fdata().astype(int)
-                     except Exception as e:
-                         self.logger.error(f"Failed to load Atlas {atlas_name}: {e}")
-                         continue
-                         
-                     # Unique labels
-                     unique_labels = np.unique(label_vol)
-                     unique_labels = unique_labels[unique_labels > 0] # Skip background
-                     
-                     for lbl in unique_labels:
-                         mask_data = (label_vol == lbl)
-                         roi_name = f"{atlas_name}_Label_{lbl}"
-                         
-                         # Iterate Models/Metrics
-                         for model_name, metrics in all_models.items():
-                            for metric_name, metric_path in metrics.items():
-                                 try:
-                                     met_img = nib.load(str(metric_path))
-                                     met_data = met_img.get_fdata()
-                                 except Exception: continue
-                                 
-                                 if met_data.shape != mask_data.shape: continue
-                                 
-                                 values = met_data[mask_data]
-                                 values = values[np.isfinite(values)]
-                                 
-                                 if values.size == 0: continue
-                                 
-                                 row = {
-                                     "Subject": subject_id,
-                                     "SegmentationSource": seg_source,
-                                     "ROI": roi_name,
-                                     "Model": model_name,
-                                     "Metric": metric_name,
-                                     "Mean": np.mean(values),
-                                     "Median": np.median(values),
-                                     "StdDev": np.std(values),
-                                     "Min": np.min(values),
-                                     "Max": np.max(values),
-                                     "VoxelCount": values.size
-                                 }
-                                 csv_rows.append(row)
-            
-            # Save CSV for this Source
-            if csv_rows:
-                csv_path = out_stats / f"sub-{subject_id}_{seg_source}_stats.csv"
-                keys = csv_rows[0].keys()
+        # Load all metrics once into memory (map name -> data)
+        loaded_maps = {}
+        for model_name, metrics in all_models.items():
+            for metric_name, metric_path in metrics.items():
+                if not Path(metric_path).exists(): continue
                 try:
-                    with open(csv_path, 'w', newline='') as f:
-                        writer = csv.DictWriter(f, fieldnames=keys)
-                        writer.writeheader()
-                        writer.writerows(csv_rows)
-                    self.logger.info(f"Saved stats to {csv_path}")
-                    
-                    # Store path in context
-                    context.setdefault('statistics', {})[seg_source] = csv_path
+                    img = nib.load(str(metric_path))
+                    data = img.get_fdata()
+                    loaded_maps[f"{model_name}_{metric_name}"] = (img, data)
                 except Exception as e:
-                    self.logger.error(f"Failed to write CSV: {e}")
-                    
-        return context
+                    self.logger.warning(f"Failed to load metric {metric_path}: {e}")
 
+        # 2. Iterate Segmentations
+        segmentations = context.get('segmentations', {})
+        # Flatten: {'Atlases': {'JHU': path}, 'TractSeg': {'Bundle': path}}
+        
+        for seg_type, seg_dict in segmentations.items():
+             
+             # Per-segmentation-source CSV
+             # We group by source name inside seg_dict if possible?
+             # Actually 'Atlases' dict keys are 'JHU', etc.
+             # 'TractSeg' dict keys are 'BundleName'.
+             # Strategy: 
+             # If seg_type == 'Atlases', iterate each Atlas -> One CSV per Atlas.
+             # If seg_type != 'Atlases' (e.g. TractSeg), iterate all ROIs -> One CSV for 'TractSeg'.
+             
+             if seg_type == 'Atlases':
+                 # Treat each Atlas separately
+                 for atlas_name, atlas_path in seg_dict.items():
+                      if not Path(atlas_path).exists(): continue
+                      
+                      self.logger.info(f"Extracting stats for Atlas: {atlas_name}")
+                      
+                      lut = lut_map.get(atlas_name, {})
+                      
+                      try:
+                          seg_img = nib.load(str(atlas_path))
+                          seg_data = seg_img.get_fdata().astype(int)
+                      except Exception as e:
+                          self.logger.error(f"Failed to load atlas {atlas_name}: {e}")
+                          continue
+                          
+                      rois = np.unique(seg_data)
+                      rois = rois[rois > 0]
+                      
+                      seg_stats = []
+                      for roi_idx in rois:
+                           roi_mask = (seg_data == roi_idx)
+                           roi_name = lut.get(int(roi_idx), f"Label_{roi_idx}")
+                           
+                           for metric_key, (m_img, m_data) in loaded_maps.items():
+                                if m_data.shape != seg_data.shape: continue
+                                vals = m_data[roi_mask]
+                                vals = vals[np.isfinite(vals)]
+                                if vals.size == 0: continue
+                                
+                                stat = {
+                                    "roi_id": roi_idx,
+                                    "roi_name": roi_name,
+                                    "metric": metric_key,
+                                    "mean": np.mean(vals),
+                                    "median": np.median(vals),
+                                    "std": np.std(vals),
+                                    "count": vals.size
+                                }
+                                seg_stats.append(stat)
+                      
+                      if seg_stats:
+                          df = pd.DataFrame(seg_stats)
+                          ents = dwi.entities.copy()
+                          ents['desc'] = atlas_name
+                          ents['suffix'] = 'stats'
+                          fname = build_bids_name(ents) + ".tsv"
+                          df.to_csv(output_dir / fname, sep='\t', index=False)
+                          context.setdefault('segmentation_stats', []).append(output_dir / fname)
+
+             else:
+                 # Binary Masks (TractSeg, etc.)
+                 # Treat 'seg_type' as the source name (e.g. 'TractSeg')
+                 self.logger.info(f"Extracting stats for: {seg_type}")
+                 
+                 seg_stats = []
+                 for roi_name, roi_path in seg_dict.items():
+                      if not Path(roi_path).exists(): continue
+                      
+                      try:
+                          mask_img = nib.load(str(roi_path))
+                          mask_data = mask_img.get_fdata() > 0.5
+                      except: continue
+                      
+                      if np.sum(mask_data) == 0: continue
+                      
+                      for metric_key, (m_img, m_data) in loaded_maps.items():
+                           if m_data.shape != mask_data.shape: continue
+                           vals = m_data[mask_data]
+                           vals = vals[np.isfinite(vals)]
+                           if vals.size == 0: continue
+                           
+                           stat = {
+                               "roi_name": roi_name,
+                               "metric": metric_key,
+                               "mean": np.mean(vals),
+                               "median": np.median(vals),
+                               "std": np.std(vals),
+                               "count": vals.size
+                           }
+                           seg_stats.append(stat)
+                           
+                 if seg_stats:
+                      df = pd.DataFrame(seg_stats)
+                      ents = dwi.entities.copy()
+                      ents['desc'] = seg_type
+                      ents['suffix'] = 'stats'
+                      fname = build_bids_name(ents) + ".tsv"
+                      df.to_csv(output_dir / fname, sep='\t', index=False)
+                      context.setdefault('segmentation_stats', []).append(output_dir / fname)
+                      
+        return context
