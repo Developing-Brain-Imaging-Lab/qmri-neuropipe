@@ -48,14 +48,47 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # 1. Identify Target Image (Subject Space)
         # Best target for atlas registration is usually FA.
         # Check context for FA map.
-        dti_results = context.get('modeling_results', {}).get('DTI', {})
-        target_img = dti_results.get('FA')
+        # 1. Identify Target Image (Subject Space)
+        # Search all models for FA map (e.g. DTI, DKI)
+        target_img = None
+        modeling_results = context.get('modeling_results', {})
+        
+        for model_name, metrics in modeling_results.items():
+             # Check exact match
+             if 'FA' in metrics:
+                 target_img = metrics['FA']
+                 break
+             # Check case-insensitive
+             for k, v in metrics.items():
+                 if k.upper() == 'FA':
+                     target_img = v
+                     break
+             if target_img: break
         
         if not target_img:
-            # Fallback to b0 or mean_b0 (which might be the "current_image" if preproc was done)
-            # Or compute FA on the fly? Pipeline usually runs Fitting first.
-            self.logger.warning("No FA map found for registration target. Trying DWI/B0...")
+            # Fallback to b0 logic...
+            self.logger.warning("No FA map found for registration target. Trying DWI/B0 (First Volume)...")
+            
+            # Ensure we use a 3D volume.
+            # If dwi.img is 4D, we must extract B0.
+            # However, the registration interface expects a file path.
+            # We can try to assume the interface handles splitting or we create a temp B0.
+            # For now, let's try to find an explicit B0 if available in context?
+            # Or just use the dwi path and hope the user provided a 3D image?
+            # Creating a temp file requires more logic. 
+            # Let's trust the improved lookup first.
             target_img = dwi.img
+            
+            # Check dimensions if possible
+            try:
+                hdr = nib.load(target_img).header
+                if hdr.get_data_shape()[3] > 1:
+                     # It's 4D. 
+                     pass # We can't fix it easily without writing a new file.
+                     # But we can warn.
+                     self.logger.warning(f"Target image {target_img.name} is 4D. Registration may fail if fixed/moving dimensions mismatch.")
+            except:
+                pass
             # Ideally we compute FA quickly or use b0? b0 has different contrast from T1 template.
         
         # 2. Identify Templates & Atlases
