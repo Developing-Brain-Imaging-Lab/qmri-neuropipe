@@ -22,7 +22,9 @@ class ReconAllStep(BaseProcessingStep):
         anat_cfg = config.get("anat", {}).get("preprocessing", {})
         self.recon_config = anat_cfg.get("recon_all", {})
         self.enabled = self.recon_config.get("enabled", False)
-        self.args = self.recon_config.get("args", "-all")
+        base_args = self.recon_config.get("args", "-all")
+        extra_args = self.recon_config.get("extra_args", "")
+        self.args = f"{base_args} {extra_args}".strip()
         
         # Check global use_freesurfer flag (or nested in generic options)
         # Checking: anat.use_freesurfer OR anat.preprocessing.use_freesurfer

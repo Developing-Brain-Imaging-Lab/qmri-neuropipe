@@ -801,60 +801,64 @@ def fit_dti(
 
     # Fit
     try:
-        if grad_nonlin:
-             # GNL Correction Voxel-wise Fit
-             
-             # Prepare model kwargs
-             model_kwargs = {
-                 'fit_method': fit_method
-             }
-             if fit_method != 'RESTORE':
-                 model_kwargs['return_leverages'] = True
-             else:
-                 model_kwargs['sigma'] = None # or None
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            
+            if grad_nonlin:
+                 # GNL Correction Voxel-wise Fit
                  
-             vol_params = _execute_gnl_fit(
-                data=data,
-                mask=mask,
-                gnl_map_path=grad_nonlin,
-                bvals=bvals,
-                bvecs=bvecs,
-                model_class=dipy_dti.TensorModel,
-                model_kwargs=model_kwargs,
-                nthreads=nthreads,
-                big_delta=big_delta,
-                small_delta=small_delta
-             )
-             
-             dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
-
-        elif nthreads > 1:
-            # Parallel Fit using Unified Driver
-            worker_kwargs = kwargs.copy()
-            worker_kwargs['fit_method'] = fit_method
-            
-            if fit_method != 'RESTORE' and 'return_leverages' not in worker_kwargs:
-                 worker_kwargs['return_leverages'] = True
+                 # Prepare model kwargs
+                 model_kwargs = {
+                     'fit_method': fit_method
+                 }
+                 if fit_method != 'RESTORE':
+                     model_kwargs['return_leverages'] = True
+                 else:
+                     model_kwargs['sigma'] = None # or None
+                     
+                 vol_params = _execute_gnl_fit(
+                    data=data,
+                    mask=mask,
+                    gnl_map_path=grad_nonlin,
+                    bvals=bvals,
+                    bvecs=bvecs,
+                    model_class=dipy_dti.TensorModel,
+                    model_kwargs=model_kwargs,
+                    nthreads=nthreads,
+                    big_delta=big_delta,
+                    small_delta=small_delta
+                 )
                  
-            vol_params = _parallel_fit_driver(
-                data, 
-                mask, 
-                gtab, 
-                _dti_worker, 
-                nthreads, 
-                worker_kwargs=worker_kwargs
-            )
-            
-            dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
+                 dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
+    
+            elif nthreads > 1:
+                # Parallel Fit using Unified Driver
+                worker_kwargs = kwargs.copy()
+                worker_kwargs['fit_method'] = fit_method
+                
+                if fit_method != 'RESTORE' and 'return_leverages' not in worker_kwargs:
+                     worker_kwargs['return_leverages'] = True
+                     
+                vol_params = _parallel_fit_driver(
+                    data, 
+                    mask, 
+                    gtab, 
+                    _dti_worker, 
+                    nthreads, 
+                    worker_kwargs=worker_kwargs
+                )
+                
+                dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
+    
+            else:
+                 dti_fit = dti_model.fit(data, mask=mask)
 
-        else:
-            # Serial Fit
-            dti_fit = dti_model.fit(data, mask=mask)
-            
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise RuntimeError(f"DTI fitting failed (method={fit_method}): {e}") from e
+        raise RuntimeError(f"DTI fitting failed: {e}") from e
+
     
     # Save Outputs
     output_files = {}
@@ -1119,7 +1123,7 @@ def fit_mapmri(
     laplacian: bool = True,
     positivity: bool = True,
     global_constraints: bool = False,
-    metrics: list[str] = ["rtop", "rtap", "rtpp", "qiv", "msd"],
+    metrics: list[str] = ["rtop", "rtap", "rtpp", "qiv", "msd", "ng"],
     nthreads: int = 1,
     Delta_file: Optional[Path] = None,
     delta_file: Optional[Path] = None,
@@ -1190,6 +1194,10 @@ def fit_mapmri(
         
         if grad_nonlin:
              print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
+             
+             # Prepare worker kwargs (exclude metrics/gnl if present)
+             worker_kwargs = {k:v for k,v in map_kwargs.items() if k != 'metrics' and k != 'grad_nonlin'}
+             
              final_data = _execute_gnl_fit(
                 data=data,
                 mask=mask,
@@ -1197,15 +1205,16 @@ def fit_mapmri(
                 bvals=bvals,
                 bvecs=bvecs,
                 model_class=mapmri.MapmriModel,
-                model_kwargs=map_kwargs,
+                model_kwargs=worker_kwargs,
                 nthreads=nthreads,
                 big_delta=big_delta,
                 small_delta=small_delta
              )
+             # final_data is coefficients (params) for GNL
              
         elif nthreads > 1:
              # Parallel
-             worker_kwargs = map_kwargs.copy()
+             worker_kwargs = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
              final_data = _parallel_fit_driver(
                 data,
                 mask,
@@ -1216,21 +1225,20 @@ def fit_mapmri(
              )
              
         else:
-             # Serial - Use worker logic for consistency or just direct loop?
-             # Direct fit allows using MapmriFit if we trust it works for single thread?
-             # But serial fit usually returns MapmriFit object.
-             # However, to unify output handling (metrics array), let's use the single-thread driver or manual loop.
-             # Or just allow regular fit and extract metrics here.
-             map_model = mapmri.MapmriModel(gtab, **map_kwargs)
-             # map_kwargs has 'metrics' inside which Model doesn't accept? 
-             # We should pop it if using direct model init.
+             # Serial
+             # map_kwargs has 'metrics' inside which Model doesn't accept
              mk = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
              map_model = mapmri.MapmriModel(gtab, **mk)
              mapfit = map_model.fit(data, mask=mask)
-             
-             # Extract manually to match structure
-             # final_data will be dict {metric: volume}
-             
+             final_data = None # Indicator for serial object
+
+        # Reconstruct MapmriFit for Parallel/GNL cases
+        # We need the model instance for this
+        if final_data is not None:
+            mk = {k:v for k,v in map_kwargs.items() if k != 'metrics' and k != 'grad_nonlin'}
+            map_model = mapmri.MapmriModel(gtab, **mk)
+            mapfit = mapmri.MapmriFit(map_model, final_data)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1254,38 +1262,25 @@ def fit_mapmri(
         "Metrics": metrics
     }
     
-    # Handling Serial vs Parallel/GNL output
-    # Parallel/GNL returns numpy array (X,Y,Z, N_metrics)
-    # Serial returns MapmriFit object
-    
-    is_array = isinstance(final_data, np.ndarray)
+    # Handling Outputs
+    # We now have a consistent mapfit object (either from serial fit or reconstructed from headers/coeffs)
     
     for i, metric in enumerate(metrics):
+        metric_lower = metric.lower()
         metric_suffix = metric.upper()
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
         
         val = None
-        if is_array:
-            # final_data is (X,Y,Z, n_metrics)
-            # Assuming encoded order matches 'metrics' list
-            if final_data.ndim == 4:
-                val = final_data[..., i]
-            else:
-                # Should be 4D if metrics > 1, or 3D if 1?
-                # _parallel_fit_driver returns 4D if worker returns array.
-                # If only 1 metric, might be 3D.
-                if len(metrics) == 1:
-                     val = final_data
-                else:
-                     val = final_data[..., i]
-        else:
-            # Serial Fit Object
-            if metric == 'rtop': val = mapfit.rtop()
-            elif metric == 'rtap': val = mapfit.rtap()
-            elif metric == 'rtpp': val = mapfit.rtpp()
-            elif metric == 'qiv': val = mapfit.qiv()
-            elif metric == 'msd': val = mapfit.msd()
+        # Using MapmriFit object methods
+        if metric_lower == 'rtop': val = mapfit.rtop()
+        elif metric_lower == 'rtap': val = mapfit.rtap()
+        elif metric_lower == 'rtpp': val = mapfit.rtpp()
+        elif metric_lower == 'qiv': val = mapfit.qiv()
+        elif metric_lower == 'msd': val = mapfit.msd()
+        elif metric_lower == 'ng': val = mapfit.ng()
+        elif metric_lower == 'ng_par': val = mapfit.ng_parallel()
+        elif metric_lower == 'ng_perp': val = mapfit.ng_perpendicular()
         
         if val is not None:
              nib.save(nib.Nifti1Image(val, img.affine), str(out_path))

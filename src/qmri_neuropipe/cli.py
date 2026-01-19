@@ -14,16 +14,16 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from qmri_neuropipe.core import PipelineConfig
 from qmri_neuropipe.core.exceptions import ConfigurationError
+from qmri_neuropipe.core.ui import console
 from qmri_neuropipe.io import DataLoader
 
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
-console = Console()
+
 
 
 
@@ -545,7 +545,7 @@ def main(
                        futures[f] = (sub, ses)
 
                   # Monitor
-                  with Progress() as progress:
+                  with Progress(console=console) as progress:
                        task_p = progress.add_task("[green]Processing...", total=len(tasks))
                        
                        for f in concurrent.futures.as_completed(futures):
