@@ -382,9 +382,12 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     # params will be (N, 1, 1, 7) -> squeeze to (N, 7)
     return fit.model_params.squeeze()
 
-def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
     import dipy.reconst.msdki as dipy_msdki
+    import warnings
+    
+    # Suppress RuntimeWarnings
+    warnings.simplefilter("ignore", RuntimeWarning)
     
     # Check for MSDKI
     use_msdki = kwargs.pop('use_msdki', False)
@@ -464,6 +467,10 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     """
     from dipy.core.gradients import gradient_table
     import numpy as np
+    import warnings
+    
+    # Suppress RuntimeWarnings (e.g. overflow in exp) common in DKI fits on noisy data
+    warnings.simplefilter("ignore", RuntimeWarning)
 
     # Unpack kwargs
     gnl_chunk = kwargs['gnl_chunk'] # (N, ...)
