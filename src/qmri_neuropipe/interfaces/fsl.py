@@ -487,6 +487,9 @@ def eddy(
     if not mask:
         mask = out_p.with_name("tmp_mask.nii.gz")
         bet(in_file=in_file, out_file=mask)
+        # Apply dilation to temporary mask
+        if _which("fslmaths"):
+             maths(mask, mask, args="-dilM -dilM -dilM -bin")
 
     acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(in_file)
     if not acqp_path or not index_path:
@@ -607,6 +610,17 @@ def reorient2std(in_file: ImageLike | Path, out_file: Path):
         
     cmd = f"fslreorient2std {in_p} {out_p}"
     run_cmd(cmd, label="fslreorient2std")
+    return out_p
+
+def maths(in_file: ImageLike | Path, out_file: Path, args: str, nthreads: int = 1):
+    """
+    Wrapper for fslmaths.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = ensure_dir(out_file)
+    
+    cmd = f"fslmaths {in_p} {args} {out_p}"
+    run_cmd(cmd, label="fslmaths")
     return out_p
 
 def eddy_quad(

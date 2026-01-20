@@ -200,7 +200,10 @@ class EddyCorrectionStep(BaseProcessingStep):
                          self.logger.info("Output exists but mask missing. Generating temporary BET mask for QC...")
                          # We use the corrected output for the mask
                          fsl.bet(in_file=output_img, out_file=possible_mask)
-                     
+                         
+                         # Dilate/Binarize for consistency
+                         fsl.maths(possible_mask, possible_mask, args="-dilM -dilM -dilM -bin")
+                      
                      if possible_mask.exists():
                          context["current_mask"] = possible_mask
                          self.logger.debug(f"Recovered/Generated mask: {possible_mask}")
@@ -260,6 +263,11 @@ class EddyCorrectionStep(BaseProcessingStep):
                      # Use fsl.bet
                      # Note: fsl.bet expects ImageLike or Path
                      fsl.bet(in_file=input_img, out_file=mask_path)
+                     
+                     # Dilate and Binarize (Improve coverage)
+                     # -dilM -dilM -dilM -bin
+                     fsl.maths(mask_path, mask_path, args="-dilM -dilM -dilM -bin")
+                     
                      mask = mask_path
                      
                      # Persist for QC
