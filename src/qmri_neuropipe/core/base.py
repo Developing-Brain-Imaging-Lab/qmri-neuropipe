@@ -883,7 +883,22 @@ class BasePipeline(ABC):
     def _generate_htcondor_submission(self, data):
         """Generate HTCondor submit file and subjects list."""
         out_dir = self.config.output_dir
-        submit_file = out_dir / "job.sub"
+        
+        # Determine submit file path
+        # config.get('submit') can be:
+        # - True/False (legacy bool)
+        # - "DEFAULT" (flag_value from CLI)
+        # - "/path/to/file.sub" (explicit path)
+        submit_val = self.config.get('submit')
+        submit_file = out_dir / "job.sub" # Default
+        
+        if isinstance(submit_val, (str, Path)):
+             s_val_str = str(submit_val)
+             if s_val_str and s_val_str != "DEFAULT" and s_val_str.lower() != "true":
+                  submit_file = Path(s_val_str)
+                  # ensure parent dir exists if custom path
+                  submit_file.parent.mkdir(parents=True, exist_ok=True)
+
         subjects_file = out_dir / "subjects.txt"
         logs_dir = out_dir / "logs"
         logs_dir.mkdir(exist_ok=True)

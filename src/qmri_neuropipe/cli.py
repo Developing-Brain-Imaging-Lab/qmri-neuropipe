@@ -315,10 +315,11 @@ def main(
         dir_okay=False,
         readable=True
     ),
-    submit: bool = typer.Option(
-        False,
+    submit: Optional[str] = typer.Option(
+        None,
         "--submit",
-        help="Generate HTCondor submit files instead of running locally"
+        help="Generate HTCondor submit file. Can optionally specify output path (e.g. --submit job.sub).",
+        flag_value="DEFAULT" # Uses this value if flag is present but no argument given
     ),
 ):
     """
