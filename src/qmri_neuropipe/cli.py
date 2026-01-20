@@ -315,11 +315,18 @@ def main(
         dir_okay=False,
         readable=True
     ),
-    submit: Optional[str] = typer.Option(
-        None,
+    submit: bool = typer.Option(
+        False,
         "--submit",
-        help="Generate HTCondor submit file. Can optionally specify output path (e.g. --submit job.sub).",
-        flag_value="DEFAULT" # Uses this value if flag is present but no argument given
+        help="Generate HTCondor submit file (saves to default location 'job.sub')"
+    ),
+    submit_file: Optional[Path] = typer.Option(
+        None,
+        "--submit-file",
+        help="Generate HTCondor submit file at a specific path. Implies --submit.",
+        file_okay=True,
+        dir_okay=False,
+        writable=True
     ),
 ):
     """
@@ -380,11 +387,22 @@ def main(
             'skip_existing': skip_existing,
             'stop_on_error': stop_on_error,
             'log_level': log_level,
-            'verbose': verbose,
             'debug': debug,
             'jobs': jobs,
             'submit': submit,
+            # If submit_file is provided, pass it as 'submit' value (path string)
+            # If submit is True but no file, pass True (or "DEFAULT")
+            # We'll normalize this logic here
         }
+        
+        # Normalize 'submit' argument for config
+        if submit_file:
+             cli_args['submit'] = str(submit_file)
+        elif submit:
+             cli_args['submit'] = True
+        else:
+             cli_args['submit'] = None # Explicitly set to None if neither provided (will be removed below)
+
         # Remove None values to distinguish "not provided" from "explicitly None"
         cli_args = {k: v for k, v in cli_args.items() if v is not None}
         
