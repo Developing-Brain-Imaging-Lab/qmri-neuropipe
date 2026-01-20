@@ -202,7 +202,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                          fsl.bet(in_file=output_img, out_file=possible_mask, frac=0.1)
                          
                          # Dilate/Binarize for consistency
-                         fsl.maths(possible_mask, possible_mask, args="-dilM -dilM -dilM -bin")
+                         fsl.maths(possible_mask, possible_mask, args="-dilM -dilM -dilM -fillh -bin -fillh")
                       
                      if possible_mask.exists():
                          context["current_mask"] = possible_mask
@@ -266,7 +266,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                      
                      # Dilate and Binarize (Improve coverage)
                      # -dilM -dilM -dilM -bin
-                     fsl.maths(mask_path, mask_path, args="-dilM -dilM -dilM -bin")
+                     fsl.maths(mask_path, mask_path, args="-dilM -dilM -dilM -fillh -bin -fillh")
                      
                      mask = mask_path
                      
