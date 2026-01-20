@@ -5,6 +5,11 @@ import numpy as np
 import nibabel as nib
 from ..core.types import ImageLike, DWIFile
 from ..core.utils import extract_image_path, ensure_dir
+import multiprocessing
+import warnings
+
+# Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
 
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
