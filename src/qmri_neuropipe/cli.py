@@ -591,13 +591,14 @@ def main(
                                      sessions=config.session_label)
         
 
-        if stats and stats.get('n_failed', 0) > 0:
-             console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
-             console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
-             raise typer.Exit(code=1)
-        
-        console.print("\n[bold green]Pipeline completed successfully![/bold green]")
-        console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}\n")
+        if stats:
+            if stats.get('n_failed', 0) > 0:
+                 console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
+                 console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
+                 raise typer.Exit(code=1)
+            
+            console.print("\n[bold green]Pipeline completed successfully![/bold green]")
+            console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}\n")
         
     except ConfigurationError as e:
         console.print(f"\n[bold red]Configuration Error:[/bold red] {e.message}")
