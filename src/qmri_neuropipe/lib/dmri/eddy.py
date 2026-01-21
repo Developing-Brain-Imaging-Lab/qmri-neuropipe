@@ -51,6 +51,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         logger: Optional[logging.Logger] = None,
         provenance = None,
         method: Literal['eddy-correct', 'eddy', 'two-pass'] = 'eddy',
+        mask_dilation: int = 3, # Default 3 passes for eddy to ensure coverage
     ):
         """
         Initialize eddy current correction step.
@@ -67,6 +68,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         
         self.method = method
+        self.mask_dilation = mask_dilation
         
 
         
@@ -265,8 +267,14 @@ class EddyCorrectionStep(BaseProcessingStep):
                      fsl.bet(in_file=input_img, out_file=mask_path, frac=0.1)
                      
                      # Dilate and Binarize (Improve coverage)
-                     # -dilM -dilM -dilM -bin
-                     fsl.maths(mask_path, mask_path, args="-dilM -dilM -dilM -fillh -bin -fillh")
+                     # Use configured mask_dilation (default 3)
+                     dilation = kwargs.get('mask_dilation', self.mask_dilation)
+                     fsl_args = ""
+                     if dilation > 0:
+                         fsl_args += (" -dilM" * dilation)
+                     
+                     fsl_args += " -fillh -bin -fillh"
+                     fsl.maths(mask_path, mask_path, args=fsl_args)
                      
                      mask = mask_path
                      
@@ -419,6 +427,7 @@ class EddyCorrectionStep(BaseProcessingStep):
 
         parameters = {
             "method": self.method,
+            "mask_dilation": self.mask_dilation,
             **kwargs,
         }
 

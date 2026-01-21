@@ -67,6 +67,7 @@ class DenoisingStep(BaseProcessingStep):
         method: Literal['mrtrix', 'ants', 'mppca', 'patch2self', 'nlmeans', 'wavelets', 'gaussian'] = 'mrtrix',
         patch_radius: int = 2,
         block_radius: int = 5,
+        mask_dilation: int = 2,
         pca_method: str = 'eig',
         model: str = 'ridge',
     ):
@@ -89,6 +90,7 @@ class DenoisingStep(BaseProcessingStep):
         self.method = method
         self.patch_radius = patch_radius
         self.block_radius = block_radius
+        self.mask_dilation = mask_dilation
         self.pca_method = pca_method    
         self.model = model
         self.logger.info(f"Initialized denoising with method: {method}")
@@ -283,11 +285,18 @@ class DenoisingStep(BaseProcessingStep):
                  if temp_mask and temp_mask.exists():
                      # 3. Dilate
                      # Ensures whole coverage
-                     mrtrix.maskfilter(temp_mask, temp_mask_dil, filter_type='dilate', npass=2, nthreads=nthreads, force=True)
+                     # Use configured mask_dilation (default 2)
+                     dilation = kwargs.get('mask_dilation', self.mask_dilation)
+                     if dilation > 0:
+                         mrtrix.maskfilter(temp_mask, temp_mask_dil, filter_type='dilate', npass=dilation, nthreads=nthreads, force=True)
+                         if temp_mask_dil.exists():
+                             mask = temp_mask_dil
+                     else:
+                         # If dilation is 0, just use the raw mask
+                         mask = temp_mask
                      
-                     if temp_mask_dil.exists():
-                         mask = temp_mask_dil
-                         self.logger.info(f"Using temporary mask: {mask}")
+                     if mask and mask.exists():
+                         self.logger.info(f"Using temporary mask (dilation={dilation}): {mask}")
              except Exception as e:
                  self.logger.warning(f"Failed to generate temporary mask: {e}. Proceeding without mask.")
 
@@ -562,6 +571,7 @@ class DenoisingStep(BaseProcessingStep):
             "method": self.method,
             "patch_radius": self.patch_radius,
             "block_radius": self.block_radius,
+            "mask_dilation": self.mask_dilation,
             **kwargs,
         }
 

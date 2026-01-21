@@ -668,7 +668,7 @@ def _resolve_iterative_params(fit_method, kwargs):
     Resolve parameters for iterative fitting (IRLS).
     Ensures 'weights_method' is a callable and 'fit_type' is set.
     """
-    if fit_method not in ['IRLS', 'NLLS']:
+    if fit_method not in ['IRLS']:
         return
 
     # Extract optional cutoff (z-score threshold) - remove from kwargs as Model init doesn't take it
