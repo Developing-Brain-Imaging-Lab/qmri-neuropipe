@@ -162,6 +162,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                 method=method,
                 patch_radius=params.get('patch_radius') or denoise_cfg.get('patch_radius', 2),
                 block_radius=params.get('block_radius') or denoise_cfg.get('block_radius', 5),
+                mask_dilation=denoise_cfg.get('mask_dilation', 2),
                 pca_method=params.get('pca_method') or denoise_cfg.get('pca_method', 'eig')
             ))
             
@@ -205,7 +206,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                 config=self.config, 
                 logger=self.logger, 
                 provenance=self.provenance,
-                method=method
+                method=method,
+                mask_dilation=legacy_eddy_cfg.get('mask_dilation', 3)
             ))
             
              # 4.6 Eddy QC (Quad) - Automatic if eddy is run (FSL only)
