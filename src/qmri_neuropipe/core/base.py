@@ -559,13 +559,15 @@ class BaseWorkflow(ABC):
         
         # Use rich progress if available, else fallback
         if Progress:
+             from .ui import console
              with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
-                transient=True # Clear bar after completion
+                transient=True, # Clear bar after completion
+                console=console # Use shared console to align with logging
              ) as progress:
                  
                  task_id = progress.add_task(f"[cyan]Running {self.workflow_name}...", total=len(self.steps))
@@ -1049,8 +1051,16 @@ getenv = True{concurrency_directive}
         try:
             from rich.logging import RichHandler
             from .ui import console
-            # Use RichHandler unless it confuses DEBUG output (optional preference)
-            ch = RichHandler(rich_tracebacks=True, markup=True, console=console)
+            # Use RichHandler with cleaner output for alignment
+            # omit_repeated_times=False keeps the rhythm consistent
+            # show_path=False avoids alignment jumping due to filename length
+            ch = RichHandler(
+                rich_tracebacks=True, 
+                markup=True, 
+                console=console,
+                show_path=False,
+                omit_repeated_times=False
+            )
         except ImportError:
             ch = logging.StreamHandler()
             ch.setFormatter(console_formatter)
