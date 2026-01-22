@@ -1047,13 +1047,23 @@ class AnatPipeline(BasePipeline):
         
         # Initialize Reporter
         final_anat_dir = self._get_output_dir(subject, session) / "anat"
-        report_title = f"Anatomical Pipeline Report: sub-{subject} {ses}"
+        report_title = f"QMRI-Neuropipe Report: sub-{subject} {ses}"
         
         # Save report one level up? Or in anat dir?
         # User requested reports one dir up for dMRI pipeline.
         # Let's apply consistent logic: session root.
         final_anat_dir.mkdir(parents=True, exist_ok=True)
         reporter = ReportGenerator(final_anat_dir.parent, title=report_title)
+
+        # Participant Summary
+        part_summ = f"Participant: sub-{subject}"
+        if session: part_summ += f", Session: {session}"
+        reporter.set_participant_summary(part_summ, details={
+            "Subject": subject,
+            "Session": session or "N/A",
+            "BIDS Path": str(self.config.bids_dir),
+            "Output Path": str(self.config.output_dir)
+        })
         
         try:
              # run returns results dict

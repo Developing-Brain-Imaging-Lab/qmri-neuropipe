@@ -25,7 +25,7 @@ import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, ImageLike, DWIFile
-from ...interfaces import fsl, mrtrix, ants, freesurfer
+from ...interfaces import fsl, mrtrix, ants, freesurfer, hdbet
 from ...core.utils import extract_image_path
 from typing import Literal, Optional, Tuple, Any
 
@@ -37,7 +37,7 @@ class BrainMaskingStep(BaseProcessingStep):
     ----------
     config : dict
         Pipeline configuration.
-    method : Literal['fsl', 'mrtrix', 'ants', 'freesurfer', 'synthstrip']
+    method : Literal['fsl', 'mrtrix', 'ants', 'freesurfer', 'synthstrip', 'hd-bet']
         Which external tool to use for brain extraction.
     logger : Optional[logging.Logger]
         Logger instance; a default logger is created if ``None``.
@@ -50,7 +50,7 @@ class BrainMaskingStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance=None,
-        method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip"] = "fsl",
+        method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip", "hd-bet"] = "fsl",
         nthreads: int = 1,
     ):
         super().__init__(config, logger, provenance)
@@ -84,6 +84,8 @@ class BrainMaskingStep(BaseProcessingStep):
         elif self.method == "freesurfer":
             pass
         elif self.method == "synthstrip":
+            pass
+        elif self.method == "hd-bet":
             pass
         else:
             raise ProcessingError(f"Unsupported brain‑masking method: {self.method}")
@@ -303,6 +305,20 @@ class BrainMaskingStep(BaseProcessingStep):
             elif self.method == "synthstrip":
                  freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
             
+            elif self.method == "hd-bet":
+                 # HD-BET
+                 gpu_ids = self.config.get('gpu_ids') if hasattr(self.config, 'get') else getattr(self.config, 'gpu_ids', None)
+                 device = str(gpu_ids[0]) if gpu_ids and len(gpu_ids) > 0 else 'cpu'
+                 
+                 hdbet.hd_bet(in_file=tool_input, out_file=tool_brain_out, device=device)
+                 # HD-BET produces out_file and out_file_mask.nii.gz
+                 # We need to find the mask.
+                 hdbet_mask = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_mask.nii.gz"))
+                 if hdbet_mask.exists():
+                     hdbet_mask.rename(mask_generated_path)
+                 else:
+                     raise ProcessingError("HD-BET failed to generate mask output.")
+            
             else:
                  raise ProcessingError(f"Unsupported method: {self.method}")
 
@@ -380,7 +396,7 @@ class BrainMaskingStep(BaseProcessingStep):
 def mask_brain(
     input_image: ImageLike | Path,
     output_dir: Path,
-    method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip"] = "fsl",
+    method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip", "hd-bet"] = "fsl",
     nthreads: int = 1,
     return_mask: bool = False,
     structural_mask: Optional[ImageLike | Path] = None,

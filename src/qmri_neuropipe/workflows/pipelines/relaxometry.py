@@ -691,8 +691,18 @@ class RelaxometryPipeline(BasePipeline):
         }
         
         # Reporter
-        report_title = f"Relaxometry Pipeline Report: sub-{subject} {ses_str}"
+        report_title = f"QMRI-Neuropipe Report: sub-{subject} {ses_str}"
         reporter = ReportGenerator(output_dir.parent, title=report_title)
+
+        # Participant Summary
+        part_summ = f"Participant: sub-{subject}"
+        if session: part_summ += f", Session: {session}"
+        reporter.set_participant_summary(part_summ, details={
+            "Subject": subject,
+            "Session": session or "N/A",
+            "BIDS Path": str(self.config.bids_dir),
+            "Output Path": str(self.config.output_dir)
+        })
         
         # Run Workflow
         try:

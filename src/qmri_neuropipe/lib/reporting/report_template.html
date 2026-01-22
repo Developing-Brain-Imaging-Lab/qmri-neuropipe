@@ -152,6 +152,23 @@
         <p><span class="header-label">Work Directory:</span> {{ header.work_dir }}</p>
     </div>
 
+    <!-- Participant Summary -->
+    {% if participant and (participant.summary != "N/A" or participant.details) %}
+    <div class="section">
+        <h2>Participant Summary</h2>
+        <div class="header-info" style="border-left-color: #27ae60; background: #f1f9f4;">
+            <p>{{ participant.summary }}</p>
+            {% if participant.details %}
+            <div class="step-details" style="margin-top: 15px; background: transparent; border-left: none;">
+                {% for key, value in participant.details.items() %}
+                <span class="step-param"><span class="step-param-key">{{ key }}:</span> {{ value }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Anatomical Section -->
     {% if anat %}
     <div class="section">

@@ -221,7 +221,7 @@ class Synb0EstimationStep(BaseProcessingStep):
                                             omat=t1w_2_mni_fslmat,
                                             cost="normmi",
                                             dof=12,
-                                            extra_args="-usesqform")
+                                            extra_args="-usesqform -searchrx -180 180 -searchry -180 180 -searchrz -180 180")
             fsl.convert_xfm(in_file=t1w_2_mni_fslmat, out_file=mni_2_t1w_fslmat, inverse=True)
 
             c3d.fsl2ants(ref_file=mni_atlas_img,

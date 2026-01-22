@@ -22,6 +22,8 @@ class ReconAllStep(BaseProcessingStep):
         anat_cfg = config.get("anat", {}).get("preprocessing", {})
         self.recon_config = anat_cfg.get("recon_all", {})
         self.enabled = self.recon_config.get("enabled", False)
+        self.method = self.recon_config.get("method", "standard") # Default to standard
+        
         base_args = self.recon_config.get("args", "-all")
         extra_args = self.recon_config.get("extra_args", "")
         self.args = f"{base_args} {extra_args}".strip()
@@ -78,14 +80,25 @@ class ReconAllStep(BaseProcessingStep):
              if not input_image:
                  raise ValidationError("FreeSurfer output missing and no input image provided to run recon-all.")
                  
-             self.logger.info(f"Running FreeSurfer recon-all for {fs_sub_id}...")
-             freesurfer.recon_all(
-                in_file=input_image,
-                subject_id=fs_sub_id,
-                subjects_dir=fs_dir,
-                openmp=kwargs.get("nthreads") or self.config.get("n_cpus") or 8,
-                extra_args=self.args
-             )
+             n_threads = kwargs.get("nthreads") or self.config.get("n_cpus") or 8
+             
+             if self.method == "clinical":
+                 self.logger.info(f"Running FreeSurfer recon-all-clinical for {fs_sub_id}...")
+                 freesurfer.recon_all_clinical(
+                    in_file=input_image,
+                    subject_id=fs_sub_id,
+                    subjects_dir=fs_dir,
+                    nthreads=n_threads
+                 )
+             else:
+                 self.logger.info(f"Running FreeSurfer recon-all for {fs_sub_id}...")
+                 freesurfer.recon_all(
+                    in_file=input_image,
+                    subject_id=fs_sub_id,
+                    subjects_dir=fs_dir,
+                    openmp=n_threads,
+                    extra_args=self.args
+                 )
         else:
              self.logger.info(f"Using existing FreeSurfer output for {fs_sub_id}")
 

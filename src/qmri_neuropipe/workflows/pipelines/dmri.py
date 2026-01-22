@@ -939,7 +939,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                  # For now, just details.
                  
              if isinstance(step, DenoisingStep):
-                 details = {"Method": step.method}
+                 details = {"Method": step.method, "Stem": stem}
                  if step.method in ['mppca', 'nlmeans']:
                      details["Patch Radius"] = str(step.patch_radius)
                      if step.method == 'mppca':
@@ -952,14 +952,14 @@ class PreprocessingWorkflow(BaseWorkflow):
                     figures_list.append({"path": str(fig_out), "title": "Denoising", "caption": "Denoised Image"})
                     
              elif isinstance(step, GibbsUnringingStep):
-                 details = {"Method": step.method}
+                 details = {"Method": step.method, "Stem": stem}
                  fig_out = figures_dir / f"gibbs_comp_{stem}.png"
                  if curr_img_obj:
                      create_ortho_view(curr_img_obj.img, fig_out, title="Gibbs Corrected")
                      figures_list.append({"path": str(fig_out), "title": "Gibbs Unringing", "caption": "Gibbs Corrected Image"})
                      
              elif isinstance(step, EddyCorrectionStep):
-                  details = {"Method": step.method}
+                  details = {"Method": step.method, "Stem": stem}
                   # Eddy often produces parameter files. Can we report them?
                   # For now, just confirming it ran.
                   # Optionally plot first volume / b0?
@@ -984,7 +984,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                   # Fieldmap result?
                   
              elif isinstance(step, BiasCorrectionStep):
-                  details = {"Method": step.method}
+                  details = {"Method": step.method, "Stem": stem}
                   fig_out = figures_dir / f"bias_corrected_{stem}.png"
                   if curr_img_obj:
                       create_ortho_view(curr_img_obj.img, fig_out, title="Bias Corrected")
@@ -995,7 +995,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                   # Maybe validation details? 
                   
              elif isinstance(step, CoregistrationStep):
-                  details = {"Method": step.method}
+                  details = {"Method": step.method, "Stem": stem}
                   if step_kwargs and "options" in step_kwargs:
                       opts = step_kwargs["options"]
                       if step.method == 'ants':
@@ -1011,11 +1011,18 @@ class PreprocessingWorkflow(BaseWorkflow):
                       figures_list.append({"path": str(fig_out), "title": "Coregistration Quality", "caption": "Overlay of aligned DWI (red) on T1w (gray)"})
                      
              elif isinstance(step, OutlierRemovalStep):
-                  details = {"Method": step.method}
+                  details = {"Method": step.method, "Stem": stem}
                   details["Threshold"] = str(getattr(step, 'threshold', 'N/A'))
                   
+             elif isinstance(step, BrainMaskingStep):
+                  details = {"Method": step.method, "Stem": stem}
+                  fig_out = figures_dir / f"brain_mask_{stem}.png"
+                  if curr_img_obj:
+                      create_ortho_view(curr_img_obj.img, fig_out, title="Brain Mask (overlay)?") # Needs overlay logic maybe, or just b0 brain-extracted
+                      figures_list.append({"path": str(fig_out), "title": "Brain Masking", "caption": "Masked Image"})
+                  
              elif isinstance(step, ResampleStep):
-                  details = {"Resolution": str(getattr(step, 'resolution', 'Target'))}
+                  details = {"Resolution": str(getattr(step, 'resolution', 'Target')), "Stem": stem}
 
              # Generic catch-all for other steps
              if not details and not figures_list:
@@ -1936,8 +1943,18 @@ class DMRIPipeline(BasePipeline):
         # Let's use the 'dwi' output dir for simplicity or better, a dedicated sibling dir if desired.
         # But 'output_dir' variable here points to '.../dwi'.
         # User request: save one directory up (output_dir.parent).
-        report_title = f"Diffusion Pipeline Report: sub-{subject} {ses}"
+        report_title = f"QMRI-Neuropipe Report: sub-{subject} {ses}"
         reporter = ReportGenerator(output_dir.parent, title=report_title)
+
+        # Participant Summary
+        part_summ = f"Participant: sub-{subject}"
+        if session: part_summ += f", Session: {session}"
+        reporter.set_participant_summary(part_summ, details={
+            "Subject": subject,
+            "Session": session or "N/A",
+            "BIDS Path": str(self.config.bids_dir),
+            "Output Path": str(self.config.output_dir)
+        })
 
         if run_anat:
              self.logger.info("="*60)

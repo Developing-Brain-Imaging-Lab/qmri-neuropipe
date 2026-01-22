@@ -167,6 +167,24 @@ def recon_all(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, op
     omp_arg = f"-openmp {openmp}" if openmp else ""
     cmd = f"recon-all -i {in_p} -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
     run_cmd(cmd, label="recon-all")
+
+
+def recon_all_clinical(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, nthreads: int = 1):
+    """
+    Wrapper for FreeSurfer recon-all-clinical.sh.
+    
+    Syntax: recon-all-clinical.sh <INPUT_SCAN> <SUBJECT_ID> <THREADS> [SUBJECT_DIR]
+    """
+    in_p = extract_image_path(in_file)
+    sd_path = Path(subjects_dir)
+    sd_path.mkdir(parents=True, exist_ok=True)
+
+    # Key output for clinical script is slightly different but brain.mgz should still exist
+    if (sd_path / subject_id / "mri" / "brain.mgz").exists():
+        return sd_path / subject_id
+
+    cmd = f"recon-all-clinical.sh {in_p} {subject_id} {nthreads} {sd_path}"
+    run_cmd(cmd, label="recon-all-clinical")
     
 
 def mri_synthseg(

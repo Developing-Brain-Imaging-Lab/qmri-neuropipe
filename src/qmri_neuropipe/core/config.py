@@ -144,14 +144,17 @@ class PipelineConfig:
             ...     overrides={'n_cpus': 16}
             ... )
         """
-        config_file = Path(config_file)
-        
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {config_file}")
-        
-        # Load file
+        config_data = {}
         loader = ConfigLoader()
-        config_data = loader.load(config_file)
+
+        if config_file:
+            config_file = Path(config_file)
+            
+            if not config_file.exists():
+                raise FileNotFoundError(f"Config file not found: {config_file}")
+            
+            # Load file
+            config_data = loader.load(config_file)
         
         # Merge overrides
         if overrides:
