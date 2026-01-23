@@ -1486,7 +1486,7 @@ class ModelingWorkflow(BaseWorkflow):
             If provided, model outputs will be written directly to this directory 
             (within subfolders like 'dti', 'dki') instead of the work_dir.
         """
-        import rich
+        from qmri_neuropipe.core.ui import console
         from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
         
         self.logger.info("Starting Modeling Workflow...")
