@@ -646,6 +646,64 @@ class CoregistrationStep(BaseProcessingStep):
         if not check_nifti_integrity(output_img):
              raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
 
+        # --- Mask Handling (Fix for Dimension Mismatch) ---
+        if context is not None and context.get("current_mask"):
+            mask_input = context["current_mask"]
+            mask_in_path = self._extract_path(mask_input)
+            
+            mask_entities = mask_input.entities.copy() if hasattr(mask_input, 'entities') else {}
+            mask_entities['desc'] = new_desc
+            mask_out_path_str = str(output_dir / build_bids_name({**mask_entities, "suffix": "mask"}))
+            
+            if not mask_out_path_str.endswith(".nii.gz") and not mask_out_path_str.endswith(".nii"):
+                mask_out_path = Path(mask_out_path_str + ".nii.gz")
+            else:
+                mask_out_path = Path(mask_out_path_str)
+
+            if should_run:
+                self.logger.info(f"Applying coregistration transform to mask: {mask_in_path.name}")
+                try:
+                    if apply_method == 'mrtrix' and locals().get('mrtrix_transform'):
+                        # Apply via MRtrix (preserves grid/resolution of target)
+                        mrtrix.mrtransform(
+                            in_file=mask_in_path,
+                            out_file=mask_out_path,
+                            linear_transform=locals().get('mrtrix_transform'),
+                            strides=target,
+                            interp='nearest', # Nearest neighbor for masks
+                            nthreads=nthreads,
+                            force=True
+                        )
+                    elif self.method == 'ants' and locals().get('prefix'):
+                        ants.apply_transforms(
+                            fixed_file=target,
+                            moving_file=mask_in_path,
+                            out_file=mask_out_path,
+                            transforms=locals().get('prefix'),
+                            interpolator='nearestNeighbor',
+                            imagetype=0, # 3D
+                            nthreads=nthreads
+                        )
+                    elif self.method == 'fsl' and locals().get('output_mat'):
+                        fsl.flirt(
+                            in_file=mask_in_path,
+                            ref_file=target,
+                            out_file=mask_out_path,
+                            extra_opts={
+                                "applyxfm": True,
+                                "init": locals().get('output_mat'),
+                                "interp": "nearestneighbour"
+                            }
+                        )
+                    else:
+                        # Fallback: if no transform was calculated (unlikely if should_run), just copy if shapes match or skip
+                        self.logger.warning("Could not identify transform to apply to mask. Mask might be misaligned.")
+                except Exception as e:
+                    self.logger.warning(f"Failed to apply coregistration to mask: {e}")
+            
+            if mask_out_path.exists():
+                context["current_mask"] = ImageFile(img=mask_out_path, entities=mask_entities)
+
         if context is not None:
              context["current_image"] = result
              

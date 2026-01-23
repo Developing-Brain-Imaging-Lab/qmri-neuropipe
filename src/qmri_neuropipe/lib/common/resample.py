@@ -32,6 +32,14 @@ class ResampleStep(BaseProcessingStep):
              self.logger.info("No resolution specified. Skipping ResampleStep.")
              return context if context else input_image
 
+        # Handle CSV resolution
+        if isinstance(res, str) and ',' in res:
+             # Parse "0.8,0.8,0.8" -> "0.8 0.8 0.8"
+             res_args = res.replace(",", " ")
+        else:
+             # Assume isotropic float or single value
+             res_args = f"{res} {res} {res}"
+
         output_dir = self.get_step_output_dir(output_dir)
         entities = input_image.entities.copy() if hasattr(input_image, 'entities') else {}
         
@@ -62,15 +70,6 @@ class ResampleStep(BaseProcessingStep):
              # No, existing wrapper is rigid.
              
              from ...core.run import run_cmd
-             
-             # Handle CSV resolution
-             if isinstance(res, str) and ',' in res:
-                  # Parse "0.8,0.8,0.8" -> "0.8 0.8 0.8"
-                  res_args = res.replace(",", " ")
-             else:
-                  # Assume isotropic float or single value
-                  res_args = f"{res} {res} {res}"
-                  
              cmd = f"mri_convert {in_p} {output_img} -vs {res_args}"
              run_cmd(cmd, label="mri_convert_resample")
 
@@ -88,5 +87,29 @@ class ResampleStep(BaseProcessingStep):
         
         if context:
              context["current_image"] = result
+             
+             # --- Mask Handling ---
+             if context.get("current_mask"):
+                  mask_input = context["current_mask"]
+                  mask_in_path = self._extract_path(mask_input)
+                  
+                  mask_entities = mask_input.entities.copy() if hasattr(mask_input, 'entities') else {}
+                  mask_entities['desc'] = new_desc
+                  mask_out_path_str = str(output_dir / build_bids_name({**mask_entities, "suffix": "mask"}))
+                  
+                  if not mask_out_path_str.endswith(".nii.gz") and not mask_out_path_str.endswith(".nii"):
+                       mask_out_path = Path(mask_out_path_str + ".nii.gz")
+                  else:
+                       mask_out_path = Path(mask_out_path_str)
+                       
+                  if not mask_out_path.exists() or kwargs.get('force', False):
+                       from ...core.run import run_cmd
+                       self.logger.info(f"Resampling mask to {res}mm: {mask_in_path.name}")
+                       cmd = f"mri_convert {mask_in_path} {mask_out_path} -vs {res_args} -rt nearest"
+                       run_cmd(cmd, label="mri_convert_resample_mask")
+                  
+                  if mask_out_path.exists():
+                       context["current_mask"] = ImageFile(img=mask_out_path, entities=mask_entities)
+             
              return context
         return result
