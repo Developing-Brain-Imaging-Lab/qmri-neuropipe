@@ -265,6 +265,24 @@ class CoregistrationStep(BaseProcessingStep):
                             run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
                     moving_for_reg = avg_b0_path
 
+            # --- Registration Options Processing ---
+            dof = options.get("dof", 6)
+            cost = options.get("cost", "normmi")
+            
+            # Known args to exclude from extra_opts
+            known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
+            fsl_opts = {k: v for k, v in options.items() if k not in known_args}
+
+            # Setup BBR if requested
+            if cost == 'bbr':
+                try:
+                    from ..anat.segmentation import generate_wm_segmentation
+                    wm_seg = generate_wm_segmentation(target, output_dir, method=options.get('wm_seg_method', 'fast'), nthreads=nthreads)
+                    fsl_opts['wmseg'] = wm_seg
+                except Exception as e:
+                    self.logger.warning(f"BBR setup failed: {e}. Falling back to default cost function.")
+                    cost = "normmi"
+
             try:
                 # --- Logic Branch: Application Method ---
                 if apply_method == 'mrtrix' and options.get('output_resolution') == 'native':
@@ -363,7 +381,9 @@ class CoregistrationStep(BaseProcessingStep):
                              ref_file=target,
                              out_file=temp_reg_out,
                              omat=transform_file,
-                             dof=6
+                             dof=dof,
+                             cost=cost,
+                             extra_opts=fsl_opts
                          )
                          if temp_reg_out.exists(): temp_reg_out.unlink()
 
@@ -486,24 +506,12 @@ class CoregistrationStep(BaseProcessingStep):
 
                     elif self.method == 'fsl':
                         output_mat = output_transform.with_suffix(".mat")
-                        dof = options.get("dof", 6)
-                        cost = options.get("cost", "normmi")
-                        
-                        if cost == 'bbr':
-                            try:
-                                from ..anat.segmentation import generate_wm_segmentation
-                                wm_seg = generate_wm_segmentation(target, output_dir, method=options.get('wm_seg_method', 'fast'), nthreads=nthreads)
-                                options['wmseg'] = wm_seg
-                            except: pass
-
-                        known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
-                        fsl_opts = {k: v for k, v in options.items() if k not in known_args}
                         
                         # Ensure we clean up before running to force execution
                         if output_img.exists(): output_img.unlink()
                         if output_mat.exists(): output_mat.unlink()
                         
-                        self.logger.info(f"DEBUG: Calling fsl.flirt with in={moving_for_reg}, ref={target}, out={output_img}")
+                        self.logger.info(f"DEBUG: Calling fsl.flirt with in={moving_for_reg}, ref={target}, out={output_img}, cost={cost}, dof={dof}")
                         fsl.flirt(
                             in_file=moving_for_reg, 
                             ref_file=target, 
