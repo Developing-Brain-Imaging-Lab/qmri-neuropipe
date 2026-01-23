@@ -117,7 +117,7 @@ def apply_xfm_4d(in_file: Path, ref_file: Path, out_file: Path, mat: Path, inter
     FSL's flirt only applies to the first volume of a 4D series.
     'applywarp --premat' is 4D-aware and handles this correctly even for identity/affine warps.
     """
-    return applywarp(in_file, ref_file, out_file, premat=mat, interp=interp)
+    return applywarp(in_file, ref_file, out_file, premat=mat, interp=interp, force=True)
 
 
 def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t") -> Path:
@@ -227,7 +227,7 @@ def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -
     return files
 
 
-def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, warp: Path = None, premat: Path = None, interp: str = "spline", extra_args: str = ""):
+def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path, warp: Path = None, premat: Path = None, interp: str = "spline", extra_args: str = "", force: bool = False):
     """
     Wrapper for FSL applywarp.
     """
@@ -235,7 +235,7 @@ def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: P
     ref_p = extract_image_path(ref_file)
     out_p = ensure_dir(out_file)
     
-    if out_p.exists():
+    if out_p.exists() and not force:
         return out_p
 
     warp_cmd = f"-w {warp}" if warp else ""

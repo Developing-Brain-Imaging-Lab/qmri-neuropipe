@@ -285,9 +285,10 @@ class CoregistrationStep(BaseProcessingStep):
 
             try:
                 # --- Logic Branch: Application Method ---
-                if apply_method == 'mrtrix' and options.get('output_resolution') == 'native':
-                    # NATIVE RESOLUTION via MRtrix
-                    self.logger.info("Executing Native Resolution Coregistration via MRtrix (DWI -> Anat)...")
+                if apply_method == 'mrtrix':
+                    # MRTrix-based Coregistration (handles 4D and gradients correctly)
+                    res_val = options.get('output_resolution', 'anatomical').lower()
+                    self.logger.info(f"Executing Coregistration via MRtrix (Resolution: {res_val})...")
                     
                     # 1. Calculate Registration
                     transform_file = None
@@ -437,15 +438,21 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'sinc': mrtrix_interp = 'sinc'
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
-                    mrtrix.mrtransform(
-                        in_file=temp_mif_in,
-                        out_file=temp_mif_out,
-                        linear_transform=mrtrix_transform,
-                        strides=target, 
-                        interp=mrtrix_interp,
-                        nthreads=nthreads,
-                        force=True
-                    )
+                    mt_kwargs = {
+                        'in_file': temp_mif_in,
+                        'out_file': temp_mif_out,
+                        'linear_transform': mrtrix_transform,
+                        'strides': target,
+                        'interp': mrtrix_interp,
+                        'nthreads': nthreads,
+                        'force': True
+                    }
+                    
+                    # If anatomical resolution requested, use target as template for regridding
+                    if options.get('output_resolution', 'anatomical').lower() == 'anatomical':
+                        mt_kwargs['template'] = target
+
+                    mrtrix.mrtransform(**mt_kwargs)
                     
                     # Export to NIfTI
                     out_bvec = output_img.with_suffix("").with_suffix(".bvec")
@@ -650,6 +657,15 @@ class CoregistrationStep(BaseProcessingStep):
              
         if not check_nifti_integrity(output_img):
              raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
+
+        # Dimension Verification
+        try:
+             chk_img = nib.load(output_img)
+             self.logger.info(f"Coregistration output dimensions: {chk_img.shape}")
+             if is_dwi and len(chk_img.shape) < 4:
+                  self.logger.warning(f"CRITICAL: Coregistration produced a 3D output for a DWI series. DTI/DKI fitting will fail.")
+        except Exception as e:
+             self.logger.warning(f"Could not verify output dimensions: {e}")
 
         # --- Mask Handling (Fix for Dimension Mismatch) ---
         if context is not None and context.get("current_mask"):
