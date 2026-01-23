@@ -187,7 +187,39 @@ class CoregistrationStep(BaseProcessingStep):
              while output_transform.suffix:
                   output_transform = output_transform.with_suffix("")
         
-        # Skip if exists?
+        # Define standard transform paths for both calculation and application
+        output_mat = output_transform.with_suffix(".mat")
+        mrtrix_transform = output_dir / "transform_mrtrix.txt"
+        reg_lta = output_dir / "bbregister.lta" # for FreeSurfer
+
+        # Determine nthreads
+        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+
+        # --- PRE-REGISTRATION: Extract Reference for Calculation/Application ---
+        # We extract this even if should_run is False, as it may be needed for mask transform conversion
+        moving_for_reg = in_path
+        if is_dwi:
+            # Modality-specific reference extraction
+            if target_modality == "T1w":
+                self.logger.info("Target is T1w: Extracting and averaging non-b0 volumes for coregistration reference...")
+                avg_dwi_path = output_dir / "temp_avg_dwi_ref.nii.gz"
+                if not avg_dwi_path.exists() or kwargs.get('force', False):
+                    mrtrix.dwiextract(input_image, avg_dwi_path, no_bzero=True, nthreads=nthreads, force=True)
+                    mrtrix.mrmath(avg_dwi_path, "mean", avg_dwi_path, axis=3, nthreads=nthreads, force=True)
+                moving_for_reg = avg_dwi_path
+            else:
+                self.logger.info(f"Target is {target_modality}: Extracting and averaging b0 volumes for coregistration reference...")
+                avg_b0_path = output_dir / "temp_avg_b0_ref.nii.gz"
+                if not avg_b0_path.exists() or kwargs.get('force', False):
+                    try:
+                        mrtrix.dwiextract(input_image, avg_b0_path, bzero=True, nthreads=nthreads, force=True)
+                        mrtrix.mrmath(avg_b0_path, "mean", avg_b0_path, axis=3, nthreads=nthreads, force=True)
+                    except Exception as e:
+                        self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to first volume.")
+                        run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
+                moving_for_reg = avg_b0_path
+
+        # Skip main coregistration if output exists and is valid
         should_run = True
         if output_img.exists() and not kwargs.get('force', False):
              # 0. Check Integrity
@@ -239,32 +271,6 @@ class CoregistrationStep(BaseProcessingStep):
             self.logger.info(f"Running {self.method} coregistration with {nthreads} threads...")
             self.logger.info(f"Application method: {apply_method}")
 
-            # --- Pre-Registration: Ensure Moving Image is 3D ---
-            moving_for_reg = in_path
-            
-            if is_dwi:
-                # Modality-specific reference extraction
-                if target_modality == "T1w":
-                    # For T1w target: Average non-b0 (DWI) volumes
-                    self.logger.info("Target is T1w: Extracting and averaging non-b0 volumes for coregistration...")
-                    avg_dwi_path = output_dir / "temp_avg_dwi_ref.nii.gz"
-                    if not avg_dwi_path.exists() or kwargs.get('force', False):
-                        mrtrix.dwiextract(input_image, avg_dwi_path, no_bzero=True, nthreads=nthreads, force=True)
-                        mrtrix.mrmath(avg_dwi_path, "mean", avg_dwi_path, axis=3, nthreads=nthreads, force=True)
-                    moving_for_reg = avg_dwi_path
-                else:
-                    # For T2w or other targets: Average b0 volumes (Default)
-                    self.logger.info(f"Target is {target_modality}: Extracting and averaging b0 volumes for coregistration...")
-                    avg_b0_path = output_dir / "temp_avg_b0_ref.nii.gz"
-                    if not avg_b0_path.exists() or kwargs.get('force', False):
-                        try:
-                            mrtrix.dwiextract(input_image, avg_b0_path, bzero=True, nthreads=nthreads, force=True)
-                            mrtrix.mrmath(avg_b0_path, "mean", avg_b0_path, axis=3, nthreads=nthreads, force=True)
-                        except Exception as e:
-                            self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to first volume.")
-                            run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
-                    moving_for_reg = avg_b0_path
-
             # --- Registration Options Processing ---
             dof = options.get("dof", 6)
             cost = options.get("cost", "normmi")
@@ -300,8 +306,7 @@ class CoregistrationStep(BaseProcessingStep):
                               raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
                          
                          # Define Output Files
-                         reg_lta = output_dir / "bbregister.lta"
-                         transform_file = output_dir / "coreg_dwi_to_anat.mat"
+                         # reg_lta and output_mat already defined
 
                          # Determine SUBJECTS_DIR and Subject ID from context logic
                          subjects_dir = None
@@ -697,35 +702,50 @@ class CoregistrationStep(BaseProcessingStep):
             if mask_should_run:
                 self.logger.info(f"Applying coregistration transform to mask: {mask_in_path.name}")
                 try:
-                    if apply_method == 'mrtrix' and locals().get('mrtrix_transform'):
-                        # Apply via MRtrix (preserves grid/resolution of target)
-                        mrtrix.mrtransform(
-                            in_file=mask_in_path,
-                            out_file=mask_out_path,
-                            linear_transform=locals().get('mrtrix_transform'),
-                            strides=target,
-                            interp='nearest', # Nearest neighbor for masks
-                            nthreads=nthreads,
-                            force=True
-                        )
-                    elif self.method == 'ants' and locals().get('prefix'):
-                        ants.apply_transforms(
-                            fixed_file=target,
-                            moving_file=mask_in_path,
-                            out_file=mask_out_path,
-                            transforms=locals().get('prefix'),
-                            interpolator='nearestNeighbor',
-                            imagetype=0, # 3D
-                            nthreads=nthreads
-                        )
-                    elif self.method == 'fsl' and locals().get('output_mat'):
+                    if apply_method == 'mrtrix' and (mrtrix_transform.exists() or should_run):
+                        # Ensure MRTrix transform is available (convert if needed even if image skipped)
+                        if not mrtrix_transform.exists() and output_mat.exists():
+                             self.logger.info("Converting existing FSL transform to MRTrix for mask application...")
+                             mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=target, in_image=moving_for_reg, force=True)
+                        
+                        if mrtrix_transform.exists():
+                            # Apply via MRtrix (preserves grid/resolution of target)
+                            mrtrix.mrtransform(
+                                in_file=mask_in_path,
+                                out_file=mask_out_path,
+                                linear_transform=mrtrix_transform,
+                                strides=target,
+                                interp='nearest', # Nearest neighbor for masks
+                                nthreads=nthreads,
+                                force=True
+                            )
+                        else:
+                             self.logger.warning(f"MRTrix transform not found at {mrtrix_transform}. Skipping mask application.")
+                             
+                    elif self.method == 'ants' and (locals().get('prefix') or output_mat.exists()):
+                        # If prefix missing but output_mat exists, it was likely optimized to FSL already
+                        # But ANTs logic usually needs prefix. Fallback to FSL if mat exists.
+                        if not locals().get('prefix') and output_mat.exists():
+                             self.logger.info("Using existing FSL-coverted matrix for mask application.")
+                             fsl.flirt(in_file=mask_in_path, ref_file=target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
+                        else:
+                             ants.apply_transforms(
+                                fixed_file=target,
+                                moving_file=mask_in_path,
+                                out_file=mask_out_path,
+                                transforms=locals().get('prefix'),
+                                interpolator='nearestNeighbor',
+                                imagetype=0, # 3D
+                                nthreads=nthreads
+                             )
+                    elif (self.method == 'fsl' or self.method == 'freesurfer') and (output_mat.exists() or should_run):
                         fsl.flirt(
                             in_file=mask_in_path,
                             ref_file=target,
                             out_file=mask_out_path,
                             extra_opts={
                                 "applyxfm": True,
-                                "init": locals().get('output_mat'),
+                                "init": output_mat,
                                 "interp": "nearestneighbour"
                             }
                         )
