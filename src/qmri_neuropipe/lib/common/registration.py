@@ -430,11 +430,19 @@ class CoregistrationStep(BaseProcessingStep):
                     
                     # Apply transform with STRIDES logic
                     temp_mif_out = output_dir / "temp_output.mif"
+                    mrtrix_interp = options.get("interpolation", "linear").lower()
+                    # Map standard interp names to mrtrix
+                    if mrtrix_interp == 'linear': mrtrix_interp = 'linear'
+                    elif mrtrix_interp == 'nearest': mrtrix_interp = 'nearest'
+                    elif mrtrix_interp == 'sinc': mrtrix_interp = 'sinc'
+                    elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
+
                     mrtrix.mrtransform(
                         in_file=temp_mif_in,
                         out_file=temp_mif_out,
                         linear_transform=mrtrix_transform,
                         strides=target, 
+                        interp=mrtrix_interp,
                         nthreads=nthreads,
                         force=True
                     )
@@ -523,16 +531,13 @@ class CoregistrationStep(BaseProcessingStep):
                         )
                         
                         if is_dwi:
-                            apply_opts = {
-                                "applyxfm": True,
-                                "init": output_mat,
-                                "interp": options.get("interpolation", "trilinear")
-                            }
-                            fsl.flirt(
+                            self.logger.info(f"Applying 4D transform to full DWI series using FSL (interp={options.get('interpolation', 'trilinear')})...")
+                            fsl.apply_xfm_4d(
                                 in_file=in_path, 
                                 ref_file=target, 
                                 out_file=output_img, 
-                                extra_opts=apply_opts
+                                mat=output_mat,
+                                interp=options.get("interpolation", "trilinear")
                             )
                     
                     elif self.method == 'freesurfer':

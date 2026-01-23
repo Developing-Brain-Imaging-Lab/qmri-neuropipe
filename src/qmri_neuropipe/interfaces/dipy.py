@@ -300,6 +300,12 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     if mask is None:
         mask = np.ones(data.shape[:3], dtype=bool)
     
+    # Verification: data MUST be at least 4D for diffusion fitting (X, Y, Z, Vol)
+    if data.ndim < 4:
+         raise RuntimeError(f"Parallel fit driver received {data.ndim}D data (shape: {data.shape}). "
+                            f"Diffusion models require a 4D volume series. "
+                            f"This often happens if the coregistration or resampling step produced a 3D instead of 4D output.")
+
     # Ensure mask is 3D (X, Y, Z) and boolean
     if mask.ndim == 4:
          print(f"  - WARNING: 4D mask detected (shape {mask.shape}). Using first volume.")

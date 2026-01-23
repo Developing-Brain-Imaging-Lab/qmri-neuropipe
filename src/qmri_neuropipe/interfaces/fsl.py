@@ -111,6 +111,15 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     return out_p, Path(omat) if omat else None
 
 
+def apply_xfm_4d(in_file: Path, ref_file: Path, out_file: Path, mat: Path, interp: str = "trilinear"):
+    """
+    Apply a 3D linear transform (FLIRT .mat) to a 4D series using applywarp.
+    FSL's flirt only applies to the first volume of a 4D series.
+    'applywarp --premat' is 4D-aware and handles this correctly even for identity/affine warps.
+    """
+    return applywarp(in_file, ref_file, out_file, premat=mat, interp=interp)
+
+
 def merge(in_files: list[ImageLike | Path], out_file: Path, dimension: str = "t") -> Path:
     """
     Wrapper for fslmerge.
