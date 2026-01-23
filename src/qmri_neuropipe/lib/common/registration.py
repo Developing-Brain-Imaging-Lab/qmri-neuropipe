@@ -686,59 +686,81 @@ class CoregistrationStep(BaseProcessingStep):
             else:
                 mask_out_path = Path(mask_out_path_str)
 
-            # Check if mask needs to be resampled (if it doesn't exist or if dimensions mismatch coregistered image)
-            mask_should_run = should_run
-            if not mask_out_path.exists():
-                mask_should_run = True
-            elif mask_out_path.exists():
-                try:
-                    m_img = nib.load(mask_out_path)
-                    if m_img.shape != chk_img.shape[:3]:
-                        self.logger.info(f"Existing mask {mask_out_path.name} has wrong dimensions {m_img.shape}. Expected {chk_img.shape[:3]}. Re-resampling.")
-                        mask_should_run = True
-                except Exception:
+            # Optimization: If output resolution is anatomical, try to find/use the structural mask 
+            # instead of resampling the DWI mask.
+            is_anatomical = options.get('output_resolution', 'anatomical').lower() == 'anatomical'
+            struct_mask = context.get('structural_mask')
+            
+            if is_anatomical and not struct_mask:
+                # Try to find structural mask near target
+                target_img_path = Path(target_path)
+                parent = target_img_path.parent
+                # Pattern match based on target name
+                t_stem = target_img_path.name.split(".nii")[0]
+                # Common patterns: sub-01_T1w_mask.nii.gz, sub-01_desc-brain_mask.nii.gz
+                potential_masks = [
+                    parent / (t_stem + "_mask.nii.gz"),
+                    parent / (t_stem.replace("_T1w", "_desc-brain_mask")), # sub-01_desc-brain_mask
+                    parent / (t_stem.replace("_T1w", "_desc-brain_mask.nii.gz")),
+                    parent / (t_stem + ".mask.nii.gz")
+                ]
+                for pm in potential_masks:
+                    if pm.exists():
+                        struct_mask = pm
+                        self.logger.info(f"Automatically identified structural mask for anatomical space: {pm.name}")
+                        break
+
+            if is_anatomical and struct_mask:
+                self.logger.info(f"Using structural mask for anatomical space: {Path(struct_mask).name}")
+                import shutil
+                shutil.copy(struct_mask, mask_out_path)
+                mask_should_run = False
+            else:
+                # Fallback to resampling
+                # Heuristic: If image is anatomical (usually >100 slices) and mask is native (usually ~60), trigger resampling
+                mask_should_run = should_run
+                if not mask_out_path.exists():
                     mask_should_run = True
+                elif mask_out_path.exists():
+                    try:
+                        m_img = nib.load(mask_out_path)
+                        # Use explicit target image for comparison if available, or the output image
+                        ref_shape = chk_img.shape[:3] if 'chk_img' in locals() else nib.load(output_img).shape[:3]
+                        
+                        if m_img.shape != ref_shape:
+                            self.logger.info(f"Existing mask {mask_out_path.name} shape {m_img.shape} mismatches image {ref_shape}. Re-resampling.")
+                            mask_should_run = True
+                    except Exception as e:
+                        self.logger.warning(f"Could not verify mask dimensions: {e}")
+                        mask_should_run = True
 
             if mask_should_run:
                 self.logger.info(f"Applying coregistration transform to mask: {mask_in_path.name}")
                 try:
-                    if apply_method == 'mrtrix' and (mrtrix_transform.exists() or should_run):
-                        # Ensure MRTrix transform is available (convert if needed even if image skipped)
+                    # Determine which transform to use
+                    # Priority 1: MRTrix transform if applying via MRTrix
+                    if apply_method == 'mrtrix':
                         if not mrtrix_transform.exists() and output_mat.exists():
                              self.logger.info("Converting existing FSL transform to MRTrix for mask application...")
                              mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=target, in_image=moving_for_reg, force=True)
                         
                         if mrtrix_transform.exists():
-                            # Apply via MRtrix (preserves grid/resolution of target)
                             mrtrix.mrtransform(
                                 in_file=mask_in_path,
                                 out_file=mask_out_path,
                                 linear_transform=mrtrix_transform,
                                 strides=target,
-                                interp='nearest', # Nearest neighbor for masks
+                                interp='nearest',
                                 nthreads=nthreads,
                                 force=True
                             )
                         else:
-                             self.logger.warning(f"MRTrix transform not found at {mrtrix_transform}. Skipping mask application.")
+                             self.logger.warning(f"MRTrix transform not found. Falling back to FSL for mask.")
+                             if output_mat.exists():
+                                 fsl.flirt(in_file=mask_in_path, ref_file=target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
                              
-                    elif self.method == 'ants' and (locals().get('prefix') or output_mat.exists()):
-                        # If prefix missing but output_mat exists, it was likely optimized to FSL already
-                        # But ANTs logic usually needs prefix. Fallback to FSL if mat exists.
-                        if not locals().get('prefix') and output_mat.exists():
-                             self.logger.info("Using existing FSL-coverted matrix for mask application.")
-                             fsl.flirt(in_file=mask_in_path, ref_file=target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
-                        else:
-                             ants.apply_transforms(
-                                fixed_file=target,
-                                moving_file=mask_in_path,
-                                out_file=mask_out_path,
-                                transforms=locals().get('prefix'),
-                                interpolator='nearestNeighbor',
-                                imagetype=0, # 3D
-                                nthreads=nthreads
-                             )
-                    elif (self.method == 'fsl' or self.method == 'freesurfer') and (output_mat.exists() or should_run):
+                    elif output_mat.exists():
+                        # Default FSL application
                         fsl.flirt(
                             in_file=mask_in_path,
                             ref_file=target,
@@ -750,7 +772,6 @@ class CoregistrationStep(BaseProcessingStep):
                             }
                         )
                     else:
-                        # Fallback: if no transform was calculated (unlikely if should_run), just copy if shapes match or skip
                         self.logger.warning("Could not identify transform to apply to mask. Mask might be misaligned.")
                 except Exception as e:
                     self.logger.warning(f"Failed to apply coregistration to mask: {e}")
