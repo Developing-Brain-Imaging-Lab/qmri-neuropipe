@@ -511,11 +511,14 @@ class PreprocessingWorkflow(BaseWorkflow):
                          step_kwargs = {}
                          if isinstance(step, CoregistrationStep):
                              if target_img:
-                                 step_kwargs["target"] = target_img
-                                 coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
-                                 flat_opts = dict(coreg_cfg)
-                                 if "options" in flat_opts: flat_opts.update(flat_opts.pop("options"))
-                                 step_kwargs["options"] = flat_opts
+                                  step_kwargs["target"] = target_img
+                                  coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
+                                  flat_opts = dict(coreg_cfg)
+                                  if "options" in flat_opts: flat_opts.update(flat_opts.pop("options"))
+                                  step_kwargs["options"] = flat_opts
+                                  
+                                  # Pass target modality for intelligent input selection (b0 vs non-b0)
+                                  step_kwargs["target_modality"] = coreg_cfg.get("reference_image", "T1w")
                              else:
                                  # Skip
                                  new_dwis.append(dwi)
@@ -581,6 +584,11 @@ class PreprocessingWorkflow(BaseWorkflow):
                              # Extract output
                              out_dwi = result.get("current_image") if isinstance(result, dict) else result
                              out_mask = result.get("current_mask") if isinstance(result, dict) else None
+                             
+                             # Safety check: Ensure mask is an ImageFile if it's a Path
+                             if out_mask is not None and isinstance(out_mask, Path):
+                                 from qmri_neuropipe.core.types import ImageFile
+                                 out_mask = ImageFile(img=out_mask, entities=dict(out_dwi.entities, suffix="mask"))
                              
                              new_dwis.append(out_dwi)
                              new_masks.append(out_mask if out_mask is not None else mask)
@@ -1515,7 +1523,7 @@ class ModelingWorkflow(BaseWorkflow):
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
-            console=rich.get_console() 
+            console=console 
         ) as progress:
             
             task_id = progress.add_task("Fitting models...", total=total_steps)
@@ -1579,7 +1587,8 @@ class ModelingWorkflow(BaseWorkflow):
                 BarColumn(),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
-                transient=True 
+                transient=True,
+                console=console
              ) as progress:
                  task = progress.add_task(f"[cyan]Starting Modeling...", total=total_steps)
                  return _execute_modeling(progress_ctx=progress, task_id=task)

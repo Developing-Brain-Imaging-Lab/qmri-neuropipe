@@ -1,0 +1,46 @@
+{
+    "header": {
+        "title": "Verification Report",
+        "generated_at": "2026-01-23 08:08:52",
+        "subject": "sub-test",
+        "session": "",
+        "bids_dir": "/tmp/bids",
+        "work_dir": "/tmp/work"
+    },
+    "participant": {
+        "summary": "N/A",
+        "details": {}
+    },
+    "anat": {
+        "inputs": [],
+        "steps": [],
+        "summary_table": null,
+        "outputs": []
+    },
+    "dmri": {
+        "inputs": {
+            "summary": "",
+            "figures": []
+        },
+        "steps": [
+            {
+                "name": "Denoising",
+                "details": {
+                    "method": "MP-PCA"
+                },
+                "figures": [],
+                "tables": []
+            },
+            {
+                "name": "Coregistration",
+                "details": {
+                    "method": "ANTs Rigid"
+                },
+                "figures": [],
+                "tables": []
+            }
+        ],
+        "summary_table": null,
+        "outputs": []
+    }
+}

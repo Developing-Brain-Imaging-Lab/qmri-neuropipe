@@ -832,7 +832,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 BarColumn(),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeRemainingColumn(),
-                transient=True 
+                transient=True,
+                console=console
              ) as progress:
                  task = progress.add_task(f"[cyan]Starting Anatomical Preprocessing...", total=total_steps)
                  return _execute_anat(progress_ctx=progress, task_id=task)

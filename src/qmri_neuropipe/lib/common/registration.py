@@ -119,7 +119,7 @@ class CoregistrationStep(BaseProcessingStep):
     def validate_outputs(self, result) -> None:
         pass
 
-    def run(self, first_arg, output_dir: Path, target: Optional[Path]=None, options: Optional[Dict[str, Any]]=None, **kwargs) -> Any:
+    def run(self, first_arg, output_dir: Path, target: Optional[Path]=None, options: Optional[Dict[str, Any]]=None, target_modality: str = "T1w", **kwargs) -> Any:
         
         # Unpack input
         context, input_image = self.unpack_input(first_arg)
@@ -243,11 +243,27 @@ class CoregistrationStep(BaseProcessingStep):
             moving_for_reg = in_path
             
             if is_dwi:
-                 # Extract b0 or mean b0
-                 b0_path = output_dir / "temp_b0_ref.nii.gz"
-                 if not b0_path.exists():
-                     run_cmd(f"fslroi {in_path} {b0_path} 0 1", label="extract_b0_ref")
-                 moving_for_reg = b0_path
+                # Modality-specific reference extraction
+                if target_modality == "T1w":
+                    # For T1w target: Average non-b0 (DWI) volumes
+                    self.logger.info("Target is T1w: Extracting and averaging non-b0 volumes for coregistration...")
+                    avg_dwi_path = output_dir / "temp_avg_dwi_ref.nii.gz"
+                    if not avg_dwi_path.exists() or kwargs.get('force', False):
+                        mrtrix.dwiextract(input_image, avg_dwi_path, no_bzero=True, nthreads=nthreads, force=True)
+                        mrtrix.mrmath(avg_dwi_path, "mean", avg_dwi_path, axis=3, nthreads=nthreads, force=True)
+                    moving_for_reg = avg_dwi_path
+                else:
+                    # For T2w or other targets: Average b0 volumes (Default)
+                    self.logger.info(f"Target is {target_modality}: Extracting and averaging b0 volumes for coregistration...")
+                    avg_b0_path = output_dir / "temp_avg_b0_ref.nii.gz"
+                    if not avg_b0_path.exists() or kwargs.get('force', False):
+                        try:
+                            mrtrix.dwiextract(input_image, avg_b0_path, bzero=True, nthreads=nthreads, force=True)
+                            mrtrix.mrmath(avg_b0_path, "mean", avg_b0_path, axis=3, nthreads=nthreads, force=True)
+                        except Exception as e:
+                            self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to first volume.")
+                            run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
+                    moving_for_reg = avg_b0_path
 
             try:
                 # --- Logic Branch: Application Method ---

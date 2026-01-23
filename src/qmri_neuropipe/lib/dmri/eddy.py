@@ -207,7 +207,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                          fsl.maths(possible_mask, possible_mask, args="-dilM -dilM -dilM -fillh -bin -fillh")
                       
                      if possible_mask.exists():
-                         context["current_mask"] = possible_mask
+                         context["current_mask"] = ImageFile(img=possible_mask, entities=dict(result_img.entities, suffix="mask"))
                          self.logger.debug(f"Recovered/Generated mask: {possible_mask}")
 
                 # Optional: maintain preprocessed list
@@ -279,7 +279,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                      mask = mask_path
                      
                      # Persist for QC
-                     context["current_mask"] = mask
+                     context["current_mask"] = ImageFile(img=mask, entities=dict(input_img.entities, suffix="mask"))
         
         # Fetch nthreads
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
@@ -387,7 +387,7 @@ class EddyCorrectionStep(BaseProcessingStep):
             context["current_image"] = result_img
             # Ensure mask is updated in return context if we generated it
             if mask and "current_mask" not in context:
-                context["current_mask"] = mask
+                context["current_mask"] = ImageFile(img=Path(mask), entities=dict(result_img.entities, suffix="mask"))
 
             # If this is DWI, you might want to maintain a list of preprocessed DWIs:
             if isinstance(result_img, DWIFile):
