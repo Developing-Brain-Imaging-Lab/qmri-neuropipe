@@ -10,6 +10,8 @@ import warnings
 
 # Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+# Suppress cvxpy solution inaccuracy warnings (common in MAPMRI on noisy data)
+warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
 
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
@@ -297,6 +299,12 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     # 1. Flatten data within mask
     if mask is None:
         mask = np.ones(data.shape[:3], dtype=bool)
+    
+    # Ensure mask is 3D (X, Y, Z) and boolean
+    if mask.ndim == 4:
+         print(f"  - WARNING: 4D mask detected (shape {mask.shape}). Using first volume.")
+         mask = mask[..., 0]
+    mask = mask.astype(bool)
         
     data_flat = data[mask]
     n_samples = data_flat.shape[0]
@@ -377,6 +385,13 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     # Reshape to 4D to ensure DIPY handles it as a volume (avoiding 2D broadcasting issues)
     # data_chunk is (N, B)
     n_vox = data_chunk.shape[0]
+    
+    if data_chunk.ndim == 1:
+        # Unexpected 1D data (e.g. from 4D mask on 4D data)
+        # We assume n_vox is 1 and B is the whole length (or vice versa? usually B is the dim)
+        # But if it's 1D, we can't reliably know. Better to raise descriptive error or wrap.
+        raise ValueError(f"Worker received 1D data chunk (shape {data_chunk.shape}). Expected 2D (N, B). Check mask dimensions.")
+
     n_vols = data_chunk.shape[1]
     
     # Reshape to (N, 1, 1, B)
@@ -387,6 +402,7 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     # params will be (N, 1, 1, 7) -> squeeze to (N, 7)
     return fit.model_params.squeeze()
 
+def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
     import dipy.reconst.msdki as dipy_msdki
     import warnings
@@ -420,6 +436,8 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
 def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.mapmri as mapmri
     import numpy as np
+    import warnings
+    warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
     
     fit_kwargs = kwargs.copy()
     fit_kwargs.pop('n_cpus', None)
@@ -479,6 +497,8 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     
     # Suppress RuntimeWarnings (e.g. overflow in exp) common in DKI fits on noisy data
     warnings.simplefilter("ignore", RuntimeWarning)
+    # Suppress cvxpy warnings in GNL fits (MAPMRI)
+    warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
 
     # Unpack kwargs
     gnl_chunk = kwargs['gnl_chunk'] # (N, ...)

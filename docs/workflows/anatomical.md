@@ -37,6 +37,7 @@ Aligns T1w and T2w images if both are present.
 *   **Direction**: Configurable (T1w -> T2w or T2w -> T1w).
 *   **Method**: `fsl` (`flirt`) or `ants`.
 *   **Config**: `anat.preprocessing.coregistration`
+*   **Detailed Guide**: See [Registration & Coregistration](../registration.md) for advanced options.
 
 ### 7. Brain Masking
 Generates a binary brain mask from the reference structural image.

@@ -51,6 +51,7 @@ Corrects B1 field inhomogeneity in the DWI series (often on the b0 or mean b0).
 Registers the DWI series (average b0) to the structural T1w reference.
 *   **Method**: `ants` (Rigid/Affine) or `fsl` (`flirt`/`bbregister`).
 *   **Config**: `dmri.preprocessing.coregistration`
+*   **Detailed Guide**: See [Registration & Coregistration](../registration.md) for advanced options.
 
 ### 9. Gradient Nonlinearity Correction (Optional)
 Corrects for scanner gradient nonlinearities using `Tortoise` or similar tools (requires specific gradient coefficients).
