@@ -102,3 +102,25 @@ def check_nifti_integrity(file_path: Union[str, Path]) -> bool:
         return False
         
     return True
+
+def get_nifti_stem(file_path: Union[str, Path]) -> str:
+    """
+    Get the stem of a NIfTI file, handling both .nii and .nii.gz.
+    
+    Example:
+        'sub-01_T1w.nii.gz' -> 'sub-01_T1w'
+        'sub-01_T1w.nii' -> 'sub-01_T1w'
+        
+    Args:
+        file_path: Path to NIfTI file.
+        
+    Returns:
+        Clean stem without .nii or .nii.gz.
+    """
+    p = Path(file_path)
+    name = p.name
+    if name.endswith(".nii.gz"):
+        return name[:-7]
+    if name.endswith(".nii"):
+        return name[:-4]
+    return p.stem

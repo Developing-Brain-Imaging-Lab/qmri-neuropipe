@@ -30,7 +30,7 @@ class NiiFreezeStep(BaseProcessingStep):
         corrected_files = []
         
         for idx, dwi in enumerate(dwi_files):
-            stem = dwi.img.stem.replace('.nii', '').replace('.gz', '')
+            stem = get_nifti_stem(dwi.img)
             out_prefix = f"{stem}_desc-niifreeze"
             
             # Subdir for this run

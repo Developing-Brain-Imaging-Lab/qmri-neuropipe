@@ -10,7 +10,7 @@ import numpy as np
 from ...core import ValidationError
 from ...core.run import run_cmd
 from ...core.types import ImageLike
-from ...core.utils import extract_image_path, ensure_dir
+from ...core.utils import extract_image_path, ensure_dir, get_nifti_stem
 from ...interfaces import fsl, freesurfer
 
 def generate_wm_segmentation(
@@ -36,7 +36,8 @@ def generate_wm_segmentation(
     
     # Define output path
     # We want a standard name to reuse if possible
-    wm_mask = out_dir / f"{in_path.stem}_wmseg.nii.gz"
+    stem = get_nifti_stem(in_path)
+    wm_mask = out_dir / f"{stem}_wmseg.nii.gz"
     
     if wm_mask.exists():
         return wm_mask
@@ -44,10 +45,10 @@ def generate_wm_segmentation(
     if method == 'fast':
         # Run FSL FAST
         # Output base for FAST
-        fast_base = out_dir / f"{in_path.stem}_fast"
+        fast_base = out_dir / f"{stem}_fast"
         
         # Check if already run
-        fast_seg = out_dir / f"{in_path.stem}_fast_seg.nii.gz"
+        fast_seg = out_dir / f"{stem}_fast_seg.nii.gz"
         if not fast_seg.exists():
             fsl.fast(in_file, fast_base, img_type=1, num_classes=3)
             
@@ -64,7 +65,7 @@ def generate_wm_segmentation(
              
     elif method == 'synthseg':
         # Run SynthSeg
-        synth_seg = out_dir / f"{in_path.stem}_synthseg.nii.gz"
+        synth_seg = out_dir / f"{stem}_synthseg.nii.gz"
         if not synth_seg.exists():
              freesurfer.mri_synthseg(in_file, synth_seg, nthreads=nthreads)
              

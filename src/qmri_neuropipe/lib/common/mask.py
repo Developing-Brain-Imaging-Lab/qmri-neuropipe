@@ -26,7 +26,7 @@ import numpy as np
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, ImageLike, DWIFile
 from ...interfaces import fsl, mrtrix, ants, freesurfer, hdbet
-from ...core.utils import extract_image_path
+from ...core.utils import extract_image_path, get_nifti_stem
 from typing import Literal, Optional, Tuple, Any
 
 
@@ -136,13 +136,7 @@ class BrainMaskingStep(BaseProcessingStep):
         output_dir = self.get_step_output_dir(output_dir)
         
         # Handle .nii.gz stem correctly
-        name = in_path.name
-        if name.endswith(".nii.gz"):
-            stem = name[:-7]
-        elif name.endswith(".nii"):
-            stem = name[:-4]
-        else:
-            stem = in_path.stem
+        stem = get_nifti_stem(in_path)
             
         masked_path = output_dir / f"{stem}_brainmask.nii.gz"
         mask_out_path = output_dir / f"{stem}_mask.nii.gz" if return_mask else None

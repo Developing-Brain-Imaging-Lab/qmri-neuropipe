@@ -619,7 +619,8 @@ def apply_mrtrix_transform(
         return out_p, out_bvec, out_bval
 
     # Create temporary directory for conversions
-    temp_dir = out_p.parent / f"temp_mrtrix_trans_{out_p.stem}"
+    from ..core.utils import get_nifti_stem
+    temp_dir = out_p.parent / f"temp_mrtrix_trans_{get_nifti_stem(out_p)}"
     temp_dir.mkdir(exist_ok=True)
     
     try:

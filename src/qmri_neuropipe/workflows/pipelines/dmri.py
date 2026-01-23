@@ -7,6 +7,7 @@ from qmri_neuropipe.lib.dmri.normalization import NormalizationStep
 from qmri_neuropipe.lib.common.segmentation import SegmentationStep
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 from qmri_neuropipe.io.bids import _load_json_field, build_bids_name
+from qmri_neuropipe.core.utils import get_nifti_stem
 from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w
 from qmri_neuropipe.io.dmri.bids import bids_find_dwi, find_reversed_phase_groups
 from qmri_neuropipe.io.fmap.bids import bids_find_fmap
@@ -932,7 +933,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                   # Handle case where dwi matches file path if refactoring
                   pass
                   
-             stem = dwi.img.stem if dwi else "global"
+             stem = get_nifti_stem(dwi.img) if dwi else "global"
              output_dir = figures_dir.parent # Derived for use in step-specific logic
               
              if not curr_img_obj and not isinstance(step, (TopupStep, GradientCheckStep, EddyQuadStep, DMRIReorientStep)):
@@ -1330,7 +1331,7 @@ class ModelingWorkflow(BaseWorkflow):
         
         report_base = report_output_dir if report_output_dir else output_dir
         
-        stem = dwi.img.stem # Fix for multi_replace replacement
+        stem = get_nifti_stem(dwi.img) # Fix for multi_replace replacement
         
         ents = dwi.entities.copy()
         for k in ['desc', 'suffix']:
@@ -1635,7 +1636,7 @@ class NormalizationWorkflow(BaseWorkflow):
          figures_dir.mkdir(exist_ok=True, parents=True)
          
          report_base = report_output_dir if report_output_dir else output_dir
-         stem = dwi.img.stem
+         stem = get_nifti_stem(dwi.img)
          
          ents = dwi.entities.copy()
          ents['model'] = 'Normalization'
@@ -2723,7 +2724,7 @@ class DMRIPipeline(BasePipeline):
             return
             
         for dwi in dwi_files:
-            stem = dwi.img.stem
+            stem = get_nifti_stem(dwi.img)
             
             # 1. Denoising
             denoise_fig = figures_dir / f"denoise_comp_{stem}.png"

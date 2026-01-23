@@ -100,7 +100,8 @@ class B1MappingStep(BaseProcessingStep):
                      aligned_vols.append(out_v)
                      
                  # 4. Merge back to 4D
-                 aligned_afi_path = output_dir / f"{b1_image.img.stem}_aligned.nii.gz"
+                 from ...core.utils import get_nifti_stem
+                 aligned_afi_path = output_dir / f"{get_nifti_stem(b1_image.img)}_aligned.nii.gz"
                  merge(aligned_vols, aligned_afi_path, dimension='t')
                  
                  # Cleanup split

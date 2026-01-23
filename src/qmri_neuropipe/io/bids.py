@@ -12,13 +12,8 @@ def _sidecar(path: Path, new_ext: str) -> Path:
     """
     Replace .nii or .nii.gz with a different extension (e.g. .json, .bval, .bvec).
     """
-    name = path.name
-    if name.endswith(".nii.gz"):
-        base = name[:-7]
-    elif name.endswith(".nii"):
-        base = name[:-4]
-    else:
-        base = path.stem
+    from ..core.utils import get_nifti_stem
+    base = get_nifti_stem(path)
     return path.with_name(base + new_ext)
 
 def _load_json_field(json_path: Path | None, field: str):

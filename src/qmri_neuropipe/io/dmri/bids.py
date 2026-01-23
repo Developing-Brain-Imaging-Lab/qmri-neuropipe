@@ -104,7 +104,7 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | Non
 
     acqp_dir = dwi_path.parent / "eddy"
     acqp_dir.mkdir(parents=True, exist_ok=True)
-    stem = dwi_path.stem.replace(".nii", "")
+    stem = get_nifti_stem(dwi_path)
     acqp = acqp_dir / f"{stem}_acqp.txt"
     index = acqp_dir / f"{stem}_index.txt"
 

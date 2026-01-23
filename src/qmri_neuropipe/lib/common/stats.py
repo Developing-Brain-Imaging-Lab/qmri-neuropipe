@@ -23,7 +23,8 @@ class ROIStatsStep(BaseProcessingStep):
            ) -> Path:
            
         output_dir = ensure_dir(output_dir)
-        out_csv = output_dir / f"{map_image.img.stem.replace('.nii', '').replace('.gz', '')}_roi_stats.tsv"
+        from ...core.utils import get_nifti_stem
+        out_csv = output_dir / f"{get_nifti_stem(map_image.img)}_roi_stats.tsv"
         
         if out_csv.exists() and not force:
              self.logger.info(f"Skipping ROI Extraction (Exists): {out_csv.name}")
