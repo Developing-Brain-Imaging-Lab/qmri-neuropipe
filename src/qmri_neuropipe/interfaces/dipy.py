@@ -311,6 +311,12 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
          print(f"  - WARNING: 4D mask detected (shape {mask.shape}). Using first volume.")
          mask = mask[..., 0]
     mask = mask.astype(bool)
+
+    # Ensure mask and data dimensions match
+    if data.shape[:3] != mask.shape[:3]:
+         raise RuntimeError(f"Dimension mismatch between data {data.shape[:3]} and mask {mask.shape[:3]}. "
+                            f"The data may have been resampled (e.g. to anatomical space) but the mask was not, "
+                            f"possibly due to a cached output. Please check the coregistration/masking steps.")
         
     data_flat = data[mask]
     n_samples = data_flat.shape[0]

@@ -681,7 +681,20 @@ class CoregistrationStep(BaseProcessingStep):
             else:
                 mask_out_path = Path(mask_out_path_str)
 
-            if should_run:
+            # Check if mask needs to be resampled (if it doesn't exist or if dimensions mismatch coregistered image)
+            mask_should_run = should_run
+            if not mask_out_path.exists():
+                mask_should_run = True
+            elif mask_out_path.exists():
+                try:
+                    m_img = nib.load(mask_out_path)
+                    if m_img.shape != chk_img.shape[:3]:
+                        self.logger.info(f"Existing mask {mask_out_path.name} has wrong dimensions {m_img.shape}. Expected {chk_img.shape[:3]}. Re-resampling.")
+                        mask_should_run = True
+                except Exception:
+                    mask_should_run = True
+
+            if mask_should_run:
                 self.logger.info(f"Applying coregistration transform to mask: {mask_in_path.name}")
                 try:
                     if apply_method == 'mrtrix' and locals().get('mrtrix_transform'):
