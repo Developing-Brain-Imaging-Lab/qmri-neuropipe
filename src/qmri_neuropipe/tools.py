@@ -7,13 +7,13 @@ This module exposes internal library functions as standalone CLI commands.
 import typer
 from pathlib import Path
 from typing import Optional, List
-from rich.console import Console
+from qmri_neuropipe.core.ui import console
 
 # Import interfaces (lazy import inside commands to avoid heavy loading if not needed?)
 # Actually, top level imports are fine for CLI usually, but robust imports are better.
 
 app = typer.Typer(help="Standalone tools for modeling and processing.")
-console = Console()
+# console = Console()
 
 def _setup_threading(nthreads: int):
     """Result threading environment variables."""

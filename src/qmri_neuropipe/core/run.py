@@ -2,9 +2,8 @@ import subprocess, shlex, logging
 from typing import Optional
 
 try:
-    from rich.console import Console
+    from qmri_neuropipe.core.ui import console
     from rich.logging import RichHandler
-    console = Console()
 except ImportError:
     console = None
 

@@ -819,9 +819,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         
         # Execution Wrapper
         try:
-            from rich.console import Console
+            from qmri_neuropipe.core.ui import console
             from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
-            console = Console()
         except ImportError:
             console = None
             Progress = None

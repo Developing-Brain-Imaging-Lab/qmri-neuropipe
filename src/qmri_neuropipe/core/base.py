@@ -1059,7 +1059,10 @@ getenv = True{concurrency_directive}
                 markup=True, 
                 console=console,
                 show_path=False,
-                omit_repeated_times=False
+                omit_repeated_times=False,
+                show_level=True,
+                show_time=True,
+                log_time_format="[%X]" # Consistent time format
             )
         except ImportError:
             ch = logging.StreamHandler()

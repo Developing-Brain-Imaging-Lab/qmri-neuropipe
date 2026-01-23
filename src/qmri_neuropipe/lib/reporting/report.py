@@ -14,6 +14,17 @@ except ImportError:
 
 # WeasyPrint check
 try:
+    # On macOS, WeasyPrint might need help finding Pango if installed via Homebrew
+    import sys
+    import os
+    if sys.platform == "darwin":
+        # Add common Homebrew paths to DYLD_FALLBACK_LIBRARY_PATH if not already there
+        brew_lib = "/opt/homebrew/lib"
+        if os.path.exists(brew_lib):
+            fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+            if brew_lib not in fallback:
+                os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = f"{fallback}:{brew_lib}".strip(":")
+
     with open(os.devnull, 'w') as f, contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
         import weasyprint
 except Exception as e:
