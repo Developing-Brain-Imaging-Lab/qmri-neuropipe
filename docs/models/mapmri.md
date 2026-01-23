@@ -19,6 +19,8 @@ dmri:
         laplacian_regularization: true
         laplacian_weighting: 0.2
         positivity_constraint: true
+        cvxpy_solver: "SCS" # Options: SCS (default), ECOS, CVXOPT
+        metrics: ["rtop", "ng", "msd"]
 ```
 
 ### Options
@@ -29,6 +31,8 @@ dmri:
 | `laplacian_regularization` | Enable regularization to enforce smoothness. | `true` |
 | `positivity_constraint` | Enforce positive probability density. | `false` |
 | `global_constraints` | Use global optimization (slower). | `false` |
+| `cvxpy_solver` | Optimization solver used by cvxpy (e.g., `"SCS"`, `"ECOS"`, `"CVXOPT"`). | `None` |
+| `metrics` | List of metrics: `rtop`, `rtap`, `rtpp`, `msd`, `qiv`, `ng`, `ng_par`, `ng_perp`. | `["rtop", "rtap", "rtpp", "qiv", "msd"]` |
 
 ## Outputs
 
@@ -37,3 +41,6 @@ dmri:
 - **RTPP (Return to Plane Probability):** `*_model-MAPMRI_RTPP.nii.gz`
 - **MSD (Mean Squared Displacement):** `*_model-MAPMRI_MSD.nii.gz`
 - **QIV (Q-Space Inverse Variance):** `*_model-MAPMRI_QIV.nii.gz`
+- **NG (Non-Gaussivity):** `*_model-MAPMRI_NG.nii.gz`
+- **NG Parallel:** `*_model-MAPMRI_NG_PAR.nii.gz`
+- **NG Perpendicular:** `*_model-MAPMRI_NG_PERP.nii.gz`

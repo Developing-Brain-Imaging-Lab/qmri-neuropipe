@@ -6,7 +6,12 @@ DTI models the diffusion signal as a 3D Gaussian distribution (ellipsoid), chara
 
 `qmri-neuropipe` supports multiple backends for DTI fitting. The default and recommended backend is **DIPY**.
 
-- **dipy**: Pure Python implementation. Supports Weighted Linear Least Squares (WLLS), Ordinary Least Squares (OLS), Non-Linear Least Squares (NLLS), and RESTORE (robust to outliers).
+- **dipy**: Pure Python implementation. Supports:
+    - **WLLS** (Weighted Linear Least Squares) - Recommended default.
+    - **OLS** (Ordinary Least Squares)
+    - **NLLS** (Non-Linear Least Squares)
+    - **RESTORE** (Robust Estimation of Tensors by Outlier Rejection)
+    - **IRLS** (Iterative Reweighted Least Squares) - Robust fitting with custom weighting.
 - **fsl**: Uses FSL's `dtifit`.
 - **mrtrix**: Uses MRtrix3's `dwi2tensor` and `tensor2metric`.
 
@@ -29,9 +34,11 @@ dmri:
 
 | Parameter | Description | Default |
 | :--- | :--- | :--- |
-| `method` | Backend software to use. | `"dipy"` |
-| `sub_method` | (DIPY only) Solver algorithm. | `"WLLS"` |
-| `metrics` | List of metrics to compute. | `["fa", "md", "ad", "rd"]` |
+| `method` | Backend software to use (`dipy`, `fsl`, `mrtrix`). | `"dipy"` |
+| `fit_method` | (DIPY only) Solver algorithm: `WLLS`, `OLS`, `NLLS`, `RESTORE`, `IRLS`. | `"WLLS"` |
+| `weights_method` | (DIPY IRLS only) Robust method: `gm`, `cauchy`, `wls_m_est`. | `"wls_m_est"` |
+| `weights_cutoff` | (DIPY IRLS only) Z-score threshold for outlier rejection. | `None` |
+| `metrics` | List of metrics to compute: `fa`, `md`, `ad`, `rd`, `color_fa`. | `["fa", "md", "ad", "rd"]` |
 | `save_tensor` | (FSL only) Whether to save the full tensor file. | `false` |
 
 ## Outputs
