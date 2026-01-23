@@ -7,6 +7,7 @@ import json
 import nibabel as nib
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
+from qmri_neuropipe.core.utils import get_nifti_stem
 from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
 
 # def load_dwi_from_bids(sub_dir: Path) -> Dict[Path, Path, Path, Path, Optional[Path], Optional[Path]]:

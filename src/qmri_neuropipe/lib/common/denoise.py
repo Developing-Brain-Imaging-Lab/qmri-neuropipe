@@ -25,6 +25,7 @@ from ...core.types import ImageFile, DWIFile, ImageLike
 from ...interfaces import dipy, ants, mrtrix, fsl
 from ...io.bids import build_bids_name
 from ...core.run import run_cmd
+from ...core.utils import get_nifti_stem
 
 
 class DenoisingStep(BaseProcessingStep):
@@ -243,9 +244,7 @@ class DenoisingStep(BaseProcessingStep):
                  self.logger.info("No mask provided. Generating temporary dilated mask via FSL BET to accelerate denoising...")
                  
                  # Robust stem extraction
-                 stem = input_img.img.name
-                 while stem.endswith(('.nii', '.gz')):
-                     stem = Path(stem).stem
+                 stem = get_nifti_stem(input_img.img)
 
                  temp_ref = output_dir / f"temp_denoise_ref_{stem}.nii.gz"
                  temp_brain = output_dir / f"temp_denoise_brain_{stem}.nii.gz"
