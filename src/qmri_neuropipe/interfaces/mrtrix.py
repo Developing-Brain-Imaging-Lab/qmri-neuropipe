@@ -30,16 +30,21 @@ def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=1, mask:
    
     return out_p, (nm_p if nm_p else None)
     
-def dwibiascorrect(in_file: ImageLike | Path, in_bvec: Path, in_bval: Path, out_file: Path, method: str = "ants", mask: Optional[Path]=None, bias_field: Optional[Path]=None, nthreads: int = 1, force: bool = False):
+def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = None, in_bval: Path = None, method: str = "ants", mask: Optional[Path]=None, bias_field: Optional[Path]=None, nthreads: int = 1, force: bool = False):
     
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
+
+    # Auto-extract gradient table if possible
+    if in_bvec is None and in_bval is None and isinstance(in_file, DWIFile):
+        in_bvec = in_file.bvec
+        in_bval = in_file.bval
 
     # Skip if already done (unless force)
     if not force and out_p.exists():
         return out_p
 
-    diff_arg  = f"-fslgrad {in_bvec} {in_bval}"
+    diff_arg  = f"-fslgrad {in_bvec} {in_bval}" if (in_bvec and in_bval) else ""
     mask_arg  = f"-mask {mask}" if mask else ""
     bias_arg  = f"-bias {bias_field}" if bias_field else ""
     force_arg = f"-force" if force else ""
@@ -277,6 +282,11 @@ def mrconvert(
     if datatype:
         cmd.extend(["-datatype", datatype])
         
+    # Auto-extract gradient table
+    if in_bvec is None and in_bval is None and isinstance(in_file, DWIFile):
+        in_bvec = in_file.bvec
+        in_bval = in_file.bval
+
     if in_bvec and in_bval:
         cmd.extend(["-fslgrad", str(in_bvec), str(in_bval)])
         
@@ -713,6 +723,11 @@ def dwiextract(
         shell_str = ",".join(map(str, shells))
         cmd.extend(["-shells", shell_str])
         
+    # Auto-extract gradient table
+    if in_bvec is None and in_bval is None and isinstance(in_file, DWIFile):
+        in_bvec = in_file.bvec
+        in_bval = in_file.bval
+
     if in_bvec and in_bval:
         cmd.extend(["-fslgrad", str(in_bvec), str(in_bval)])
         
