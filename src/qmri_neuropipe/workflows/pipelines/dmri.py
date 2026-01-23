@@ -1371,10 +1371,10 @@ class ModelingWorkflow(BaseWorkflow):
                  "fsoma": {"suffix": "fsoma", "title": "Soma Fraction (SANDI)"}
              }
         elif isinstance(step, MAPMRIFittingStep):
-             ents['model'] = 'MAPMRI'
              base_model_dir = output_dir / "mapmri"
              metric_map = {
-                 "RTOP": {"suffix": "rtop", "title": "Return To Origin Probability (MAPMRI)"}
+                 "RTOP": {"suffix": "rtop", "title": "Return To Origin Probability (MAPMRI)"},
+                 "NG": {"suffix": "ng", "title": "Non-Gaussivity (MAPMRI)"}
              }
 
         else:

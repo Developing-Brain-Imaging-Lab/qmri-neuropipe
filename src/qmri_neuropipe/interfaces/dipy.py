@@ -441,6 +441,9 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
             elif m == 'rtpp': res.append(fit.rtpp())
             elif m == 'qiv': res.append(fit.qiv())
             elif m == 'msd': res.append(fit.msd())
+            elif m == 'ng': res.append(fit.ng())
+            elif m == 'ng_par': res.append(fit.ng_parallel())
+            elif m == 'ng_perp': res.append(fit.ng_perpendicular())
             # Add more if needed
         # Stack results: (N, n_metrics)
         return np.stack(res, axis=-1)
@@ -525,10 +528,13 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Use filtered kwargs (without metrics)
         # Ensure min_signal is set to avoid S0=None issues in iterative fits
         if 'min_signal' not in full_kwargs:
-             full_kwargs['min_signal'] = 1e-6
+             # Only add min_signal for models that accept it (DTI, DKI)
+             if 'Tensor' in model_class.__name__ or 'Kurtosis' in model_class.__name__:
+                  full_kwargs['min_signal'] = 1e-6
         # Force return_S0_hat=True to ensure iterative fit initialization (tmp.model_S0) has value
         if 'return_S0_hat' not in full_kwargs:
-             full_kwargs['return_S0_hat'] = True
+             if 'Tensor' in model_class.__name__ or 'Kurtosis' in model_class.__name__:
+                  full_kwargs['return_S0_hat'] = True
 
         model = model_class(vox_gtab, **full_kwargs)
         
@@ -551,6 +557,9 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
                  elif m == 'rtpp' and hasattr(fit, 'rtpp'): val = fit.rtpp()
                  elif m == 'qiv' and hasattr(fit, 'qiv'): val = fit.qiv()
                  elif m == 'msd' and hasattr(fit, 'msd'): val = fit.msd()
+                 elif m == 'ng' and hasattr(fit, 'ng'): val = fit.ng()
+                 elif m == 'ng_par' and hasattr(fit, 'ng_parallel'): val = fit.ng_parallel()
+                 elif m == 'ng_perp' and hasattr(fit, 'ng_perpendicular'): val = fit.ng_perpendicular()
                  elif hasattr(fit, m): val = getattr(fit, m) # generic property?
                  else: val = 0.0 # Nan?
                  
@@ -1245,9 +1254,6 @@ def fit_mapmri(
         if grad_nonlin:
              print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
              
-             # Prepare worker kwargs (exclude metrics/gnl if present)
-             worker_kwargs = {k:v for k,v in map_kwargs.items() if k != 'metrics' and k != 'grad_nonlin'}
-             
              final_data = _execute_gnl_fit(
                 data=data,
                 mask=mask,
@@ -1255,39 +1261,31 @@ def fit_mapmri(
                 bvals=bvals,
                 bvecs=bvecs,
                 model_class=mapmri.MapmriModel,
-                model_kwargs=worker_kwargs,
+                model_kwargs=map_kwargs, # map_kwargs has 'metrics'
                 nthreads=nthreads,
                 big_delta=big_delta,
                 small_delta=small_delta
              )
-             # final_data is coefficients (params) for GNL
+             # final_data is metrics (N, n_metrics)
              
         elif nthreads > 1:
              # Parallel
-             worker_kwargs = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
              final_data = _parallel_fit_driver(
                 data,
                 mask,
                 gtab,
                 _mapmri_worker,
                 nthreads,
-                worker_kwargs=worker_kwargs
+                worker_kwargs=map_kwargs # map_kwargs has 'metrics'
              )
+             # final_data is metrics (N, n_metrics) [actually vol_params (X, Y, Z, n_metrics)]
              
         else:
              # Serial
-             # map_kwargs has 'metrics' inside which Model doesn't accept
              mk = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
              map_model = mapmri.MapmriModel(gtab, **mk)
              mapfit = map_model.fit(data, mask=mask)
              final_data = None # Indicator for serial object
-
-        # Reconstruct MapmriFit for Parallel/GNL cases
-        # We need the model instance for this
-        if final_data is not None:
-            mk = {k:v for k,v in map_kwargs.items() if k != 'metrics' and k != 'grad_nonlin'}
-            map_model = mapmri.MapmriModel(gtab, **mk)
-            mapfit = mapmri.MapmriFit(map_model, final_data)
 
     except Exception as e:
         import traceback
@@ -1313,8 +1311,6 @@ def fit_mapmri(
     }
     
     # Handling Outputs
-    # We now have a consistent mapfit object (either from serial fit or reconstructed from headers/coeffs)
-    
     for i, metric in enumerate(metrics):
         metric_lower = metric.lower()
         metric_suffix = metric.upper()
@@ -1322,15 +1318,23 @@ def fit_mapmri(
         out_path = out_dir / out_name
         
         val = None
-        # Using MapmriFit object methods
-        if metric_lower == 'rtop': val = mapfit.rtop()
-        elif metric_lower == 'rtap': val = mapfit.rtap()
-        elif metric_lower == 'rtpp': val = mapfit.rtpp()
-        elif metric_lower == 'qiv': val = mapfit.qiv()
-        elif metric_lower == 'msd': val = mapfit.msd()
-        elif metric_lower == 'ng': val = mapfit.ng()
-        elif metric_lower == 'ng_par': val = mapfit.ng_parallel()
-        elif metric_lower == 'ng_perp': val = mapfit.ng_perpendicular()
+        if final_data is not None:
+             # Data is in final_data (vol_params)
+             if final_data.ndim == 4:
+                  val = final_data[..., i]
+             else:
+                  # Should not happen with current driver but for safety
+                  val = final_data
+        else:
+             # Using MapmriFit object methods (Serial path)
+             if metric_lower == 'rtop': val = mapfit.rtop()
+             elif metric_lower == 'rtap': val = mapfit.rtap()
+             elif metric_lower == 'rtpp': val = mapfit.rtpp()
+             elif metric_lower == 'qiv': val = mapfit.qiv()
+             elif metric_lower == 'msd': val = mapfit.msd()
+             elif metric_lower == 'ng': val = mapfit.ng()
+             elif metric_lower == 'ng_par': val = mapfit.ng_parallel()
+             elif metric_lower == 'ng_perp': val = mapfit.ng_perpendicular()
         
         if val is not None:
              nib.save(nib.Nifti1Image(val, img.affine), str(out_path))
