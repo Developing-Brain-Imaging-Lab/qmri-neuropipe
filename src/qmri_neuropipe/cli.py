@@ -306,6 +306,11 @@ def main(
         "--jobs", "-j",
         help="Number of parallel jobs (subjects) to run locally"
     ),
+    outlier_indices: Optional[str] = typer.Option(
+        None,
+        "--outlier-indices",
+        help="Comma-separated list of volume indices to remove (e.g., '0,1,2')"
+    ),
     subjects_file: Optional[Path] = typer.Option(
         None,
         "--subjects-file",
@@ -369,6 +374,15 @@ def main(
                 console.print(f"[bold red]Error:[/bold red] Invalid gpu_ids format: {gpu_ids}. Expected comma-separated integers.")
                 raise typer.Exit(code=1)
 
+        # Parse outlier_indices
+        outlier_indices_list = None
+        if outlier_indices is not None:
+            try:
+                outlier_indices_list = [int(x.strip()) for x in outlier_indices.split(',')]
+            except ValueError:
+                console.print(f"[bold red]Error:[/bold red] Invalid outlier-indices format: {outlier_indices}. Expected comma-separated integers.")
+                raise typer.Exit(code=1)
+
         # Collect CLI arguments (only non-None values)
         # Note: pipeline and level are NOT part of PipelineConfig dataclass
         # They control which workflow runs, not how it runs
@@ -390,6 +404,10 @@ def main(
             'debug': debug,
             'jobs': jobs,
             'submit': submit,
+            # Pass outlier indices to the nested config path
+            'dmri.preprocessing.outliers.manual_indices': outlier_indices_list,
+            'dmri.preprocessing.outliers.method': 'manual' if outlier_indices_list else None,
+            'dmri.preprocessing.outliers.enabled': True if outlier_indices_list else None,
             # If submit_file is provided, pass it as 'submit' value (path string)
             # If submit is True but no file, pass True (or "DEFAULT")
             # We'll normalize this logic here
