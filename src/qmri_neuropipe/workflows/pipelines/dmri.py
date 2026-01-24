@@ -504,22 +504,28 @@ class PreprocessingWorkflow(BaseWorkflow):
                          if dwi.img in topup_map:
                              img_ctx["topup_base"] = topup_map[dwi.img]
 
-                         # T1w target logic
-                         t1w_files = img_ctx.get("t1w_files", [])
-                         target_img = t1w_files[0].img if t1w_files else None
+                         # Reference target logic
+                         coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
+                         target_modality = coreg_cfg.get("reference_image", "T1w")
+                         
+                         if target_modality == "T2w":
+                              t2w_files = img_ctx.get("t2w_files", [])
+                              target_img = t2w_files[0].img if t2w_files else None
+                         else:
+                              t1w_files = img_ctx.get("t1w_files", [])
+                              target_img = t1w_files[0].img if t1w_files else None
                          
                          # Step kwargs
                          step_kwargs = {}
                          if isinstance(step, CoregistrationStep):
                              if target_img:
                                   step_kwargs["target"] = target_img
-                                  coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
                                   flat_opts = dict(coreg_cfg)
                                   if "options" in flat_opts: flat_opts.update(flat_opts.pop("options"))
                                   step_kwargs["options"] = flat_opts
                                   
                                   # Pass target modality for intelligent input selection (b0 vs non-b0)
-                                  step_kwargs["target_modality"] = coreg_cfg.get("reference_image", "T1w")
+                                  step_kwargs["target_modality"] = target_modality
                              else:
                                  # Skip
                                  new_dwis.append(dwi)
@@ -2169,6 +2175,7 @@ class DMRIPipeline(BasePipeline):
                 "dwi_files": dwi_files,
                 "topup_groups": topup_groups,
                 "t1w_files": t1w_files,
+                "t2w_files": t2w_files,
             }
     
             # 5. Build the preprocessing workflow/pipeline

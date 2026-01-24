@@ -200,8 +200,8 @@ class CoregistrationStep(BaseProcessingStep):
         moving_for_reg = in_path
         if is_dwi:
             # Modality-specific reference extraction
-            if target_modality == "T1w":
-                self.logger.info("Target is T1w: Extracting and averaging non-b0 volumes for coregistration reference...")
+            if target_modality in ["T1w", "T2w"]:
+                self.logger.info(f"Target is {target_modality}: Extracting and averaging non-b0 volumes for coregistration reference...")
                 avg_dwi_path = output_dir / "temp_avg_dwi_ref.nii.gz"
                 if not avg_dwi_path.exists() or kwargs.get('force', False):
                     mrtrix.dwiextract(input_image, avg_dwi_path, no_bzero=True, nthreads=nthreads, force=True)

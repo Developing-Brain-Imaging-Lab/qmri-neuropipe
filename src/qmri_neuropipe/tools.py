@@ -26,6 +26,17 @@ def _setup_threading(nthreads: int):
     os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
 
 
+def _parse_metric_list(metrics: List[str]) -> List[str]:
+    """Support both multiple --metrics flags and comma-separated strings."""
+    final = []
+    for m in metrics:
+        if "," in m:
+            final.extend([x.strip() for x in m.split(",") if x.strip()])
+        else:
+            final.append(m)
+    return final
+
+
 @app.command("fit-dti")
 def fit_dti_cli(
     input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
@@ -63,7 +74,7 @@ def fit_dti_cli(
             bvec_file=bvec,
             mask_file=mask,
             fit_method=method,
-            metrics=metrics,
+            metrics=_parse_metric_list(metrics),
             nthreads=nthreads,
             grad_nonlin=grad_nonlin,
             **kwargs
@@ -115,7 +126,7 @@ def fit_dki_cli(
             bval_file=bval,
             bvec_file=bvec,
             mask_file=mask,
-            metrics=metrics,
+            metrics=_parse_metric_list(metrics),
             nthreads=nthreads,
             grad_nonlin=grad_nonlin,
             **kwargs
@@ -223,7 +234,7 @@ def fit_mapmri_cli(
             mask_file=mask,
             laplacian=laplacian,
             positivity=positivity,
-            metrics=metrics,
+            metrics=_parse_metric_list(metrics),
             nthreads=nthreads,
             grad_nonlin=grad_nonlin,
         )
