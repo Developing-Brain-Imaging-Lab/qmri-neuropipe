@@ -458,6 +458,17 @@ def _check_eddy_supports_nthr(eddy_bin: str) -> bool:
         # If we can't run it (e.g. not found), assume False or let the main call fail later
         return False
 
+def check_gpu_availability() -> bool:
+    """Check if a functional NVIDIA GPU is available."""
+    if shutil.which("nvidia-smi"):
+        try:
+            # Run nvidia-smi to check if drivers are working
+            result = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
+            return result.returncode == 0
+        except Exception:
+            return False
+    return False
+
 def eddy(
     in_file: DWIFile,
     out_file: Path,
@@ -509,10 +520,16 @@ def eddy(
 
     # Detect appropriate binary
     if cuda:
-        eddy_bin = _find_eddy_cuda()
-        if not eddy_bin:
-             raise RuntimeError("CUDA enabled but no 'eddy_cuda*' executable found in PATH or FSLDIR/bin.")
-    else:
+        if not check_gpu_availability():
+            logger.warning("CUDA enabled but no functional NVIDIA GPU/driver detected via nvidia-smi. Falling back to CPU version of eddy.")
+            cuda = False
+        else:
+            eddy_bin = _find_eddy_cuda()
+            if not eddy_bin:
+                 logger.warning("CUDA enabled but no 'eddy_cuda*' executable found. Falling back to CPU version of eddy.")
+                 cuda = False
+
+    if not cuda:
         # Prefer OpenMP version if available
         eddy_bin = "eddy_openmp" if _which("eddy_openmp") else "eddy"
         # If neither found, checking just "eddy" will likely fail in run_cmd but that's expected.
