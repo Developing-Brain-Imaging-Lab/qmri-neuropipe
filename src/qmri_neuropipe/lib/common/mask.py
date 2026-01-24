@@ -182,9 +182,8 @@ class BrainMaskingStep(BaseProcessingStep):
         
         
         # Prepare reference image for masking
-        # If DWI (4D), we MUST extract the first volume (b0) to generate the mask.
-        # Then we apply that mask to the 4D series.
-        temp_b0 = None
+        # If DWI (4D), we extract an average b0 to improve SNR for masking.
+        temp_ref = None
         mask_generated_path = output_dir / f"{stem}_mask_generated.nii.gz"
         tool_brain_out = output_dir / f"{stem}_tool_brain.nii.gz"
         
@@ -194,22 +193,31 @@ class BrainMaskingStep(BaseProcessingStep):
         
         # Determine what file to pass to the tool
         if is_dwi:
-             # Extract first volume
-             temp_b0 = output_dir / f"{stem}_vol0.nii.gz"
-             # Use nibabel to slice
-             img_nii = nib.load(str(in_path))
-             data = img_nii.get_fdata()
+             # Extract and average b0 volumes for a more robust mask
+             temp_avg_b0 = output_dir / f"{stem}_avg_b0.nii.gz"
              
-             if data.ndim == 4:
-                 vol0 = data[..., 0]
-                 nib.save(nib.Nifti1Image(vol0, img_nii.affine, img_nii.header), temp_b0)
-                 tool_input = temp_b0
-             else:
-                 # It's actually 3D?
-                 tool_input = in_path
+             try:
+                 # Prefer MRTrix for robust b0 extraction and averaging
+                 from ...interfaces import mrtrix
+                 self.logger.info(f"Extracting and averaging b0 volumes for robust masking: {in_path.name}")
+                 # Ensure temp_avg_b0 is not a directory from some previous failed attempt (unlikely but safe)
+                 mrtrix.dwiextract(input_image, temp_avg_b0, bzero=True, nthreads=nthreads, force=True)
+                 mrtrix.mrmath(temp_avg_b0, "mean", temp_avg_b0, axis=3, nthreads=nthreads, force=True)
+                 tool_input = temp_avg_b0
+                 temp_ref = temp_avg_b0
+             except Exception as e:
+                 self.logger.warning(f"Failed to create average b0 via MRTrix: {e}. Falling back to first volume.")
+                 # Fallback to first volume using nibabel (fast, no external deps)
+                 temp_vol0 = output_dir / f"{stem}_vol0.nii.gz"
+                 img_nii = nib.load(str(in_path))
+                 if img_nii.ndim == 4:
+                     vol0 = img_nii.get_fdata()[..., 0]
+                     nib.save(nib.Nifti1Image(vol0, img_nii.affine, img_nii.header), temp_vol0)
+                     tool_input = temp_vol0
+                     temp_ref = temp_vol0
+                 else:
+                     tool_input = in_path
         else:
-             tool_input = in_path
-
              tool_input = in_path
 
         # ---------------------------------------------------------------------
@@ -347,9 +355,15 @@ class BrainMaskingStep(BaseProcessingStep):
                   shutil.copy(mask_generated_path, mask_out_path)
         
         # Cleanup temps
-        if temp_b0 and temp_b0.exists(): temp_b0.unlink()
+        if temp_ref and temp_ref.exists(): 
+             try:
+                 temp_ref.unlink()
+             except Exception: pass
         if tool_brain_out.exists(): tool_brain_out.unlink()
-        if mask_generated_path.exists() and mask_generated_path != mask_out_path: mask_generated_path.unlink()
+        if mask_generated_path.exists() and mask_generated_path != mask_out_path: 
+             try:
+                 mask_generated_path.unlink()
+             except Exception: pass
             
         # Wrap output
         if is_dwi:
