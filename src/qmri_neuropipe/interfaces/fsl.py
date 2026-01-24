@@ -4,6 +4,9 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Union
 import json
+import logging
+import os
+import subprocess
 
 import nibabel as nib
 import numpy as np
@@ -12,6 +15,8 @@ from ..core.run import run_cmd
 from ..core.types import DWIFile, ImageLike
 from ..io.dmri.bids import build_acqp_index
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
+
+logger = logging.getLogger(__name__)
 
 def _format_extra_opts(extra_opts: Optional[Dict[str, Any]], prefix: str = "--") -> list[str]:
     opts: list[str] = []
@@ -534,13 +539,10 @@ def eddy(
         eddy_bin = "eddy_openmp" if _which("eddy_openmp") else "eddy"
         # If neither found, checking just "eddy" will likely fail in run_cmd but that's expected.
 
-    # Fix: Ensure shutil is imported if used later (it is used at line 335)
-    import shutil
-    
     # Only set CUDA_VISIBLE_DEVICES if explicitly requested via argument AND not running in pre-isolated env
     # In parallel mode, os.environ["CUDA_VISIBLE_DEVICES"] is already set to the specific GPU.
     # Prepending 'env CUDA_VISIBLE_DEVICES=...' overrides the isolation (resetting to physical GPU X).
-    
+
     env_parts = ["env"]
     if cuda:
         # If env var is NOT set, we set it. If it IS set, we assume isolation is managed externally.

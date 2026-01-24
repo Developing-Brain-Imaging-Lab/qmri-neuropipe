@@ -1,0 +1,1 @@
+/Users/deaniii/Developer/thirdparty/fsl/bin/eddy_cpu --imain=dummy.nii.gz --mask=tmp_mask.nii.gz --index=index.txt --acqp=acqp.txt --bvecs=dummy.bvec --bvals=dummy.bval --out=out --nthr=1
