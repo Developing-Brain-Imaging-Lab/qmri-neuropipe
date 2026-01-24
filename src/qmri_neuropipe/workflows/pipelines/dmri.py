@@ -86,6 +86,19 @@ class PreprocessingWorkflow(BaseWorkflow):
             # It should run BEFORE other per-image steps.
             self.add_step(GradientCheckStep(self.config, self.logger, self.provenance))
 
+        # 0.5 Manual Outlier Removal (Early Step)
+        outlier_cfg = dmri_cfg.get('outliers', {})
+        if outlier_cfg.get('enabled', False) and outlier_cfg.get('method') == 'manual':
+             self.logger.info("Adding OutlierRemovalStep (manual method - early)")
+             self.add_step(OutlierRemovalStep(
+                 config=self.config,
+                 logger=self.logger,
+                 provenance=self.provenance,
+                 method='manual',
+                 manual_indices=outlier_cfg.get('manual_indices'),
+                 volumes_file=outlier_cfg.get('volumes_file')
+             ))
+
 
 
         # 1. Distortion Correction Strategy (unified)
@@ -235,18 +248,17 @@ class PreprocessingWorkflow(BaseWorkflow):
         else:
              self.logger.warning(f"Unknown motion correction method '{motion_method}'. Skipping.")
 
-        # 4.5 Outlier Removal
+        # 4.5 Outlier Removal (Legacy/Automated)
         outlier_cfg = dmri_cfg.get('outliers', {})
-        if outlier_cfg.get('enabled', False):
-              method = outlier_cfg.get('method', 'manual')
-              self.logger.info(f"Adding OutlierRemovalStep (method={method})")
+        if outlier_cfg.get('enabled', False) and outlier_cfg.get('method') != 'manual':
+              method = outlier_cfg.get('method', 'threshold')
+              self.logger.info(f"Adding OutlierRemovalStep ({method})")
               self.add_step(OutlierRemovalStep(
                   config=self.config,
                   logger=self.logger,
                   provenance=self.provenance,
                   method=method,
-                  threshold=outlier_cfg.get('threshold', 0.05),
-                  manual_indices=outlier_cfg.get('manual_indices')
+                  threshold=outlier_cfg.get('threshold', 0.05)
               ))
 
         # 5. Bias Field Correction
@@ -511,10 +523,21 @@ class PreprocessingWorkflow(BaseWorkflow):
                          target_modality = self.config.get('dmri.preprocessing.coregistration.reference_image', 'T1w')
                          coreg_cfg = self.config.get('dmri.preprocessing.coregistration', {})
                          
+                         target_img = None
+                         actual_modality = target_modality
+                         
                          if target_modality == "T2w":
                               target_img = t2w_files[0].img if t2w_files else None
-                         else:
+                              if not target_img and t1w_files:
+                                   self.logger.info("T2w reference requested but not found. Falling back to T1w for coregistration.")
+                                   target_img = t1w_files[0].img
+                                   actual_modality = "T1w"
+                         else: # Default T1w
                               target_img = t1w_files[0].img if t1w_files else None
+                              if not target_img and t2w_files:
+                                   self.logger.info("T1w reference requested but not found. Falling back to T2w for coregistration.")
+                                   target_img = t2w_files[0].img
+                                   actual_modality = "T2w"
                          
                          # Step kwargs
                          step_kwargs = {}
@@ -526,7 +549,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                                   step_kwargs["options"] = flat_opts
                                   
                                   # Pass target modality for intelligent input selection (b0 vs non-b0)
-                                  step_kwargs["target_modality"] = target_modality
+                                  step_kwargs["target_modality"] = actual_modality
                              else:
                                  # Skip
                                  new_dwis.append(dwi)
@@ -545,7 +568,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                              
                              if coreg_enabled and out_res == "anatomical":
                                  # Try to find structural mask from whatever modality we registered to
-                                 structural_files = t2w_files if target_modality == "T2w" else t1w_files
+                                 structural_files = t2w_files if actual_modality == "T2w" else t1w_files
                                  
                                  if structural_files:
                                      struct_ref = structural_files[0]

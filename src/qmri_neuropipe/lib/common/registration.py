@@ -145,11 +145,17 @@ class CoregistrationStep(BaseProcessingStep):
              # Heuristic: look for files matching modality
              if target_modality == "T2w":
                   t2w = context.get('t2w_files', [])
-                  if t2w: target = t2w[0].img
+                  if t2w: 
+                       target = t2w[0].img
+                  elif context.get('t1w_files'):
+                       target = context.get('t1w_files')[0].img
              
              if not target:
                   t1w = context.get('t1w_files', [])
-                  if t1w: target = t1w[0].img
+                  if t1w: 
+                       target = t1w[0].img
+                  elif context.get('t2w_files'):
+                       target = context.get('t2w_files')[0].img
              # Add other lookups here if needed
 
         if not target:

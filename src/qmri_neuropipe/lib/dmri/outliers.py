@@ -16,11 +16,12 @@ class OutlierRemovalStep(BaseProcessingStep):
     Identifies and removes outlier volumes from DWI data.
     """
     
-    def __init__(self, config, logger, provenance, method: str = "manual", threshold: float = 0.05, manual_indices: Optional[List[int]] = None):
+    def __init__(self, config, logger, provenance, method: str = "manual", threshold: float = 0.05, manual_indices: Optional[List[int]] = None, volumes_file: Optional[str] = None):
         super().__init__(config, logger, provenance)
         self.method = method
         self.threshold = threshold
         self.manual_indices = manual_indices
+        self.volumes_file = volumes_file
         
     def run(self, context: dict, output_dir: Path, **kwargs) -> dict:
         """
@@ -86,10 +87,18 @@ class OutlierRemovalStep(BaseProcessingStep):
         if self.method == "manual":
              if self.manual_indices:
                   bad_indices = self.manual_indices
-             else:
-                  # Check for sidecar file?
-                  # Or config
-                  pass
+                  self.logger.info(f"Using manual outlier indices from config: {bad_indices}")
+             elif self.volumes_file:
+                  v_file = Path(self.volumes_file)
+                  if v_file.exists():
+                       self.logger.info(f"Reading manual outlier indices from file: {v_file}")
+                       try:
+                            content = v_file.read_text().replace(",", " ").split()
+                            bad_indices = [int(idx) for idx in content]
+                       except Exception as e:
+                            self.logger.error(f"Failed to read outlier volumes file {v_file}: {e}")
+                  else:
+                       self.logger.warning(f"Manual outlier file {v_file} not found.")
                   
         elif self.method == "eddy_qc" or self.method == "threshold":
              # Look for eddy outlier report associated with the current image
