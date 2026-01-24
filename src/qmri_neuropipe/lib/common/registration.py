@@ -142,10 +142,14 @@ class CoregistrationStep(BaseProcessingStep):
 
         # Try to infer target from context if not provided
         if not target and context:
-             # Heuristic: look for 't1w_file' or 'structural_reference'
-             t1w = context.get('t1w_files', [])
-             if t1w:
-                  target = t1w[0].img
+             # Heuristic: look for files matching modality
+             if target_modality == "T2w":
+                  t2w = context.get('t2w_files', [])
+                  if t2w: target = t2w[0].img
+             
+             if not target:
+                  t1w = context.get('t1w_files', [])
+                  if t1w: target = t1w[0].img
              # Add other lookups here if needed
 
         if not target:

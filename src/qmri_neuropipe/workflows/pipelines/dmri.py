@@ -505,8 +505,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                              img_ctx["topup_base"] = topup_map[dwi.img]
 
                          # Reference target logic
-                         coreg_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get('coregistration', {})
-                         target_modality = coreg_cfg.get("reference_image", "T1w")
+                         target_modality = self.config.get('dmri.preprocessing.coregistration.reference_image', 'T1w')
+                         coreg_cfg = self.config.get('dmri.preprocessing.coregistration', {})
                          
                          if target_modality == "T2w":
                               t2w_files = img_ctx.get("t2w_files", [])
