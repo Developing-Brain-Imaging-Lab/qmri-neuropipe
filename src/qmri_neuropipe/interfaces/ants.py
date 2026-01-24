@@ -15,18 +15,20 @@ def n4bias(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, shrink:
     out_p = ensure_dir(out_file)
     bf_p = ensure_dir(bias_field) if bias_field else None
     
+    mask_p = extract_image_path(mask) if mask else None
+    
     image  = ants.image_read( str(in_p) )
     n4_img = ants.n4_bias_field_correction(image, 
                                            shrink_factor=shrink, 
                                            convergence={'iters': iters, 'tol':1e-7}, 
-                                           mask=ants.image_read( str(mask) ) if mask else None)
+                                           mask=ants.image_read( str(mask_p) ) if mask_p else None)
     
     ants.image_write( n4_img, str(out_p) )
     if bias_field:
         n4_img = ants.n4_bias_field_correction(image, 
                                                 shrink_factor=shrink, 
                                                 convergence={'iters': iters, 'tol':1e-7}, 
-                                                mask=ants.image_read( str(mask) ) if mask else None,
+                                                mask=ants.image_read( str(mask_p) ) if mask_p else None,
                                                 return_bias_field=True)
         ants.image_write( n4_img, str(bf_p) )
     
@@ -42,10 +44,12 @@ def denoise_image(in_file: ImageLike | Path, out_file: Path, noise_model: str = 
     out_p = ensure_dir(out_file)
     nm_p  = ensure_dir(noise_map) if noise_map else None
 
+    mask_p = extract_image_path(mask) if mask else None
+
     image   = ants.image_read( str(in_p) )
     den_img = ants.denoise_image(image, 
                                  noise_model=noise_model, 
-                                 mask=ants.image_read( mask ) if mask else None )
+                                 mask=ants.image_read( str(mask_p) ) if mask_p else None )
     
     ants.image_write( den_img, str(out_p) )
 

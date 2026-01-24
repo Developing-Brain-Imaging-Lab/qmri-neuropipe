@@ -22,7 +22,8 @@ def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=1, mask:
     if not force and out_p.exists() and (not nm_p or nm_p.exists()):
         return str(out_p), (str(nm_p) if nm_p else None)
     
-    mask_arg  = f"-mask {mask}" if mask else ""
+    mask_p = extract_image_path(mask) if mask else None
+    mask_arg  = f"-mask {mask_p}" if mask_p else ""
     noise_arg = f"-noise {noise_map}" if noise_map else ""
     force_arg = f"-force" if force else ""
     cmd = f"dwidenoise {in_p} {out_p} {mask_arg} {noise_arg} -nthreads {nthreads} {force_arg} -quiet"
@@ -44,9 +45,12 @@ def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = No
     if not force and out_p.exists():
         return out_p
 
+    mask_p = extract_image_path(mask) if mask else None
+    bf_p = extract_image_path(bias_field) if bias_field else None
+
     diff_arg  = f"-fslgrad {in_bvec} {in_bval}" if (in_bvec and in_bval) else ""
-    mask_arg  = f"-mask {mask}" if mask else ""
-    bias_arg  = f"-bias {bias_field}" if bias_field else ""
+    mask_arg  = f"-mask {mask_p}" if mask_p else ""
+    bias_arg  = f"-bias {bf_p}" if bf_p else ""
     force_arg = f"-force" if force else ""
     cmd = f"dwibiascorrect {method} {in_p} {diff_arg} {out_p} {mask_arg} {bias_arg} -nthreads {nthreads} {force_arg} -quiet"
     run_cmd(cmd, label="dwibiascorrect")
