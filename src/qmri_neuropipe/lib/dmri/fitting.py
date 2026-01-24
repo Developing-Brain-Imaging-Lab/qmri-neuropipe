@@ -742,7 +742,7 @@ class MAPMRIFittingStep(BaseProcessingStep):
              
              # Robust extraction for flexible options (smoothing, constraints)
              opts = ['smoothing_fwhm', 'radial_order', 'laplacian_regularization', 
-                     'positivity_constraint', 'cvxpy_solver', 'static_diffusivity']
+                     'positivity_constraint', 'cvxpy_solver', 'static_diffusivity', 'metrics']
              
              if isinstance(self.config, dict):
                   for k in opts:
