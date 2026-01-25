@@ -353,7 +353,9 @@ class PreprocessingWorkflow(BaseWorkflow):
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
-                method=method
+                method=method,
+                apply_mask=mask_cfg.get('apply_mask', True),
+                mask_input=mask_cfg.get('mask_input', 'b0')
             ))
 
 

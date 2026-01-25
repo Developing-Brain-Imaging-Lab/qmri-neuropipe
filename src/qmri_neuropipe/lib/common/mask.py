@@ -52,10 +52,14 @@ class BrainMaskingStep(BaseProcessingStep):
         provenance=None,
         method: Literal["fsl", "mrtrix", "ants", "freesurfer", "synthstrip", "hd-bet"] = "fsl",
         nthreads: int = 1,
+        mask_input: Literal["b0", "average"] = "b0",
+        apply_mask: bool = True,
     ):
         super().__init__(config, logger, provenance)
         self.method = method
         self.nthreads = nthreads
+        self.mask_input = mask_input
+        self.apply_mask = apply_mask
         if hasattr(self.config, 'n_cpus'):
              self.nthreads = self.config.n_cpus
         elif isinstance(self.config, dict):
@@ -139,12 +143,12 @@ class BrainMaskingStep(BaseProcessingStep):
         stem = get_nifti_stem(in_path)
             
         masked_path = output_dir / f"{stem}_brainmask.nii.gz"
-        mask_out_path = output_dir / f"{stem}_mask.nii.gz" if return_mask else None
+        mask_out_path = output_dir / f"{stem}_mask.nii.gz"
         
         # Skip if outputs exist
         # Skip if outputs exist AND input is not newer
         should_skip = False
-        if masked_path.exists() and (not return_mask or (mask_out_path and mask_out_path.exists())) and not kwargs.get('force', False):
+        if (not self.apply_mask or masked_path.exists()) and mask_out_path.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = in_path.stat().st_mtime
              out_mtime = masked_path.stat().st_mtime
@@ -159,21 +163,16 @@ class BrainMaskingStep(BaseProcessingStep):
         
         if should_skip:
              self.logger.info(f"Skipping brain masking (outputs exist): {masked_path}")
-             if is_dwi:
-                 brain_obj = DWIFile(
-                     img=masked_path, 
-                     entities=entities, 
-                     json=input_image.json, 
-                     bval=input_image.bval, 
-                     bvec=input_image.bvec
-                 )
-             else:
-                 brain_obj = ImageFile(img=masked_path, entities=entities)
-             mask_obj = ImageFile(img=mask_out_path, entities=dict(entities, suffix="mask")) if return_mask else None
+             mask_obj = ImageFile(img=mask_out_path, entities=dict(entities, suffix="mask"))
              
+             if self.apply_mask:
+                 brain_obj = ImageFile(img=masked_path, entities=entities)
+             else:
+                 brain_obj = input_image
+
              if context is not None:
                  context["current_image"] = brain_obj
-                 if mask_obj: context["current_mask"] = mask_obj
+                 context["current_mask"] = mask_obj
                  return context
                  
              if return_mask:
@@ -197,12 +196,19 @@ class BrainMaskingStep(BaseProcessingStep):
              temp_avg_b0 = output_dir / f"{stem}_avg_b0.nii.gz"
              
              try:
-                 # Prefer MRTrix for robust b0 extraction and averaging
+                 # Prefer MRTrix for robust b0/average extraction and averaging
                  from ...interfaces import mrtrix
-                 self.logger.info(f"Extracting and averaging b0 volumes for robust masking: {in_path.name}")
-                 # Ensure temp_avg_b0 is not a directory from some previous failed attempt (unlikely but safe)
-                 mrtrix.dwiextract(input_image, temp_avg_b0, bzero=True, nthreads=nthreads, force=True)
-                 mrtrix.mrmath(temp_avg_b0, "mean", temp_avg_b0, axis=3, nthreads=nthreads, force=True)
+                 mask_input_type = kwargs.get('mask_input', self.mask_input)
+                 
+                 if mask_input_type == "average":
+                     self.logger.info(f"Averaging entire diffusion series for robust masking: {in_path.name}")
+                     mrtrix.mrmath(input_image, "mean", temp_avg_b0, axis=3, nthreads=nthreads, force=True)
+                 else:
+                     self.logger.info(f"Extracting and averaging b0 volumes for robust masking: {in_path.name}")
+                     # Ensure temp_avg_b0 is not a directory from some previous failed attempt (unlikely but safe)
+                     mrtrix.dwiextract(input_image, temp_avg_b0, bzero=True, nthreads=nthreads, force=True)
+                     mrtrix.mrmath(temp_avg_b0, "mean", temp_avg_b0, axis=3, nthreads=nthreads, force=True)
+                 
                  tool_input = temp_avg_b0
                  temp_ref = temp_avg_b0
              except Exception as e:
@@ -328,31 +334,45 @@ class BrainMaskingStep(BaseProcessingStep):
         if not mask_generated_path.exists():
              raise ProcessingError(f"Brain masking failed to generate mask: {mask_generated_path}")
 
-        # Load mask
-        mask_img = nib.load(str(mask_generated_path))
-        mask_data = mask_img.get_fdata() > 0.5 # binary
+        if mask_generated_path != mask_out_path:
+             # Copy/move
+             import shutil
+             shutil.copy(mask_generated_path, mask_out_path)
         
-        # Load original input
-        orig_img = nib.load(str(in_path))
-        orig_data = orig_img.get_fdata()
-        
-        # Broadcast mask if needed
-        # If orig is 4D (x,y,z,t) and mask is 3D (x,y,z)
-        if orig_data.ndim == 4 and mask_data.ndim == 3:
-             mask_data = mask_data[..., np.newaxis]
-             
-        # Apply
-        masked_data = orig_data * mask_data
-        
-        # Save final masked image
-        nib.save(nib.Nifti1Image(masked_data, orig_img.affine, orig_img.header), masked_path)
-        
-        # Handle returns
-        if return_mask and mask_out_path:
-             if mask_generated_path != mask_out_path:
-                  # Copy/move
-                  import shutil
-                  shutil.copy(mask_generated_path, mask_out_path)
+        apply_mask = kwargs.get('apply_mask', self.apply_mask)
+        if apply_mask:
+            # Load mask
+            mask_img = nib.load(str(mask_generated_path))
+            mask_data = mask_img.get_fdata() > 0.5 # binary
+            
+            # Load original input
+            orig_img = nib.load(str(in_path))
+            orig_data = orig_img.get_fdata()
+            
+            # Broadcast mask if needed
+            # If orig is 4D (x,y,z,t) and mask is 3D (x,y,z)
+            if orig_data.ndim == 4 and mask_data.ndim == 3:
+                 mask_data = mask_data[..., np.newaxis]
+                 
+            # Apply
+            masked_data = orig_data * mask_data
+            
+            # Save final masked image
+            nib.save(nib.Nifti1Image(masked_data, orig_img.affine, orig_img.header), masked_path)
+            
+            if is_dwi:
+                 brain_obj = DWIFile(
+                     img=Path(masked_path), 
+                     entities=entities, 
+                     json=input_image.json, 
+                     bval=input_image.bval, 
+                     bvec=input_image.bvec
+                 )
+            else:
+                 brain_obj = ImageFile(img=Path(masked_path), entities=entities)
+        else:
+            brain_obj = input_image
+            self.logger.info(f"Skipping application of brain mask to image as requested.")
         
         # Cleanup temps
         if temp_ref and temp_ref.exists(): 
@@ -365,21 +385,9 @@ class BrainMaskingStep(BaseProcessingStep):
                  mask_generated_path.unlink()
              except Exception: pass
             
-        # Wrap output
-        if is_dwi:
-             brain_obj = DWIFile(
-                 img=Path(masked_path), 
-                 entities=entities, 
-                 json=input_image.json, 
-                 bval=input_image.bval, 
-                 bvec=input_image.bvec
-             )
-        else:
-             brain_obj = ImageFile(img=Path(masked_path), entities=entities)
-             
-        mask_obj = ImageFile(img=Path(mask_out_path), entities=dict(entities, suffix="mask")) if mask_out_path else None
+        mask_obj = ImageFile(img=Path(mask_out_path), entities=dict(entities, suffix="mask"))
         
-        self.logger.info(f"Brain mask created: {masked_path}")
+        self.logger.info(f"Brain mask created: {mask_out_path}")
 
         # Return standardized context or result
         if context is not None:
