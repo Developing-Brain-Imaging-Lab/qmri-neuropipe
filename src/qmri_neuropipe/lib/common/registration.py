@@ -41,7 +41,7 @@ class NonlinearRegistrationStep(BaseProcessingStep):
              
         target = Path(target)
         if not target.exists():
-              raise ValidationError(f"Template not found: {target}")
+               raise ValidationError(f"Template not found: {target}")
 
         output_dir = self.get_step_output_dir(output_dir)
         entities = input_image.entities.copy() if hasattr(input_image, 'entities') else {}
@@ -228,6 +228,37 @@ class CoregistrationStep(BaseProcessingStep):
                         self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to first volume.")
                         run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
                 moving_for_reg = avg_b0_path
+        
+        # --- GRID CONSOLIDATION: Resample target if native resolution requested ---
+        options = options or {}
+        out_res = options.get('output_resolution', 'anatomical').lower()
+        resampled_target_context = None # To store for context update
+        
+        if out_res in ['dwi', 'native']:
+             self.logger.info(f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration...")
+             resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
+             
+             if not resampled_target_path.exists() or kwargs.get('force', False):
+                 interp = options.get("interpolation", "linear").lower()
+                 if self.method == 'ants':
+                     ants_interp = interp
+                     if interp == 'nearest': ants_interp = 'nearestNeighbor'
+                     elif interp == 'cubic': ants_interp = 'bspline'
+                     ants.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator=ants_interp, nthreads=nthreads)
+                 elif self.method == 'fsl':
+                     fsl_interp = interp
+                     if interp == 'linear': fsl_interp = 'trilinear'
+                     elif interp == 'nearest': fsl_interp = 'nearestneighbour'
+                     fsl.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator=fsl_interp)
+                 else:
+                     # Fallback to ANTs
+                     ants.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator='linear', nthreads=nthreads)
+             
+             if resampled_target_path.exists():
+                 self.logger.info(f"Using resampled structural as registration target: {resampled_target_path.name}")
+                 target_path = resampled_target_path
+                 target = resampled_target_path
+                 resampled_target_context = resampled_target_path
 
         # Skip main coregistration if output exists and is valid
         should_run = True
@@ -313,7 +344,7 @@ class CoregistrationStep(BaseProcessingStep):
                     if self.method == 'freesurfer':
                          subject_id = context.get('subject') if context else None
                          if not subject_id:
-                              raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
+                               raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
                          
                          # Define Output Files
                          # reg_lta and output_mat already defined
@@ -383,7 +414,7 @@ class CoregistrationStep(BaseProcessingStep):
                          
                          if not transform_file.exists():
                               raise ProcessingError(f"ANTs registration failed to produce transform: {transform_file}")
-                          
+                           
                          # Convert ANTs -> FSL for consistency
                          fsl_mat = output_dir / "coreg_dwi_to_anat_fsl.mat"
                          c3d.ants2fsl(target, moving_for_reg, transform_file, fsl_mat)
@@ -415,10 +446,6 @@ class CoregistrationStep(BaseProcessingStep):
                          if not bvec_in or not bval_in:
                              # Try sidecars based on filename
                              candidate_bvec = in_path.with_suffix("").with_suffix(".bvec")
-                             # Handle double suffix .nii.gz -> .nii -> .bvec if needed, but .with_suffix(".bvec") on .nii.gz yields .nii.bvec usually? 
-                             # Path("foo.nii.gz").with_suffix("") is "foo.nii". .with_suffix(".bvec") is "foo.bvec".
-                             # But in_path might be .nii.gz.
-                             
                              # Reliable way:
                              base_path = str(in_path).split(".nii")[0]
                              candidate_bvec = Path(base_path + ".bvec")
@@ -488,27 +515,6 @@ class CoregistrationStep(BaseProcessingStep):
 
                 else:
                     # --- STANDARD LOGIC ---
-                    out_res = options.get('output_resolution', 'anatomical').lower()
-                    if out_res in ['dwi', 'native']:
-                        self.logger.info(f"Output resolution set to '{out_res}'. Resampling target (structural) to input (diffusion) grid...")
-                        resampled_target = output_dir / f"target_resampled.nii.gz"
-                        
-                        interp = options.get("interpolation", "linear").lower()
-                        if self.method == 'ants':
-                             if interp == 'nearest': interp = 'nearestNeighbor'
-                             elif interp == 'cubic': interp = 'bspline'
-                             ants.resample_to_image(target, moving_for_reg, resampled_target, interpolator=interp, nthreads=nthreads)
-                        elif self.method == 'fsl':
-                            fsl_interp = interp
-                            if interp == 'linear': fsl_interp = 'trilinear'
-                            elif interp == 'nearest': fsl_interp = 'nearestneighbour'
-                            fsl.resample_to_image(target, moving_for_reg, resampled_target, interpolator=fsl_interp)
-                        else:
-                            resampled_target = target
-    
-                        if resampled_target.exists():
-                            target = resampled_target
-
                     if self.method == 'ants':
                         transform_type = options.get("transform_type", "Rigid")
                         warped, prefix = ants.registration(
@@ -531,8 +537,8 @@ class CoregistrationStep(BaseProcessingStep):
                                  nthreads=nthreads
                              )
                         elif warped and Path(warped).exists():
-                              import shutil
-                              shutil.copy(warped, output_img)
+                               import shutil
+                               shutil.copy(warped, output_img)
 
                     elif self.method == 'fsl':
                         output_mat = output_transform.with_suffix(".mat")
@@ -602,9 +608,9 @@ class CoregistrationStep(BaseProcessingStep):
                                  break
                          
                          if not ants_affine:
-                              potential_mat = Path(str(output_transform) + "0GenericAffine.mat")
-                              if potential_mat.exists():
-                                   ants_affine = potential_mat
+                               potential_mat = Path(str(output_transform) + "0GenericAffine.mat")
+                               if potential_mat.exists():
+                                    ants_affine = potential_mat
                          
                          if ants_affine and ants_affine.exists():
                              fsl_mat = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="fsl_affine", extension=".mat")
@@ -792,11 +798,13 @@ class CoregistrationStep(BaseProcessingStep):
         if context is not None:
              context["current_image"] = result
              
-             # Native Reference for GNL (if resampled)
-             out_res_chk = options.get('output_resolution', 'anatomical').lower()
-             if out_res_chk == 'anatomical' and is_dwi:
-                  context['native_dwi_for_gnl'] = input_image
-                  
+             # Update structural files in context if resampled
+             if resampled_target_context:
+                  if target_modality == "T1w" and context.get("t1w_files"):
+                       context["t1w_files"] = [ImageFile(img=resampled_target_context, entities=dict(context["t1w_files"][0].entities))]
+                  elif target_modality == "T2w" and context.get("t2w_files"):
+                       context["t2w_files"] = [ImageFile(img=resampled_target_context, entities=dict(context["t2w_files"][0].entities))]
+
              return context
              
         return result
