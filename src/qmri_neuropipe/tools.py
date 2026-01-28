@@ -316,6 +316,10 @@ def create_gnl_map_cli(
     coeffs: Path = typer.Option(..., "--coeffs", "-c", help="Gradient nonlinearity coefficients file (.dat).", exists=True),
     output: Path = typer.Option(..., "--output", "-o", help="Output path for the .nii.gz tensor map."),
     initial_image: Optional[Path] = typer.Option(None, "--initial-image", help="Optional native space image (for resampled inputs).", exists=True),
+    bval: Optional[Path] = typer.Option(None, "--bval", help="Path to bval file (required if input is 4D).", exists=True),
+    bvec: Optional[Path] = typer.Option(None, "--bvec", help="Path to bvec file (required if input is 4D).", exists=True),
+    initial_bval: Optional[Path] = typer.Option(None, "--initial-bval", help="Path to bval file for initial image (if different).", exists=True),
+    initial_bvec: Optional[Path] = typer.Option(None, "--initial-bvec", help="Path to bvec file for initial image (if different).", exists=True),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads."),
     force: bool = typer.Option(False, "--force", help="Force overwrite existing output."),
 ):
@@ -333,10 +337,16 @@ def create_gnl_map_cli(
     from qmri_neuropipe.core.types import ImageFile
     
     # Wrap paths in ImageFile for compatibility with the library function
-    # Note: bval/bvec are not strictly required for b0 extraction if it's already a b0 image, 
-    # but the tool tries to be smart.
     input_obj = ImageFile(img=input, entities={})
-    native_obj = ImageFile(img=initial_image, entities={}) if initial_image else None
+    if bval: input_obj.bval = bval
+    if bvec: input_obj.bvec = bvec
+    
+    native_obj = None
+    if initial_image:
+        native_obj = ImageFile(img=initial_image, entities={})
+        # Use specific initial grads if provided, otherwise fallback to main grads
+        native_obj.bval = initial_bval if initial_bval else bval
+        native_obj.bvec = initial_bvec if initial_bvec else bvec
     
     try:
         create_gnl_map(
