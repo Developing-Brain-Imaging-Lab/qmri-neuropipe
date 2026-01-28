@@ -80,7 +80,17 @@ def plot_ortho_with_colorbar(nii_path: Path, output_path: Path, title: str = "",
         overlay_data = None
         if overlay_path:
              ov = ants.image_read(str(overlay_path))
-             if ov.dimension == 4: ov = _ensure_3d(ov)
+             if ov.dimension == 4: 
+                 ov = _ensure_3d(ov)
+             
+             # Resample overlay to match reference if shapes/geometry differ
+             # This prevents index errors and ensures correct alignment in the plot
+             if not ants.image_physical_space_consistency(img, ov) or img.shape != ov.shape:
+                 logging.getLogger("ReportViz").info(f"Resampling overlay {overlay_path.name} to match reference space.")
+                 # Use linear for general intensity overlays, nearest if it looks like a mask
+                 interp = 'nearestneighbor' if 'mask' in str(overlay_path).lower() else 'linear'
+                 ov = ants.resample_image_to_target(ov, img, interp_type=interp)
+                 
              overlay_data = ov.numpy()
         
         # Calculate slices

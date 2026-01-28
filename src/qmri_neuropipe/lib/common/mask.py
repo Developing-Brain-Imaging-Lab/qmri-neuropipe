@@ -145,13 +145,14 @@ class BrainMaskingStep(BaseProcessingStep):
         masked_path = output_dir / f"{stem}_brainmask.nii.gz"
         mask_out_path = output_dir / f"{stem}_mask.nii.gz"
         
-        # Skip if outputs exist
         # Skip if outputs exist AND input is not newer
         should_skip = False
+        target_output = masked_path if self.apply_mask else mask_out_path
+
         if (not self.apply_mask or masked_path.exists()) and mask_out_path.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = in_path.stat().st_mtime
-             out_mtime = masked_path.stat().st_mtime
+             out_mtime = target_output.stat().st_mtime
              if in_mtime > out_mtime:
                  self.logger.info(f"Input ({in_path.name}) is newer than output. Re-running brain masking.")
                  should_skip = False
@@ -162,7 +163,7 @@ class BrainMaskingStep(BaseProcessingStep):
         nthreads = kwargs.get('nthreads', self.nthreads)
         
         if should_skip:
-             self.logger.info(f"Skipping brain masking (outputs exist): {masked_path}")
+             self.logger.info(f"Skipping brain masking (outputs exist): {target_output}")
              mask_obj = ImageFile(img=mask_out_path, entities=dict(entities, suffix="mask"))
              
              if self.apply_mask:
