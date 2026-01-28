@@ -310,5 +310,50 @@ def run_relaxometry_cli(
         traceback.print_exc()
         raise typer.Exit(code=1)
 
+@app.command("create-gnl-map")
+def create_gnl_map_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input NIfTI file (processed/final grid).", exists=True),
+    coeffs: Path = typer.Option(..., "--coeffs", "-c", help="Gradient nonlinearity coefficients file (.dat).", exists=True),
+    output: Path = typer.Option(..., "--output", "-o", help="Output path for the .nii.gz tensor map."),
+    initial_image: Optional[Path] = typer.Option(None, "--initial-image", help="Optional native space image (for resampled inputs).", exists=True),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads."),
+    force: bool = typer.Option(False, "--force", help="Force overwrite existing output."),
+):
+    """
+    Generate Gradient Nonlinearity (GNL) tensor map using TORTOISE.
+    """
+    _setup_threading(nthreads)
+    
+    console.print(f"[bold blue]Creating GNL Tensor Map[/bold blue]")
+    console.print(f"  Input: {input}")
+    console.print(f"  Coeffs: {coeffs}")
+    console.print(f"  Output: {output}")
+    
+    from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
+    from qmri_neuropipe.core.types import ImageFile
+    
+    # Wrap paths in ImageFile for compatibility with the library function
+    # Note: bval/bvec are not strictly required for b0 extraction if it's already a b0 image, 
+    # but the tool tries to be smart.
+    input_obj = ImageFile(img=input, entities={})
+    native_obj = ImageFile(img=initial_image, entities={}) if initial_image else None
+    
+    try:
+        create_gnl_map(
+            input_image=input_obj,
+            output_path=output,
+            grad_coeffs=coeffs,
+            native_reference=native_obj,
+            nthreads=nthreads,
+            force=force
+        )
+        console.print("[bold green]Success![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()
