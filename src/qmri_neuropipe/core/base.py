@@ -757,7 +757,8 @@ class BasePipeline(ABC):
     def run(
         self,
         subjects: Optional[List[str]] = None,
-        sessions: Optional[List[str]] = None
+        sessions: Optional[List[str]] = None,
+        pairs: Optional[List[Tuple[str, Optional[str]]]] = None
     ) -> None:
         """
         Run pipeline on specified subjects.
@@ -774,26 +775,34 @@ class BasePipeline(ABC):
         Args:
             subjects: List of subject IDs (None = all subjects in BIDS dataset)
             sessions: List of session IDs (None = all sessions)
+            pairs: Optional list of explicit (subject, session) pairs. 
+                  If provided, subjects and sessions args are ignored.
         """
         self.logger.info(f"Starting {self.name} v{self.version}")
         
-        # Get subjects to process
-        if subjects is None:
+        # Get data to process
+        loader = DataLoader(self.config.get('bids_dir'))
+        
+        if pairs is not None:
+            self.logger.info(f"Processing {len(pairs)} specified subject/session pairs")
+            data = loader.load_multiple_subjects(pairs=pairs)
+        elif subjects is not None:
+            # For backward compatibility and simple list-based selection
+            self.logger.info(f"Processing {len(subjects)} specified subjects")
+            data = loader.load_multiple_subjects(subjects=subjects, sessions=sessions)
+        elif self.config.get('subjects_file'):
+            self.logger.info(f"Loading subjects from file: {self.config.subjects_file}")
+            data = loader.load_from_subjects_file(self.config.subjects_file)
+        else:
             subjects = self._get_all_subjects()
             self.logger.info(f"Found {len(subjects)} subjects in BIDS dataset")
-        else:
-            self.logger.info(f"Processing {len(subjects)} specified subjects")
+            data = loader.load_multiple_subjects(subjects=subjects, sessions=sessions)
         
         # Initialize counters
         n_success = 0
         n_failed = 0
         n_skipped = 0
         failed_subjects = []
-
-        loader = DataLoader(self.config.get('bids_dir'))
-
-        data = loader.load_multiple_subjects(subjects=subjects,
-                                             sessions=sessions)
         
         # Check for submit mode
         if self.config.get('submit', False):

@@ -441,7 +441,8 @@ class DataLoader:
     def load_multiple_subjects(
         self,
         subjects: Optional[List[str]] = None,
-        sessions: Optional[List[str]] = None
+        sessions: Optional[List[str]] = None,
+        pairs: Optional[List[Tuple[str, Optional[str]]]] = None
     ) -> Dict[Tuple[str, Optional[str]], SubjectData]:
         """
         Load data for multiple subjects/sessions.
@@ -449,6 +450,8 @@ class DataLoader:
         Args:
             subjects: List of subject IDs (None = all subjects)
             sessions: List of session IDs (None = all sessions)
+            pairs: Optional list of explicit (subject, session) pairs. 
+                  If provided, subjects and sessions args are ignored.
         
         Returns:
             Dictionary mapping (subject, session) to SubjectData
@@ -456,11 +459,12 @@ class DataLoader:
         from qmri_neuropipe.io.bids import select_participants_sessions
         
         # Get subject/session pairs
-        pairs = select_participants_sessions(
-            self.bids_dir,
-            participants=subjects,
-            sessions=sessions
-        )
+        if pairs is None:
+            pairs = select_participants_sessions(
+                self.bids_dir,
+                participants=subjects,
+                sessions=sessions
+            )
         
         # Load data for each pair
         results = {}
@@ -470,6 +474,57 @@ class DataLoader:
         
         logger.info(f"Loaded data for {len(results)} subject/session pairs")
         
+        return results
+
+    def load_from_subjects_file(
+        self,
+        subjects_file: Union[str, Path]
+    ) -> Dict[Tuple[str, Optional[str]], SubjectData]:
+        """
+        Load data for specific subject/session pairs listed in a text file.
+        
+        The file should contain one 'subject,session' pair per line.
+        Session is optional. Lines starting with # are ignored.
+        
+        Args:
+            subjects_file: Path to subjects file
+            
+        Returns:
+            Dictionary mapping (subject, session) to SubjectData
+        """
+        subjects_file = Path(subjects_file)
+        if not subjects_file.exists():
+            raise FileNotFoundError(f"Subjects file not found: {subjects_file}")
+            
+        pairs = []
+        with open(subjects_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                parts = line.split(',')
+                sub = parts[0].strip()
+                if sub.startswith('sub-'):
+                    sub = sub[4:]
+                    
+                ses = None
+                if len(parts) > 1:
+                    ses = parts[1].strip()
+                    if ses.startswith('ses-'):
+                        ses = ses[4:]
+                
+                pairs.append((sub, ses))
+        
+        # Load data for each pair
+        results = {}
+        for subject, session in pairs:
+            # We skip validation here as we are loading specific requested pairs
+            # But we check if subject dir actually exists
+            key = (subject, session)
+            results[key] = self.load_subject(subject, session)
+            
+        logger.info(f"Loaded data for {len(results)} subject/session pairs from {subjects_file.name}")
         return results
     
     def get_dataset_summary(

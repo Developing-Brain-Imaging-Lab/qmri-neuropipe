@@ -522,45 +522,22 @@ def main(
         loader = DataLoader(config.bids_dir)
         
         # Determine subjects/sessions to process
-        subjects_to_run = config.participant_label
-        sessions_to_run = config.session_label
+        if config.participant_label:
+            console.print(f"Using participant label(s): {config.participant_label}")
+            data = loader.load_multiple_subjects(subjects=config.participant_label, sessions=config.session_label)
+        elif config.subjects_file:
+            console.print(f"Using subjects from file: {config.subjects_file}")
+            data = loader.load_from_subjects_file(config.subjects_file)
+        else:
+            console.print("No subject selection provided. Discovering all subjects...")
+            data = loader.load_multiple_subjects()
+        
+        tasks = list(data.keys())
+        console.print(f"Total tasks to process: {len(tasks)}")
 
         # If parallel execution requested
         if jobs > 1 and not submit:
              console.print(f"\n[bold blue]Running in PARALLEL mode with {jobs} workers.[/bold blue]")
-             
-             # 1. Get List of Tasks (Subject/Session pairs)
-             tasks = []
-             
-             if subjects_to_run:
-                  # CLI/Config explicit subjects
-                  all_subs = subjects_to_run
-                  for sub in all_subs:
-                      if sessions_to_run:
-                           for ses in sessions_to_run:
-                                tasks.append((sub, ses))
-                      else:
-                           tasks.append((sub, None))
-                           
-             elif subjects_file and subjects_file.exists():
-                  # Subjects File (Explicit pairs)
-                  console.print(f"Reading subjects from file: {subjects_file}")
-                  with open(subjects_file, 'r') as f:
-                      for line in f:
-                          line = line.strip()
-                          if not line or line.startswith('#'): continue
-                          parts = line.split(',')
-                          s_sub = parts[0].strip()
-                          s_ses = parts[1].strip() if len(parts) > 1 else None
-                          tasks.append((s_sub, s_ses))
-                          
-             else:
-                  # Discovery/All
-                  all_subs = loader.get_subjects()
-                  for sub in all_subs:
-                       tasks.append((sub, None))
-             
-             console.print(f"Found {len(tasks)} tasks to distribute.")
              
              import concurrent.futures
              from rich.progress import Progress
@@ -623,8 +600,7 @@ def main(
             
             # Run pipeline
             console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
-            stats = pipeline_obj.run(subjects=config.participant_label,
-                                     sessions=config.session_label)
+            stats = pipeline_obj.run(pairs=tasks)
         
 
         if stats:

@@ -490,8 +490,9 @@ class CoregistrationStep(BaseProcessingStep):
                         'force': True
                     }
                     
-                    # If anatomical resolution requested, use target as template for regridding
-                    if options.get('output_resolution', 'anatomical').lower() == 'anatomical':
+                    # Use target as template for regridding (ensures alignment and grid match)
+                    out_res_val = options.get('output_resolution', 'anatomical').lower()
+                    if out_res_val in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['template'] = target
 
                     mrtrix.mrtransform(**mt_kwargs)
