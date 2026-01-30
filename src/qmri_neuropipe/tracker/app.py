@@ -44,8 +44,19 @@ else:
             st.sidebar.error(f"Environment tracker not found: {env_path}")
 
 if final_tracker_path:
-    tracker = NeuroimagingTracker(final_tracker_path)
-    data = tracker._data
+    try:
+        tracker = NeuroimagingTracker(final_tracker_path)
+        data = tracker._data
+        
+        if not data:
+            st.warning(f"Tracker file is empty: {final_tracker_path}")
+            st.info("Please initialize it using: `qmri-tools tracker-init --output path/to/tracker.xlsx`")
+            st.stop()
+    except Exception as e:
+        st.error(f"Failed to load tracker: {e}")
+        st.info("This usually happens if the file is not a valid Excel file or is empty.")
+        st.info("Try initializing a new tracker: `qmri-tools tracker-init --output path/to/tracker.xlsx`")
+        st.stop()
     
     # Study selector
     studies = ["All"]

@@ -59,6 +59,13 @@ class NeuroimagingTracker:
 
     def load(self):
         """Load all sheets from the Excel file."""
+        if not self.excel_path.exists():
+            return
+            
+        if self.excel_path.stat().st_size == 0:
+            self.logger.warning(f"Tracker file {self.excel_path} is empty. Skipping load.")
+            return
+
         try:
             # Use openpyxl engine explicitly for better multi-sheet support
             with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
