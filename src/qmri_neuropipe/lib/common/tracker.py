@@ -82,31 +82,68 @@ class NeuroimagingTracker:
         finally:
             self._release_lock(lock_path)
 
-    def _acquire_lock(self, lock_path: Path, timeout: int = 30):
-        """Simple file-based lock for multi-process safety."""
+    def _acquire_lock(self, lock_path: Path, timeout: int = 60):
+        """
+        Robust file-based lock for multi-process safety.
+        Writes current PID to the lock file and detects stale locks.
+        """
         start_time = time.time()
+        pid = os.getpid()
+        
         while True:
             try:
                 # Try to create the lock file
                 fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
+                with os.fdopen(fd, 'w') as f:
+                    f.write(str(pid))
                 return True
             except FileExistsError:
+                # Check for stale lock
+                try:
+                    with open(lock_path, 'r') as f:
+                        lock_pid = int(f.read().strip())
+                    
+                    # Check if process is still running
+                    if not self._pid_exists(lock_pid):
+                        self.logger.warning(f"Detected stale lock from PID {lock_pid}. Removing it.")
+                        self._release_lock(lock_path)
+                        continue # Try again immediately
+                except (ValueError, OSError, PermissionError):
+                    # If we can't read it, assume it's being written or locked by someone else
+                    pass
+
                 if time.time() - start_time > timeout:
                     self.logger.warning(f"Timeout waiting for tracker lock on {lock_path}")
                     return False
                 time.sleep(0.5)
 
+    def _pid_exists(self, pid: int) -> bool:
+        """Check if a process ID exists."""
+        if pid <= 0: return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True # Exists but no permission
+        else:
+            return True
+
     def _release_lock(self, lock_path: Path):
         """Release the file-based lock."""
         if lock_path.exists():
             try:
+                # Optional: check if we own the lock before removing?
+                # For now, simple remove is fine as we only release in finally blocks or on stale detection
                 os.remove(lock_path)
             except OSError:
                 pass
 
     def save(self, force: bool = False):
-        """Save all data back to the multi-sheet Excel file."""
+        """
+        Save all data back to the multi-sheet Excel file.
+        Uses atomic replace and lightweight backups to prevent corruption.
+        """
         if not self._data:
             return
             
@@ -114,47 +151,61 @@ class NeuroimagingTracker:
             return
 
         lock_path = self.excel_path.with_suffix(self.excel_path.suffix + ".lock")
+        temp_path = self.excel_path.with_suffix(self.excel_path.suffix + ".tmp")
+        bak_path = self.excel_path.with_suffix(self.excel_path.suffix + ".bak")
+
         try:
             # Create directory if it doesn't exist
             self.excel_path.parent.mkdir(parents=True, exist_ok=True)
             
             if self._acquire_lock(lock_path):
                 # Before saving, re-load to catch changes from other processes!
-                # This is CRITICAL for parallel processing
                 if self.excel_path.exists() and self.excel_path.stat().st_size > 0:
                     try:
+                        # CREATE BACKUP BEFORE MODIFYING
+                        import shutil
+                        shutil.copy2(self.excel_path, bak_path)
+
                         with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
                             for sheet_name in xls.sheet_names:
-                                existing_df = pd.read_excel(xls, sheet_name=sheet_name)
-                                if sheet_name in self._data:
-                                    # UPSERT: Merge existing with current, keeping current changes as 'last'
-                                    # Identify unique columns for row matching
-                                    # Defensive check: only merge if we have the expected tracking columns
-                                    if 'Subject_ID' in existing_df.columns and 'Session' in existing_df.columns:
-                                        subset = ['Subject_ID', 'Session']
-                                        if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
-                                            subset.append('Study')
-                                        
-                                        # For sheets like Alert_History, we might need Alert_ID
-                                        if 'Alert_ID' in existing_df.columns:
-                                            subset = ['Alert_ID']
+                                try:
+                                    existing_df = pd.read_excel(xls, sheet_name=sheet_name)
+                                    if sheet_name in self._data:
+                                        # UPSERT: Merge existing with current
+                                        if 'Subject_ID' in existing_df.columns and 'Session' in existing_df.columns:
+                                            subset = ['Subject_ID', 'Session']
+                                            if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
+                                                subset.append('Study')
+                                            
+                                            if 'Alert_ID' in existing_df.columns:
+                                                subset = ['Alert_ID']
 
-                                        merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
-                                        self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
-                                    elif sheet_name == 'README':
-                                        # Just keep current or existing? Usually README is static
-                                        pass
-                                    else:
-                                        # For other sheets, just overwrite for now or merge without subset?
-                                        # To be safe, if we don't know the structure, we just append or keep existing
-                                        self._data[sheet_name] = existing_df
+                                            merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
+                                            self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+                                        elif sheet_name == 'README':
+                                            pass
+                                        else:
+                                            self._data[sheet_name] = existing_df
+                                except Exception as e_sheet:
+                                    self.logger.warning(f"Error merging sheet {sheet_name}: {e_sheet}")
                     except Exception as e:
-                        self.logger.warning(f"Failed to merge existing data for sheet {sheet_name} during save: {e}")
+                        self.logger.error(f"FATAL: Tracker corruption detected in {self.excel_path}. Aborting save to prevent data loss. Original error: {e}")
+                        self.logger.info(f"Please restore from backup: {bak_path}")
+                        return
 
-                with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
-                    for sheet_name, df in self._data.items():
-                        df.to_excel(writer, sheet_name=sheet_name, index=False)
-                self.logger.debug(f"Saved tracker to {self.excel_path}")
+                # ATOMIC SAVE via temp file
+                try:
+                    with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+                        for sheet_name, df in self._data.items():
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+                    # Final atomic swap
+                    os.replace(temp_path, self.excel_path)
+                    self.logger.debug(f"Atomically saved tracker to {self.excel_path}")
+                except Exception as e_save:
+                    self.logger.error(f"Failed to write temporary tracker file: {e_save}")
+                    if temp_path.exists(): os.remove(temp_path)
+                    raise
             else:
                 self.logger.error(f"Could not acquire lock for saving tracker: {self.excel_path}")
         except Exception as e:
@@ -162,6 +213,9 @@ class NeuroimagingTracker:
             raise
         finally:
             self._release_lock(lock_path)
+            if temp_path.exists():
+                try: os.remove(temp_path)
+                except: pass
 
     def _ensure_row(self, sheet_name: str, subject_id: str, session: str, study: Optional[str] = None) -> int:
         """Ensure a row exists for the subject/session/study and return its index."""
@@ -196,9 +250,11 @@ class NeuroimagingTracker:
         idx = self._ensure_row('Processing_Status', subject_id, session, study)
         df = self._data['Processing_Status']
         
-        col = f"{module}_Status" # Changed from _status to _Status to match original intent
+        col = f"{module}_Status"
         if col not in df.columns:
+            # Ensure it's object dtype from the start to avoid float64 FutureWarning
             df = df.reindex(columns=list(df.columns) + [col])
+            df[col] = df[col].astype(object)
             
         df.at[idx, col] = status
         df.at[idx, 'Last_Processing_Date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -213,6 +269,8 @@ class NeuroimagingTracker:
         new_cols = [c for c in metrics.keys() if c not in df.columns]
         if new_cols:
             df = df.reindex(columns=list(df.columns) + new_cols)
+            # Ensure new columns can handle various dtypes
+            for c in new_cols: df[c] = df[c].astype(object)
             
         for key, val in metrics.items():
             df.at[idx, key] = val
@@ -248,6 +306,7 @@ class NeuroimagingTracker:
         new_cols = [c for c in updates.keys() if c not in df.columns]
         if new_cols:
             df = df.reindex(columns=list(df.columns) + new_cols)
+            for c in new_cols: df[c] = df[c].astype(object)
             
         for col, val in updates.items():
             df.at[idx, col] = val
@@ -263,6 +322,7 @@ class NeuroimagingTracker:
         new_cols = [c for c in metadata.keys() if c not in df.columns]
         if new_cols:
             df = df.reindex(columns=list(df.columns) + new_cols)
+            for c in new_cols: df[c] = df[c].astype(object)
             
         for key, val in metadata.items():
             df.at[idx, key] = val
