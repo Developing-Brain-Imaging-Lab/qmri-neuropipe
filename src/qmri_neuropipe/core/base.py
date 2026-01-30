@@ -709,6 +709,17 @@ class BasePipeline(ABC):
             pipeline_version=self.version
         )
         
+        # Initialize tracker if configured
+        tracker_file = config.get('tracker_file')
+        if not tracker_file and config.output_dir:
+            default_tracker = Path(config.output_dir) / "study_tracker.xlsx"
+            if default_tracker.exists():
+                tracker_file = default_tracker
+        
+        if tracker_file:
+            from qmri_neuropipe.lib.common.tracker import NeuroimagingTracker
+            self.config.tracker = NeuroimagingTracker(Path(tracker_file), logger=self.logger)
+
         # Initialize workflows and steps (implemented by subclass)
         self._initialize_pipeline()
         
