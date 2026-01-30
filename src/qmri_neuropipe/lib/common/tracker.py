@@ -194,15 +194,31 @@ class NeuroimagingTracker:
     def update_status(self, subject_id: str, session: str, module: str, status: str, study: Optional[str] = None):
         """Update the status of a specific processing module."""
         idx = self._ensure_row('Processing_Status', subject_id, session, study)
-        col_name = f"{module}_Status"
-        self._data['Processing_Status'].at[idx, col_name] = status
-        self._data['Processing_Status'].at[idx, 'Last_Processing_Date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        df = self._data['Processing_Status']
+        
+        col = f"{module}_Status" # Changed from _status to _Status to match original intent
+        if col not in df.columns:
+            df = df.reindex(columns=list(df.columns) + [col])
+            
+        df.at[idx, col] = status
+        df.at[idx, 'Last_Processing_Date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self._data['Processing_Status'] = df.copy()
 
     def add_metrics(self, subject_id: str, session: str, metrics: Dict[str, Any], study: Optional[str] = None):
         """Add QC or biological metrics to the tracker."""
         idx = self._ensure_row('Quality_Metrics', subject_id, session, study)
+        df = self._data['Quality_Metrics']
+        
+        # Batch add new columns to avoid fragmentation warnings
+        new_cols = [c for c in metrics.keys() if c not in df.columns]
+        if new_cols:
+            df = df.reindex(columns=list(df.columns) + new_cols)
+            
         for key, val in metrics.items():
-            self._data['Quality_Metrics'].at[idx, key] = val
+            df.at[idx, key] = val
+        
+        # De-fragment
+        self._data['Quality_Metrics'] = df.copy()
 
     def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, sheet_name: str, study: Optional[str] = None):
         """Parse an ROI stats TSV and append/update the corresponding sheet."""
@@ -214,6 +230,7 @@ class NeuroimagingTracker:
         idx = self._ensure_row(sheet_name, subject_id, session, study)
         df = self._data[sheet_name]
         
+        updates = {}
         for _, row in new_stats.iterrows():
             # Support both 'roi_name' (new) and 'LabelName' (legacy/other)
             label = row.get('roi_name', row.get('LabelName', 'Unknown'))
@@ -223,24 +240,34 @@ class NeuroimagingTracker:
             mean_col = f"{label}{suffix}_Mean"
             std_col = f"{label}{suffix}_Std"
             
-            # Ensure columns exist
-            if mean_col not in df.columns: df[mean_col] = None
-            if std_col not in df.columns: df[std_col] = None
-            
             # Handle case sensitivity in TSV columns
-            val_mean = row.get('mean', row.get('Mean'))
-            val_std = row.get('std', row.get('Std'))
+            updates[mean_col] = row.get('mean', row.get('Mean'))
+            updates[std_col] = row.get('std', row.get('Std'))
             
-            df.at[idx, mean_col] = val_mean
-            df.at[idx, std_col] = val_std
+        # Batch add new columns to avoid fragmentation warnings
+        new_cols = [c for c in updates.keys() if c not in df.columns]
+        if new_cols:
+            df = df.reindex(columns=list(df.columns) + new_cols)
             
-        self._data[sheet_name] = df
+        for col, val in updates.items():
+            df.at[idx, col] = val
+            
+        # De-fragment
+        self._data[sheet_name] = df.copy()
 
     def update_metadata(self, subject_id: str, session: str, metadata: Dict[str, Any], study: Optional[str] = None):
         """Update subject demographic or scan metadata."""
         idx = self._ensure_row('Subject_Metadata', subject_id, session, study)
+        df = self._data['Subject_Metadata']
+        
+        new_cols = [c for c in metadata.keys() if c not in df.columns]
+        if new_cols:
+            df = df.reindex(columns=list(df.columns) + new_cols)
+            
         for key, val in metadata.items():
-            self._data['Subject_Metadata'].at[idx, key] = val
+            df.at[idx, key] = val
+            
+        self._data['Subject_Metadata'] = df.copy()
             
     def log_error(self, subject_id: str, session: str, module: str, error_msg: str, study: Optional[str] = None):
         """Log a processing error."""
