@@ -384,6 +384,7 @@ def tracker_init_cli(
 @app.command("tracker-dashboard")
 def tracker_dashboard_cli(
     tracker: Optional[Path] = typer.Option(None, "--tracker", "-t", help="Path to tracker Excel file."),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to pipeline config file (to read tracker_file from)."),
     port: int = typer.Option(8501, "--port", "-p", help="Port to run Streamlit on."),
 ):
     """
@@ -391,6 +392,7 @@ def tracker_dashboard_cli(
     """
     import subprocess
     import os
+    import yaml
     
     app_path = Path(__file__).parent / "tracker" / "app.py"
     
@@ -398,6 +400,30 @@ def tracker_dashboard_cli(
          console.print(f"[bold red]Error:[/bold red] Dashboard app not found at {app_path}")
          raise typer.Exit(code=1)
 
+    # 1. Resolve tracker path
+    final_tracker = tracker
+    if not final_tracker:
+        # Try finding config
+        config_path = config
+        if not config_path:
+             # Look for default preproc.yaml in cwd
+             if Path("preproc.yaml").exists():
+                 config_path = Path("preproc.yaml")
+        
+        if config_path and config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    cfg_data = yaml.safe_load(f)
+                    t_file = cfg_data.get('tracker_file')
+                    if t_file:
+                        final_tracker = Path(t_file)
+            except Exception as e:
+                console.print(f"[yellow]Warning: Failed to read tracker from config {config_path}: {e}[/yellow]")
+
+    if final_tracker:
+        os.environ["TRACKER_PATH"] = str(final_tracker.absolute())
+        console.print(f"[bold green]Auto-loading tracker: {final_tracker}[/bold green]")
+    
     cmd = ["streamlit", "run", str(app_path), "--server.port", str(port)]
     
     # Check if streamlit is installed
@@ -407,9 +433,6 @@ def tracker_dashboard_cli(
         console.print("[bold yellow]Streamlit not found.[/bold yellow] Please install it with: pip install streamlit plotly")
         raise typer.Exit(code=1)
 
-    if tracker:
-        os.environ["TRACKER_PATH"] = str(tracker.absolute())
-    
     console.print(f"[bold blue]Launching Dashboard on port {port}...[/bold blue]")
     console.print(f"[dim]Press Ctrl+C to stop[/dim]")
     try:

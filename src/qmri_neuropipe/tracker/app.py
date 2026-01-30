@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 import sys
+import os
 
 # Add the project root to sys.path to allow imports from qmri_neuropipe
 # (Assuming the app is launched via a wrapper that sets this up, or we handle it here)
@@ -24,13 +25,26 @@ st.title("🧠 qMRI Neuroimaging Tracker")
 st.sidebar.header("Data Source")
 tracker_file = st.sidebar.file_uploader("Upload Tracker Excel", type=["xlsx"])
 
+# Determine final path
+final_tracker_path = None
+
 if tracker_file:
     # Save uploaded file to a temporary location to use with NeuroimagingTracker
-    temp_path = Path("temp_tracker.xlsx")
-    with open(temp_path, "wb") as f:
+    final_tracker_path = Path("temp_tracker.xlsx")
+    with open(final_tracker_path, "wb") as f:
         f.write(tracker_file.getbuffer())
-    
-    tracker = NeuroimagingTracker(temp_path)
+else:
+    # Check for environment variable (from CLI)
+    env_path = os.environ.get("TRACKER_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists():
+            final_tracker_path = p
+        else:
+            st.sidebar.error(f"Environment tracker not found: {env_path}")
+
+if final_tracker_path:
+    tracker = NeuroimagingTracker(final_tracker_path)
     data = tracker._data
     
     # Study selector
