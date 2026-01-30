@@ -97,6 +97,9 @@ class PipelineConfig:
     # Custom Input Configuration (e.g. non-standard Anatomical)
     anat_input: Optional[Dict[str, Any]] = None
 
+    # Tracker instance (to avoid circular imports, type is Any)
+    tracker: Optional[Any] = None
+
     # Additional configuration
     config_data: Dict[str, Any] = field(default_factory=dict)
     

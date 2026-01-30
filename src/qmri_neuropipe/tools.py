@@ -365,5 +365,58 @@ def create_gnl_map_cli(
         raise typer.Exit(code=1)
 
 
+@app.command("tracker-init")
+def tracker_init_cli(
+    output: Path = typer.Option(..., "--output", "-o", help="Path to create the tracker Excel file."),
+):
+    """
+    Initialize a new tracker Excel file from the template.
+    """
+    from qmri_neuropipe.lib.common.tracker import NeuroimagingTracker
+    try:
+        NeuroimagingTracker.create_empty_tracker(output)
+        console.print(f"[bold green]Created tracker at {output}[/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error creating tracker:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
+@app.command("tracker-dashboard")
+def tracker_dashboard_cli(
+    tracker: Optional[Path] = typer.Option(None, "--tracker", "-t", help="Path to tracker Excel file."),
+    port: int = typer.Option(8501, "--port", "-p", help="Port to run Streamlit on."),
+):
+    """
+    Launch the Streamlit tracker dashboard.
+    """
+    import subprocess
+    import os
+    
+    app_path = Path(__file__).parent / "tracker" / "app.py"
+    
+    if not app_path.exists():
+         console.print(f"[bold red]Error:[/bold red] Dashboard app not found at {app_path}")
+         raise typer.Exit(code=1)
+
+    cmd = ["streamlit", "run", str(app_path), "--server.port", str(port)]
+    
+    # Check if streamlit is installed
+    try:
+        import streamlit
+    except ImportError:
+        console.print("[bold yellow]Streamlit not found.[/bold yellow] Please install it with: pip install streamlit plotly")
+        raise typer.Exit(code=1)
+
+    if tracker:
+        os.environ["TRACKER_PATH"] = str(tracker.absolute())
+    
+    console.print(f"[bold blue]Launching Dashboard on port {port}...[/bold blue]")
+    console.print(f"[dim]Press Ctrl+C to stop[/dim]")
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Dashboard stopped.[/yellow]")
+
+
 if __name__ == "__main__":
     app()

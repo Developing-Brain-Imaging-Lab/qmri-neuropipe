@@ -34,6 +34,7 @@ from qmri_neuropipe.lib.dmri.motion import NiiFreezeStep
 from ...lib.dmri.fitting import DTIFittingStep, DKIFittingStep, NODDIFittingStep, SANDIFittingStep, MAPMRIFittingStep, CSDFittingStep, FWDTIFittingStep
 from ...lib.dmri.tractography import TractSegStep, PyAFQStep
 from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
+from qmri_neuropipe.lib.common.tracking import TrackingStep
 import time
 # Rich and Viz imports moved to local scope
 
@@ -2557,16 +2558,23 @@ class DMRIPipeline(BasePipeline):
                      dmri_outputs["Statistics"].append({"key": f.stem, "path": str(f)})
 
             
-            # 6. Add to Reporter and Generate
-            if reporter:
-                 if dmri_outputs:
-                      reporter.set_dmri_outputs(dmri_outputs)
-                 
-                 reporter.generate()
-                 try:
-                     reporter.generate_pdf()
-                 except Exception as e:
-                     self.logger.warning(f"PDF Generation failed: {e}")
+        # 6. Add to Reporter and Generate
+        if reporter:
+            if dmri_outputs:
+                reporter.set_dmri_outputs(dmri_outputs)
+            
+            # Final Tracker Update (Study-wide)
+            try:
+                tracking = TrackingStep(self.config, self.logger)
+                tracking.run(preprocessed_context, output_dir)
+            except Exception as e:
+                self.logger.warning(f"Tracker update failed: {e}")
+
+            reporter.generate()
+            try:
+                reporter.generate_pdf()
+            except Exception as e:
+                self.logger.warning(f"PDF Generation failed: {e}")
 
 
 
