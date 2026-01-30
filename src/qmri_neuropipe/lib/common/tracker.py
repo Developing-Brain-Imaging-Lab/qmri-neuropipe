@@ -129,20 +129,27 @@ class NeuroimagingTracker:
                                 if sheet_name in self._data:
                                     # UPSERT: Merge existing with current, keeping current changes as 'last'
                                     # Identify unique columns for row matching
-                                    subset = ['Subject_ID', 'Session']
-                                    if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
-                                        subset.append('Study')
-                                    
-                                    # For sheets like Alert_History, we might need Alert_ID
-                                    if 'Alert_ID' in existing_df.columns:
-                                        subset = ['Alert_ID']
+                                    # Defensive check: only merge if we have the expected tracking columns
+                                    if 'Subject_ID' in existing_df.columns and 'Session' in existing_df.columns:
+                                        subset = ['Subject_ID', 'Session']
+                                        if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
+                                            subset.append('Study')
+                                        
+                                        # For sheets like Alert_History, we might need Alert_ID
+                                        if 'Alert_ID' in existing_df.columns:
+                                            subset = ['Alert_ID']
 
-                                    merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
-                                    self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
-                                else:
-                                    self._data[sheet_name] = existing_df
+                                        merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
+                                        self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+                                    elif sheet_name == 'README':
+                                        # Just keep current or existing? Usually README is static
+                                        pass
+                                    else:
+                                        # For other sheets, just overwrite for now or merge without subset?
+                                        # To be safe, if we don't know the structure, we just append or keep existing
+                                        self._data[sheet_name] = existing_df
                     except Exception as e:
-                        self.logger.warning(f"Failed to merge existing data during save: {e}")
+                        self.logger.warning(f"Failed to merge existing data for sheet {sheet_name} during save: {e}")
 
                 with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
                     for sheet_name, df in self._data.items():
@@ -204,24 +211,28 @@ class NeuroimagingTracker:
             
         new_stats = pd.read_csv(tsv_path, sep='\t')
         
-        # We handle ROI data differently: usually long-format or specific columns
-        # For simplicity, let's assume we want to store Mean values for each LabelName
-        # as columns like ROI_[LabelName]_Mean
-        
         idx = self._ensure_row(sheet_name, subject_id, session, study)
         df = self._data[sheet_name]
         
         for _, row in new_stats.iterrows():
-            label = row['LabelName']
-            mean_col = f"ROI_{label}_Mean"
-            std_col = f"ROI_{label}_Std"
+            # Support both 'roi_name' (new) and 'LabelName' (legacy/other)
+            label = row.get('roi_name', row.get('LabelName', 'Unknown'))
+            metric = row.get('metric', '')
+            
+            suffix = f"_{metric}" if metric else ""
+            mean_col = f"{label}{suffix}_Mean"
+            std_col = f"{label}{suffix}_Std"
             
             # Ensure columns exist
             if mean_col not in df.columns: df[mean_col] = None
             if std_col not in df.columns: df[std_col] = None
             
-            df.at[idx, mean_col] = row['Mean']
-            df.at[idx, std_col] = row['Std']
+            # Handle case sensitivity in TSV columns
+            val_mean = row.get('mean', row.get('Mean'))
+            val_std = row.get('std', row.get('Std'))
+            
+            df.at[idx, mean_col] = val_mean
+            df.at[idx, std_col] = val_std
             
         self._data[sheet_name] = df
 

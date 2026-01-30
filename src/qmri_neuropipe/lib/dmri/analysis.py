@@ -559,6 +559,7 @@ class StatsExtractionStep(BaseProcessingStep):
                           fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
                           df.to_csv(output_dir / fname, sep='\t', index=False)
                           context.setdefault('segmentation_stats', []).append(output_dir / fname)
+                          context.setdefault('roi_stats_files', {})[atlas_name] = output_dir / fname
 
              else:
                  # Binary Masks (TractSeg, etc.)
@@ -601,5 +602,6 @@ class StatsExtractionStep(BaseProcessingStep):
                       fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
                       df.to_csv(output_dir / fname, sep='\t', index=False)
                       context.setdefault('segmentation_stats', []).append(output_dir / fname)
+                      context.setdefault('roi_stats_files', {})[seg_type] = output_dir / fname
                       
         return context
