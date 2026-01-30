@@ -25,9 +25,13 @@ class TrackingStep(BaseProcessingStep):
         """
         Aggregate data from the current context and update the tracker.
         """
-        if not self.tracker_path:
-            self.logger.warning("No tracker file specified. Skipping TrackingStep.")
-            return context
+        # 1. Use existing tracker from config if available, otherwise create one
+        tracker = self.config.tracker
+        if not tracker:
+            if not self.tracker_path:
+                self.logger.warning("No tracker file specified and no active tracker in config. Skipping TrackingStep.")
+                return context
+            tracker = NeuroimagingTracker(self.tracker_path, logger=self.logger)
 
         subject = context.get('subject')
         session = context.get('session')
@@ -37,32 +41,26 @@ class TrackingStep(BaseProcessingStep):
             self.logger.error("Missing subject or session in context. Cannot update tracker.")
             return context
 
-        tracker = NeuroimagingTracker(self.tracker_path, logger=self.logger)
+        self.logger.info(f"Updating study-wide tracker: {tracker.excel_path.name}")
         
-        self.logger.info(f"Updating study-wide tracker: {self.tracker_path.name}")
-        
-        # 1. Update Module Statuses
-        # Iterate through context to find step completion flags
-        # Convention: context['step_name_status'] = 'completed'
+        # 2. Update Module Statuses
         for key, val in context.items():
             if key.endswith('_status') and isinstance(val, str):
                 module = key[:-7] # remove _status
                 tracker.update_status(subject, session, module, val, study)
 
-        # 2. Update QC Metrics
-        # Convention: context['qc_metrics'] = {'SNR': 20, 'FD': 0.1, ...}
+        # 3. Update QC Metrics
         qc_metrics = context.get('qc_metrics', {})
         if qc_metrics:
             tracker.add_metrics(subject, session, qc_metrics, study)
 
-        # 3. Update ROI Stats
-        # Convention: context['roi_stats_files'] = {'DTI': Path, 'NODDI': Path}
+        # 4. Update ROI Stats
         roi_files = context.get('roi_stats_files', {})
         for sheet_suffix, tsv_path in roi_files.items():
             sheet_name = f"{sheet_suffix}_Metrics"
             tracker.add_roi_stats(subject, session, Path(tsv_path), sheet_name, study)
 
-        # 4. Save the tracker
-        tracker.save()
+        # 5. Save the tracker (Force save at the end of subject)
+        tracker.save(force=True)
         
         return context

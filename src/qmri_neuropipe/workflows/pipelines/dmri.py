@@ -2105,6 +2105,15 @@ class DMRIPipeline(BasePipeline):
                       if ses_matches: match = ses_matches[0]
                  self.logger.info(f"Recovered GNL Tensor Map for modeling: {match.name}")
                  preprocessed_context['gnl_map'] = match
+            
+            # Set statuses for tracked modules if they exist
+            preprocessed_context['preprocessing_status'] = 'completed'
+            if (output_dir / "models").exists():
+                 preprocessed_context['modeling_status'] = 'completed'
+            if (output_dir / "normalization").exists():
+                 preprocessed_context['normalization_status'] = 'completed'
+            if (output_dir / "statistics").exists():
+                 preprocessed_context['segmentation_status'] = 'completed'
 
             if reporter:
                 # Reporting for Skipped Run
@@ -2558,18 +2567,20 @@ class DMRIPipeline(BasePipeline):
                      dmri_outputs["Statistics"].append({"key": f.stem, "path": str(f)})
 
             
-        # 6. Add to Reporter and Generate
+        # 6. Final Tracker Update (Study-wide)
+        try:
+             # Ensure study name is in context
+             preprocessed_context['study_name'] = self.config.get('study_name')
+             tracking = TrackingStep(self.config, self.logger)
+             tracking.run(preprocessed_context, output_dir)
+        except Exception as e:
+             self.logger.warning(f"Tracker update failed: {e}")
+
+        # 7. Add to Reporter and Generate
         if reporter:
             if dmri_outputs:
                 reporter.set_dmri_outputs(dmri_outputs)
             
-            # Final Tracker Update (Study-wide)
-            try:
-                tracking = TrackingStep(self.config, self.logger)
-                tracking.run(preprocessed_context, output_dir)
-            except Exception as e:
-                self.logger.warning(f"Tracker update failed: {e}")
-
             reporter.generate()
             try:
                 reporter.generate_pdf()
@@ -2698,20 +2709,36 @@ class DMRIPipeline(BasePipeline):
                 
                 # Extract Summary (Simplified)
                 # Motion
+                context.setdefault('qc_metrics', {})
                 if 'qc_mot_abs' in metrics:
                      mo_rows = [
                          {"Metric": "Absolute Motion (mm)", "Value": f"{metrics.get('qc_mot_abs',0):.2f}"},
                          {"Metric": "Relative Motion (mm)", "Value": f"{metrics.get('qc_mot_rel',0):.2f}"}
                      ]
                      reporter.add_dmri_step("QC: Motion Statistics (Recovered)", {}, tables=[{"title": "Motion Stats", "data": mo_rows}])
+                     context['qc_metrics']['Motion_Abs'] = metrics.get('qc_mot_abs')
+                     context['qc_metrics']['Motion_Rel'] = metrics.get('qc_mot_rel')
                 
                 # Outliers
                 if 'qc_outliers_tot' in metrics:
                      out_rows = [{"Metric": "Total Outliers (%)", "Value": f"{metrics.get('qc_outliers_tot',0):.2f}"}]
                      reporter.add_dmri_step("QC: Outliers (Recovered)", {}, tables=[{"title": "Outliers Summary", "data": out_rows}])
+                     context['qc_metrics']['Outliers_Pct'] = metrics.get('qc_outliers_tot')
                      
             except Exception as e:
                 self.logger.warning(f"Failed to recover QC metrics from {qc_json}: {e}")
+
+        # 1b. ROI Stats Recovery (for Tracker)
+        stats_dir = output_dir / "statistics"
+        if stats_dir.exists():
+            context.setdefault('roi_stats_files', {})
+            for tsv in stats_dir.glob("*.tsv"):
+                 # Determine modality/sheet name from filename
+                 # Standard names: sub-X_ses-Y_desc-DTI_stats.tsv -> DTI
+                 name = tsv.stem
+                 if 'desc-' in name:
+                      mod = name.split('desc-')[1].split('_')[0]
+                      context['roi_stats_files'][mod] = tsv
 
         # 2. Outlier Removal Stats (Re-calculate diff)
         # Needs input bval and output bval

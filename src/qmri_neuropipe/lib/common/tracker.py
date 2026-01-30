@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import logging
 import os
+import time
 
 class NeuroimagingTracker:
     """
@@ -66,7 +67,10 @@ class NeuroimagingTracker:
             self.logger.warning(f"Tracker file {self.excel_path} is empty. Skipping load.")
             return
 
+        # Acquire lock for reading too, just in case someone is writing
+        lock_path = self.excel_path.with_suffix(self.excel_path.suffix + ".lock")
         try:
+            self._acquire_lock(lock_path)
             # Use openpyxl engine explicitly for better multi-sheet support
             with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
                 for sheet_name in xls.sheet_names:
@@ -75,6 +79,31 @@ class NeuroimagingTracker:
         except Exception as e:
             self.logger.error(f"Failed to load tracker: {e}")
             raise
+        finally:
+            self._release_lock(lock_path)
+
+    def _acquire_lock(self, lock_path: Path, timeout: int = 30):
+        """Simple file-based lock for multi-process safety."""
+        start_time = time.time()
+        while True:
+            try:
+                # Try to create the lock file
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                return True
+            except FileExistsError:
+                if time.time() - start_time > timeout:
+                    self.logger.warning(f"Timeout waiting for tracker lock on {lock_path}")
+                    return False
+                time.sleep(0.5)
+
+    def _release_lock(self, lock_path: Path):
+        """Release the file-based lock."""
+        if lock_path.exists():
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
 
     def save(self, force: bool = False):
         """Save all data back to the multi-sheet Excel file."""
@@ -84,17 +113,48 @@ class NeuroimagingTracker:
         if not self.auto_save and not force:
             return
 
+        lock_path = self.excel_path.with_suffix(self.excel_path.suffix + ".lock")
         try:
             # Create directory if it doesn't exist
             self.excel_path.parent.mkdir(parents=True, exist_ok=True)
             
-            with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
-                for sheet_name, df in self._data.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-            self.logger.debug(f"Saved tracker to {self.excel_path}")
+            if self._acquire_lock(lock_path):
+                # Before saving, re-load to catch changes from other processes!
+                # This is CRITICAL for parallel processing
+                if self.excel_path.exists() and self.excel_path.stat().st_size > 0:
+                    try:
+                        with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
+                            for sheet_name in xls.sheet_names:
+                                existing_df = pd.read_excel(xls, sheet_name=sheet_name)
+                                if sheet_name in self._data:
+                                    # UPSERT: Merge existing with current, keeping current changes as 'last'
+                                    # Identify unique columns for row matching
+                                    subset = ['Subject_ID', 'Session']
+                                    if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
+                                        subset.append('Study')
+                                    
+                                    # For sheets like Alert_History, we might need Alert_ID
+                                    if 'Alert_ID' in existing_df.columns:
+                                        subset = ['Alert_ID']
+
+                                    merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
+                                    self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+                                else:
+                                    self._data[sheet_name] = existing_df
+                    except Exception as e:
+                        self.logger.warning(f"Failed to merge existing data during save: {e}")
+
+                with pd.ExcelWriter(self.excel_path, engine='openpyxl') as writer:
+                    for sheet_name, df in self._data.items():
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                self.logger.debug(f"Saved tracker to {self.excel_path}")
+            else:
+                self.logger.error(f"Could not acquire lock for saving tracker: {self.excel_path}")
         except Exception as e:
             self.logger.error(f"Failed to save tracker: {e}")
             raise
+        finally:
+            self._release_lock(lock_path)
 
     def _ensure_row(self, sheet_name: str, subject_id: str, session: str, study: Optional[str] = None) -> int:
         """Ensure a row exists for the subject/session/study and return its index."""
