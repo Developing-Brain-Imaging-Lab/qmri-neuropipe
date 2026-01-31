@@ -177,8 +177,14 @@ class NeuroimagingTracker:
                                             pk_cols = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Model', 'Alert_ID']
                                             subset = [c for c in pk_cols if c in existing_df.columns and c in self._data[sheet_name].columns]
                                             
-                                            merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
-                                            self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+                                            # Filter out empty DataFrames to avoid FutureWarning
+                                            dfs_to_concat = [d for d in [existing_df, self._data[sheet_name]] if not d.empty]
+                                            if dfs_to_concat:
+                                                merged = pd.concat(dfs_to_concat, ignore_index=True)
+                                                self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+                                            else:
+                                                # Both are empty, keep as is or set to one of them
+                                                pass
                                         elif sheet_name == 'README':
                                             pass
                                         else:
@@ -361,12 +367,15 @@ class NeuroimagingTracker:
             
             # Use ensure_row or just concat and deduplicate? 
             # Df.append/pd.concat is easier for Fully Long
-            merged = pd.concat([df, new_df], ignore_index=True)
-            subset = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic']
-            # Filter subset to only existing columns
-            actual_subset = [c for c in subset if c in merged.columns]
-            
-            self._data[sheet_name] = merged.drop_duplicates(subset=actual_subset, keep='last')
+            # Filter out empty DataFrames to avoid FutureWarning
+            dfs_to_concat = [d for d in [df, new_df] if not d.empty]
+            if dfs_to_concat:
+                merged = pd.concat(dfs_to_concat, ignore_index=True)
+                subset = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic']
+                # Filter subset to only existing columns
+                actual_subset = [c for c in subset if c in merged.columns]
+                
+                self._data[sheet_name] = merged.drop_duplicates(subset=actual_subset, keep='last')
 
     def update_metadata(self, subject_id: str, session: str, metadata: Dict[str, Any], study: Optional[str] = None):
         """Update subject demographic or scan metadata."""

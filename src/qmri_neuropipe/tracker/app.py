@@ -105,7 +105,8 @@ if final_tracker_path:
             df = df[df["Study"] == selected_study]
             
         # Tidy Sheet Handling
-        if "Metric" in df.columns and "Statistic" in df.columns:
+        is_tidy = "Metric" in df.columns and "Statistic" in df.columns
+        if is_tidy:
             col1, col2, col3 = st.columns(3)
             if "Model" in df.columns:
                 models = ["All"] + df["Model"].unique().tolist()
@@ -121,21 +122,51 @@ if final_tracker_path:
             sel_stat = col3.selectbox("Select Statistic", stats)
             df = df[df["Statistic"] == sel_stat]
 
+            # Atlas and ROI Filters
+            cola, colr = st.columns(2)
+            if "Atlas" in df.columns:
+                 atlases = ["All"] + df["Atlas"].unique().tolist()
+                 sel_atlas = cola.selectbox("Filter by Atlas", atlases)
+                 if sel_atlas != "All":
+                      df = df[df["Atlas"] == sel_atlas]
+            
+            if "ROI_Name" in df.columns:
+                 rois = sorted(df["ROI_Name"].unique().tolist())
+                 sel_roi = colr.multiselect("Filter by ROI (Leave empty for All)", rois)
+                 if sel_roi:
+                      df = df[df["ROI_Name"].isin(sel_roi)]
+            else:
+                 sel_roi = None
+
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         
         if numeric_cols:
-            selected_metric = st.selectbox("Select Metric to Visualize", numeric_cols)
+            default_metric = "Value" if "Value" in numeric_cols else numeric_cols[0]
+            selected_metric = st.selectbox("Select Metric to Visualize", numeric_cols, index=numeric_cols.index(default_metric))
             
+            # Grouping Option
+            group_options = ["None"] + [c for c in df.columns if df[c].dtype == object and c not in [selected_metric]]
+            if sel_roi and isinstance(sel_roi, list) and len(sel_roi) > 1:
+                 # Default to ROI if multiple selected
+                 sel_group = st.selectbox("Group By", group_options, index=group_options.index("ROI_Name") if "ROI_Name" in group_options else 0)
+            else:
+                 sel_group = st.selectbox("Group By", group_options)
+
             col1, col2 = st.columns(2)
             
             with col1:
-                fig_hist = px.histogram(df, x=selected_metric, nbins=20, title=f"Distribution of {selected_metric}",
-                                       marginal="box", color_discrete_sequence=['#636EFA'])
+                fig_hist = px.histogram(df, x=selected_metric, nbins=20, 
+                                       color=None if sel_group == "None" else sel_group,
+                                       title=f"Distribution of {selected_metric}",
+                                       marginal="box", barmode="overlay")
                 st.plotly_chart(fig_hist, use_container_width=True)
                 
             with col2:
-                fig_box = px.box(df, y=selected_metric, title=f"Boxplot of {selected_metric}",
-                                points="all", color_discrete_sequence=['#EF553B'])
+                fig_box = px.box(df, y=selected_metric, 
+                                x=None if sel_group == "None" else sel_group,
+                                color=None if sel_group == "None" else sel_group,
+                                title=f"Boxplot of {selected_metric}",
+                                points="all")
                 st.plotly_chart(fig_box, use_container_width=True)
         else:
             st.warning("No numeric metrics found in this sheet.")
@@ -159,7 +190,8 @@ if final_tracker_path:
             df_corr = df_corr[df_corr["Study"] == selected_study]
 
         # Tidy Sheet Handling (Correlation Tab)
-        if "Metric" in df_corr.columns and "Statistic" in df_corr.columns:
+        is_tidy_corr = "Metric" in df_corr.columns and "Statistic" in df_corr.columns
+        if is_tidy_corr:
             st.info("Tidy ROI Sheet detected. Filter for a specific Metric/Statistic combination.")
             col1, col2, col3 = st.columns(3)
             if "Model" in df_corr.columns:
@@ -175,6 +207,20 @@ if final_tracker_path:
             stats = df_corr["Statistic"].unique().tolist()
             sel_stat = col3.selectbox("Select Statistic (Corr)", stats)
             df_corr = df_corr[df_corr["Statistic"] == sel_stat]
+
+            # Atlas and ROI Filters (Corr)
+            cola, colr = st.columns(2)
+            if "Atlas" in df_corr.columns:
+                 atlases = ["All"] + df_corr["Atlas"].unique().tolist()
+                 sel_atlas = cola.selectbox("Filter Atlas (Corr)", atlases)
+                 if sel_atlas != "All":
+                      df_corr = df_corr[df_corr["Atlas"] == sel_atlas]
+            
+            if "ROI_Name" in df_corr.columns:
+                 rois = sorted(df_corr["ROI_Name"].unique().tolist())
+                 sel_roi = colr.multiselect("Filter ROI (Leave empty for All)", rois, key="roi_corr")
+                 if sel_roi:
+                      df_corr = df_corr[df_corr["ROI_Name"].isin(sel_roi)]
 
         numeric_cols_corr = df_corr.select_dtypes(include=[np.number]).columns.tolist()
         
