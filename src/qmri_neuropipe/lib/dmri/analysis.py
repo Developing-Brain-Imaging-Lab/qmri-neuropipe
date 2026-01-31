@@ -12,6 +12,7 @@ import csv
 import numpy as np
 import nibabel as nib
 import shutil
+import pandas as pd
 
 from ...core import BaseProcessingStep, ProcessingError
 from ...interfaces import ants, fsl # Assuming ANTs or FSL for registration

@@ -10,6 +10,7 @@ from ...core import BaseProcessingStep, ValidationError
 from ...core.types import ImageLike, ImageFile
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name, extract_bids_entities
+import pandas as pd
 
 class ReconAllStep(BaseProcessingStep):
     """
