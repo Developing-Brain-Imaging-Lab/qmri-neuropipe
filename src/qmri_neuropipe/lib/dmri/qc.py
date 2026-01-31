@@ -135,47 +135,30 @@ class EddyQuadStep(BaseProcessingStep):
                 # Extract detailed summaries
                 # 1. Motion
                 motion_stats = {
-                    "Absolute Motion (mm)": f"{metrics.get('qc_mot_abs', 0):.2f}",
-                    "Relative Motion (mm)": f"{metrics.get('qc_mot_rel', 0):.2f}"
+                    "QC_DWI_Motion_Abs_mm": metrics.get('qc_mot_abs', 0),
+                    "QC_DWI_Motion_Rel_mm": metrics.get('qc_mot_rel', 0)
                 }
                 
                 # 2. SNR/CNR
-                # qc_cnr_avg is list of CNRs per b-shell (excluding b=0)
-                # qc_s2s_b0_avg is scalar/list for b=0
-                # b-values are in 'qc_bvals' ?? No, usually we infer or just list them.
-                # qc.json often has 'bvals' key with actual values used.
-                
-                cnr_stats = []
+                cnr_stats = {}
                 # B0 SNR
                 if 'qc_s2s_b0_avg' in metrics:
-                     cnr_stats.append({"Shell": "b=0 (SNR)", "Value": f"{metrics['qc_s2s_b0_avg']:.2f}"})
+                     cnr_stats["QC_DWI_b0_SNR"] = metrics['qc_s2s_b0_avg']
                 
                 # DWI CNR
                 cnr_vals = metrics.get('qc_cnr_avg', [])
                 for i, val in enumerate(cnr_vals):
-                    cnr_stats.append({"Shell": f"Shell {i+1} (CNR)", "Value": f"{val:.2f}"})
+                    cnr_stats[f"QC_DWI_Shell_{i+1}_CNR"] = val
                     
-                # 3. Outliers Breakdown
+                # 3. Outliers
                 outlier_stats = {
-                    "Total Outliers (%)": f"{metrics.get('qc_outliers_tot', 0):.2f}"
+                    "QC_DWI_Outliers_Total_Pct": metrics.get('qc_outliers_tot', 0)
                 }
                 
-                # Per-shell outliers
-                outliers_b = metrics.get('qc_outliers_b', [])
-                outlier_breakdown = []
-                for i, val in enumerate(outliers_b):
-                     outlier_breakdown.append({"Category": f"Shell {i+1}", "Outliers (%)": f"{val:.2f}"})
-                     
-                # Per-PE outliers
-                outliers_pe = metrics.get('qc_outliers_pe', [])
-                for i, val in enumerate(outliers_pe):
-                     outlier_breakdown.append({"Category": f"PE Dir {i+1}", "Outliers (%)": f"{val:.2f}"})
-                
                 summary = {
-                    "motion": motion_stats,
-                    "cnr": cnr_stats,
-                    "outliers_summary": outlier_stats,
-                    "outliers_breakdown": outlier_breakdown
+                    **motion_stats,
+                    **cnr_stats,
+                    **outlier_stats
                 }
                 
                 context["qc_metrics"] = summary

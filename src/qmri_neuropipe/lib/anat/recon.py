@@ -153,3 +153,121 @@ class ReconAllStep(BaseProcessingStep):
                   
         # Fallback if not using FS as primary but just running it
         return context if context else input_image
+
+def parse_freesurfer_stats(stats_file: Path) -> pd.DataFrame:
+    """Parse FreeSurfer .stats file into a pandas DataFrame."""
+    if not stats_file.exists():
+        return pd.DataFrame()
+        
+    with open(stats_file, 'r') as f:
+        lines = f.readlines()
+        
+    # Find the header line (starts with # ColInDex)
+    column_names = []
+    data_lines = []
+    
+    for line in lines:
+        if line.startswith('# ColInDex'):
+            # Next line usually has ColName
+            pass
+        elif line.startswith('# ColName'):
+            name = line.split()[-1]
+            column_names.append(name)
+        elif not line.startswith('#'):
+            data_lines.append(line.split())
+            
+    if not column_names or not data_lines:
+        return pd.DataFrame()
+        
+    # Some files might have missing or extra columns in data lines
+    # We take the minimum length to avoid errors
+    min_cols = min(len(column_names), len(data_lines[0]))
+    df = pd.DataFrame(data_lines, columns=column_names[:min_cols])
+    
+    # Try to convert numeric columns
+    for col in df.columns:
+        try:
+            df[col] = pd.to_numeric(df[col])
+        except:
+            pass
+            
+    return df
+
+class FreeSurferStatsStep(BaseProcessingStep):
+    """
+    Step to parse FreeSurfer stats and add them to the tracker.
+    """
+    def run(self, context: dict, output_dir: Path, **kwargs) -> dict:
+        fs_dir = context.get("freesurfer_dir")
+        if not fs_dir or not Path(fs_dir).exists():
+             self.logger.warning("FreeSurfer directory missing. Skipping FS stats extraction.")
+             return context
+             
+        fs_dir = Path(fs_dir)
+        stats_dir = fs_dir / "stats"
+        
+        subject = context.get("subject")
+        session = context.get("session")
+        study = context.get("study_name")
+        
+        # 1. Parse Aseg (Subcortical)
+        aseg_stats = stats_dir / "aseg.stats"
+        if aseg_stats.exists():
+            df = parse_freesurfer_stats(aseg_stats)
+            if not df.empty:
+                # We save a TSV for the tracker to pick up
+                # Required columns for tracker: roi_name, model, metric, mean (as value)
+                stats_list = []
+                for _, row in df.iterrows():
+                    roi = row.get("StructName")
+                    vol = row.get("Volume_mm3")
+                    if roi and vol is not None:
+                        stats_list.append({
+                            "roi_name": roi,
+                            "model": "Structural",
+                            "metric": "Volume",
+                            "mean": vol,
+                            "median": vol,
+                            "std": 0
+                        })
+                
+                if stats_list:
+                    out_tsv = output_dir / f"sub-{subject}_ses-{session}_desc-aseg_stats.tsv"
+                    pd.DataFrame(stats_list).to_csv(out_tsv, sep='\t', index=False)
+                    context.setdefault('roi_stats_files', {})['aseg'] = out_tsv
+
+        # 2. Parse Aparc (Cortical)
+        for hemi in ['lh', 'rh']:
+            aparc_stats = stats_dir / f"{hemi}.aparc.stats"
+            if aparc_stats.exists():
+                df = parse_freesurfer_stats(aparc_stats)
+                if not df.empty:
+                    stats_list = []
+                    for _, row in df.iterrows():
+                        roi = row.get("StructName")
+                        if not roi: continue
+                        
+                        # Multiple metrics
+                        metrics = {
+                            "Volume": row.get("Volume_mm3"),
+                            "Thickness": row.get("ThickAvg"),
+                            "Area": row.get("SurfArea")
+                        }
+                        
+                        for m_name, m_val in metrics.items():
+                            if m_val is not None:
+                                stats_list.append({
+                                    "roi_name": f"{hemi}_{roi}",
+                                    "model": "Structural",
+                                    "metric": m_name,
+                                    "mean": m_val,
+                                    "median": m_val,
+                                    "std": 0
+                                })
+                                
+                    if stats_list:
+                        out_tsv = output_dir / f"sub-{subject}_ses-{session}_desc-{hemi}_aparc_stats.tsv"
+                        pd.DataFrame(stats_list).to_csv(out_tsv, sep='\t', index=False)
+                        context.setdefault('roi_stats_files', {})[f"{hemi}_aparc"] = out_tsv
+
+        return context

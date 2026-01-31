@@ -31,7 +31,7 @@ from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.bias import BiasCorrectionStep
 from ...lib.common.registration import CoregistrationStep, NonlinearRegistrationStep
 from ...lib.common.mask import BrainMaskingStep
-from ...lib.anat.recon import ReconAllStep
+from ...lib.anat.recon import ReconAllStep, FreeSurferStatsStep
 from ...lib.common.sharpen import SharpeningStep
 from ...lib.common.segmentation import SegmentationStep
 from ...interfaces.mriqc import run_mriqc
@@ -96,6 +96,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         recon_cfg = anat_cfg.get("recon_all", {})
         if recon_cfg.get("enabled") or use_fs:
              self.add_step(ReconAllStep(self.config, self.logger, self.provenance))
+             # Always add stats extraction if FS is enabled
+             self.add_step(FreeSurferStatsStep(self.config, self.logger, self.provenance))
              
         # 8. Nonlinear Registration
         norm_cfg = anat_cfg.get("normalization", {})
@@ -212,8 +214,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                  processed_t1 = current_t1
                  
                  for step in self.steps:
-                      if isinstance(step, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep)):
-                           # Handle Coregistration, Normalization, Segmentation etc separately
+                      if isinstance(step, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep, FreeSurferStatsStep)):
+                           # Handle Coregistration, Normalization, Segmentation, FS Stats etc separately
                            continue
                       
                       # If using FS, skip standard T1w preproc
@@ -716,8 +718,16 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                      dest.parent.mkdir(parents=True, exist_ok=True)
                                      shutil.copy(norm_t2.img, dest)
                                      if norm_t2.json and norm_t2.json.exists():
-                                          shutil.copy(norm_t2.json, dest.with_suffix("").with_suffix(".json"))
+                                         shutil.copy(norm_t2.json, dest.with_suffix("").with_suffix(".json"))
 
+            # 8.5 FreeSurfer Stats
+            fs_stats_step = next((s for s in self.steps if isinstance(s, FreeSurferStatsStep)), None)
+            if fs_stats_step:
+                 if progress_ctx: progress_ctx.update(task_id, description="[cyan]FreeSurfer Stats")
+                 self.logger.info("Parsing FreeSurfer Stats...")
+                 fs_stats_step.run(context, output_dir=output_dir)
+                 if progress_ctx: progress_ctx.advance(task_id)
+                 
             # 9. Segmentation
             # Runs on whatever is in context (Normalized T1/T2 if Norm ran, else Native/Coreg)
             seg_step = next((s for s in self.steps if isinstance(s, SegmentationStep)), None)

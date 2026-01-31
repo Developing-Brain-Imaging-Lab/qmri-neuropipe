@@ -56,9 +56,8 @@ class TrackingStep(BaseProcessingStep):
 
         # 4. Update ROI Stats
         roi_files = context.get('roi_stats_files', {})
-        for sheet_suffix, tsv_path in roi_files.items():
-            sheet_name = f"{sheet_suffix}_Metrics"
-            tracker.add_roi_stats(subject, session, Path(tsv_path), sheet_name, study)
+        for atlas_name, tsv_path in roi_files.items():
+            tracker.add_roi_stats(subject, session, Path(tsv_path), atlas_name, study)
 
         # 5. Save the tracker (Force save at the end of subject)
         tracker.save(force=True)

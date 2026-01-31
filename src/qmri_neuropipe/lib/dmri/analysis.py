@@ -418,7 +418,13 @@ class StatsExtractionStep(BaseProcessingStep):
                 try:
                     img = nib.load(str(metric_path))
                     data = img.get_fdata()
-                    loaded_maps[f"{model_name}_{metric_name}"] = (img, data)
+                    # Store as (model, metric) tuple in key or value
+                    loaded_maps[f"{model_name}_{metric_name}"] = {
+                        'model': model_name,
+                        'metric': metric_name,
+                        'img': img,
+                        'data': data
+                    }
                 except Exception as e:
                     self.logger.warning(f"Failed to load metric {metric_path}: {e}")
 
@@ -488,9 +494,10 @@ class StatsExtractionStep(BaseProcessingStep):
                                 if weights.max() <= 0: continue
                                 
                                 mask_bool = weights > prob_thresh
-                                if not np.any(mask_bool): continue
-
-                                for metric_key, (m_img, m_data) in loaded_maps.items():
+                                if not np.any(mask_bool): continue # Moved this line up
+                                
+                                for metric_key, m_info in loaded_maps.items():
+                                     m_data = m_info['data']
                                      if m_data.shape != weights.shape: continue
                                      
                                      # Select voxels
@@ -506,18 +513,30 @@ class StatsExtractionStep(BaseProcessingStep):
                                      
                                      # Weighted Stats
                                      w_sum = np.sum(w_vals)
-                                     if w_sum == 0: continue
+                                     if w_sum <= 0: continue
                                      
                                      w_mean = np.sum(d_vals * w_vals) / w_sum
                                      w_var = np.sum(w_vals * (d_vals - w_mean)**2) / w_sum
                                      w_std = np.sqrt(w_var)
                                      
+                                     # Weighted Median
+                                     try:
+                                         order = np.argsort(d_vals)
+                                         d_sorted = d_vals[order]
+                                         w_sorted = w_vals[order]
+                                         cum_w = np.cumsum(w_sorted)
+                                         cutoff = 0.5 * w_sum
+                                         w_median = d_sorted[cum_w >= cutoff][0]
+                                     except:
+                                         w_median = 0
+                                     
                                      stat = {
                                         "roi_id": vol_idx,
                                         "roi_name": roi_name,
-                                        "metric": metric_key,
+                                        "model": m_info['model'],
+                                        "metric": m_info['metric'],
                                         "mean": w_mean,
-                                        "median": 0, # Weighted median is expensive/complex, skipping
+                                        "median": w_median,
                                         "std": w_std,
                                         "count": d_vals.size, # Number of voxels > threshold
                                         "vol_sum": w_sum # Total weight (volume-ish)
@@ -532,8 +551,8 @@ class StatsExtractionStep(BaseProcessingStep):
                            for roi_idx in rois:
                                 roi_mask = (seg_data == roi_idx)
                                 roi_name = lut.get(int(roi_idx), f"Label_{roi_idx}")
-                                
-                                for metric_key, (m_img, m_data) in loaded_maps.items():
+                                for metric_key, m_info in loaded_maps.items(): # Corrected indentation
+                                     m_data = m_info['data']
                                      if m_data.shape != seg_data.shape: continue
                                      vals = m_data[roi_mask]
                                      vals = vals[np.isfinite(vals)]
@@ -543,7 +562,8 @@ class StatsExtractionStep(BaseProcessingStep):
                                      stat = {
                                          "roi_id": roi_idx,
                                          "roi_name": roi_name,
-                                         "metric": metric_key,
+                                         "model": m_info['model'],
+                                         "metric": m_info['metric'],
                                          "mean": np.mean(vals),
                                          "median": np.median(vals),
                                          "std": np.std(vals),
@@ -577,7 +597,8 @@ class StatsExtractionStep(BaseProcessingStep):
                       
                       if np.sum(mask_data) == 0: continue
                       
-                      for metric_key, (m_img, m_data) in loaded_maps.items():
+                      for metric_key, m_info in loaded_maps.items(): # Corrected to use m_info
+                           m_data = m_info['data']
                            if m_data.shape != mask_data.shape: continue
                            vals = m_data[mask_data]
                            vals = vals[np.isfinite(vals)]
@@ -585,13 +606,15 @@ class StatsExtractionStep(BaseProcessingStep):
                            if vals.size == 0: continue
                            
                            stat = {
-                               "roi_name": roi_name,
-                               "metric": metric_key,
-                               "mean": np.mean(vals),
-                               "median": np.median(vals),
-                               "std": np.std(vals),
-                               "count": vals.size
-                           }
+                                "roi_id": roi_name, # or idx
+                                "roi_name": roi_name,
+                                "model": m_info['model'], # Used m_info directly
+                                "metric": m_info['metric'], # Used m_info directly
+                                "mean": np.mean(vals),
+                                "median": np.median(vals),
+                                "std": np.std(vals),
+                                "count": vals.size
+                            }
                            seg_stats.append(stat)
                            
                  if seg_stats:

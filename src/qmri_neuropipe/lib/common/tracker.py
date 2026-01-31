@@ -5,6 +5,7 @@ from datetime import datetime
 import logging
 import os
 import time
+import shutil
 
 class NeuroimagingTracker:
     """
@@ -163,7 +164,6 @@ class NeuroimagingTracker:
                 if self.excel_path.exists() and self.excel_path.stat().st_size > 0:
                     try:
                         # CREATE BACKUP BEFORE MODIFYING
-                        import shutil
                         shutil.copy2(self.excel_path, bak_path)
 
                         with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
@@ -217,20 +217,35 @@ class NeuroimagingTracker:
                 try: os.remove(temp_path)
                 except: pass
 
-    def _ensure_row(self, sheet_name: str, subject_id: str, session: str, study: Optional[str] = None) -> int:
-        """Ensure a row exists for the subject/session/study and return its index."""
+    def _ensure_row(self, sheet_name: str, subject_id: str, session: str, study: Optional[str] = None, extra_keys: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Ensure a row exists for the subject/session/study and optional extra keys.
+        Returns the index of the row.
+        """
         if sheet_name not in self._data:
-            # Create empty df with core columns if it doesn't exist
+            # Create empty df with core columns
             cols = ['Subject_ID', 'Session']
             if study: cols.append('Study')
+            if extra_keys:
+                for k in extra_keys.keys():
+                    if k not in cols: cols.append(k)
             self._data[sheet_name] = pd.DataFrame(columns=cols)
             
         df = self._data[sheet_name]
         
-        # Check if row exists
+        # Build mask for matching
         mask = (df['Subject_ID'] == subject_id) & (df['Session'] == session)
         if study and 'Study' in df.columns:
             mask = mask & (df['Study'] == study)
+            
+        if extra_keys:
+            for k, v in extra_keys.items():
+                if k in df.columns:
+                    mask = mask & (df[k] == v)
+                else:
+                    # Column doesn't exist, so row definitely doesn't exist
+                    mask = pd.Series([False] * len(df))
+                    break
             
         matches = df.index[mask]
         
@@ -240,8 +255,15 @@ class NeuroimagingTracker:
             # Create new row
             new_row = {'Subject_ID': subject_id, 'Session': session}
             if study: new_row['Study'] = study
+            if extra_keys:
+                new_row.update(extra_keys)
+                
+            # Ensure any new columns from extra_keys are added to the DF
+            new_cols = [c for c in new_row.keys() if c not in df.columns]
+            if new_cols:
+                df = df.reindex(columns=list(df.columns) + new_cols)
+                for c in new_cols: df[c] = df[c].astype(object)
             
-            # Use concat instead of deprecated append
             self._data[sheet_name] = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             return len(self._data[sheet_name]) - 1
 
@@ -278,41 +300,71 @@ class NeuroimagingTracker:
         # De-fragment
         self._data['Quality_Metrics'] = df.copy()
 
-    def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, sheet_name: str, study: Optional[str] = None):
-        """Parse an ROI stats TSV and append/update the corresponding sheet."""
+    def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, atlas_name: str, study: Optional[str] = None):
+        """
+        Parse an ROI stats TSV and update the tracker in a tidy "Metrics-as-Columns" format.
+        Rows: Subject, Session, Atlas, ROI, Statistic
+        Columns: Metrics (FA, MD, T1, T2, etc.)
+        """
         if not tsv_path.exists():
             return
             
         new_stats = pd.read_csv(tsv_path, sep='\t')
         
-        idx = self._ensure_row(sheet_name, subject_id, session, study)
-        df = self._data[sheet_name]
+        # Ensure we have a 'model' column. If not, fallback to atlas_name
+        if 'model' not in new_stats.columns:
+            # Try to infer model from 'metric' if it has underscore (e.g. DTI_fa)
+            if 'metric' in new_stats.columns:
+                def _infer_model(m):
+                    if '_' in str(m): return str(m).rsplit('_', 1)[0]
+                    return 'Other'
+                new_stats['model'] = new_stats['metric'].apply(_infer_model)
+                new_stats['metric'] = new_stats['metric'].apply(lambda x: str(x).rsplit('_', 1)[-1] if '_' in str(x) else x)
+            else:
+                new_stats['model'] = 'ROI_Stats'
         
-        updates = {}
-        for _, row in new_stats.iterrows():
-            # Support both 'roi_name' (new) and 'LabelName' (legacy/other)
-            label = row.get('roi_name', row.get('LabelName', 'Unknown'))
-            metric = row.get('metric', '')
-            
-            suffix = f"_{metric}" if metric else ""
-            mean_col = f"{label}{suffix}_Mean"
-            std_col = f"{label}{suffix}_Std"
-            
-            # Handle case sensitivity in TSV columns
-            updates[mean_col] = row.get('mean', row.get('Mean'))
-            updates[std_col] = row.get('std', row.get('Std'))
-            
-        # Batch add new columns to avoid fragmentation warnings
-        new_cols = [c for c in updates.keys() if c not in df.columns]
-        if new_cols:
-            df = df.reindex(columns=list(df.columns) + new_cols)
-            for c in new_cols: df[c] = df[c].astype(object)
-            
-        for col, val in updates.items():
-            df.at[idx, col] = val
-            
-        # De-fragment
-        self._data[sheet_name] = df.copy()
+        # We handle 'Mean', 'Median', 'Std' as separate rows for each (Model, Atlas, ROI)
+        for stat_type in ['Mean', 'Median', 'Std']:
+            stat_col = stat_type.lower()
+            if stat_col not in new_stats.columns:
+                # Try finding exact case if stat_col missing
+                if stat_type in new_stats.columns:
+                    stat_col = stat_type
+                else:
+                    continue
+
+            # Group by Model to handle separate sheets
+            for model, model_df in new_stats.groupby('model'):
+                sheet_name = f"{model}_Metrics"
+                
+                # Group by ROI to update row-by-row
+                for roi_name, roi_df in model_df.groupby('roi_name'):
+                    keys = {
+                        'Atlas': atlas_name,
+                        'ROI_Name': roi_name,
+                        'Statistic': stat_type
+                    }
+                    
+                    idx = self._ensure_row(sheet_name, subject_id, session, study, extra_keys=keys)
+                    df = self._data[sheet_name]
+                    
+                    # Updates: each metric for this ROI/Stat
+                    updates = {}
+                    for _, row in roi_df.iterrows():
+                        metric = row['metric']
+                        val = row[stat_col]
+                        updates[metric] = val
+                    
+                    # Batch add metric columns
+                    new_cols = [c for c in updates.keys() if c not in df.columns]
+                    if new_cols:
+                        df = df.reindex(columns=list(df.columns) + new_cols)
+                        for c in new_cols: df[c] = df[c].astype(object)
+                    
+                    for metric, val in updates.items():
+                        df.at[idx, metric] = val
+                        
+                    self._data[sheet_name] = df.copy()
 
     def update_metadata(self, subject_id: str, session: str, metadata: Dict[str, Any], study: Optional[str] = None):
         """Update subject demographic or scan metadata."""

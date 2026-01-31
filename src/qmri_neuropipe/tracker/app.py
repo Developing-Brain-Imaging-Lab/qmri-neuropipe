@@ -104,6 +104,23 @@ if final_tracker_path:
         if selected_study != "All" and "Study" in df.columns:
             df = df[df["Study"] == selected_study]
             
+        # Tidy Sheet Handling
+        if "Metric" in df.columns and "Statistic" in df.columns:
+            col1, col2, col3 = st.columns(3)
+            if "Model" in df.columns:
+                models = ["All"] + df["Model"].unique().tolist()
+                sel_model = col1.selectbox("Filter by Model", models)
+                if sel_model != "All":
+                    df = df[df["Model"] == sel_model]
+            
+            metrics = df["Metric"].unique().tolist()
+            sel_metric = col2.selectbox("Select Metric", metrics)
+            df = df[df["Metric"] == sel_metric]
+            
+            stats = df["Statistic"].unique().tolist()
+            sel_stat = col3.selectbox("Select Statistic", stats)
+            df = df[df["Statistic"] == sel_stat]
+
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         
         if numeric_cols:
@@ -140,6 +157,24 @@ if final_tracker_path:
 
         if selected_study != "All" and "Study" in df_corr.columns:
             df_corr = df_corr[df_corr["Study"] == selected_study]
+
+        # Tidy Sheet Handling (Correlation Tab)
+        if "Metric" in df_corr.columns and "Statistic" in df_corr.columns:
+            st.info("Tidy ROI Sheet detected. Filter for a specific Metric/Statistic combination.")
+            col1, col2, col3 = st.columns(3)
+            if "Model" in df_corr.columns:
+                models = ["All"] + df_corr["Model"].unique().tolist()
+                sel_model = col1.selectbox("Filter Model (Corr)", models)
+                if sel_model != "All":
+                    df_corr = df_corr[df_corr["Model"] == sel_model]
+            
+            metrics = df_corr["Metric"].unique().tolist()
+            sel_metric = col2.selectbox("Select Metric (Corr)", metrics)
+            df_corr = df_corr[df_corr["Metric"] == sel_metric]
+            
+            stats = df_corr["Statistic"].unique().tolist()
+            sel_stat = col3.selectbox("Select Statistic (Corr)", stats)
+            df_corr = df_corr[df_corr["Statistic"] == sel_stat]
 
         numeric_cols_corr = df_corr.select_dtypes(include=[np.number]).columns.tolist()
         
