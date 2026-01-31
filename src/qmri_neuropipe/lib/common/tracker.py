@@ -173,13 +173,10 @@ class NeuroimagingTracker:
                                     if sheet_name in self._data:
                                         # UPSERT: Merge existing with current
                                         if 'Subject_ID' in existing_df.columns and 'Session' in existing_df.columns:
-                                            subset = ['Subject_ID', 'Session']
-                                            if 'Study' in existing_df.columns and 'Study' in self._data[sheet_name].columns:
-                                                subset.append('Study')
+                                            # Primary Keys for deduplication
+                                            pk_cols = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Model', 'Alert_ID']
+                                            subset = [c for c in pk_cols if c in existing_df.columns and c in self._data[sheet_name].columns]
                                             
-                                            if 'Alert_ID' in existing_df.columns:
-                                                subset = ['Alert_ID']
-
                                             merged = pd.concat([existing_df, self._data[sheet_name]], ignore_index=True)
                                             self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
                                         elif sheet_name == 'README':
@@ -302,18 +299,16 @@ class NeuroimagingTracker:
 
     def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, atlas_name: str, study: Optional[str] = None):
         """
-        Parse an ROI stats TSV and update the tracker in a tidy "Metrics-as-Columns" format.
-        Rows: Subject, Session, Atlas, ROI, Statistic
-        Columns: Metrics (FA, MD, T1, T2, etc.)
+        Parse an ROI stats TSV and update the tracker in a Fully Long (Tidy) format.
+        Layout: Subject, Session, Atlas, ROI_Name, Metric, Statistic, Value
         """
         if not tsv_path.exists():
             return
             
         new_stats = pd.read_csv(tsv_path, sep='\t')
         
-        # Ensure we have a 'model' column. If not, fallback to atlas_name
+        # Ensure we have a 'model' column.
         if 'model' not in new_stats.columns:
-            # Try to infer model from 'metric' if it has underscore (e.g. DTI_fa)
             if 'metric' in new_stats.columns:
                 def _infer_model(m):
                     if '_' in str(m): return str(m).rsplit('_', 1)[0]
@@ -323,48 +318,55 @@ class NeuroimagingTracker:
             else:
                 new_stats['model'] = 'ROI_Stats'
         
-        # We handle 'Mean', 'Median', 'Std' as separate rows for each (Model, Atlas, ROI)
-        for stat_type in ['Mean', 'Median', 'Std']:
-            stat_col = stat_type.lower()
-            if stat_col not in new_stats.columns:
-                # Try finding exact case if stat_col missing
-                if stat_type in new_stats.columns:
-                    stat_col = stat_type
-                else:
-                    continue
+        # Melt stats so that each Statistic (Mean, Median, Std) becomes a row
+        # Expected columns in new_stats: roi_name, model, metric, mean, median, std, etc.
+        stat_cols = [c for c in ['mean', 'median', 'std'] if c in new_stats.columns]
+        if not stat_cols:
+             return
 
-            # Group by Model to handle separate sheets
-            for model, model_df in new_stats.groupby('model'):
-                sheet_name = f"{model}_Metrics"
+        # Group by Model to handle separate sheets
+        for model, model_df in new_stats.groupby('model'):
+            sheet_name = f"{model}_Metrics"
+            
+            # Prepare rows to add
+            rows_to_add = []
+            for _, row in model_df.iterrows():
+                roi = row.get('roi_name', 'Unknown')
+                metric = row.get('metric', 'Unknown')
                 
-                # Group by ROI to update row-by-row
-                for roi_name, roi_df in model_df.groupby('roi_name'):
-                    keys = {
+                for s_col in stat_cols:
+                    val = row[s_col]
+                    stat_name = s_col.capitalize()
+                    
+                    rows_to_add.append({
+                        'Subject_ID': subject_id,
+                        'Session': session,
+                        'Study': study or '',
                         'Atlas': atlas_name,
-                        'ROI_Name': roi_name,
-                        'Statistic': stat_type
-                    }
-                    
-                    idx = self._ensure_row(sheet_name, subject_id, session, study, extra_keys=keys)
-                    df = self._data[sheet_name]
-                    
-                    # Updates: each metric for this ROI/Stat
-                    updates = {}
-                    for _, row in roi_df.iterrows():
-                        metric = row['metric']
-                        val = row[stat_col]
-                        updates[metric] = val
-                    
-                    # Batch add metric columns
-                    new_cols = [c for c in updates.keys() if c not in df.columns]
-                    if new_cols:
-                        df = df.reindex(columns=list(df.columns) + new_cols)
-                        for c in new_cols: df[c] = df[c].astype(object)
-                    
-                    for metric, val in updates.items():
-                        df.at[idx, metric] = val
-                        
-                    self._data[sheet_name] = df.copy()
+                        'ROI_Name': roi,
+                        'Metric': metric,
+                        'Statistic': stat_name,
+                        'Value': val
+                    })
+            
+            if not rows_to_add:
+                continue
+
+            # Update Tracker Data
+            if sheet_name not in self._data:
+                self._data[sheet_name] = pd.DataFrame(columns=['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Value'])
+            
+            df = self._data[sheet_name]
+            new_df = pd.DataFrame(rows_to_add)
+            
+            # Use ensure_row or just concat and deduplicate? 
+            # Df.append/pd.concat is easier for Fully Long
+            merged = pd.concat([df, new_df], ignore_index=True)
+            subset = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic']
+            # Filter subset to only existing columns
+            actual_subset = [c for c in subset if c in merged.columns]
+            
+            self._data[sheet_name] = merged.drop_duplicates(subset=actual_subset, keep='last')
 
     def update_metadata(self, subject_id: str, session: str, metadata: Dict[str, Any], study: Optional[str] = None):
         """Update subject demographic or scan metadata."""

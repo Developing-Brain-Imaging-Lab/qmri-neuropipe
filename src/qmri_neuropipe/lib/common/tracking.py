@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Optional, Any, Dict
 import logging
+import numpy as np
+import nibabel as nib
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
@@ -50,7 +52,35 @@ class TrackingStep(BaseProcessingStep):
                 tracker.update_status(subject, session, module, val, study)
 
         # 3. Update QC Metrics
-        qc_metrics = context.get('qc_metrics', {})
+        qc_metrics = context.get('qc_metrics', {}).copy()
+        
+        # Add Scan Metadata
+        current_img = context.get('current_image')
+        if isinstance(current_img, ImageFile):
+             try:
+                 img = nib.load(str(current_img.img))
+                 # Directions/Volumes
+                 if len(img.shape) > 3:
+                      qc_metrics['QC_DWI_Directions'] = img.shape[3]
+                 
+                 # Resolution
+                 pixdim = img.header.get_zooms()[:3]
+                 qc_metrics['QC_DWI_Resolution'] = " x ".join([f"{p:.2f}" for p in pixdim])
+                 
+                 # B-values
+                 if hasattr(current_img, 'bval') and current_img.bval and current_img.bval.exists():
+                      bvals = np.loadtxt(current_img.bval)
+                      unique_b = np.unique(np.round(bvals, -1)).astype(int)
+                      qc_metrics['QC_DWI_Bvals'] = ", ".join(map(str, unique_b))
+             except Exception as e:
+                  self.logger.warning(f"Failed to extract scan metadata for tracker: {e}")
+
+        # Add Outlier Stats
+        outlier_stats = context.get('outlier_stats', {})
+        if outlier_stats:
+             qc_metrics['QC_DWI_Outliers_Removed'] = outlier_stats.get('removed_volumes', 0)
+             qc_metrics['QC_DWI_Outliers_Pct'] = outlier_stats.get('percent_removed', 0)
+
         if qc_metrics:
             tracker.add_metrics(subject, session, qc_metrics, study)
 

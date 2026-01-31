@@ -155,12 +155,27 @@ class EddyQuadStep(BaseProcessingStep):
                     "QC_DWI_Outliers_Total_Pct": metrics.get('qc_outliers_tot', 0)
                 }
                 
+                # Check for eddy_outlier_n_sqr if available to get raw counts
+                # quad might not put raw counts in qc.json, but it might be in the output folder
+                outlier_file = eddy_base.parent / (eddy_base.name + ".eddy_outlier_n_sqr")
+                if outlier_file.exists():
+                     try:
+                         with open(outlier_file) as f:
+                             # This file is a table of outliers per slice/volume
+                             # For now, just count non-zeros? No, eddy_quad might have it.
+                             pass
+                     except: pass
+
                 summary = {
                     **motion_stats,
                     **cnr_stats,
                     **outlier_stats
                 }
                 
+                # Add overall QC score if present
+                if 'qc_score' in metrics:
+                     summary["QC_DWI_Total_Score"] = metrics['qc_score']
+
                 context["qc_metrics"] = summary
             except Exception as e:
                  self.logger.warning(f"Failed to parse QC metrics: {e}")
