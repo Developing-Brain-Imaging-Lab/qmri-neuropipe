@@ -129,8 +129,8 @@ class CoregistrationStep(BaseProcessingStep):
 
         if hasattr(input_image, 'img'):
             in_path = input_image.img
-            # Check if this is DWIFile to preserve type later
-            is_dwi = isinstance(input_image, DWIFile)
+            # Check if this is DWIFile (or has bval attribute) to preserve type later
+            is_dwi = isinstance(input_image, DWIFile) or (hasattr(input_image, 'bval') and input_image.bval is not None)
             entities = input_image.entities.copy() if hasattr(input_image, 'entities') else {}
         else:
             in_path = self._extract_path(input_image)

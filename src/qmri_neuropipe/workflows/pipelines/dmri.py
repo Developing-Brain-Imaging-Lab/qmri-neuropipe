@@ -861,12 +861,17 @@ class PreprocessingWorkflow(BaseWorkflow):
             self.logger.info(f"Saving final output: {target_img}")
             shutil.copy(dwi.img, target_img)
             
-            if dwi.bval and dwi.bval.exists():
-                shutil.copy(dwi.bval, target_bval)
-            if dwi.bvec and dwi.bvec.exists():
-                shutil.copy(dwi.bvec, target_bvec)
-            if dwi.json and dwi.json.exists():
-                shutil.copy(dwi.json, target_json)
+            # Use getattr for safer access (handles both ImageFile and DWIFile)
+            bval = getattr(dwi, 'bval', None)
+            bvec = getattr(dwi, 'bvec', None)
+            sidecar_json = getattr(dwi, 'json', None)
+
+            if bval and bval.exists():
+                shutil.copy(bval, target_bval)
+            if bvec and bvec.exists():
+                shutil.copy(bvec, target_bvec)
+            if sidecar_json and sidecar_json.exists():
+                shutil.copy(sidecar_json, target_json)
 
         # Save GNL Maps if present (handling per-image saving)
         gnl_maps = context.get("gnl_maps", [])
@@ -2161,17 +2166,20 @@ class DMRIPipeline(BasePipeline):
                     shutil.copy(d.img, dest_img)
                 
                 # Copy sidecars
-                dest_bval = raw_work_dir / d.bval.name if d.bval else None
-                if d.bval and not dest_bval.exists():
-                    shutil.copy(d.bval, dest_bval)
+                p_bval = getattr(d, 'bval', None)
+                dest_bval = raw_work_dir / p_bval.name if p_bval else None
+                if p_bval and not dest_bval.exists():
+                    shutil.copy(p_bval, dest_bval)
                     
-                dest_bvec = raw_work_dir / d.bvec.name if d.bvec else None
-                if d.bvec and not dest_bvec.exists():
-                    shutil.copy(d.bvec, dest_bvec)
+                p_bvec = getattr(d, 'bvec', None)
+                dest_bvec = raw_work_dir / p_bvec.name if p_bvec else None
+                if p_bvec and not dest_bvec.exists():
+                    shutil.copy(p_bvec, dest_bvec)
                     
-                dest_json = raw_work_dir / d.json.name if d.json else None
-                if d.json and not dest_json.exists():
-                    shutil.copy(d.json, dest_json)
+                p_json = getattr(d, 'json', None)
+                dest_json = raw_work_dir / p_json.name if p_json else None
+                if p_json and not dest_json.exists():
+                    shutil.copy(p_json, dest_json)
                 
                 # Ensure entities match the processing subject/session
                 # This fixes issues where filenames on disk might differ from folder structure (e.g. missing letters in ID)
@@ -2263,36 +2271,39 @@ class DMRIPipeline(BasePipeline):
                 
                 # Copy sidecars
                 new_bval_path = None
-                if pdwi.bval and pdwi.bval.exists():
+                p_bval = getattr(pdwi, 'bval', None)
+                if p_bval and p_bval.exists():
                     dest_path_str = str(dest_dwi)
                     for ext in ['.nii.gz', '.nii']:
                         if dest_path_str.endswith(ext):
                             dest_path_str = dest_path_str[:-len(ext)]
                             break
                     dest_bval = Path(dest_path_str + ".bval")
-                    shutil.copy(pdwi.bval, dest_bval)
+                    shutil.copy(p_bval, dest_bval)
                     new_bval_path = dest_bval
 
                 new_bvec_path = None
-                if pdwi.bvec and pdwi.bvec.exists():
+                p_bvec = getattr(pdwi, 'bvec', None)
+                if p_bvec and p_bvec.exists():
                      dest_path_str = str(dest_dwi)
                      for ext in ['.nii.gz', '.nii']:
                         if dest_path_str.endswith(ext):
                             dest_path_str = dest_path_str[:-len(ext)]
                             break
                      dest_bvec = Path(dest_path_str + ".bvec")
-                     shutil.copy(pdwi.bvec, dest_bvec)
+                     shutil.copy(p_bvec, dest_bvec)
                      new_bvec_path = dest_bvec
 
                 new_json_path = None
-                if pdwi.json and pdwi.json.exists():
+                p_json = getattr(pdwi, 'json', None)
+                if p_json and p_json.exists():
                      dest_path_str = str(dest_dwi)
                      for ext in ['.nii.gz', '.nii']:
                         if dest_path_str.endswith(ext):
                             dest_path_str = dest_path_str[:-len(ext)]
                             break
                      dest_json = Path(dest_path_str + ".json")
-                     shutil.copy(pdwi.json, dest_json)
+                     shutil.copy(p_json, dest_json)
                      new_json_path = dest_json
                      
                 # Save MASK
@@ -2450,14 +2461,18 @@ class DMRIPipeline(BasePipeline):
                  # Copy sidecars (bvec, bval, json) with matching basename
                  final_base = dest_path.with_suffix("").with_suffix("") # remove .nii.gz if present
                  
-                 if d.bvec and d.bvec.exists():
-                     shutil.copy(d.bvec, final_base.with_suffix(".bvec"))
+                 p_bvec = getattr(d, 'bvec', None)
+                 p_bval = getattr(d, 'bval', None)
+                 p_json = getattr(d, 'json', None)
                  
-                 if d.bval and d.bval.exists():
-                     shutil.copy(d.bval, final_base.with_suffix(".bval"))
+                 if p_bvec and p_bvec.exists():
+                     shutil.copy(p_bvec, final_base.with_suffix(".bvec"))
+                 
+                 if p_bval and p_bval.exists():
+                     shutil.copy(p_bval, final_base.with_suffix(".bval"))
                      
-                 if d.json and d.json.exists():
-                     shutil.copy(d.json, final_base.with_suffix(".json"))
+                 if p_json and p_json.exists():
+                     shutil.copy(p_json, final_base.with_suffix(".json"))
             
             # 2. Save Mask (as sidecar to dwi PREPROC)
             if mask:
@@ -2475,8 +2490,10 @@ class DMRIPipeline(BasePipeline):
             
             # Add Preproc Output -> Final Preprocessed Images
             dmri_outputs["Final Preprocessed Images"].append({"key": "Preprocessed DWI", "path": str(dest_path)})
-            if d.bval: dmri_outputs["Final Preprocessed Images"].append({"key": "Bval", "path": str(dest_path.with_suffix("").with_suffix(".bval"))})
-            if d.bvec: dmri_outputs["Final Preprocessed Images"].append({"key": "Bvec", "path": str(dest_path.with_suffix("").with_suffix(".bvec"))})
+            p_bval = getattr(d, 'bval', None)
+            p_bvec = getattr(d, 'bvec', None)
+            if p_bval: dmri_outputs["Final Preprocessed Images"].append({"key": "Bval", "path": str(dest_path.with_suffix("").with_suffix(".bval"))})
+            if p_bvec: dmri_outputs["Final Preprocessed Images"].append({"key": "Bvec", "path": str(dest_path.with_suffix("").with_suffix(".bvec"))})
 
             # 3. Copy Model Outputs (if any) AND Report
             # Scan output_dir/models for results (whether newly processed or existing)
