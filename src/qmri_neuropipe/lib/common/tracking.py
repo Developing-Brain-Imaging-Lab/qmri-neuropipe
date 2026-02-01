@@ -107,6 +107,19 @@ class TrackingStep(BaseProcessingStep):
             # Base logic: Start with detected statuses for THIS modality as defaults
             final_statuses = {k: v for k, v in detected_statuses.get(inferred_modality, {}).items()}
             
+            # Cross-Modality Recovery:
+            # If we detected statuses for other modalities (e.g. Anatomical during Diffusion run), 
+            # we should update them too.
+            other_modalities = {}
+            for mod, statuses in detected_statuses.items():
+                 if mod != inferred_modality and statuses:
+                      other_modalities[mod] = statuses
+            
+            # Apply Cross-Modality Updates immediately
+            for mod, statuses in other_modalities.items():
+                 for col, stat in statuses.items():
+                      tracker.update_status(subject, session, col, stat, study, modality=mod)
+
             # Special Case: Always check if Segmentation was found (often study-wide)
             if 'Segmentation' in detected_statuses.get('Anatomical', {}) and inferred_modality == 'Anatomical':
                  final_statuses.update(detected_statuses['Anatomical'])
@@ -122,6 +135,8 @@ class TrackingStep(BaseProcessingStep):
                     
                     # Always update the legacy Processing_Status sheet for backward compatibility
                     mod_name = base_key.replace("_", " ").title().replace(" ", "")
+                    # Only update legacy status for current modality's steps (approx)
+                    # or just update it anyway? Better to update it.
                     tracker.update_status(subject, session, mod_name, val, study)
                     
                     # Special Method Detection (Context-based)
@@ -412,17 +427,30 @@ class TrackingStep(BaseProcessingStep):
         dwi_path = session_root / "dwi"
         relax_path = session_root / "relax"
         
-        # Anatomical
+        # Anatomical - Generalize for T1w and T2w and other entities
         if anat_path.exists():
-            if list(anat_path.glob("*desc-brain_mask.nii.gz")): results['Anatomical']['Brain_Masking'] = 'Complete'
-            if list(anat_path.glob("*desc-denoised_T1w.nii.gz")): results['Anatomical']['Denoising'] = 'Complete'
-            if list(anat_path.glob("*desc-gibbs_T1w.nii.gz")): results['Anatomical']['Gibbs_Ringing'] = 'Complete'
-            if list(anat_path.glob("*desc-bias_T1w.nii.gz")): results['Anatomical']['Bias_Correction'] = 'Complete'
+            # Check for generic "brain_mask" desc
+            if list(anat_path.glob("*desc-*brain_mask.nii.gz")): 
+                results['Anatomical']['Brain_Masking'] = 'Complete'
+            
+            # Check for denoised (T1w or T2w)
+            if list(anat_path.glob("*desc-*denoised*.nii.gz")): 
+                results['Anatomical']['Denoising'] = 'Complete'
+            
+            # Check for gibbs (T1w or T2w)
+            if list(anat_path.glob("*desc-*gibbs*.nii.gz")): 
+                results['Anatomical']['Gibbs_Ringing'] = 'Complete'
+                
+            # Check for bias (T1w or T2w)
+            if list(anat_path.glob("*desc-*bias*.nii.gz")): 
+                results['Anatomical']['Bias_Correction'] = 'Complete'
 
         # Diffusion
         if dwi_path.exists():
-            if list(dwi_path.glob("*desc-denoised_dwi.nii.gz")): results['Diffusion']['Denoising'] = 'Complete'
-            if list(dwi_path.glob("*desc-gibbs_dwi.nii.gz")): results['Diffusion']['Gibbs_Ringing'] = 'Complete'
+            if list(dwi_path.glob("*desc-*denoised_dwi.nii.gz")): results['Diffusion']['Denoising'] = 'Complete'
+            if list(dwi_path.glob("*desc-*gibbs_dwi.nii.gz")): results['Diffusion']['Gibbs_Ringing'] = 'Complete'
+            
+            # Eddy can be _desc-eddy_ or _desc-preproc_
             if list(dwi_path.glob("*_desc-eddy_*.nii.gz")) or list(dwi_path.glob("*_desc-preproc_*.nii.gz")): 
                 results['Diffusion']['Eddy_Correction'] = 'Complete'
             

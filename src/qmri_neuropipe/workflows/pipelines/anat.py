@@ -24,7 +24,8 @@ import shutil
 import json
 
 # Steps
-from ...lib.common.resample import ResampleStep
+from ...lib.common.resample import MatchResolutionStep
+from ...lib.common.tracking import TrackingStep
 from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
 from ...lib.common.gibbs import GibbsUnringingStep
@@ -440,7 +441,6 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                 
                       if progress_ctx: progress_ctx.advance(task_id)
 
-                 context["preprocessed_t2w"] = processed_t2
                  self.logger.info(f"T2w processing complete: {processed_t2.img}")
                  
                  # Coregister only if T1w exists and T1w processing successful
@@ -824,6 +824,15 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             # Save results if final_output_dir provided
             if final_output_dir:
                 self.save_results(context, final_output_dir)
+
+            # 6. Tracker Update
+            try:
+                 # Ensure study name is in context
+                 context['study_name'] = self.config.get('study_name')
+                 tracking = TrackingStep(self.config, self.logger)
+                 tracking.run(context, final_output_dir or output_dir)
+            except Exception as e:
+                 self.logger.warning(f"Tracker update failed: {e}")
 
             return context
         

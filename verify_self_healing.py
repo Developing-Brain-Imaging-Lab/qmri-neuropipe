@@ -41,6 +41,10 @@ def test_self_healing():
     (dwi_path / f"{sub_prefix}_desc-denoised_dwi.nii.gz").touch()
     (dwi_path / f"{sub_prefix}_desc-eddy_dwi.nii.gz").touch()
     
+    # Pre-existing Files (Anatomical - T2w & Mask)
+    (anat_path / f"{sub_prefix}_desc-denoised_T2w.nii.gz").touch()
+    (anat_path / f"{sub_prefix}_desc-brain_mask.nii.gz").touch()
+    
     # Pre-existing Model
     (dti_path / f"{sub_prefix}_model-dti_FA.nii.gz").touch()
     
@@ -90,6 +94,15 @@ def test_self_healing():
         assert df_dwi['Eddy_Correction'].iloc[0] == 'Complete'
         assert df_dwi['Reorienting'].iloc[0] == 'Complete'
         assert 'DTI' in str(df_dwi['Model_Fits'].iloc[0])
+
+        # Check Anatomical Cross-Modality Recovery
+        # Even though we ran DWI tracking, it should have picked up Anat files!
+        df_anat = pd.read_excel(xls, "Anatomical_Status")
+        print("\n--- Anatomical Status (Cross-Modality Recovery) ---")
+        print(df_anat.to_string(index=False))
+        assert df_anat['Denoising'].iloc[0] == 'Complete'  # From T2w detection
+        assert df_anat['Brain_Masking'].iloc[0] == 'Complete' # From mask detection
+        assert df_anat['Segmentation'].iloc[0] == 'Complete' # From FS detection
         
     # Run Tracking for Anat to test FS healing
     print(f"\nRunning tracking for Anat now...")
