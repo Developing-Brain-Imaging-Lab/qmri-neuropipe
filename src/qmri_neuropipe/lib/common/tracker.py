@@ -34,6 +34,8 @@ class NeuroimagingTracker:
             'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Eddy_Correction', 'Bias_Correction', 'Topup', 'SynB0', 'Coregistration', 'Reorienting', 'Model_Fits', 'Atlases', 'Overall_Status', 'Last_Update'],
             'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Analysis', 'Overall_Status', 'Last_Update'],
             'Processing_Details': ['Subject_ID', 'Session', 'Study', 'Modality', 'Step_Name', 'Parameter', 'Value', 'Timestamp'],
+            'Volume_Statistics': ['Subject_ID', 'Session', 'Study', 'Method', 'Structure', 'Volume_mm3', 'ICV_Normalized'],
+            'ROI_Metrics': ['Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
             'Data_Files': ['Subject_ID', 'Session', 'Study', 'T1w_Present', 'DWI_Present'],
             'Software_Versions': ['Subject_ID', 'Session', 'Study', 'Pipeline_Version'],
@@ -53,6 +55,8 @@ class NeuroimagingTracker:
                 'Diffusion_Status': 'Diffusion processing details',
                 'Relaxometry_Status': 'Relaxometry processing details',
                 'Processing_Details': 'Fine-grained processing step parameters (matches PDF report)',
+                'Volume_Statistics': 'Anatomical structure volumes (FSL FAST/FIRST/FreeSurfer)',
+                'ROI_Metrics': 'Cross-modal ROI metrics (diffusion/relaxometry in anatomical ROIs)',
                 'Quality_Metrics': 'Quality control metrics',
                 'Data_Files': 'Input/Output file paths',
                 'Software_Versions': 'Software and pipeline versions',
@@ -571,6 +575,144 @@ class NeuroimagingTracker:
                     self._data[sheet_name] = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
                     df = self._data[sheet_name]
 
+    def log_volume_statistics(
+        self, 
+        subject_id: str, 
+        session: str, 
+        volumes: Dict[str, float],
+        method: str = 'freesurfer',
+        icv: Optional[float] = None,
+        study: Optional[str] = None
+    ):
+        """
+        Log anatomical volume statistics to the tracker.
+        
+        Args:
+            subject_id: Subject ID.
+            session: Session ID.
+            volumes: Dictionary of structure_name -> volume in mm³.
+            method: Segmentation method ('freesurfer', 'fast', 'first').
+            icv: Intracranial volume for normalization (optional).
+            study: Study name.
+        """
+        sheet_name = 'Volume_Statistics'
+        if sheet_name not in self._data:
+            self._data[sheet_name] = pd.DataFrame(columns=[
+                'Subject_ID', 'Session', 'Study', 'Method', 'Structure', 'Volume_mm3', 'ICV_Normalized'
+            ])
+        
+        # Normalize session
+        def _norm_ses(s):
+            if pd.isna(s) or s is None: return "N/A"
+            s_str = str(s).strip().replace('ses-', '')
+            if s_str.isdigit(): s_str = str(int(s_str))
+            return s_str if s_str else "N/A"
+        
+        session_norm = _norm_ses(session)
+        
+        new_rows = []
+        for struct_name, vol_mm3 in volumes.items():
+            # Compute ICV-normalized value if ICV provided
+            icv_norm = vol_mm3 / icv if icv and icv > 0 else None
+            
+            new_rows.append({
+                'Subject_ID': str(subject_id),
+                'Session': session_norm,
+                'Study': study or '',
+                'Method': method,
+                'Structure': struct_name.replace('_Volume_mm3', '').replace('_mm3', ''),
+                'Volume_mm3': vol_mm3,
+                'ICV_Normalized': icv_norm,
+            })
+        
+        if new_rows:
+            # Upsert logic: update existing or append
+            df = self._data[sheet_name]
+            for row in new_rows:
+                mask = (
+                    (df['Subject_ID'].astype(str) == row['Subject_ID']) &
+                    (df['Session'].astype(str) == row['Session']) &
+                    (df['Study'] == row['Study']) &
+                    (df['Method'] == row['Method']) &
+                    (df['Structure'] == row['Structure'])
+                )
+                if mask.any():
+                    idx = df.index[mask][0]
+                    df.at[idx, 'Volume_mm3'] = row['Volume_mm3']
+                    df.at[idx, 'ICV_Normalized'] = row['ICV_Normalized']
+                else:
+                    self._data[sheet_name] = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+                    df = self._data[sheet_name]
+
+    def log_roi_metrics(
+        self,
+        subject_id: str,
+        session: str,
+        roi_metrics: pd.DataFrame,
+        study: Optional[str] = None
+    ):
+        """
+        Log ROI metrics (cross-modal extraction) to the tracker.
+        
+        Args:
+            subject_id: Subject ID.
+            session: Session ID.
+            roi_metrics: DataFrame with columns: ROI_Name, ROI_Source, Modality, Metric, Statistic, Value.
+            study: Study name.
+        """
+        sheet_name = 'ROI_Metrics'
+        if sheet_name not in self._data:
+            self._data[sheet_name] = pd.DataFrame(columns=[
+                'Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value'
+            ])
+        
+        if roi_metrics.empty:
+            return
+            
+        # Normalize session
+        def _norm_ses(s):
+            if pd.isna(s) or s is None: return "N/A"
+            s_str = str(s).strip().replace('ses-', '')
+            if s_str.isdigit(): s_str = str(int(s_str))
+            return s_str if s_str else "N/A"
+        
+        session_norm = _norm_ses(session)
+        
+        # Add subject/session/study to the metrics dataframe
+        metrics_df = roi_metrics.copy()
+        metrics_df['Subject_ID'] = str(subject_id)
+        metrics_df['Session'] = session_norm
+        metrics_df['Study'] = study or ''
+        
+        # Ensure required columns exist
+        required_cols = ['ROI_Name', 'ROI_Source', 'Modality', 'Metric', 'Statistic', 'Value']
+        for col in required_cols:
+            if col not in metrics_df.columns:
+                metrics_df[col] = ''
+        
+        # Select and reorder columns
+        final_cols = ['Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value']
+        metrics_df = metrics_df[final_cols]
+        
+        # Upsert logic
+        df = self._data[sheet_name]
+        for _, row in metrics_df.iterrows():
+            mask = (
+                (df['Subject_ID'].astype(str) == row['Subject_ID']) &
+                (df['Session'].astype(str) == row['Session']) &
+                (df['Study'] == row['Study']) &
+                (df['ROI_Source'] == row['ROI_Source']) &
+                (df['ROI_Name'] == row['ROI_Name']) &
+                (df['Modality'] == row['Modality']) &
+                (df['Metric'] == row['Metric']) &
+                (df['Statistic'] == row['Statistic'])
+            )
+            if mask.any():
+                idx = df.index[mask][0]
+                df.at[idx, 'Value'] = row['Value']
+            else:
+                self._data[sheet_name] = pd.concat([df, pd.DataFrame([row]).astype(df.dtypes)], ignore_index=True)
+                df = self._data[sheet_name]
 
     def _recalculate_summary(self):
         """Recalculate high-level metrics for the Summary sheet."""

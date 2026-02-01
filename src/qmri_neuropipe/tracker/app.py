@@ -86,8 +86,8 @@ if final_tracker_path:
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
     # Tabs for different views
-    tab_summary, tab_overview, tab_subject, tab_distribution, tab_correlation, tab_raw = st.tabs([
-        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
+    tab_summary, tab_overview, tab_subject, tab_volumes, tab_distribution, tab_correlation, tab_raw = st.tabs([
+        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "🧠 Volumes & ROIs", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
     ])
 
     with tab_summary:
@@ -290,6 +290,101 @@ if final_tracker_path:
         else:
              st.warning("No subjects found in tracker.")
 
+
+    with tab_volumes:
+        st.header("🧠 Anatomical Volumes & ROI Metrics")
+        
+        vol_tab, roi_tab = st.tabs(["Volume Statistics", "ROI Metrics"])
+        
+        with vol_tab:
+            st.subheader("Anatomical Structure Volumes")
+            if "Volume_Statistics" in data:
+                df_vol = data["Volume_Statistics"].copy()
+                if selected_study != "All" and "Study" in df_vol.columns:
+                    df_vol = df_vol[df_vol["Study"] == selected_study]
+                
+                if not df_vol.empty:
+                    # Filters
+                    col1, col2 = st.columns(2)
+                    methods = ["All"] + df_vol["Method"].unique().tolist() if "Method" in df_vol.columns else ["All"]
+                    structures = ["All"] + df_vol["Structure"].unique().tolist() if "Structure" in df_vol.columns else ["All"]
+                    
+                    sel_method = col1.selectbox("Filter by Method", methods)
+                    sel_struct = col2.selectbox("Filter by Structure", structures)
+                    
+                    if sel_method != "All":
+                        df_vol = df_vol[df_vol["Method"] == sel_method]
+                    if sel_struct != "All":
+                        df_vol = df_vol[df_vol["Structure"] == sel_struct]
+                    
+                    st.dataframe(df_vol, use_container_width=True, hide_index=True)
+                    
+                    # Visualization: Bar chart by structure
+                    if len(df_vol) > 0 and "Structure" in df_vol.columns and "Volume_mm3" in df_vol.columns:
+                        st.markdown("---")
+                        st.subheader("Volume Comparison")
+                        
+                        # Pivot for visualization
+                        try:
+                            chart_df = df_vol.groupby("Structure")["Volume_mm3"].mean().reset_index()
+                            chart_df = chart_df.sort_values("Volume_mm3", ascending=False).head(20)
+                            st.bar_chart(chart_df.set_index("Structure")["Volume_mm3"])
+                        except Exception as e:
+                            st.warning(f"Could not create chart: {e}")
+                else:
+                    st.info("No volume statistics available for the selected study.")
+            else:
+                st.info("Volume Statistics sheet not found. Run anatomical processing with segmentation enabled.")
+        
+        with roi_tab:
+            st.subheader("Cross-Modal ROI Metrics")
+            if "ROI_Metrics" in data:
+                df_roi = data["ROI_Metrics"].copy()
+                if selected_study != "All" and "Study" in df_roi.columns:
+                    df_roi = df_roi[df_roi["Study"] == selected_study]
+                
+                if not df_roi.empty:
+                    # Filters
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    sources = ["All"] + df_roi["ROI_Source"].unique().tolist() if "ROI_Source" in df_roi.columns else ["All"]
+                    modalities = ["All"] + df_roi["Modality"].unique().tolist() if "Modality" in df_roi.columns else ["All"]
+                    metrics = ["All"] + df_roi["Metric"].unique().tolist() if "Metric" in df_roi.columns else ["All"]
+                    rois = ["All"] + df_roi["ROI_Name"].unique().tolist() if "ROI_Name" in df_roi.columns else ["All"]
+                    
+                    sel_source = col1.selectbox("ROI Source", sources)
+                    sel_modality = col2.selectbox("Modality", modalities)
+                    sel_metric = col3.selectbox("Metric", metrics)
+                    sel_roi = col4.selectbox("ROI", rois)
+                    
+                    if sel_source != "All":
+                        df_roi = df_roi[df_roi["ROI_Source"] == sel_source]
+                    if sel_modality != "All":
+                        df_roi = df_roi[df_roi["Modality"] == sel_modality]
+                    if sel_metric != "All":
+                        df_roi = df_roi[df_roi["Metric"] == sel_metric]
+                    if sel_roi != "All":
+                        df_roi = df_roi[df_roi["ROI_Name"] == sel_roi]
+                    
+                    st.dataframe(df_roi, use_container_width=True, hide_index=True)
+                    
+                    # Visualization
+                    if len(df_roi) > 0 and "Value" in df_roi.columns:
+                        st.markdown("---")
+                        st.subheader("ROI Metric Visualization")
+                        
+                        # Group by ROI and compute mean
+                        try:
+                            if "ROI_Name" in df_roi.columns:
+                                chart_df = df_roi.groupby("ROI_Name")["Value"].mean().reset_index()
+                                chart_df = chart_df.sort_values("Value", ascending=False).head(20)
+                                st.bar_chart(chart_df.set_index("ROI_Name")["Value"])
+                        except Exception as e:
+                            st.warning(f"Could not create chart: {e}")
+                else:
+                    st.info("No ROI metrics available for the selected study.")
+            else:
+                st.info("ROI Metrics sheet not found. Run anatomical processing with cross-modal ROI extraction enabled.")
 
     with tab_distribution:
         st.header("Metric Distributions")

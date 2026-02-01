@@ -906,3 +906,420 @@ def fast(
     cmd.extend(in_paths)
     
     run_cmd(" ".join(cmd), label="fast")
+
+
+def first(
+    in_file: Union[Path, ImageLike],
+    out_dir: Path,
+    structures: str = "all",
+    method: str = "auto",
+    affine_mat: Optional[Path] = None,
+    verbose: bool = False,
+) -> Dict[str, Path]:
+    """
+    Wrapper for FSL FIRST (subcortical structure segmentation).
+    
+    Args:
+        in_file: Input T1-weighted image.
+        out_dir: Output directory.
+        structures: Structures to segment. Options:
+                   'all' - all structures
+                   'L_Hipp,R_Hipp' - comma-separated list
+                   See run_first_all --help for available structures.
+        method: Registration method ('auto', 'fast', 'none').
+        affine_mat: Pre-computed affine matrix to MNI (optional).
+        verbose: Enable verbose output.
+        
+    Returns:
+        Dictionary mapping structure names to segmentation file paths.
+    """
+    in_p = extract_image_path(in_file)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Output basename
+    stem = in_p.name.replace('.nii.gz', '').replace('.nii', '')
+    out_base = out_dir / stem
+    
+    # Check if already completed (FIRST creates *_all_fast_firstseg.nii.gz)
+    first_seg = out_dir / f"{stem}_all_fast_firstseg.nii.gz"
+    if first_seg.exists():
+        return _parse_first_outputs(out_dir, stem)
+    
+    cmd_parts = ["run_first_all"]
+    cmd_parts.append(f"-i {in_p}")
+    cmd_parts.append(f"-o {out_base}")
+    
+    if structures != "all":
+        cmd_parts.append(f"-s {structures}")
+    
+    if method != "auto":
+        cmd_parts.append(f"-m {method}")
+        
+    if affine_mat:
+        cmd_parts.append(f"-a {affine_mat}")
+        
+    if verbose:
+        cmd_parts.append("-v")
+        
+    run_cmd(" ".join(cmd_parts), label="run_first_all")
+    
+    return _parse_first_outputs(out_dir, stem)
+
+
+def _parse_first_outputs(out_dir: Path, stem: str) -> Dict[str, Path]:
+    """Parse FIRST output files and return mapping of structure -> file path."""
+    outputs = {}
+    
+    # Main combined segmentation
+    combined_seg = out_dir / f"{stem}_all_fast_firstseg.nii.gz"
+    if combined_seg.exists():
+        outputs['combined'] = combined_seg
+    
+    # Individual structure segmentations (vtk meshes and masks)
+    # FIRST creates: <stem>-<Structure>_first.nii.gz for individual masks
+    # and <stem>-<Structure>_first.vtk for meshes
+    
+    structure_names = [
+        'L_Accu', 'R_Accu',       # Accumbens
+        'L_Amyg', 'R_Amyg',       # Amygdala
+        'L_Caud', 'R_Caud',       # Caudate
+        'L_Hipp', 'R_Hipp',       # Hippocampus
+        'L_Pall', 'R_Pall',       # Pallidum/Globus Pallidus
+        'L_Puta', 'R_Puta',       # Putamen
+        'L_Thal', 'R_Thal',       # Thalamus
+        'BrStem'                   # Brainstem
+    ]
+    
+    for struct in structure_names:
+        # Individual mask
+        mask_file = out_dir / f"{stem}-{struct}_first.nii.gz"
+        if mask_file.exists():
+            outputs[struct] = mask_file
+            
+    return outputs
+
+
+def fsl_anat(
+    in_file: Union[Path, ImageLike],
+    out_dir: Path,
+    img_type: str = "T1",
+    nobias: bool = False,
+    nosubcortseg: bool = False,
+    noseg: bool = False,
+    noreg: bool = False,
+    nocleanup: bool = False,
+    strongbias: bool = False,
+    weakbias: bool = False,
+    noreorient: bool = False,
+    nocrop: bool = False,
+    clobber: bool = False,
+) -> Dict[str, Path]:
+    """
+    Wrapper for FSL fsl_anat (comprehensive anatomical processing).
+    
+    Args:
+        in_file: Input anatomical image.
+        out_dir: Output directory (will be named <out_dir>.anat).
+        img_type: Image type ('T1' or 'T2').
+        nobias: Skip bias field correction.
+        nosubcortseg: Skip subcortical segmentation (FIRST).
+        noseg: Skip tissue segmentation (FAST).
+        noreg: Skip registration to MNI.
+        nocleanup: Keep intermediate files.
+        strongbias: Use strongbias for FAST.
+        weakbias: Use -weakbias for FAST.
+        noreorient: Skip reorientation to standard.
+        nocrop: Skip cropping.
+        clobber: Overwrite existing output.
+        
+    Returns:
+        Dictionary mapping output type to file path.
+    """
+    in_p = extract_image_path(in_file)
+    out_p = Path(out_dir)
+    
+    # fsl_anat creates <out_dir>.anat/ directory
+    anat_dir = out_p.with_suffix('.anat') if not str(out_p).endswith('.anat') else out_p
+    
+    # Check if already completed
+    t1_brain = anat_dir / "T1_biascorr_brain.nii.gz"
+    if t1_brain.exists() and not clobber:
+        return _parse_fsl_anat_outputs(anat_dir)
+    
+    # Ensure parent exists
+    anat_dir.parent.mkdir(parents=True, exist_ok=True)
+    
+    cmd_parts = ["fsl_anat"]
+    cmd_parts.append(f"-i {in_p}")
+    cmd_parts.append(f"-o {out_p}")
+    cmd_parts.append(f"-t {img_type}")
+    
+    if nobias: cmd_parts.append("--nobias")
+    if nosubcortseg: cmd_parts.append("--nosubcortseg")
+    if noseg: cmd_parts.append("--noseg")
+    if noreg: cmd_parts.append("--noreg")
+    if nocleanup: cmd_parts.append("--nocleanup")
+    if strongbias: cmd_parts.append("--strongbias")
+    if weakbias: cmd_parts.append("--weakbias")
+    if noreorient: cmd_parts.append("--noreorient")
+    if nocrop: cmd_parts.append("--nocrop")
+    if clobber: cmd_parts.append("--clobber")
+    
+    run_cmd(" ".join(cmd_parts), label="fsl_anat")
+    
+    return _parse_fsl_anat_outputs(anat_dir)
+
+
+def _parse_fsl_anat_outputs(anat_dir: Path) -> Dict[str, Path]:
+    """Parse fsl_anat output directory and return mapping of output type -> file path."""
+    outputs = {}
+    
+    # Standard outputs from fsl_anat
+    output_map = {
+        'T1': 'T1.nii.gz',
+        'T1_orig': 'T1_orig.nii.gz',
+        'T1_biascorr': 'T1_biascorr.nii.gz',
+        'T1_biascorr_brain': 'T1_biascorr_brain.nii.gz',
+        'T1_biascorr_brain_mask': 'T1_biascorr_brain_mask.nii.gz',
+        'T1_fast_pve_0': 'T1_fast_pve_0.nii.gz',  # CSF
+        'T1_fast_pve_1': 'T1_fast_pve_1.nii.gz',  # GM
+        'T1_fast_pve_2': 'T1_fast_pve_2.nii.gz',  # WM
+        'T1_fast_seg': 'T1_fast_seg.nii.gz',
+        'T1_subcort_seg': 'T1_subcort_seg.nii.gz',  # FIRST output
+        'T1_to_MNI_lin': 'T1_to_MNI_lin.nii.gz',
+        'T1_to_MNI_nonlin': 'T1_to_MNI_nonlin.nii.gz',
+        'T1_to_MNI_nonlin_field': 'T1_to_MNI_nonlin_field.nii.gz',
+        'MNI_to_T1_nonlin_field': 'MNI_to_T1_nonlin_field.nii.gz',
+    }
+    
+    for key, filename in output_map.items():
+        filepath = anat_dir / filename
+        if filepath.exists():
+            outputs[key] = filepath
+            
+    # Also check for first_results directory
+    first_dir = anat_dir / "first_results"
+    if first_dir.exists():
+        outputs['first_dir'] = first_dir
+        
+    return outputs
+
+
+# ============================================================================
+# Volume Extraction Utilities
+# ============================================================================
+
+def extract_fast_volumes(
+    pve_files: Dict[str, Path],
+    affine: Optional[np.ndarray] = None,
+) -> Dict[str, float]:
+    """
+    Extract tissue volumes from FSL FAST partial volume estimates.
+    
+    Args:
+        pve_files: Dictionary with keys 'pve_0' (CSF), 'pve_1' (GM), 'pve_2' (WM)
+                   pointing to the PVE files.
+        affine: Affine matrix for voxel-to-mm conversion. If None, will read from file.
+        
+    Returns:
+        Dictionary with tissue volumes in mm³:
+        - CSF_Volume_mm3
+        - GM_Volume_mm3
+        - WM_Volume_mm3
+        - TIV_mm3 (Total Intracranial Volume = CSF + GM + WM)
+    """
+    volumes = {}
+    tissue_map = {'pve_0': 'CSF', 'pve_1': 'GM', 'pve_2': 'WM'}
+    total = 0
+    
+    for pve_key, tissue_name in tissue_map.items():
+        if pve_key not in pve_files or not pve_files[pve_key].exists():
+            continue
+            
+        img = nib.load(str(pve_files[pve_key]))
+        data = img.get_fdata()
+        
+        # Get voxel volume in mm³
+        voxel_dims = img.header.get_zooms()[:3]
+        voxel_vol = np.prod(voxel_dims)
+        
+        # Sum PVE values (partial volumes) * voxel volume
+        vol_mm3 = float(np.sum(data) * voxel_vol)
+        volumes[f'{tissue_name}_Volume_mm3'] = vol_mm3
+        total += vol_mm3
+        
+    volumes['TIV_mm3'] = total
+    
+    return volumes
+
+
+def extract_first_volumes(
+    first_seg: Path,
+    structure_labels: Optional[Dict[str, int]] = None,
+) -> Dict[str, float]:
+    """
+    Extract subcortical structure volumes from FSL FIRST segmentation.
+    
+    Args:
+        first_seg: Path to FIRST combined segmentation (*_all_fast_firstseg.nii.gz).
+        structure_labels: Optional override of structure name -> label mapping.
+        
+    Returns:
+        Dictionary with structure volumes in mm³.
+    """
+    if not first_seg.exists():
+        return {}
+        
+    # Default FSL FIRST label mapping
+    # These labels are from the FSL FIRST documentation
+    default_labels = {
+        'Left_Thalamus': 10,
+        'Left_Caudate': 11,
+        'Left_Putamen': 12,
+        'Left_Pallidum': 13,
+        'BrainStem': 16,
+        'Left_Hippocampus': 17,
+        'Left_Amygdala': 18,
+        'Left_Accumbens': 26,
+        'Right_Thalamus': 49,
+        'Right_Caudate': 50,
+        'Right_Putamen': 51,
+        'Right_Pallidum': 52,
+        'Right_Hippocampus': 53,
+        'Right_Amygdala': 54,
+        'Right_Accumbens': 58,
+    }
+    
+    labels = structure_labels or default_labels
+    
+    img = nib.load(str(first_seg))
+    data = img.get_fdata()
+    
+    # Get voxel volume in mm³
+    voxel_dims = img.header.get_zooms()[:3]
+    voxel_vol = np.prod(voxel_dims)
+    
+    volumes = {}
+    for struct_name, label_val in labels.items():
+        mask = (data == label_val)
+        vol_mm3 = float(np.sum(mask) * voxel_vol)
+        volumes[f'{struct_name}_Volume_mm3'] = vol_mm3
+        
+    return volumes
+
+
+def extract_freesurfer_volumes(
+    subjects_dir: Path,
+    subject_id: str,
+) -> Dict[str, float]:
+    """
+    Extract volumes from FreeSurfer aseg.stats file.
+    
+    Args:
+        subjects_dir: Path to FreeSurfer SUBJECTS_DIR.
+        subject_id: Subject ID.
+        
+    Returns:
+        Dictionary with structure volumes in mm³.
+    """
+    stats_file = subjects_dir / subject_id / "stats" / "aseg.stats"
+    if not stats_file.exists():
+        logger.warning(f"aseg.stats not found: {stats_file}")
+        return {}
+        
+    volumes = {}
+    
+    try:
+        with open(stats_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                
+                # Skip comments
+                if line.startswith('#'):
+                    # Parse header measures like ICV
+                    if 'Measure' in line and 'IntraCranialVol' in line:
+                        parts = line.split(',')
+                        if len(parts) >= 4:
+                            try:
+                                volumes['EstimatedTIV_mm3'] = float(parts[3].strip())
+                            except ValueError:
+                                pass
+                    continue
+                    
+                if not line:
+                    continue
+                    
+                # Parse data lines
+                # Format: Index SegId NVoxels Volume_mm3 StructName ...
+                parts = line.split()
+                if len(parts) >= 5:
+                    try:
+                        struct_name = parts[4]
+                        vol_mm3 = float(parts[3])
+                        volumes[f'{struct_name}_Volume_mm3'] = vol_mm3
+                    except (ValueError, IndexError):
+                        continue
+                        
+    except Exception as e:
+        logger.warning(f"Failed to parse aseg.stats: {e}")
+        
+    return volumes
+
+
+def save_volumes_to_file(
+    volumes: Dict[str, float],
+    out_path: Path,
+    subject_id: str = "",
+    session: str = "",
+    format: str = "tsv",
+) -> Path:
+    """
+    Save volume dictionary to CSV/TSV/XLSX file.
+    
+    Args:
+        volumes: Dictionary of structure_name -> volume in mm³.
+        out_path: Output file path.
+        subject_id: Subject ID for the output.
+        session: Session ID for the output.
+        format: Output format ('tsv', 'csv', 'xlsx').
+        
+    Returns:
+        Path to saved file.
+    """
+    import pandas as pd
+    
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Convert to tidy format
+    rows = []
+    for name, value in volumes.items():
+        # Parse structure name and metric
+        if name.endswith('_mm3'):
+            struct = name.replace('_Volume_mm3', '').replace('_mm3', '')
+            metric = 'Volume_mm3'
+        else:
+            struct = name
+            metric = 'Value'
+            
+        rows.append({
+            'Subject_ID': subject_id,
+            'Session': session,
+            'Structure': struct,
+            'Metric': metric,
+            'Value': value,
+        })
+        
+    df = pd.DataFrame(rows)
+    
+    if format == 'tsv':
+        df.to_csv(out_path, sep='\t', index=False)
+    elif format == 'csv':
+        df.to_csv(out_path, index=False)
+    elif format == 'xlsx':
+        df.to_excel(out_path, index=False, engine='openpyxl')
+    else:
+        raise ValueError(f"Unknown format: {format}")
+        
+    return out_path
