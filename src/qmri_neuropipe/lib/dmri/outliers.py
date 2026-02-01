@@ -10,6 +10,7 @@ import logging
 from ...core.base import BaseProcessingStep
 from ...core.types import DWIFile
 from ...io.dmri.bids import build_bids_name
+import json
 
 class OutlierRemovalStep(BaseProcessingStep):
     """
@@ -263,4 +264,19 @@ class OutlierRemovalStep(BaseProcessingStep):
         
         context["current_image"] = new_dwi_file
         context["outlier_stats"] = stats
+        
+        # --- Save persistent stats JSON ---
+        try:
+             stats_ents = dict(current_img.entities)
+             stats_ents['desc'] = 'outliers'
+             stats_ents['suffix'] = 'stats'
+             stats_json_name = build_bids_name(stats_ents).replace('.nii.gz', '').replace('.nii', '') + ".json"
+             stats_json_path = output_dir / stats_json_name
+             
+             with open(stats_json_path, 'w') as f:
+                  json.dump(stats, f, indent=4)
+             self.logger.info(f"Saved outlier statistics to: {stats_json_path}")
+        except Exception as e:
+             self.logger.warning(f"Failed to save outlier stats JSON: {e}")
+
         return context

@@ -66,8 +66,8 @@ if final_tracker_path:
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
     # Tabs for different views
-    tab_overview, tab_distribution, tab_correlation, tab_raw = st.tabs([
-        "📊 Overview", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
+    tab_overview, tab_subject, tab_distribution, tab_correlation, tab_raw = st.tabs([
+        "📊 Overview", "👤 Subject Details", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
     ])
     
     with tab_overview:
@@ -92,6 +92,122 @@ if final_tracker_path:
             if status_cols:
                 # Convert status to numeric for heatmap? or just use a table
                 st.dataframe(df_status[["Subject_ID", "Session"] + status_cols], use_container_width=True)
+
+    with tab_subject:
+        st.header("Individual Subject Details")
+        
+        # Subject and Session Selection
+        # Get list of subjects from Processing_Status if available, else first data sheet
+        subjects = []
+        if "Processing_Status" in data:
+             subjects = sorted(data["Processing_Status"]["Subject_ID"].unique().tolist())
+        else:
+             # Fallback to first sheet
+             first_df = next(iter(data.values()))
+             if "Subject_ID" in first_df.columns:
+                  subjects = sorted(first_df["Subject_ID"].unique().tolist())
+        
+        if subjects:
+             selected_subj = st.selectbox("Select Subject", subjects, key="subj_detail_selector")
+             
+             # Filter sessions for this subject
+             sessions = []
+             if "Processing_Status" in data:
+                  sessions = data["Processing_Status"][data["Processing_Status"]["Subject_ID"] == selected_subj]["Session"].unique().tolist()
+             
+             # Clean up sessions list (handle NaN)
+             sessions = [str(s) if pd.notna(s) else "N/A" for s in sessions]
+             if not sessions: sessions = ["N/A"]
+             
+             selected_ses = st.selectbox("Select Session", sessions)
+             # Map back "N/A" to NaN if needed for filtering, but usually sessions are strings
+             actual_ses = selected_ses if selected_ses != "N/A" else np.nan
+             
+             # Show Subject Profile
+             col_status, col_meta, col_qc = st.columns(3)
+             
+             with col_status:
+                  st.subheader("Processing Status")
+                  if "Processing_Status" in data:
+                       # Handle sessions correctly in filter
+                       if pd.isna(actual_ses):
+                            s_row = data["Processing_Status"][(data["Processing_Status"]["Subject_ID"] == selected_subj) & (data["Processing_Status"]["Session"].isna())]
+                       else:
+                            s_row = data["Processing_Status"][(data["Processing_Status"]["Subject_ID"] == selected_subj) & (data["Processing_Status"]["Session"] == actual_ses)]
+                       
+                       if not s_row.empty:
+                            status_cols = [c for c in s_row.columns if c.endswith("_Status")]
+                            for c in status_cols:
+                                 val = s_row.iloc[0][c]
+                                 color = "green" if val == "completed" else "red" if val == "failed" else "orange"
+                                 st.markdown(f"**{c.replace('_Status', '')}**: :{color}[{val}]")
+                       else:
+                            st.info("No status information found.")
+
+             with col_meta:
+                  st.subheader("Metadata")
+                  if "Subject_Metadata" in data:
+                       if pd.isna(actual_ses):
+                            m_row = data["Subject_Metadata"][(data["Subject_Metadata"]["Subject_ID"] == selected_subj) & (data["Subject_Metadata"]["Session"].isna())]
+                       else:
+                            m_row = data["Subject_Metadata"][(data["Subject_Metadata"]["Subject_ID"] == selected_subj) & (data["Subject_Metadata"]["Session"] == actual_ses)]
+                       
+                       if not m_row.empty:
+                            m_data = m_row.iloc[0].dropna().to_dict()
+                            for k, v in m_data.items():
+                                 if k not in ["Subject_ID", "Session", "Study"]:
+                                      st.text(f"{k}: {v}")
+                       else:
+                            st.info("No metadata found.")
+
+             with col_qc:
+                  st.subheader("Quality Metrics")
+                  if "Quality_Metrics" in data:
+                       if pd.isna(actual_ses):
+                            q_row = data["Quality_Metrics"][(data["Quality_Metrics"]["Subject_ID"] == selected_subj) & (data["Quality_Metrics"]["Session"].isna())]
+                       else:
+                            q_row = data["Quality_Metrics"][(data["Quality_Metrics"]["Subject_ID"] == selected_subj) & (data["Quality_Metrics"]["Session"] == actual_ses)]
+                       
+                       if not q_row.empty:
+                            q_data = q_row.iloc[0].dropna().to_dict()
+                            # Highlight specific QC
+                            important_qc = ["QC_DWI_b0_SNR", "QC_DWI_Outliers_Total_Pct", "QC_DWI_Outliers_Removed", "QC_DWI_Motion_Abs_mm"]
+                            for k in important_qc:
+                                 if k in q_data:
+                                      st.metric(k.replace("QC_DWI_", ""), q_data[k])
+                            
+                            with st.expander("Show all QC"):
+                                 for k, v in q_data.items():
+                                      if k not in ["Subject_ID", "Session", "Study"]:
+                                           st.text(f"{k}: {v}")
+                       else:
+                            st.info("No QC metrics found.")
+             
+             st.markdown("---")
+             st.subheader("ROI Statistics")
+             # Find all sheets with "Metrics" in name
+             metric_sheets = [s for s in data.keys() if "Metrics" in s]
+             if metric_sheets:
+                  sel_metric_sheet = st.selectbox("View ROI Stats from Sheet", metric_sheets)
+                  df_roi = data[sel_metric_sheet]
+                  
+                  if pd.isna(actual_ses):
+                       df_roi_sub = df_roi[(df_roi["Subject_ID"] == selected_subj) & (df_roi["Session"].isna())]
+                  else:
+                       df_roi_sub = df_roi[(df_roi["Subject_ID"] == selected_subj) & (df_roi["Session"] == actual_ses)]
+                  
+                  if not df_roi_sub.empty:
+                       # If tidy, it might be better to pivot for this view?
+                       if "Metric" in df_roi_sub.columns and "Statistic" in df_roi_sub.columns:
+                            st.info("Displaying pivoted view of ROI metrics.")
+                            pivot_df = df_roi_sub.pivot(index=["Atlas", "ROI_Name"], columns=["Metric", "Statistic"], values="Value")
+                            st.dataframe(pivot_df, use_container_width=True)
+                       else:
+                            st.dataframe(df_roi_sub, use_container_width=True)
+                  else:
+                       st.info("No ROI stats found for this subject/session in selected sheet.")
+        else:
+             st.warning("No subjects found in tracker.")
 
     with tab_distribution:
         st.header("Metric Distributions")
