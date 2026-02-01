@@ -31,9 +31,9 @@ class NeuroimagingTracker:
             'Summary': ['Metric', 'Value'],
             'Subject_Metadata': ['Subject_ID', 'Session', 'Study', 'Age', 'Sex', 'Group', 'Scan_Date'],
             'Processing_Status': ['Subject_ID', 'Session', 'Study', 'Overall_Pipeline_Status', 'Last_Processing_Date'],
-            'Anatomical_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
-            'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
-            'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
+            'Anatomical_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Bias_Correction', 'Brain_Masking', 'Segmentation', 'Segmentation_Method', 'Coregistration', 'Analysis', 'Atlases', 'Overall_Status', 'Last_Update'],
+            'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Eddy_Correction', 'Bias_Correction', 'Topup', 'SynB0', 'Coregistration', 'Reorienting', 'Model_Fits', 'Atlases', 'Overall_Status', 'Last_Update'],
+            'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Analysis', 'Overall_Status', 'Last_Update'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
             'Data_Files': ['Subject_ID', 'Session', 'Study', 'T1w_Present', 'DWI_Present'],
             'Processing_Times': ['Subject_ID', 'Session', 'Study', 'Total_Pipeline_Time_Min'],
@@ -245,6 +245,7 @@ class NeuroimagingTracker:
                              
                         workbook = writer.book
                         self._apply_styles(workbook)
+                        self._apply_data_validation(workbook)
                     
                     # Final atomic swap
                     os.replace(temp_path, self.excel_path)
@@ -580,3 +581,36 @@ class NeuroimagingTracker:
                     except: pass
                 adjusted_width = (max_length + 2)
                 ws.column_dimensions[column].width = min(adjusted_width, 50) # Cap at 50
+
+    def _apply_data_validation(self, workbook):
+        """Add data validation (dropdowns) to status columns using openpyxl."""
+        from openpyxl.worksheet.datavalidation import DataValidation
+        
+        # Valid statuses
+        status_list = '"Complete,In Progress,Pending,Queued,Warning,Error,Failed,N/A,Manual Pass,Manual Fail"'
+        dv = DataValidation(type="list", formula1=status_list, allow_blank=True)
+        dv.error = 'Your entry is not in the list'
+        dv.errorTitle = 'Invalid Entry'
+        dv.prompt = 'Please select from the list'
+        dv.promptTitle = 'Status Selection'
+
+        for sheet_name in workbook.sheetnames:
+            if 'Status' not in sheet_name:
+                continue
+                
+            ws = workbook[sheet_name]
+            # Identify status columns (usually everything except ID, Session, Study, Date)
+            exclude_cols = ['Subject_ID', 'Session', 'Study', 'Last_Update', 'Last_Processing_Date', 'Segmentation_Method', 'B1_Mapping_Method', 'Atlases', 'Model_Fits']
+            
+            # Find columns to apply DV to
+            dv_added = False
+            if ws.max_row >= 1:
+                for col_idx, cell in enumerate(ws[1], 1):
+                    if cell.value and cell.value not in exclude_cols:
+                        col_letter = cell.column_letter
+                        # Apply to the rest of the column (up to row 1000 for convenience)
+                        dv.add(f"{col_letter}2:{col_letter}1000")
+                        dv_added = True
+            
+            if dv_added:
+                ws.add_data_validation(dv)

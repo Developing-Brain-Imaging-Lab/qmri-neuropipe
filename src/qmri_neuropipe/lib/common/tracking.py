@@ -74,17 +74,68 @@ class TrackingStep(BaseProcessingStep):
             inferred_modality = 'Relaxometry'
             
         if inferred_modality:
-            tracker.update_status(subject, session, "Preprocessing", "Complete", study, modality=inferred_modality)
-            tracker.update_status(subject, session, "Analysis", "Complete", study, modality=inferred_modality)
-            tracker.update_status(subject, session, "Overall", "Complete", study, modality=inferred_modality)
+            # Map granular steps from context
+            step_mapping = {
+                # Common / Anat
+                'denoising': 'Denoising',
+                'gibbs_ringing': 'Gibbs_Ringing',
+                'gibbs': 'Gibbs_Ringing',
+                'gibbs_correction': 'Gibbs_Correction', # Relaxometry
+                'bias_correction': 'Bias_Correction',
+                'brain_masking': 'Brain_Masking',
+                'segmentation': 'Segmentation',
+                'coregistration': 'Coregistration',
+                'reorienting': 'Reorienting',
+                # Diffusion Specific
+                'eddy': 'Eddy_Correction',
+                'eddy_correction': 'Eddy_Correction',
+                'topup': 'Topup',
+                'synb0': 'SynB0',
+                # Relaxometry Specific
+                'motion_correction': 'Motion_Correction'
+            }
+            
+            # 2. Update Module Statuses from context
+            for key, val in context.items():
+                if key.endswith('_status') and isinstance(val, str):
+                    base_key = key[:-7] # remove _status
+                    
+                    # 2a. Map to granular columns if possible
+                    target_col = step_mapping.get(base_key.lower())
+                    if target_col:
+                        tracker.update_status(subject, session, target_col, val, study, modality=inferred_modality)
+                    
+                    # 2b. Always update the legacy Processing_Status sheet for backward compatibility
+                    mod_name = base_key.replace("_", " ").title().replace(" ", "")
+                    tracker.update_status(subject, session, mod_name, val, study)
+                    
+                    # 2c. Special Method Detection
+                    if base_key.lower() == 'recon_all' and val.lower() == 'complete':
+                        tracker.update_status(subject, session, "Segmentation", "Complete", study, modality='Anatomical')
+                        tracker.update_status(subject, session, "Segmentation_Method", "FreeSurfer", study, modality='Anatomical')
+                    elif base_key.lower() == 'fsl_anat' and val.lower() == 'complete':
+                        tracker.update_status(subject, session, "Segmentation", "Complete", study, modality='Anatomical')
+                        tracker.update_status(subject, session, "Segmentation_Method", "FSL_Anat", study, modality='Anatomical')
+                    elif base_key.lower() == 'b1_mapping' and val.lower() == 'complete':
+                        # Infer B1 method if possible
+                        b1_method = context.get('b1_method', 'Unknown')
+                        tracker.update_status(subject, session, "B1_Mapping_Method", b1_method, study, modality='Relaxometry')
 
-        # 2. Update Module Statuses from context
-        for key, val in context.items():
-            if key.endswith('_status') and isinstance(val, str):
-                module = key[:-7] # remove _status
-                # Convert lowercase module names to CamelCase or Title Case if needed?
-                mod_name = module.replace("_", " ").title().replace(" ", "")
-                tracker.update_status(subject, session, mod_name, val, study)
+            # 2d. Update list of Atlases and Model Fits
+            roi_files = context.get('roi_stats_files', {})
+            if roi_files:
+                atlases = ", ".join(sorted(roi_files.keys()))
+                tracker.update_status(subject, session, "Atlases", atlases, study, modality=inferred_modality)
+            
+            if inferred_modality == 'Diffusion':
+                models = context.get('models_fitted', [])
+                if not models and 'model_fits' in context: models = context['model_fits']
+                if models:
+                    model_str = ", ".join(models) if isinstance(models, list) else str(models)
+                    tracker.update_status(subject, session, "Model_Fits", model_str, study, modality='Diffusion')
+
+            # Final overall statuses
+            tracker.update_status(subject, session, "Overall_Status", "Complete", study, modality=inferred_modality)
 
         # 3. Update QC Metrics
         qc_metrics = {}
