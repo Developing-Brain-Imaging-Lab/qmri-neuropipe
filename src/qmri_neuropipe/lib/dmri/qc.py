@@ -135,26 +135,26 @@ class EddyQuadStep(BaseProcessingStep):
                 # Extract detailed summaries
                 # 1. Motion
                 motion_stats = {
-                    "QC_DWI_Motion_Abs_mm": metrics.get('qc_mot_abs', 0),
-                    "QC_DWI_Motion_Rel_mm": metrics.get('qc_mot_rel', 0),
-                    "QC_DWI_Motion_FD_Mean": metrics.get('qc_mot_rel', 0)
+                    "DWI_Motion_Abs_mm": metrics.get('qc_mot_abs', 0),
+                    "DWI_Motion_Rel_mm": metrics.get('qc_mot_rel', 0),
+                    "DWI_Motion_FD_Mean": metrics.get('qc_mot_rel', 0)
                 }
                 
                 # 2. SNR/CNR
                 cnr_stats = {}
                 # B0 SNR
                 if 'qc_s2s_b0_avg' in metrics:
-                     cnr_stats["QC_DWI_b0_SNR"] = metrics['qc_s2s_b0_avg']
-                     cnr_stats["QC_DWI_SNR"] = metrics['qc_s2s_b0_avg']
+                     cnr_stats["DWI_b0_SNR"] = metrics['qc_s2s_b0_avg']
+                     cnr_stats["DWI_SNR"] = metrics['qc_s2s_b0_avg']
                 
                 # DWI CNR
                 cnr_vals = metrics.get('qc_cnr_avg', [])
                 for i, val in enumerate(cnr_vals):
-                    cnr_stats[f"QC_DWI_Shell_{i+1}_CNR"] = val
+                    cnr_stats[f"DWI_Shell_{i+1}_CNR"] = val
                     
                 # 3. Outliers
                 outlier_stats = {
-                    "QC_DWI_Outliers_Total_Pct": metrics.get('qc_outliers_tot', 0)
+                    "DWI_Outliers_Total_Pct": metrics.get('qc_outliers_tot', 0)
                 }
                 
                 # Check for eddy_outlier_n_sqr if available to get raw counts
@@ -176,7 +176,7 @@ class EddyQuadStep(BaseProcessingStep):
                 
                 # Add overall QC score if present
                 if 'qc_score' in metrics:
-                     summary["QC_DWI_Total_Score"] = metrics['qc_score']
+                     summary["DWI_Total_Score"] = metrics['qc_score']
 
                 context["qc_metrics"] = summary
             except Exception as e:
