@@ -195,6 +195,19 @@ class NeuroimagingTracker:
                                         if dfs_to_concat:
                                             merged = pd.concat(dfs_to_concat, ignore_index=True)
                                             if subset:
+                                                # Normalize PK columns to string for consistent comparison
+                                                for pk_col in subset:
+                                                    if pk_col in merged.columns:
+                                                        merged[pk_col] = merged[pk_col].astype(str).str.strip()
+                                                        # Normalize session values: strip ses- prefix and leading zeros
+                                                        if pk_col == 'Session':
+                                                            def _norm_session(x):
+                                                                if pd.isna(x) or x is None or x == 'nan': return 'N/A'
+                                                                s = str(x).strip().replace('ses-', '')
+                                                                # Strip leading zeros for numeric comparison
+                                                                if s.isdigit(): s = str(int(s))
+                                                                return s if s else 'N/A'
+                                                            merged[pk_col] = merged[pk_col].apply(_norm_session)
                                                 self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
                                             else:
                                                 # If no PKs, just keep newest? or append? 
@@ -276,12 +289,26 @@ class NeuroimagingTracker:
             
         df = self._data[sheet_name]
         
+        # Normalize session for consistent matching
+        def _normalize_session(s):
+            if pd.isna(s) or s is None: return "N/A"
+            s_str = str(s).strip()
+            if s_str == "" or s_str.lower() == "none" or s_str == "nan": return "N/A"
+            # Strip 'ses-' prefix for consistent storage
+            if s_str.startswith("ses-"): s_str = s_str[4:]
+            # Strip leading zeros for numeric comparison
+            if s_str.isdigit(): s_str = str(int(s_str))
+            return s_str if s_str else "N/A"
+        
+        session_norm = _normalize_session(session)
+        
         # Build mask for matching (handling NaN safely)
-        subj_mask = (df['Subject_ID'] == subject_id)
-        if pd.isna(session) or session is None or session == "N/A":
-            ses_mask = df['Session'].isna() | (df['Session'] == "N/A")
+        subj_mask = (df['Subject_ID'].astype(str) == str(subject_id))
+        
+        if session_norm == "N/A":
+            ses_mask = df['Session'].isna() | (df['Session'].astype(str).apply(_normalize_session) == "N/A")
         else:
-            ses_mask = (df['Session'] == session)
+            ses_mask = df['Session'].astype(str).apply(_normalize_session) == session_norm
         
         mask = subj_mask & ses_mask
         
@@ -302,8 +329,8 @@ class NeuroimagingTracker:
         if len(matches) > 0:
             return matches[0]
         else:
-            # Create new row
-            new_row = {'Subject_ID': subject_id, 'Session': session}
+            # Create new row - use normalized session value
+            new_row = {'Subject_ID': str(subject_id), 'Session': session_norm}
             if study: new_row['Study'] = study
             if extra_keys:
                 new_row.update(extra_keys)

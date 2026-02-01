@@ -48,8 +48,9 @@ def test_self_healing():
     # Pre-existing Model
     (dti_path / f"{sub_prefix}_model-dti_FA.nii.gz").touch()
     
-    # Pre-existing FS
-    fs_sub_dir = bids_dir / "derivatives" / "freesurfer" / sub_prefix
+    # Pre-existing FS (note: sub_prefix without double ses-)
+    fs_prefix = f"sub-{sub}_ses-01"  # Session without 'ses-' prefix for BIDS naming
+    fs_sub_dir = bids_dir / "derivatives" / "freesurfer" / fs_prefix
     (fs_sub_dir / "mri").mkdir(parents=True)
     (fs_sub_dir / "mri" / "brain.mgz").touch()
     

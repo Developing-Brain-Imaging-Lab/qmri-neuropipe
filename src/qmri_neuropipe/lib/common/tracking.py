@@ -402,7 +402,9 @@ class TrackingStep(BaseProcessingStep):
     def _detect_existing_outputs(self, output_dir: Path, subject: str, session: Optional[str]) -> Dict[str, Dict[str, str]]:
         """Scan the output directory and associated derivatives to see what has already been completed."""
         results = {'Anatomical': {}, 'Diffusion': {}, 'Relaxometry': {}}
-        ses_suffix = f"_ses-{session}" if session else ""
+        # Normalize session - strip ses- prefix if present to avoid double-prefix
+        session_clean = str(session).replace("ses-", "") if session else None
+        ses_suffix = f"_ses-{session_clean}" if session_clean else ""
         sub_prefix = f"sub-{subject}{ses_suffix}"
         
         # Determine session root (one level up if we are in anat/dwi/relax)
