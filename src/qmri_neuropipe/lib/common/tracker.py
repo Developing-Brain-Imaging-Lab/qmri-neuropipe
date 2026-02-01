@@ -14,9 +14,10 @@ class NeuroimagingTracker:
     """
     
     CORE_SHEETS = [
-        'Subject_Metadata', 'Processing_Status', 'Quality_Metrics', 
-        'Data_Files', 'Processing_Times', 'Errors_Notes', 
-        'Software_Versions', 'Alert_History'
+        'Summary', 'Subject_Metadata', 'Processing_Status', 
+        'Anatomical_Status', 'Diffusion_Status', 'Relaxometry_Status',
+        'Quality_Metrics', 'Data_Files', 'Processing_Times', 
+        'Errors_Notes', 'Software_Versions', 'Alert_History'
     ]
 
     @staticmethod
@@ -27,8 +28,12 @@ class NeuroimagingTracker:
         
         # Define core structures
         sheets = {
+            'Summary': ['Metric', 'Value'],
             'Subject_Metadata': ['Subject_ID', 'Session', 'Study', 'Age', 'Sex', 'Group', 'Scan_Date'],
             'Processing_Status': ['Subject_ID', 'Session', 'Study', 'Overall_Pipeline_Status', 'Last_Processing_Date'],
+            'Anatomical_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
+            'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
+            'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Preprocessing', 'Analysis', 'Overall_Status', 'Last_Update'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
             'Data_Files': ['Subject_ID', 'Session', 'Study', 'T1w_Present', 'DWI_Present'],
             'Processing_Times': ['Subject_ID', 'Session', 'Study', 'Total_Pipeline_Time_Min'],
@@ -42,11 +47,26 @@ class NeuroimagingTracker:
                 pd.DataFrame(columns=cols).to_excel(writer, sheet_name=name, index=False)
                 
             # Add README
-            readme = pd.DataFrame({
-                'Sheet': list(sheets.keys()),
-                'Description': ['Subject info', 'Process status', 'QC stats', 'File paths', 'Timings', 'Errors', 'Versions', 'Alerts']
-            })
-            readme.to_excel(writer, sheet_name='README', index=False)
+            sheet_descriptions = {
+                'Summary': 'High-level study summary',
+                'Subject_Metadata': 'Subject demographics and metadata',
+                'Processing_Status': 'Overall pipeline status',
+                'Anatomical_Status': 'Anatomical processing details',
+                'Diffusion_Status': 'Diffusion processing details',
+                'Relaxometry_Status': 'Relaxometry processing details',
+                'Quality_Metrics': 'Quality control metrics',
+                'Data_Files': 'Input/Output file paths',
+                'Processing_Times': 'Module execution times',
+                'Errors_Notes': 'Processing errors and notes',
+                'Software_Versions': 'Software and pipeline versions',
+                'Alert_History': 'History of study alerts',
+                'README': 'Sheet documentation'
+            }
+            readme_data = []
+            for s in sheets.keys():
+                readme_data.append({'Sheet': s, 'Description': sheet_descriptions.get(s, 'Data sheet')})
+            
+            pd.DataFrame(readme_data).to_excel(writer, sheet_name='README', index=False)
         
         return NeuroimagingTracker(path)
 
@@ -216,6 +236,15 @@ class NeuroimagingTracker:
                                 df = df.sort_values(by=sort_cols)
                                 
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            
+                        # Recalculate summary and apply styles
+                        self._recalculate_summary()
+                        # Re-write summary sheet since it's updated
+                        if 'Summary' in self._data:
+                             self._data['Summary'].to_excel(writer, sheet_name='Summary', index=False)
+                             
+                        workbook = writer.book
+                        self._apply_styles(workbook)
                     
                     # Final atomic swap
                     os.replace(temp_path, self.excel_path)
@@ -292,20 +321,48 @@ class NeuroimagingTracker:
             self._data[sheet_name] = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             return len(self._data[sheet_name]) - 1
 
-    def update_status(self, subject_id: str, session: str, module: str, status: str, study: Optional[str] = None):
-        """Update the status of a specific processing module."""
-        idx = self._ensure_row('Processing_Status', subject_id, session, study)
-        df = self._data['Processing_Status']
+    def update_status(self, subject_id: str, session: str, module: str, status: str, study: Optional[str] = None, modality: Optional[str] = None):
+        """
+        Update the status of a specific processing module.
+        If modality is provided (e.g. 'Anatomical'), updates the modality-specific status sheet.
+        """
+        sheet_name = 'Processing_Status'
+        if modality:
+            sheet_name = f"{modality.capitalize()}_Status"
+            if sheet_name not in self.CORE_SHEETS:
+                self.logger.warning(f"Modality status sheet {sheet_name} not recognized. Using default.")
+                sheet_name = 'Processing_Status'
+
+        idx = self._ensure_row(sheet_name, subject_id, session, study)
+        df = self._data[sheet_name]
         
-        col = f"{module}_Status"
+        # Determine column name
+        if sheet_name == 'Processing_Status':
+             col = f"{module}_Status" if module else "Overall_Pipeline_Status"
+        else:
+             # For modality sheets, module might map to Preprocessing or Analysis
+             if module.lower() in ['preprocessing', 'preproc']:
+                 col = "Preprocessing"
+             elif module.lower() in ['analysis', 'modeling']:
+                 col = "Analysis"
+             elif module.lower() in ['overall', 'total']:
+                 col = "Overall_Status"
+             else:
+                 col = module # Fallback
+
         if col not in df.columns:
             # Ensure it's object dtype from the start to avoid float64 FutureWarning
             df = df.reindex(columns=list(df.columns) + [col])
             df[col] = df[col].astype(object)
             
         df.at[idx, col] = status
-        df.at[idx, 'Last_Processing_Date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self._data['Processing_Status'] = df.copy()
+        
+        # Update date
+        date_col = 'Last_Processing_Date' if sheet_name == 'Processing_Status' else 'Last_Update'
+        if date_col in df.columns:
+            df.at[idx, date_col] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+        self._data[sheet_name] = df.copy()
 
     def add_metrics(self, subject_id: str, session: str, metrics: Dict[str, Any], study: Optional[str] = None):
         """Add QC or biological metrics to the tracker."""
@@ -427,3 +484,99 @@ class NeuroimagingTracker:
         idx = self._ensure_row('Processing_Times', subject_id, session, study)
         col_name = f"{module}_Time_Min"
         self._data['Processing_Times'].at[idx, col_name] = time_min
+
+    def _recalculate_summary(self):
+        """Recalculate high-level metrics for the Summary sheet."""
+        rows = []
+        try:
+            if 'Processing_Status' in self._data:
+                df = self._data['Processing_Status']
+                if not df.empty and 'Subject_ID' in df.columns:
+                    rows.append(['Total Subjects', int(df['Subject_ID'].nunique())])
+                    rows.append(['Total Sessions', int(len(df))])
+                    
+                    # Completion rate
+                    if 'Overall_Pipeline_Status' in df.columns:
+                        # Handle cases where column might be missing or all NaN
+                        complete = (df['Overall_Pipeline_Status'].astype(str).str.contains('Complete', case=False)).sum()
+                        rate = (complete / len(df)) * 100 if len(df) > 0 else 0
+                        rows.append(['Pipeline Completion Rate (%)', f"{rate:.1f}%"])
+                
+            # Add modality specific stats
+            for mod in ['Anatomical', 'Diffusion', 'Relaxometry']:
+                sheet = f"{mod}_Status"
+                if sheet in self._data:
+                    mdf = self._data[sheet]
+                    if not mdf.empty and 'Overall_Status' in mdf.columns:
+                        comp = (mdf['Overall_Status'].astype(str).str.contains('Complete', case=False)).sum()
+                        rows.append([f'{mod} Completion', f"{comp}/{len(mdf)}"])
+        except Exception as e:
+            self.logger.warning(f"Error recalculating summary: {e}")
+
+        if rows:
+            self._data['Summary'] = pd.DataFrame(rows, columns=['Metric', 'Value'])
+
+    def _apply_styles(self, workbook):
+        """Apply conditional formatting and styling to status sheets using openpyxl."""
+        from openpyxl.styles import PatternFill, Font, Alignment
+        
+        # Define styles
+        styles = {
+            'Complete': PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
+            'In Progress': PatternFill(start_color='BEE5EB', end_color='BEE5EB', fill_type='solid'),
+            'Pending': PatternFill(start_color='E2E3E5', end_color='E2E3E5', fill_type='solid'),
+            'Queued': PatternFill(start_color='E2E3E5', end_color='E2E3E5', fill_type='solid'),
+            'Warning': PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid'),
+            'Error': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
+            'Failed': PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+        }
+        
+        # Text colors
+        fonts = {
+            'Complete': Font(color='006100', bold=True),
+            'In Progress': Font(color='0C5460', bold=True),
+            'Warning': Font(color='9C5700', bold=True),
+            'Error': Font(color='9C0006', bold=True),
+            'Failed': Font(color='9C0006', bold=True)
+        }
+
+        # Header style
+        header_fill = PatternFill(start_color='4472CC', end_color='4472CC', fill_type='solid')
+        header_font = Font(color='FFFFFF', bold=True)
+
+        for sheet_name in workbook.sheetnames:
+            ws = workbook[sheet_name]
+            
+            # Format Header
+            if ws.max_row >= 1:
+                for cell in ws[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center')
+
+            # Apply Status Colors if it's a status sheet
+            if 'Status' in sheet_name:
+                for row in ws.iter_rows(min_row=2):
+                    for cell in row:
+                        if not cell.value: continue
+                        val = str(cell.value)
+                        for key, fill in styles.items():
+                            if key.lower() in val.lower():
+                                cell.fill = fill
+                                if key in fonts:
+                                    cell.font = fonts[key]
+                                break
+            
+            # Auto-adjust column width
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if cell.value:
+                            length = len(str(cell.value))
+                            if length > max_length:
+                                max_length = length
+                    except: pass
+                adjusted_width = (max_length + 2)
+                ws.column_dimensions[column].width = min(adjusted_width, 50) # Cap at 50

@@ -61,7 +61,22 @@ class TrackingStep(BaseProcessingStep):
              metadata.update(context['subject_metadata'])
              
         tracker.update_metadata(subject, session, metadata, study)
-        tracker.update_status(subject, session, "Overall_Pipeline", "Completed", study)
+        tracker.update_status(subject, session, "Overall_Pipeline", "Complete", study)
+
+        # Infer modality for more specific status tracking
+        inferred_modality = None
+        out_str = str(output_dir).lower()
+        if 'dwi' in out_str or 'diffusion' in out_str:
+            inferred_modality = 'Diffusion'
+        elif 'anat' in out_str:
+            inferred_modality = 'Anatomical'
+        elif 'relax' in out_str:
+            inferred_modality = 'Relaxometry'
+            
+        if inferred_modality:
+            tracker.update_status(subject, session, "Preprocessing", "Complete", study, modality=inferred_modality)
+            tracker.update_status(subject, session, "Analysis", "Complete", study, modality=inferred_modality)
+            tracker.update_status(subject, session, "Overall", "Complete", study, modality=inferred_modality)
 
         # 2. Update Module Statuses from context
         for key, val in context.items():

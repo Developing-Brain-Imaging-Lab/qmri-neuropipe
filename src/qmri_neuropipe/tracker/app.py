@@ -17,6 +17,25 @@ except ImportError:
     sys.path.append(str(Path(__file__).parents[2]))
     from qmri_neuropipe.lib.common.tracker import NeuroimagingTracker
 
+def color_status(val):
+    if not isinstance(val, str): return ""
+    val_l = val.lower()
+    if "complete" in val_l: return "background-color: #C6EFCE; color: #006100; font-weight: bold;"
+    if "progress" in val_l: return "background-color: #BEE5EB; color: #0C5460; font-weight: bold;"
+    if "pending" in val_l or "queued" in val_l: return "background-color: #E2E3E5; color: #383d41;"
+    if "warning" in val_l: return "background-color: #FFEB9C; color: #9C5700; font-weight: bold;"
+    if "error" in val_l or "failed" in val_l: return "background-color: #FFC7CE; color: #9C0006; font-weight: bold;"
+    return ""
+
+def style_status_df(df):
+    status_cols = [c for c in df.columns if "Status" in c or "Preprocessing" in c or "Analysis" in c]
+    if not status_cols: return df
+    try:
+        return df.style.map(color_status, subset=status_cols)
+    except:
+        # Fallback for older pandas
+        return df.style.applymap(color_status, subset=status_cols)
+
 st.set_page_config(page_title="qMRI Tracker Dashboard", page_icon="🧠", layout="wide")
 
 st.title("🧠 qMRI Neuroimaging Tracker")
@@ -66,32 +85,56 @@ if final_tracker_path:
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
     # Tabs for different views
-    tab_overview, tab_subject, tab_distribution, tab_correlation, tab_raw = st.tabs([
-        "📊 Overview", "👤 Subject Details", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
+    tab_summary, tab_overview, tab_subject, tab_distribution, tab_correlation, tab_raw = st.tabs([
+        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
     ])
+
+    with tab_summary:
+        st.header("Executive Summary")
+        if "Summary" in data:
+            df_sum = data["Summary"]
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.dataframe(df_sum, width='stretch', hide_index=True)
+            with col2:
+                # Add a pie chart of overall completion if data allows
+                if "Processing_Status" in data:
+                    df_ps = data["Processing_Status"]
+                    if "Overall_Pipeline_Status" in df_ps.columns:
+                        counts = df_ps["Overall_Pipeline_Status"].value_counts().reset_index()
+                        counts.columns = ["Status", "Count"]
+                        
+                        # Apply custom colors
+                        color_map = {
+                            "Complete": "#C6EFCE",
+                            "In Progress": "#BEE5EB",
+                            "Failed": "#FFC7CE",
+                            "Pending": "#E2E3E5",
+                            "Error": "#FFC7CE",
+                            "Warning": "#FFEB9C"
+                        }
+                        
+                        fig = px.pie(counts, values="Count", names="Status", title="Overall Pipeline Status Distribution",
+                                     color="Status", color_discrete_map=color_map)
+                        st.plotly_chart(fig, width='stretch')
+        else:
+            st.info("No summary data found. Re-save your tracker to generate a summary.")
     
     with tab_overview:
-        st.header("Study Overview")
-        if "Processing_Status" in data:
-            df_status = data["Processing_Status"]
-            if selected_study != "All":
+        st.header("Modality Processing Status")
+        status_sheets = ["Processing_Status", "Anatomical_Status", "Diffusion_Status", "Relaxometry_Status"]
+        available_status = [s for s in status_sheets if s in data]
+        
+        if available_status:
+            sel_status_sheet = st.selectbox("Select Status View", available_status)
+            df_status = data[sel_status_sheet]
+            if selected_study != "All" and "Study" in df_status.columns:
                 df_status = df_status[df_status["Study"] == selected_study]
             
-            # Summary Metrics
-            cols = st.columns(4)
-            cols[0].metric("Total Subjects", len(df_status))
-            
-            if "Overall_Pipeline_Status" in df_status.columns:
-                completed = len(df_status[df_status["Overall_Pipeline_Status"] == "completed"])
-                cols[1].metric("Completed", completed)
-                failed = len(df_status[df_status["Overall_Pipeline_Status"] == "failed"])
-                cols[2].metric("Failed", failed, delta=failed, delta_color="inverse")
-            
-            st.subheader("Module Status Heatmap")
-            status_cols = [c for c in df_status.columns if c.endswith("_Status")]
-            if status_cols:
-                # Convert status to numeric for heatmap? or just use a table
-                st.dataframe(df_status[["Subject_ID", "Session"] + status_cols], width='stretch')
+            # Module Status heatmap/table
+            st.dataframe(style_status_df(df_status), width='stretch')
+        else:
+            st.warning("No status sheets found in tracker.")
 
     with tab_subject:
         st.header("Individual Subject Details")
@@ -139,7 +182,8 @@ if final_tracker_path:
                             status_cols = [c for c in s_row.columns if c.endswith("_Status")]
                             for c in status_cols:
                                  val = s_row.iloc[0][c]
-                                 color = "green" if val == "completed" else "red" if val == "failed" else "orange"
+                                 val_str = str(val).capitalize()
+                                 color = "green" if "Complete" in val_str else "red" if "Fail" in val_str or "Error" in val_str else "orange"
                                  st.markdown(f"**{c.replace('_Status', '')}**: :{color}[{val}]")
                        else:
                             st.info("No status information found.")
