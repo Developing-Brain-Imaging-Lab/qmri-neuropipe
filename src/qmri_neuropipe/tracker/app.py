@@ -248,6 +248,45 @@ if final_tracker_path:
                        st.info("No ROI stats found for this subject in selected sheet.")
              else:
                   st.info("No ROI metric sheets found in tracker.")
+             
+             # Processing Details (Step-by-Step Parameters from Reports)
+             st.markdown("---")
+             st.subheader("⚙️ Processing Details (All Sessions)")
+             if "Processing_Details" in data:
+                  df_details = data["Processing_Details"][data["Processing_Details"]["Subject_ID"] == selected_subj].copy()
+                  if not df_details.empty:
+                       df_details["Session"] = df_details["Session"].apply(lambda x: str(x) if pd.notna(x) else "N/A")
+                       
+                       # Group by modality for cleaner display
+                       modalities = df_details["Modality"].unique().tolist()
+                       if modalities:
+                            tabs_details = st.tabs(modalities)
+                            for i, mod in enumerate(modalities):
+                                 with tabs_details[i]:
+                                      df_mod = df_details[df_details["Modality"] == mod]
+                                      
+                                      # Pivot option for easier reading
+                                      view_mode = st.radio(f"View Mode ({mod})", ["By Step (Wide)", "Long (Tidy)"], horizontal=True, key=f"detail_view_{mod}")
+                                      if view_mode == "By Step (Wide)":
+                                           try:
+                                                pivot_df = df_mod.pivot_table(
+                                                     index=["Session", "Step_Name"],
+                                                     columns="Parameter",
+                                                     values="Value",
+                                                     aggfunc='first'
+                                                )
+                                                st.dataframe(pivot_df, use_container_width=True)
+                                           except Exception as e:
+                                                st.warning(f"Could not pivot: {e}")
+                                                st.dataframe(df_mod, use_container_width=True, hide_index=True)
+                                      else:
+                                           st.dataframe(df_mod, use_container_width=True, hide_index=True)
+                       else:
+                            st.dataframe(df_details, use_container_width=True, hide_index=True)
+                  else:
+                       st.info("No processing details found for this subject.")
+             else:
+                  st.info("Processing Details sheet not found in tracker.")
         else:
              st.warning("No subjects found in tracker.")
 

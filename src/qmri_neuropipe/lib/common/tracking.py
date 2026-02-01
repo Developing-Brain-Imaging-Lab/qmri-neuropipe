@@ -375,6 +375,45 @@ class TrackingStep(BaseProcessingStep):
         if qc_metrics:
             tracker.add_metrics(subject, session, qc_metrics, study)
 
+        # 3.5 Import Processing Details from Report Data JSON
+        # This syncs the fine-grained step info from the PDF report to the tracker
+        report_data_file = output_dir.parent / "report_data.json"
+        if not report_data_file.exists():
+            report_data_file = output_dir / "report_data.json"
+        
+        if report_data_file.exists():
+            try:
+                with open(report_data_file) as f:
+                    rd = json.load(f)
+                
+                # Import Diffusion Steps
+                for step in rd.get('dmri', {}).get('steps', []):
+                    step_name = step.get('name', 'Unknown')
+                    details = step.get('details', {})
+                    if details:
+                        tracker.log_processing_step(subject, session, 'Diffusion', step_name, details, study)
+                    
+                    # Also extract table data as metrics (QC tables, Outliers, etc.)
+                    for table in step.get('tables', []):
+                        title = table.get('title', step_name)
+                        for row in table.get('rows', []):
+                            # Each row is like {'Metric': 'X', 'Value': 'Y'} or similar
+                            # Store as step details
+                            row_details = {k: v for k, v in row.items() if k not in ['figures']}
+                            if row_details:
+                                tracker.log_processing_step(subject, session, 'Diffusion', title, row_details, study)
+                
+                # Import Anatomical Steps
+                for step in rd.get('anat', {}).get('steps', []):
+                    step_name = step.get('name', 'Unknown')
+                    details = step.get('details', {})
+                    if details:
+                        tracker.log_processing_step(subject, session, 'Anatomical', step_name, details, study)
+                
+                self.logger.debug(f"Imported processing details from {report_data_file.name}")
+            except Exception as e:
+                self.logger.warning(f"Failed to import processing details from report: {e}")
+
         # 4. Update ROI Stats
         roi_files = context.get('roi_stats_files', {}).copy()
         

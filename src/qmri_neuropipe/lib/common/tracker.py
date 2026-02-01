@@ -33,6 +33,7 @@ class NeuroimagingTracker:
             'Anatomical_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Bias_Correction', 'Brain_Masking', 'Segmentation', 'Segmentation_Method', 'Coregistration', 'Analysis', 'Atlases', 'Overall_Status', 'Last_Update'],
             'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Eddy_Correction', 'Bias_Correction', 'Topup', 'SynB0', 'Coregistration', 'Reorienting', 'Model_Fits', 'Atlases', 'Overall_Status', 'Last_Update'],
             'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Analysis', 'Overall_Status', 'Last_Update'],
+            'Processing_Details': ['Subject_ID', 'Session', 'Study', 'Modality', 'Step_Name', 'Parameter', 'Value', 'Timestamp'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
             'Data_Files': ['Subject_ID', 'Session', 'Study', 'T1w_Present', 'DWI_Present'],
             'Software_Versions': ['Subject_ID', 'Session', 'Study', 'Pipeline_Version'],
@@ -51,6 +52,7 @@ class NeuroimagingTracker:
                 'Anatomical_Status': 'Anatomical processing details',
                 'Diffusion_Status': 'Diffusion processing details',
                 'Relaxometry_Status': 'Relaxometry processing details',
+                'Processing_Details': 'Fine-grained processing step parameters (matches PDF report)',
                 'Quality_Metrics': 'Quality control metrics',
                 'Data_Files': 'Input/Output file paths',
                 'Software_Versions': 'Software and pipeline versions',
@@ -507,6 +509,68 @@ class NeuroimagingTracker:
         idx = self._ensure_row('Processing_Times', subject_id, session, study)
         col_name = f"{module}_Time_Min"
         self._data['Processing_Times'].at[idx, col_name] = time_min
+
+    def log_processing_step(self, subject_id: str, session: str, modality: str, step_name: str, 
+                            details: Dict[str, Any], study: Optional[str] = None):
+        """
+        Log fine-grained processing step details (mirrors PDF report data).
+        Each parameter in 'details' becomes a separate row for flexible querying.
+        """
+        from datetime import datetime
+        
+        sheet_name = 'Processing_Details'
+        if sheet_name not in self._data:
+            self._data[sheet_name] = pd.DataFrame(columns=[
+                'Subject_ID', 'Session', 'Study', 'Modality', 'Step_Name', 'Parameter', 'Value', 'Timestamp'
+            ])
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Normalize session
+        def _norm_ses(s):
+            if pd.isna(s) or s is None: return "N/A"
+            s_str = str(s).strip().replace('ses-', '')
+            if s_str.isdigit(): s_str = str(int(s_str))
+            return s_str if s_str else "N/A"
+        
+        session_norm = _norm_ses(session)
+        
+        new_rows = []
+        for param, value in details.items():
+            # Skip some internal keys
+            if param in ['figures', 'tables', 'Status'] and param != 'Status':
+                continue
+            new_rows.append({
+                'Subject_ID': str(subject_id),
+                'Session': session_norm,
+                'Study': study or '',
+                'Modality': modality,
+                'Step_Name': step_name,
+                'Parameter': param,
+                'Value': str(value) if value is not None else '',
+                'Timestamp': timestamp
+            })
+        
+        if new_rows:
+            # Check for existing entries and update (upsert by Subject_ID, Session, Study, Modality, Step_Name, Parameter)
+            df = self._data[sheet_name]
+            for row in new_rows:
+                mask = (
+                    (df['Subject_ID'].astype(str) == row['Subject_ID']) &
+                    (df['Session'].astype(str) == row['Session']) &
+                    (df['Study'] == row['Study']) &
+                    (df['Modality'] == row['Modality']) &
+                    (df['Step_Name'] == row['Step_Name']) &
+                    (df['Parameter'] == row['Parameter'])
+                )
+                if mask.any():
+                    idx = df.index[mask][0]
+                    df.at[idx, 'Value'] = row['Value']
+                    df.at[idx, 'Timestamp'] = row['Timestamp']
+                else:
+                    self._data[sheet_name] = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+                    df = self._data[sheet_name]
+
 
     def _recalculate_summary(self):
         """Recalculate high-level metrics for the Summary sheet."""
