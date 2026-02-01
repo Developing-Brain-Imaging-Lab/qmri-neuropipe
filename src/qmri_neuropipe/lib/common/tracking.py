@@ -108,14 +108,25 @@ class TrackingStep(BaseProcessingStep):
                 qc_metrics[f'DWI_Bval_{bv}_Pct'] = (counts['removed'] / counts['total']) * 100
 
         # Search for all eddy_quad QC files
-        # They might be in qc/eddy_quad_RUN/qc.json
-        quad_files = list(output_dir.glob("qc/eddy_quad*/qc.json"))
+        # They might be in qc/eddy_quad_RUN/qc.json OR qc/eddy_quad_RUN/qc_summary.json
+        quad_files = list(output_dir.glob("qc/eddy_quad*/qc.json")) + \
+                     list(output_dir.glob("qc/eddy_quad*/qc_summary.json"))
         all_quad_metrics = {} # Map metric to list of values
         
         for q_json in quad_files:
             try:
                 with open(q_json) as f:
                     m = json.load(f)
+                    
+                    # If it's our persistent summary, it already has the correct prefixes
+                    if q_json.name == "qc_summary.json":
+                        for k, v in m.items():
+                             if k.startswith("DWI_"):
+                                 if k not in all_quad_metrics: all_quad_metrics[k] = []
+                                 try: all_quad_metrics[k].append(float(v))
+                                 except: pass
+                        continue
+
                     # Extract standard metrics
                     for src_key, target_key in [
                         ('qc_mot_abs', 'DWI_Motion_Abs_mm'),
@@ -144,6 +155,58 @@ class TrackingStep(BaseProcessingStep):
                 qc_metrics[k] = np.mean(vals)
                 if 'Motion_Rel' in k:
                     qc_metrics['DWI_Motion_FD_Mean'] = qc_metrics[k] # Alias Rel to FD Mean
+
+        # --- FALLBACK: report_data.json recovery ---
+        # If some metrics are still missing (e.g. intermediate files were deleted),
+        # try to recover from the persistent report_data.json
+        if not qc_metrics or 'DWI_Motion_Abs_mm' not in qc_metrics:
+            report_data_file = output_dir.parent / "report_data.json"
+            if report_data_file.exists():
+                try:
+                    self.logger.debug(f"Attempting to recover metrics from {report_data_file}")
+                    with open(report_data_file) as f:
+                        rd = json.load(f)
+                    
+                    # Look for "Quality Control" entries in dmri steps
+                    # report_data.json -> dmri -> steps -> [ {name: "Quality Control", tables: [...]}, ... ]
+                    for step in rd.get('dmri', {}).get('steps', []):
+                        if step.get('name') == 'Quality Control':
+                            for table in step.get('tables', []):
+                                title = table.get('title', '')
+                                rows = table.get('rows', [])
+                                
+                                if 'Motion' in title:
+                                    for row in rows:
+                                        m_name = row.get('Metric', '')
+                                        val = row.get('Value')
+                                        if val is not None:
+                                            if 'Absolute' in m_name: qc_metrics['DWI_Motion_Abs_mm'] = float(val)
+                                            elif 'Relative' in m_name:
+                                                qc_metrics['DWI_Motion_Rel_mm'] = float(val)
+                                                qc_metrics['DWI_Motion_FD_Mean'] = float(val)
+                                
+                                elif 'CNR' in title:
+                                    for row in rows:
+                                        # Shell row looks like {'Shell': 'Shell 1 (CNR)', 'Value': '14.96'}
+                                        sh = row.get('Shell', row.get('Metric', ''))
+                                        val = row.get('Value')
+                                        if val is not None:
+                                            # Normalize shell name to key
+                                            key = f"DWI_{sh.replace(' ', '_').replace('(', '').replace(')', '')}"
+                                            qc_metrics[key] = float(val)
+
+                                elif 'Outliers Summary' in title:
+                                    for row in rows:
+                                        m_name = row.get('Metric', '')
+                                        val = row.get('Value')
+                                        if val is not None and 'Total Outliers (%)' in m_name:
+                                            try:
+                                                # Strip % if present
+                                                val_f = float(str(val).replace('%', '').strip())
+                                                qc_metrics['DWI_Outliers_Total_Pct'] = val_f
+                                            except: pass
+                except Exception as e:
+                    self.logger.warning(f"Failed to recover metrics from report_data.json: {e}")
 
         # --- CONTEXT OVERRIDES ---
         # Allow registry entries to override if available (useful for non-persistent or custom steps)

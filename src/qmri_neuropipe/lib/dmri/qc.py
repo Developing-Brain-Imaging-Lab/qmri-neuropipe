@@ -179,6 +179,15 @@ class EddyQuadStep(BaseProcessingStep):
                      summary["DWI_Total_Score"] = metrics['qc_score']
 
                 context["qc_metrics"] = summary
+
+                # Save persistent summary for robust recovery (e.g. if re-running TrackingStep only)
+                try:
+                    summary_file = qc_out / "qc_summary.json"
+                    with open(summary_file, 'w') as f:
+                        json.dump(summary, f, indent=4)
+                    self.logger.debug(f"Saved persistent QC summary to {summary_file}")
+                except Exception as e_save:
+                    self.logger.warning(f"Failed to save persistent QC summary: {e_save}")
             except Exception as e:
                  self.logger.warning(f"Failed to parse QC metrics: {e}")
             
