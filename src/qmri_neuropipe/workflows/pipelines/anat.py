@@ -24,7 +24,7 @@ import shutil
 import json
 
 # Steps
-from ...lib.common.resample import MatchResolutionStep
+from ...lib.common.resample import ResampleStep
 from ...lib.common.tracking import TrackingStep
 from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
