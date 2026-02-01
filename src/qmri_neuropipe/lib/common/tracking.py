@@ -40,17 +40,36 @@ class TrackingStep(BaseProcessingStep):
         session = context.get('session')
         study = context.get('study_name', self.config.get('study_name'))
         
-        if not subject or not session:
-            self.logger.error("Missing subject or session in context. Cannot update tracker.")
+        if not subject:
+            self.logger.error("Missing subject in context. Cannot update tracker.")
             return context
+        
+        # Session is optional
+        session_str = str(session) if session else "N/A"
 
+        from datetime import datetime
         self.logger.info(f"Updating study-wide tracker: {tracker.excel_path.name}")
         
-        # 2. Update Module Statuses
+        # 1.5 Update baseline Metadata and Status
+        metadata = {
+            "Last_Seen_Date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "BIDS_Dir": str(self.config.get('bids_dir', '')),
+            "Output_Dir": str(self.config.get('output_dir', ''))
+        }
+        # Add any extra metadata from context if available (e.g. from participants.tsv)
+        if 'subject_metadata' in context:
+             metadata.update(context['subject_metadata'])
+             
+        tracker.update_metadata(subject, session, metadata, study)
+        tracker.update_status(subject, session, "Overall_Pipeline", "Completed", study)
+
+        # 2. Update Module Statuses from context
         for key, val in context.items():
             if key.endswith('_status') and isinstance(val, str):
                 module = key[:-7] # remove _status
-                tracker.update_status(subject, session, module, val, study)
+                # Convert lowercase module names to CamelCase or Title Case if needed?
+                mod_name = module.replace("_", " ").title().replace(" ", "")
+                tracker.update_status(subject, session, mod_name, val, study)
 
         # 3. Update QC Metrics
         qc_metrics = context.get('qc_metrics', {}).copy()

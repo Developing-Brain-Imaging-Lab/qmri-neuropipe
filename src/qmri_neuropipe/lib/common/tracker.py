@@ -251,8 +251,15 @@ class NeuroimagingTracker:
             
         df = self._data[sheet_name]
         
-        # Build mask for matching
-        mask = (df['Subject_ID'] == subject_id) & (df['Session'] == session)
+        # Build mask for matching (handling NaN safely)
+        subj_mask = (df['Subject_ID'] == subject_id)
+        if pd.isna(session) or session is None or session == "N/A":
+            ses_mask = df['Session'].isna() | (df['Session'] == "N/A")
+        else:
+            ses_mask = (df['Session'] == session)
+        
+        mask = subj_mask & ses_mask
+        
         if study and 'Study' in df.columns:
             mask = mask & (df['Study'] == study)
             
