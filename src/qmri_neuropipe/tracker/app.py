@@ -171,7 +171,7 @@ if final_tracker_path:
                        if not q_row.empty:
                             q_data = q_row.iloc[0].dropna().to_dict()
                             # Highlight specific QC
-                            important_qc = ["QC_DWI_b0_SNR", "QC_DWI_Outliers_Total_Pct", "QC_DWI_Outliers_Removed", "QC_DWI_Motion_Abs_mm"]
+                            important_qc = ["QC_DWI_SNR", "QC_DWI_Motion_FD_Mean", "QC_DWI_Outliers_Removed_Volumes", "QC_DWI_Outliers_Total_Pct"]
                             for k in important_qc:
                                  if k in q_data:
                                       st.metric(k.replace("QC_DWI_", ""), q_data[k])

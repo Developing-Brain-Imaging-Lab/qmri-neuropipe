@@ -136,7 +136,8 @@ class EddyQuadStep(BaseProcessingStep):
                 # 1. Motion
                 motion_stats = {
                     "QC_DWI_Motion_Abs_mm": metrics.get('qc_mot_abs', 0),
-                    "QC_DWI_Motion_Rel_mm": metrics.get('qc_mot_rel', 0)
+                    "QC_DWI_Motion_Rel_mm": metrics.get('qc_mot_rel', 0),
+                    "QC_DWI_Motion_FD_Mean": metrics.get('qc_mot_rel', 0)
                 }
                 
                 # 2. SNR/CNR
@@ -144,6 +145,7 @@ class EddyQuadStep(BaseProcessingStep):
                 # B0 SNR
                 if 'qc_s2s_b0_avg' in metrics:
                      cnr_stats["QC_DWI_b0_SNR"] = metrics['qc_s2s_b0_avg']
+                     cnr_stats["QC_DWI_SNR"] = metrics['qc_s2s_b0_avg']
                 
                 # DWI CNR
                 cnr_vals = metrics.get('qc_cnr_avg', [])

@@ -64,7 +64,10 @@ class TrackingStep(BaseProcessingStep):
                           m = json.load(f)
                           qc_metrics["QC_DWI_Motion_Abs_mm"] = m.get('qc_mot_abs', 0)
                           qc_metrics["QC_DWI_Motion_Rel_mm"] = m.get('qc_mot_rel', 0)
-                          if 'qc_s2s_b0_avg' in m: qc_metrics["QC_DWI_b0_SNR"] = m['qc_s2s_b0_avg']
+                          qc_metrics["QC_DWI_Motion_FD_Mean"] = m.get('qc_mot_rel', 0) # Mapping Rel Motion to FD Mean placeholder
+                          if 'qc_s2s_b0_avg' in m: 
+                               qc_metrics["QC_DWI_b0_SNR"] = m['qc_s2s_b0_avg']
+                               qc_metrics["QC_DWI_SNR"] = m['qc_s2s_b0_avg']
                           qc_metrics["QC_DWI_Outliers_Total_Pct"] = m.get('qc_outliers_tot', 0)
                   except: pass
 
@@ -103,8 +106,8 @@ class TrackingStep(BaseProcessingStep):
                   except: pass
 
         if outlier_stats:
-             qc_metrics['QC_DWI_Outliers_Removed'] = outlier_stats.get('removed_volumes', 0)
-             qc_metrics['QC_DWI_Outliers_Pct'] = outlier_stats.get('percent_removed', 0)
+             qc_metrics['QC_DWI_Outliers_Removed_Volumes'] = outlier_stats.get('removed_volumes', 0)
+             qc_metrics['QC_DWI_Outliers_Removed_Pct'] = outlier_stats.get('percent_removed', 0)
              
         # Add Total Slices Flagged (from eddy)
         # Search for .eddy_outlier_map in output_dir

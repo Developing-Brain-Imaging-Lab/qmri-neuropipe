@@ -172,23 +172,26 @@ class NeuroimagingTracker:
                                     existing_df = pd.read_excel(xls, sheet_name=sheet_name)
                                     if sheet_name in self._data:
                                         # UPSERT: Merge existing with current
-                                        if 'Subject_ID' in existing_df.columns and 'Session' in existing_df.columns:
-                                            # Primary Keys for deduplication
-                                            pk_cols = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Model', 'Alert_ID']
-                                            subset = [c for c in pk_cols if c in existing_df.columns and c in self._data[sheet_name].columns]
-                                            
-                                            # Filter out empty DataFrames to avoid FutureWarning
-                                            dfs_to_concat = [d for d in [existing_df, self._data[sheet_name]] if not d.empty]
-                                            if dfs_to_concat:
-                                                merged = pd.concat(dfs_to_concat, ignore_index=True)
+                                        pk_cols = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Model', 'Alert_ID']
+                                        subset = [c for c in pk_cols if c in existing_df.columns and c in self._data[sheet_name].columns]
+                                        
+                                        # Filter out empty DataFrames to avoid FutureWarning
+                                        dfs_to_concat = [d for d in [existing_df, self._data[sheet_name]] if not d.empty]
+                                        if dfs_to_concat:
+                                            merged = pd.concat(dfs_to_concat, ignore_index=True)
+                                            if subset:
                                                 self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
                                             else:
-                                                # Both are empty, keep as is or set to one of them
-                                                pass
-                                        elif sheet_name == 'README':
-                                            pass
+                                                # If no PKs, just keep newest? or append? 
+                                                # For README etc, we usually don't reach here anyway
+                                                self._data[sheet_name] = merged
                                         else:
-                                            self._data[sheet_name] = existing_df
+                                            pass
+                                    elif sheet_name == 'README':
+                                        pass
+                                    else:
+                                        # Even if not in current _data, preserve existing
+                                        self._data[sheet_name] = existing_df
                                 except Exception as e_sheet:
                                     self.logger.warning(f"Error merging sheet {sheet_name}: {e_sheet}")
                     except Exception as e:
@@ -200,6 +203,18 @@ class NeuroimagingTracker:
                 try:
                     with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
                         for sheet_name, df in self._data.items():
+                            # Sorting: Subject_ID, Session
+                            if isinstance(df, pd.DataFrame) and 'Subject_ID' in df.columns:
+                                sort_cols = ['Subject_ID']
+                                if 'Session' in df.columns: sort_cols.append('Session')
+                                if 'Study' in df.columns: sort_cols.append('Study')
+                                # For Metrics sheets, also sort by Atlas/ROI
+                                if 'Metrics' in sheet_name:
+                                     if 'Atlas' in df.columns: sort_cols.append('Atlas')
+                                     if 'ROI_Name' in df.columns: sort_cols.append('ROI_Name')
+                                
+                                df = df.sort_values(by=sort_cols)
+                                
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
                     
                     # Final atomic swap
