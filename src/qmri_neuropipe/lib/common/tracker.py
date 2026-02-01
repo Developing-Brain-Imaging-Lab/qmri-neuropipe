@@ -16,8 +16,8 @@ class NeuroimagingTracker:
     CORE_SHEETS = [
         'Summary', 'Subject_Metadata', 'Processing_Status', 
         'Anatomical_Status', 'Diffusion_Status', 'Relaxometry_Status',
-        'Quality_Metrics', 'Data_Files', 'Processing_Times', 
-        'Errors_Notes', 'Software_Versions', 'Alert_History'
+        'Quality_Metrics', 'Data_Files', 
+        'Software_Versions', 'Alert_History'
     ]
 
     @staticmethod
@@ -26,7 +26,6 @@ class NeuroimagingTracker:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Define core structures
         sheets = {
             'Summary': ['Metric', 'Value'],
             'Subject_Metadata': ['Subject_ID', 'Session', 'Study', 'Age', 'Sex', 'Group', 'Scan_Date'],
@@ -36,8 +35,6 @@ class NeuroimagingTracker:
             'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Analysis', 'Overall_Status', 'Last_Update'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
             'Data_Files': ['Subject_ID', 'Session', 'Study', 'T1w_Present', 'DWI_Present'],
-            'Processing_Times': ['Subject_ID', 'Session', 'Study', 'Total_Pipeline_Time_Min'],
-            'Errors_Notes': ['Subject_ID', 'Session', 'Study', 'Has_Processing_Errors', 'Error_Message'],
             'Software_Versions': ['Subject_ID', 'Session', 'Study', 'Pipeline_Version'],
             'Alert_History': ['Alert_ID', 'Subject_ID', 'Study', 'Alert_Type', 'Alert_Status']
         }
@@ -56,8 +53,6 @@ class NeuroimagingTracker:
                 'Relaxometry_Status': 'Relaxometry processing details',
                 'Quality_Metrics': 'Quality control metrics',
                 'Data_Files': 'Input/Output file paths',
-                'Processing_Times': 'Module execution times',
-                'Errors_Notes': 'Processing errors and notes',
                 'Software_Versions': 'Software and pipeline versions',
                 'Alert_History': 'History of study alerts',
                 'README': 'Sheet documentation'

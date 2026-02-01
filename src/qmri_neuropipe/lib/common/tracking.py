@@ -74,6 +74,14 @@ class TrackingStep(BaseProcessingStep):
             inferred_modality = 'Relaxometry'
             
         if inferred_modality:
+            # Determine session root (one level up if we are in anat/dwi/relax etc)
+            session_root = output_dir
+            if output_dir.name in ['anat', 'dwi', 'relax', 'statistics', 'qc', 'registration']:
+                session_root = output_dir.parent
+
+            # 1.6 Self-Healing: Detect existing outputs on disk
+            detected_statuses = self._detect_existing_outputs(output_dir, subject, session)
+            
             # Map granular steps from context
             step_mapping = {
                 # Common / Anat
@@ -95,47 +103,77 @@ class TrackingStep(BaseProcessingStep):
                 'motion_correction': 'Motion_Correction'
             }
             
-            # 2. Update Module Statuses from context
+            # 2. Update Module Statuses: Merge detected with current context
+            # Base logic: Start with detected statuses for THIS modality as defaults
+            final_statuses = {k: v for k, v in detected_statuses.get(inferred_modality, {}).items()}
+            
+            # Special Case: Always check if Segmentation was found (often study-wide)
+            if 'Segmentation' in detected_statuses.get('Anatomical', {}) and inferred_modality == 'Anatomical':
+                 final_statuses.update(detected_statuses['Anatomical'])
+
+            # Override/supplement with anything from context
             for key, val in context.items():
                 if key.endswith('_status') and isinstance(val, str):
                     base_key = key[:-7] # remove _status
-                    
-                    # 2a. Map to granular columns if possible
                     target_col = step_mapping.get(base_key.lower())
-                    if target_col:
-                        tracker.update_status(subject, session, target_col, val, study, modality=inferred_modality)
                     
-                    # 2b. Always update the legacy Processing_Status sheet for backward compatibility
+                    if target_col:
+                        final_statuses[target_col] = val
+                    
+                    # Always update the legacy Processing_Status sheet for backward compatibility
                     mod_name = base_key.replace("_", " ").title().replace(" ", "")
                     tracker.update_status(subject, session, mod_name, val, study)
                     
-                    # 2c. Special Method Detection
+                    # Special Method Detection (Context-based)
                     if base_key.lower() == 'recon_all' and val.lower() == 'complete':
-                        tracker.update_status(subject, session, "Segmentation", "Complete", study, modality='Anatomical')
-                        tracker.update_status(subject, session, "Segmentation_Method", "FreeSurfer", study, modality='Anatomical')
+                        final_statuses['Segmentation'] = 'Complete'
+                        final_statuses['Segmentation_Method'] = 'FreeSurfer'
                     elif base_key.lower() == 'fsl_anat' and val.lower() == 'complete':
-                        tracker.update_status(subject, session, "Segmentation", "Complete", study, modality='Anatomical')
-                        tracker.update_status(subject, session, "Segmentation_Method", "FSL_Anat", study, modality='Anatomical')
+                        final_statuses['Segmentation'] = 'Complete'
+                        final_statuses['Segmentation_Method'] = 'FSL_Anat'
                     elif base_key.lower() == 'b1_mapping' and val.lower() == 'complete':
-                        # Infer B1 method if possible
-                        b1_method = context.get('b1_method', 'Unknown')
-                        tracker.update_status(subject, session, "B1_Mapping_Method", b1_method, study, modality='Relaxometry')
+                        final_statuses['B1_Mapping_Method'] = context.get('b1_method', 'Unknown')
 
-            # 2d. Update list of Atlases and Model Fits
+            # Apply all merged statuses to the modality-specific sheet
+            for col, stat in final_statuses.items():
+                 tracker.update_status(subject, session, col, stat, study, modality=inferred_modality)
+
+            # 2d. Update list of Atlases and Model Fits (Self-healing: check statistics dir if missing from context)
             roi_files = context.get('roi_stats_files', {})
-            if roi_files:
+            if not roi_files:
+                 # Attempt filesystem recovery of atlases
+                 stats_dir = session_root / "statistics"
+                 if stats_dir.exists():
+                      recovered_atlases = []
+                      for tsv in stats_dir.glob("*.tsv"):
+                           name = tsv.name
+                           if 'desc-' in name:
+                                atlas = name.split('desc-')[1].split('_')[0]
+                                recovered_atlases.append(atlas)
+                      if recovered_atlases:
+                           tracker.update_status(subject, session, "Atlases", ", ".join(sorted(set(recovered_atlases))), study, modality=inferred_modality)
+            else:
                 atlases = ", ".join(sorted(roi_files.keys()))
                 tracker.update_status(subject, session, "Atlases", atlases, study, modality=inferred_modality)
             
             if inferred_modality == 'Diffusion':
                 models = context.get('models_fitted', [])
                 if not models and 'model_fits' in context: models = context['model_fits']
+                if not models:
+                     # Check filesystem for model folders or files
+                     model_hints = []
+                     if (session_root / "dti").exists(): model_hints.append("DTI")
+                     if (session_root / "dki").exists(): model_hints.append("DKI")
+                     if (session_root / "noddi").exists(): model_hints.append("NODDI")
+                     if model_hints: models = model_hints
+                
                 if models:
                     model_str = ", ".join(models) if isinstance(models, list) else str(models)
                     tracker.update_status(subject, session, "Model_Fits", model_str, study, modality='Diffusion')
 
             # Final overall statuses
-            tracker.update_status(subject, session, "Overall_Status", "Complete", study, modality=inferred_modality)
+            overall_stat = final_statuses.get('Overall_Status', 'Complete')
+            tracker.update_status(subject, session, "Overall_Status", overall_stat, study, modality=inferred_modality)
 
         # 3. Update QC Metrics
         qc_metrics = {}
@@ -345,3 +383,67 @@ class TrackingStep(BaseProcessingStep):
         tracker.save(force=True)
         
         return context
+
+    def _detect_existing_outputs(self, output_dir: Path, subject: str, session: Optional[str]) -> Dict[str, Dict[str, str]]:
+        """Scan the output directory and associated derivatives to see what has already been completed."""
+        results = {'Anatomical': {}, 'Diffusion': {}, 'Relaxometry': {}}
+        ses_suffix = f"_ses-{session}" if session else ""
+        sub_prefix = f"sub-{subject}{ses_suffix}"
+        
+        # Determine session root (one level up if we are in anat/dwi/relax)
+        session_root = output_dir
+        if output_dir.name in ['anat', 'dwi', 'relax', 'statistics', 'qc', 'registration']:
+            session_root = output_dir.parent
+
+        # 1. FreeSurfer / Segmentation (Anatomical)
+        fs_dir = self.config.bids_dir / "derivatives" / "freesurfer" / sub_prefix
+        if (fs_dir / "mri" / "brain.mgz").exists():
+            results['Anatomical']['Segmentation'] = 'Complete'
+            results['Anatomical']['Segmentation_Method'] = 'FreeSurfer'
+            
+        # Check fsl_anat
+        fsl_anat_dir = session_root / "anat" / f"{sub_prefix}_T1w.anat"
+        if (fsl_anat_dir / "T1_biascorr_brain.nii.gz").exists():
+             results['Anatomical']['Segmentation'] = 'Complete'
+             results['Anatomical']['Segmentation_Method'] = 'FSL_Anat'
+
+        # 2. Preprocessing Markers
+        anat_path = session_root / "anat"
+        dwi_path = session_root / "dwi"
+        relax_path = session_root / "relax"
+        
+        # Anatomical
+        if anat_path.exists():
+            if list(anat_path.glob("*desc-brain_mask.nii.gz")): results['Anatomical']['Brain_Masking'] = 'Complete'
+            if list(anat_path.glob("*desc-denoised_T1w.nii.gz")): results['Anatomical']['Denoising'] = 'Complete'
+            if list(anat_path.glob("*desc-gibbs_T1w.nii.gz")): results['Anatomical']['Gibbs_Ringing'] = 'Complete'
+            if list(anat_path.glob("*desc-bias_T1w.nii.gz")): results['Anatomical']['Bias_Correction'] = 'Complete'
+
+        # Diffusion
+        if dwi_path.exists():
+            if list(dwi_path.glob("*desc-denoised_dwi.nii.gz")): results['Diffusion']['Denoising'] = 'Complete'
+            if list(dwi_path.glob("*desc-gibbs_dwi.nii.gz")): results['Diffusion']['Gibbs_Ringing'] = 'Complete'
+            if list(dwi_path.glob("*_desc-eddy_*.nii.gz")) or list(dwi_path.glob("*_desc-preproc_*.nii.gz")): 
+                results['Diffusion']['Eddy_Correction'] = 'Complete'
+            
+            # Topup/SynB0 (check qc or dwi folder)
+            qc_path = session_root / "qc"
+            if list(qc_path.glob("topup_*")) or list(dwi_path.glob("*_desc-topup_*.nii.gz")): results['Diffusion']['Topup'] = 'Complete'
+            if list(qc_path.glob("synb0_*")) or list(dwi_path.glob("*_desc-synb0_*.nii.gz")): results['Diffusion']['SynB0'] = 'Complete'
+            
+            if list(dwi_path.glob("*_coreg.nii.gz")) or (session_root / "registration").exists():
+                results['Diffusion']['Coregistration'] = 'Complete'
+
+        # Relaxometry
+        if relax_path.exists():
+            if list(relax_path.glob("*_desc-motion_relaxed.nii.gz")): results['Relaxometry']['Motion_Correction'] = 'Complete'
+            if list(relax_path.glob("*_desc-denoised_*.nii.gz")): results['Relaxometry']['Denoising'] = 'Complete'
+
+        # 3. Model Fits & Analysis
+        stats_dir = session_root / "statistics"
+        if stats_dir.exists() and list(stats_dir.glob("*.tsv")):
+            results['Anatomical']['Analysis'] = 'Complete'
+            results['Diffusion']['Analysis'] = 'Complete'
+            results['Relaxometry']['Analysis'] = 'Complete'
+            
+        return results
