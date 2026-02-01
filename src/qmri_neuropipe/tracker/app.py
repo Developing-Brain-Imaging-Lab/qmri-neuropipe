@@ -91,7 +91,7 @@ if final_tracker_path:
             status_cols = [c for c in df_status.columns if c.endswith("_Status")]
             if status_cols:
                 # Convert status to numeric for heatmap? or just use a table
-                st.dataframe(df_status[["Subject_ID", "Session"] + status_cols], use_container_width=True)
+                st.dataframe(df_status[["Subject_ID", "Session"] + status_cols], width='stretch')
 
     with tab_subject:
         st.header("Individual Subject Details")
@@ -201,9 +201,9 @@ if final_tracker_path:
                        if "Metric" in df_roi_sub.columns and "Statistic" in df_roi_sub.columns:
                             st.info("Displaying pivoted view of ROI metrics.")
                             pivot_df = df_roi_sub.pivot(index=["Atlas", "ROI_Name"], columns=["Metric", "Statistic"], values="Value")
-                            st.dataframe(pivot_df, use_container_width=True)
+                            st.dataframe(pivot_df, width='stretch')
                        else:
-                            st.dataframe(df_roi_sub, use_container_width=True)
+                            st.dataframe(df_roi_sub, width='stretch')
                   else:
                        st.info("No ROI stats found for this subject/session in selected sheet.")
         else:
@@ -221,6 +221,7 @@ if final_tracker_path:
             df = df[df["Study"] == selected_study]
             
         # Tidy Sheet Handling
+        sel_roi = None
         is_tidy = "Metric" in df.columns and "Statistic" in df.columns
         if is_tidy:
             col1, col2, col3 = st.columns(3)
@@ -275,7 +276,7 @@ if final_tracker_path:
                                        color=None if sel_group == "None" else sel_group,
                                        title=f"Distribution of {selected_metric}",
                                        marginal="box", barmode="overlay")
-                st.plotly_chart(fig_hist, use_container_width=True)
+                st.plotly_chart(fig_hist, width='stretch')
                 
             with col2:
                 fig_box = px.box(df, y=selected_metric, 
@@ -283,7 +284,7 @@ if final_tracker_path:
                                 color=None if sel_group == "None" else sel_group,
                                 title=f"Boxplot of {selected_metric}",
                                 points="all")
-                st.plotly_chart(fig_box, use_container_width=True)
+                st.plotly_chart(fig_box, width='stretch')
         else:
             st.warning("No numeric metrics found in this sheet.")
 
@@ -352,7 +353,7 @@ if final_tracker_path:
                                     hover_data=["Subject_ID", "Session"],
                                     title=f"{metric_x} vs {metric_y}",
                                     trendline="ols")
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            st.plotly_chart(fig_scatter, width='stretch')
         else:
             st.warning("Need at least 2 numeric metrics for correlation.")
 
@@ -360,7 +361,7 @@ if final_tracker_path:
         st.header("Raw Data Sheets")
         for sheet, df in data.items():
             with st.expander(f"Sheet: {sheet}"):
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width='stretch')
 
 else:
     st.info("Please upload a tracker Excel file from the sidebar to begin.")
