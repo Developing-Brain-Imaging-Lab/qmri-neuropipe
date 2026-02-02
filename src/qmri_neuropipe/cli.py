@@ -576,7 +576,8 @@ def main(
              for i in range(jobs):
                   slot_queue.put(i)
              
-             # UI State tracking             class UIState:
+             # UI State tracking
+             class UIState:
                   def __init__(self, n_jobs, total):
                        self.n_jobs = n_jobs
                        self.buffers = {i: deque(maxlen=10) for i in range(n_jobs)}
