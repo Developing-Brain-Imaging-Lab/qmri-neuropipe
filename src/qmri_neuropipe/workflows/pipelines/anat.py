@@ -893,7 +893,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             console = None
             Progress = None
             
-        if Progress and total_steps > 0:
+        if Progress and total_steps > 0 and getattr(console, "is_terminal", True):
              with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),

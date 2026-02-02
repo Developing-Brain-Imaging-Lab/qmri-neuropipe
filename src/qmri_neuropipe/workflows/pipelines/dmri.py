@@ -714,7 +714,7 @@ class PreprocessingWorkflow(BaseWorkflow):
              if isinstance(s, GLOBAL_STEPS): calc_total += 1
              else: calc_total += len(dwi_files) 
              
-        if Progress:
+        if Progress and getattr(console, "is_terminal", True):
              with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -954,7 +954,7 @@ class PreprocessingWorkflow(BaseWorkflow):
          # Extract reporting logic
          curr_img_obj = current_arg.get("current_image") if isinstance(current_arg, dict) else current_arg
          try:
-             from qmri_neuropipe.lib.reporting.viz import create_ortho_view, plot_comparison
+             from qmri_neuropipe.lib.reporting.viz import create_ortho_view
              
              figures_list = []
              details = {}
@@ -1556,91 +1556,92 @@ class ModelingWorkflow(BaseWorkflow):
         
         import shutil
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            console=console 
-        ) as progress:
-            
-            task_id = progress.add_task("Fitting models...", total=total_steps)
-            
-            for i, (dwi, mask) in enumerate(zip(preprocessed_dwis, preprocessed_masks)):
-                img_name = dwi.img.name
-                
-                # Update context for current image
-                context['current_image'] = dwi
-                
-                for step in self.steps:
-                    step_name = step.__class__.__name__
+        if getattr(console, "is_terminal", True):
+             with Progress(
+                 SpinnerColumn(),
+                 TextColumn("[progress.description]{task.description}"),
+                 BarColumn(),
+                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                 TimeRemainingColumn(),
+                 console=console 
+             ) as progress:
+                 
+                 task_id = progress.add_task("Fitting models...", total=total_steps)
+                 
+                 for i, (dwi, mask) in enumerate(zip(preprocessed_dwis, preprocessed_masks)):
+                    img_name = dwi.img.name
                     
-                    # Check skip status using FINAL destination
-                    skipping = hasattr(step, 'should_skip') and step.should_skip(context, final_dest)
+                    # Update context for current image
+                    context['current_image'] = dwi
                     
-                    if skipping:
-                        progress.update(task_id, description=f"Skipping {step_name} (Exists)")
-                        progress.advance(task_id)
+                    for step in self.steps:
+                        step_name = step.__class__.__name__
                         
-                        # Update tracker for skip
-                        tracker_module = step.normalize_tracker_module(step_name)
-                        tracker = self.config.tracker
-                        subject = context.get('subject')
-                        session = context.get('session')
-                        study = context.get('study_name', self.config.get('study_name'))
+                        # Check skip status using FINAL destination
+                        skipping = hasattr(step, 'should_skip') and step.should_skip(context, final_dest)
                         
-                        if tracker and subject and session:
-                            tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality=step.modality)
-                            tracker.save()
+                        if skipping:
+                            progress.update(task_id, description=f"Skipping {step_name} (Exists)")
+                            progress.advance(task_id)
                             
-                        # Report skipped step
+                            # Update tracker for skip
+                            tracker_module = step.normalize_tracker_module(step_name)
+                            tracker = self.config.tracker
+                            subject = context.get('subject')
+                            session = context.get('session')
+                            study = context.get('study_name', self.config.get('study_name'))
+                            
+                            if tracker and subject and session:
+                                tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality=step.modality)
+                                tracker.save()
+                                
+                            # Report skipped step
+                            if reporter:
+                                 try:
+                                     # Use staging_dir for reporting to avoid creating figures in final_dest
+                                     self._report_modeling_step(reporter, step, dwi, output_dir=staging_dir)
+                                 except Exception as e:
+                                     self.logger.warning(f"Reporting failed for skipped step {step_name}: {e}")
+                            continue
+                            
+                        progress.update(task_id, description=f"Processing {img_name} - {step_name}")
+                        
+                        try:
+                            # Run step using __call__ to ensure tracker integration
+                            step(context, output_dir=staging_dir, mask=mask)
+                            
+                            # Copy results to final destination immediately (excluding figures)
+                            if final_output_dir:
+                                shutil.copytree(staging_dir, final_output_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns("figures"))
+                                
+                            progress.advance(task_id)
+                            
+                        except Exception as e:
+                            if self.config.stop_on_error: raise e
+                            self.logger.error(f"Modeling step {step_name} failed: {e}")
+
+                        # Reporting (Using final destination where files should now exist)
                         if reporter:
                              try:
-                                 # Use staging_dir for reporting to avoid creating figures in final_dest
+                                 # Report using staging dir (where figures are)
                                  self._report_modeling_step(reporter, step, dwi, output_dir=staging_dir)
                              except Exception as e:
-                                 self.logger.warning(f"Reporting failed for skipped step {step_name}: {e}")
-                        continue
-                        
-                    progress.update(task_id, description=f"Processing {img_name} - {step_name}")
-                    
-                    try:
-                        # Run step using __call__ to ensure tracker integration
-                        step(context, output_dir=staging_dir, mask=mask)
-                        
-                        # Copy results to final destination immediately (excluding figures)
-                        if final_output_dir:
-                            shutil.copytree(staging_dir, final_output_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns("figures"))
-                            
-                        progress.advance(task_id)
-                        
-                    except Exception as e:
-                        if self.config.stop_on_error: raise e
-                        self.logger.error(f"Modeling step {step_name} failed: {e}")
-
-                    # Reporting (Using final destination where files should now exist)
-                    if reporter:
-                         try:
-                             # Report using staging dir (where figures are)
-                             self._report_modeling_step(reporter, step, dwi, output_dir=staging_dir)
-                         except Exception as e:
-                             self.logger.warning(f"Reporting failed for step {step_name}: {e}")
+                                 self.logger.warning(f"Reporting failed for step {step_name}: {e}")
 
 
-            return context
+             return context
 
         # Execution Wrapper with Rich
-        if Progress:
-             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeRemainingColumn(),
-                transient=True,
-                console=console
-             ) as progress:
+        if Progress and getattr(console, "is_terminal", True):
+              with Progress(
+                 SpinnerColumn(),
+                 TextColumn("[progress.description]{task.description}"),
+                 BarColumn(),
+                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                 TimeRemainingColumn(),
+                 transient=True,
+                 console=console
+              ) as progress:
                  task = progress.add_task(f"[cyan]Starting Modeling...", total=total_steps)
                  return _execute_modeling(progress_ctx=progress, task_id=task)
         else:

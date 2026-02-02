@@ -580,7 +580,7 @@ def main(
              class UIState:
                   def __init__(self, n_jobs, total):
                        self.n_jobs = n_jobs
-                       self.buffers = {i: deque(maxlen=8) for i in range(n_jobs)}
+                       self.buffers = {i: deque(maxlen=10) for i in range(n_jobs)}
                        self.job_info = {i: "[dim]Idle[/dim]" for i in range(n_jobs)}
                        self.job_status = {i: "idle" for i in range(n_jobs)}
                        # Distinct vibrant colors for workers
@@ -615,17 +615,17 @@ def main(
 
                   def get_layout(self):
                        with self.lock:
+                            status_icons = {"idle": "💤", "running": "🔄", "complete": "✅", "failed": "❌"}
+                            
+                            # Build the main body grid using Layout
                             cols = 2 if self.n_jobs > 1 else 1
                             rows = (self.n_jobs + cols - 1) // cols
                             
-                            grid = Table.grid(expand=True, padding=(0, 1))
-                            for _ in range(cols):
-                                 grid.add_column()
-                            
-                            status_icons = {"idle": "💤", "running": "🔄", "complete": "✅", "failed": "❌"}
-                            
+                            body_layout = Layout()
+                            row_layouts = []
                             for r in range(rows):
-                                 row_panels = []
+                                 row_l = Layout(name=f"row_{r}")
+                                 col_layouts = []
                                  for c in range(cols):
                                       idx = r * cols + c
                                       if idx < self.n_jobs:
@@ -634,16 +634,19 @@ def main(
                                            title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
                                            
                                            content = Text("\n".join(self.buffers[idx]), style="dim", overflow="ellipsis")
-                                           row_panels.append(Panel(content, title=title, border_style=color, box=box.ROUNDED, padding=(0, 1)))
+                                           col_layouts.append(Layout(Panel(content, title=title, border_style=color, box=box.ROUNDED, padding=(0, 1))))
                                       else:
-                                           row_panels.append(Text(""))
-                                 grid.add_row(*row_panels)
+                                           col_layouts.append(Layout())
+                                 row_l.split_row(*col_layouts)
+                                 row_layouts.append(row_l)
+                            
+                            body_layout.split_column(*row_layouts)
 
                             layout = Layout()
                             layout.split_column(
                                  Layout(Panel("[bold white on blue] qmri-neuropipe [/bold white on blue] [blue]Parallel Processing Monitor[/blue]", box=box.MINIMAL), size=3),
-                                 Layout(grid, name="main"),
-                                 Layout(self.progress, size=3)
+                                 Layout(body_layout, name="main"),
+                                 Layout(Panel(self.progress, box=box.MINIMAL), size=3)
                             )
                             return layout
 
@@ -672,7 +675,8 @@ def main(
                        except: break
 
              results = []
-             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4, screen=False) as live:
+             # Use screen=True for maximum stability (own terminal buffer)
+             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4, screen=True) as live:
                   # Start monitor with live access
                   monitor_thread = threading.Thread(target=log_monitor, args=(live,), daemon=True)
                   monitor_thread.start()
