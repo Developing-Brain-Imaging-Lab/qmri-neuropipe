@@ -111,8 +111,46 @@ class BaseProcessingStep(ABC):
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
         
-        # Step metadata
         self.step_name = self.__class__.__name__
+        self.modality: Optional[str] = None # Set by workflow if needed
+
+    @staticmethod
+    def normalize_tracker_module(step_name: str) -> str:
+        """
+        Normalize a processing step name to match tracker column headers.
+        
+        Args:
+            step_name: Name of the step (e.g. BrainMaskingStep or Brain_Masking)
+            
+        Returns:
+            Normalized column name (e.g. Brain_Masking)
+        """
+        import re
+        step_base = step_name.replace("Step", "")
+        # Convert CamelCase to Snake_Case if needed
+        if re.search(r'[a-z][A-Z]', step_base):
+             tracker_module = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', step_base)
+        else:
+             tracker_module = step_base
+
+        # Standard mappings for tracker columns to match Excel sheet headers
+        mismatch_map = {
+            "Gibbs_Unringing": "Gibbs_Ringing",
+            "DMRI_Reorient": "Reorienting",
+            "Reorient": "Reorienting",
+            "Syn_B0": "SynB0",
+            "DTI_Fitting": "Model_Fits",
+            "DKI_Fitting": "Model_Fits",
+            "CSD_Fitting": "Model_Fits",
+            "NODDI_Fitting": "Model_Fits",
+            "Fiber_Orientation": "Model_Fits",
+            "Atlas_Registration": "Atlases",
+            "Stats_Extraction": "Analysis",
+            "Recon_All": "Segmentation",
+            "Free_Surfer_Stats": "Analysis",
+            "Nonlinear_Registration": "Coregistration"
+        }
+        return mismatch_map.get(tracker_module, tracker_module)
     
     def __call__(self, *args, **kwargs) -> Any:
         """
@@ -149,14 +187,12 @@ class BaseProcessingStep(ABC):
         session = context.get('session') if context else None
         study = context.get('study_name', self.config.get('study_name')) if context else self.config.get('study_name')
         
-        # Normalize step name for tracker (e.g. BrainMaskingStep -> Brain_Masking, DenoisingStep -> Denoising)
-        import re
-        step_base = self.step_name.replace("Step", "")
-        tracker_module = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', step_base)
+        # Normalize step name for tracker
+        tracker_module = self.normalize_tracker_module(self.step_name)
         
         tracker = self.config.tracker
         if tracker and subject and session:
-            tracker.update_status(subject, session, tracker_module, "running", study)
+            tracker.update_status(subject, session, tracker_module, "running", study, modality=self.modality)
 
         try:
             # Validate inputs before processing
@@ -177,7 +213,7 @@ class BaseProcessingStep(ABC):
                 self._log_provenance(*args, result=result, **kwargs)
             
             if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "completed", study)
+                tracker.update_status(subject, session, tracker_module, "completed", study, modality=self.modality)
                 tracker.log_time(subject, session, tracker_module, duration_s / 60.0, study)
                 tracker.save() # Auto-save if enabled
             
@@ -189,7 +225,7 @@ class BaseProcessingStep(ABC):
             
         except ValidationError as e:
             if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "failed", study)
+                tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
                 tracker.log_error(subject, session, tracker_module, str(e), study)
                 tracker.save()
             self.logger.error(f"{self.step_name} validation failed: {e}")
@@ -197,7 +233,7 @@ class BaseProcessingStep(ABC):
             
         except Exception as e:
             if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "failed", study)
+                tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
                 tracker.log_error(subject, session, tracker_module, str(e), study)
                 tracker.save()
             self.logger.error(
@@ -302,20 +338,36 @@ class BaseProcessingStep(ABC):
     def _log_provenance(self, *args, result: Any, **kwargs) -> None:
         """
         Log provenance information for this step.
-        
-        Override in subclass to log detailed provenance.
-        Default implementation logs basic information.
-        
-        Args:
-            *args: Input arguments to log
-            result: Output result to log
-            **kwargs: Keyword arguments to log
         """
         if self.provenance:
+            # Extract paths from complex objects for better provenance
+            inputs = {}
+            for i, arg in enumerate(args):
+                if hasattr(arg, 'img'): # ImageFile / DWIFile
+                    inputs[f'arg_{i}'] = str(getattr(arg, 'img'))
+                elif isinstance(arg, dict):
+                    # Handle context dictionary summary
+                    if 'current_image' in arg:
+                        img = arg['current_image']
+                        inputs[f'current_image'] = str(getattr(img, 'img')) if hasattr(img, 'img') else str(img)
+                    else:
+                        inputs[f'arg_{i}'] = f"<dict: {list(arg.keys())[:5]}...>"
+                else:
+                    inputs[f'arg_{i}'] = str(arg)
+
+            outputs = {}
+            if hasattr(result, 'img'):
+                 outputs['result'] = str(getattr(result, 'img'))
+            elif isinstance(result, dict) and 'current_image' in result:
+                 img = result['current_image']
+                 outputs['result'] = str(getattr(img, 'img')) if hasattr(img, 'img') else str(img)
+            else:
+                 outputs['result'] = str(result)
+
             self.provenance.log_step(
                 step_name=self.step_name,
-                inputs={f'arg_{i}': str(arg) for i, arg in enumerate(args)},
-                outputs={'result': str(result)},
+                inputs=inputs,
+                outputs=outputs,
                 parameters=kwargs,
                 duration=(self.end_time - self.start_time).total_seconds()
             )
@@ -425,6 +477,7 @@ class BaseWorkflow(ABC):
         self.provenance = provenance
         
         self.workflow_name = self.__class__.__name__
+        self.modality: Optional[str] = None # Set by subclass
         self.steps: List[BaseProcessingStep] = []
         
         # Initialize steps (implemented by subclass)
@@ -448,6 +501,10 @@ class BaseWorkflow(ABC):
             raise TypeError(
                 f"step must be a BaseProcessingStep, got {type(step)}"
             )
+            
+        # Propagate modality to step
+        if self.modality and not step.modality:
+             step.modality = self.modality
         
         if position is None:
             self.steps.append(step)

@@ -28,6 +28,7 @@ class RelaxometryWorkflow(BaseWorkflow):
     """
     
     def _initialize_steps(self):
+        self.modality = "Relaxometry"
         # Configuration
         relax_cfg = self.config.get("relaxometry", {})
         preproc_cfg = relax_cfg.get("preprocessing", {})

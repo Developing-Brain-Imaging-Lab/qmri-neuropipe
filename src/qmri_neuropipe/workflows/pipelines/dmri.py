@@ -50,6 +50,7 @@ class PreprocessingWorkflow(BaseWorkflow):
     """
 
     def _initialize_steps(self):
+        self.modality = "Diffusion"
         self.steps = []
 
     def build_pipeline(self, context: dict):
@@ -1133,6 +1134,7 @@ class ModelingWorkflow(BaseWorkflow):
     """
 
     def _initialize_steps(self):
+        self.modality = "Diffusion"
         self.steps = []
         
     def build_pipeline(self, context: dict):
@@ -1582,15 +1584,14 @@ class ModelingWorkflow(BaseWorkflow):
                         progress.advance(task_id)
                         
                         # Update tracker for skip
-                        import re
-                        tracker_module = re.sub(r'(?<!^)(?=[A-Z])', '_', step_name.replace("Step", ""))
+                        tracker_module = step.normalize_tracker_module(step_name)
                         tracker = self.config.tracker
                         subject = context.get('subject')
                         session = context.get('session')
                         study = context.get('study_name', self.config.get('study_name'))
                         
                         if tracker and subject and session:
-                            tracker.update_status(subject, session, tracker_module, "completed (cached)", study)
+                            tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality=step.modality)
                             tracker.save()
                             
                         # Report skipped step
@@ -1793,6 +1794,7 @@ class SegmentationWorkflow(BaseWorkflow):
     """
     
     def _initialize_steps(self):
+        self.modality = "Diffusion"
         self.steps = []
         
     def build_pipeline(self, context: dict):

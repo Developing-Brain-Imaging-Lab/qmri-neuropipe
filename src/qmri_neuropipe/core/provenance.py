@@ -222,14 +222,23 @@ class ProvenanceTracker:
         
         for key, value in io_dict.items():
             if isinstance(value, (str, Path)):
-                filepath = Path(value)
-                if filepath.exists() and filepath.is_file():
-                    processed[key] = {
-                        'path': str(filepath),
-                        'checksum': self._compute_checksum(filepath)
-                    }
-                else:
-                    processed[key] = str(filepath)
+                # Avoid long strings that are definitely not paths (fixes OSError: File name too long)
+                if isinstance(value, str) and (len(value) > 1024 or '{' in value or '\n' in value):
+                    processed[key] = value
+                    continue
+                    
+                try:
+                    filepath = Path(value)
+                    if filepath.exists() and filepath.is_file():
+                        processed[key] = {
+                            'path': str(filepath),
+                            'checksum': self._compute_checksum(filepath)
+                        }
+                    else:
+                        processed[key] = str(filepath)
+                except OSError:
+                    # Handle "File name too long" or other path errors
+                    processed[key] = str(value)
             else:
                 processed[key] = str(value)
         

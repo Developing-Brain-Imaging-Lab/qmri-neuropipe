@@ -46,6 +46,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
     Workflow for preprocessing T1w (and optionally T2w) images.
     """
     def _initialize_steps(self):
+        self.modality = "Anatomical"
         # Configure Steps
         anat_cfg = self.config.get("anat", {}).get("preprocessing", {})
         
@@ -281,8 +282,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                    })
                                    
                                    # Update tracker for skip
-                                   import re
-                                   tracker_module = re.sub(r'(?<!^)(?=[A-Z])', '_', step_name.replace("Step", ""))
+                                   tracker_module = step.normalize_tracker_module(step_name)
                                    tracker = self.config.tracker
                                    subject = context.get('subject')
                                    session = context.get('session')
