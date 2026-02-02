@@ -228,38 +228,46 @@ if final_tracker_path:
                        st.subheader("📈 Subject ROI Analysis")
                        st.info("Visualize metric distributions across ROIs for this subject.")
                        
-                       c1, c2, c3 = st.columns(3)
+                       c1, c2, c3, c4 = st.columns(4)
                        avail_models = sorted(df_roi_sub["Model"].unique().tolist()) if "Model" in df_roi_sub.columns else ["N/A"]
                        avail_metrics = sorted(df_roi_sub["Metric"].unique().tolist()) if "Metric" in df_roi_sub.columns else ["N/A"]
+                       avail_stats = sorted(df_roi_sub["Statistic"].unique().tolist()) if "Statistic" in df_roi_sub.columns else ["Mean"]
                        
-                       sel_models = c1.multiselect("Select Model(s)", avail_models, default=avail_models[:1] if avail_models else [])
-                       sel_metrics = c2.multiselect("Select Metric(s)", avail_metrics, default=avail_metrics[:1] if avail_metrics else [])
+                       sel_models = c1.multiselect("Models", avail_models, default=avail_models[:1] if avail_models else [])
+                       sel_metrics = c2.multiselect("Metrics", avail_metrics, default=avail_metrics[:1] if avail_metrics else [])
+                       sel_stats = c3.multiselect("Statistics", avail_stats, default=["Mean"] if "Mean" in avail_stats else avail_stats[:1])
                        
                        plot_df = df_roi_sub.copy()
                        if "Model" in plot_df.columns and sel_models: plot_df = plot_df[plot_df["Model"].isin(sel_models)]
                        if "Metric" in plot_df.columns and sel_metrics: plot_df = plot_df[plot_df["Metric"].isin(sel_metrics)]
+                       if "Statistic" in plot_df.columns and sel_stats: plot_df = plot_df[plot_df["Statistic"].isin(sel_stats)]
                        
                        meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp']
                        if is_wide:
                             roi_cols = [c for c in plot_df.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(plot_df[c])]
-                            sel_rois = c3.multiselect("Select ROIs to Plot", sorted(roi_cols), default=roi_cols[:10] if len(roi_cols) > 10 else roi_cols)
+                            sel_rois = c4.multiselect("ROIs", sorted(roi_cols), default=roi_cols[:10] if len(roi_cols) > 10 else roi_cols)
                             if sel_rois:
                                  plot_df = plot_df.melt(id_vars=[c for c in plot_df.columns if c not in sel_rois], value_vars=sel_rois, var_name="ROI_Name", value_name="Value")
                        else:
                             if "ROI_Name" in plot_df.columns:
                                  avail_rois = sorted(plot_df["ROI_Name"].unique().tolist())
-                                 sel_rois = c3.multiselect("Select ROIs to Plot", avail_rois, default=avail_rois[:10] if len(avail_rois) > 10 else avail_rois)
+                                 sel_rois = c4.multiselect("ROIs", avail_rois, default=avail_rois[:10] if len(avail_rois) > 10 else avail_rois)
                                  if sel_rois: plot_df = plot_df[plot_df["ROI_Name"].isin(sel_rois)]
 
                        if not plot_df.empty and "Value" in plot_df.columns:
-                            plot_group = "Metric" if len(sel_metrics) > 1 else ("Model" if len(sel_models) > 1 else "Session")
+                            # Dynamic grouping based on what the user selected multiple of
+                            if len(sel_stats) > 1: plot_group = "Statistic"
+                            elif len(sel_metrics) > 1: plot_group = "Metric"
+                            elif len(sel_models) > 1: plot_group = "Model"
+                            else: plot_group = "Session"
+                            
                             fig = px.bar(plot_df, x="ROI_Name", y="Value", color=plot_group, barmode="group",
                                          facet_row="Session" if len(plot_df["Session"].unique()) > 1 else None,
                                          title=f"ROI Metrics for {selected_subj}")
                             fig.update_layout(xaxis={'categoryorder':'total descending'})
                             st.plotly_chart(fig, use_container_width=True)
                             
-                            fig_box = px.box(plot_df, x="Metric", y="Value", color="Session", points="all", hover_name="ROI_Name",
+                            fig_box = px.box(plot_df, x="Metric", y="Value", color=plot_group, points="all", hover_name="ROI_Name",
                                              title=f"Distribution across regions for {selected_subj}")
                             st.plotly_chart(fig_box, use_container_width=True)
                        else:
