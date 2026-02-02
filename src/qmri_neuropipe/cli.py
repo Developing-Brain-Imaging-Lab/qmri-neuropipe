@@ -16,6 +16,15 @@ from pathlib import Path
 from typing import List, Optional
 import typer
 from rich.table import Table
+from rich.layout import Layout
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+from rich.console import Group
+from rich.text import Text
+from collections import deque
+import threading
+import multiprocessing
 
 # Global Warning Silencing
 # 1. Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
@@ -549,42 +558,125 @@ def main(
         console.print(f"Total tasks to process: {len(tasks)}")
 
         # If parallel execution requested
+        # If parallel execution requested
         if jobs > 1 and not submit:
-             console.print(f"\n[bold blue]Running in PARALLEL mode with {jobs} workers.[/bold blue]")
+             console.print(f"\n[bold blue]Running locally in PARALLEL mode with {jobs} workers.[/bold blue]")
              
              import concurrent.futures
-             from rich.progress import Progress
+             from qmri_neuropipe.core.ui import console as main_console
              
              # Serialize Config
              config_dict = config.to_dict()
              
-             results = []
-             # Use ProcessPoolExecutor
-             with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
-                  futures = {}
-                  for i, (sub, ses) in enumerate(tasks):
-                       # Round robin GPU using merged config (supports CLI and YAML)
-                       g_id = None
-                       if config.gpu_ids:
-                            g_id = config.gpu_ids[i % len(config.gpu_ids)]
-                       
-                       f = executor.submit(_run_parallel_worker, sub, ses, config_dict, g_id, pipeline_name)
-                       futures[f] = (sub, ses)
+             # Initialize Manager for inter-process communication
+             manager = multiprocessing.Manager()
+             log_queue = manager.Queue()
+             slot_queue = manager.Queue()
+             for i in range(jobs):
+                  slot_queue.put(i)
+             
+             # UI State tracking
+             class UIState:
+                  def __init__(self, n_jobs, total):
+                       self.n_jobs = n_jobs
+                       self.buffers = {i: deque(maxlen=8) for i in range(n_jobs)}
+                       self.job_info = {i: "Idle" for i in range(n_jobs)}
+                       self.progress = Progress(
+                            SpinnerColumn(),
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                            TimeRemainingColumn(),
+                            console=main_console
+                       )
+                       self.overall_task = self.progress.add_task("[green]Overall Progress", total=total)
+                       self.lock = threading.Lock()
+                       self.tasks_done = 0
 
-                  # Monitor
-                  with Progress(console=console) as progress:
-                       task_p = progress.add_task("[green]Processing...", total=len(tasks))
-                       
+                  def update_log(self, j_id, msg):
+                       with self.lock:
+                            self.buffers[j_id].append(msg)
+
+                  def update_info(self, j_id, info):
+                       with self.lock:
+                            self.job_info[j_id] = info
+
+                  def advance(self):
+                       with self.lock:
+                            self.tasks_done += 1
+                            self.progress.update(self.overall_task, completed=self.tasks_done)
+
+                  def get_layout(self):
+                       with self.lock:
+                            # Create a grid layout based on number of jobs
+                            cols = 2 if self.n_jobs > 1 else 1
+                            rows = (self.n_jobs + cols - 1) // cols
+                            
+                            grid = Table.grid(expand=True)
+                            for _ in range(cols):
+                                 grid.add_column()
+                            
+                            for r in range(rows):
+                                 row_panels = []
+                                 for c in range(cols):
+                                      idx = r * cols + c
+                                      if idx < self.n_jobs:
+                                           content = Text("\n".join(self.buffers[idx]), style="dim", overflow="ellipsis")
+                                           row_panels.append(Panel(content, title=f"Worker {idx}: {self.job_info[idx]}", border_style="blue"))
+                                      else:
+                                           row_panels.append(Text(""))
+                                 grid.add_row(*row_panels)
+
+                            layout = Layout()
+                            layout.split_column(
+                                 Layout(Panel("[bold blue]qmri-neuropipe Parallel Execution[/bold blue]", style="white on blue"), size=3),
+                                 Layout(grid, name="main"),
+                                 Layout(self.progress, size=3)
+                            )
+                            return layout
+
+             ui_state = UIState(jobs, len(tasks))
+             
+             def log_monitor():
+                  while True:
+                       try:
+                            item = log_queue.get()
+                            if item == "STOP": break
+                            msg_type, j_id, msg = item
+                            if msg_type == "log":
+                                 ui_state.update_log(j_id, msg)
+                            elif msg_type == "info":
+                                 ui_state.update_info(j_id, msg)
+                       except: break
+
+             monitor_thread = threading.Thread(target=log_monitor, daemon=True)
+             monitor_thread.start()
+
+             results = []
+             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4) as live:
+                  with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
+                       futures = {}
+                       for i, (sub, ses) in enumerate(tasks):
+                            g_id = None
+                            if config.gpu_ids:
+                                 g_id = config.gpu_ids[i % len(config.gpu_ids)]
+                            
+                            f = executor.submit(_run_parallel_worker, sub, ses, config_dict, g_id, pipeline_name, log_queue, slot_queue)
+                            futures[f] = (sub, ses)
+
                        for f in concurrent.futures.as_completed(futures):
-                           sub_id, ses_id = futures[f]
-                           try:
-                               res = f.result()
-                               results.append(res)
-                           except Exception as e:
-                               console.print(f"[red]Exception in task {sub_id}/{ses_id}: {e}[/red]")
-                               results.append({'n_failed': 1})
-                           progress.advance(task_p)
-                           
+                            sub_id, ses_id = futures[f]
+                            try:
+                                 res = f.result()
+                                 results.append(res or {'n_failed': 1})
+                            except Exception as e:
+                                 results.append({'n_failed': 1, 'error': str(e)})
+                            ui_state.advance()
+                            live.update(ui_state.get_layout())
+
+             log_queue.put("STOP")
+             monitor_thread.join(timeout=1)
+
              # Aggregate Stats
              stats = {'n_success': 0, 'n_failed': 0, 'n_skipped': 0}
              for r in results:
@@ -644,69 +736,82 @@ def _run_parallel_worker(
     session: Optional[str],
     config_dict: dict,
     gpu_id: Optional[int],
-    pipeline_name: str
+    pipeline_name: str,
+    log_queue: Optional[Any] = None,
+    slot_queue: Optional[Any] = None
 ) -> dict:
     """
     Worker function for parallel pipeline execution.
     """
     import os
+    import logging
+    import sys
     from qmri_neuropipe.core import PipelineConfig
     
-    # 1. Isolate GPU Environment
-    if gpu_id is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        # Force re-initialization of CUDA context in libraries if possible?
-        # Process isolation (multiprocessing) handles this naturally.
-        
-    # 2. Reconstruct Config
-    # We need to separate standard fields from the rest (which goes into config_data)
-    # PipelineConfig.__init__ takes standard fields as args, plus config_data dict
-    
-    # annotations might include ClassVars etc., so be careful, but filtering by keys in dict should be safe
-    # We want to pass known fields as kwargs, and unexpected ones (like 'dmri') in config_data
-    
-    valid_keys = set(PipelineConfig.__annotations__.keys())
-    if 'config_data' in valid_keys:
-        valid_keys.remove('config_data')
-        
-    standard_args = {k: v for k, v in config_dict.items() if k in valid_keys}
-    
-    try:
-        # Pass standard args as kwargs, and the FULL dict as config_data
-        # This ensures 'dmri', 'bids', etc. are all available in config_data,
-        # while standard attributes are properly set on the instance.
-        config = PipelineConfig(**standard_args, config_data=config_dict)
-    except Exception:
-        # Fallback
-        config = PipelineConfig()
-        for k, v in standard_args.items():
-            if hasattr(config, k):
-                setattr(config, k, v)
-        config.config_data = config_dict
-        
-    # Force Path conversion explicitly (fixes TypeError in parallel mode)
-    if config.bids_dir: config.bids_dir = Path(config.bids_dir)
-    if config.output_dir: config.output_dir = Path(config.output_dir)
-    if config.work_dir: config.work_dir = Path(config.work_dir)
-    if config.subjects_file: config.subjects_file = Path(config.subjects_file)
+    # 0. Acquire Slot and Identify Job
+    job_id = 0
+    if slot_queue:
+         job_id = slot_queue.get()
 
-    # CRITICAL: Disable recursive parallelism in the worker
-    config.set('jobs', 1)
-    if 'jobs' in config.config_data:
-        config.config_data['jobs'] = 1
-
-    # Force cleaner logging for workers (unless debug requested)
-    if not config.debug:
-        config.log_level = "WARNING"
-        # We might also want to set verbose to False
-        config.verbose = False
-                
-    # 3. Initialize Pipeline
     try:
+        # 1. Isolate GPU Environment
+        if gpu_id is not None:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            
+        # 2. Reconstruct Config
+        valid_keys = set(PipelineConfig.__annotations__.keys())
+        if 'config_data' in valid_keys:
+            valid_keys.remove('config_data')
+            
+        standard_args = {k: v for k, v in config_dict.items() if k in valid_keys}
+        
+        try:
+            config = PipelineConfig(**standard_args, config_data=config_dict)
+        except Exception:
+            config = PipelineConfig()
+            for k, v in standard_args.items():
+                if hasattr(config, k):
+                    setattr(config, k, v)
+            config.config_data = config_dict
+            
+        if config.bids_dir: config.bids_dir = Path(config.bids_dir)
+        if config.output_dir: config.output_dir = Path(config.output_dir)
+        if config.work_dir: config.work_dir = Path(config.work_dir)
+        if config.subjects_file: config.subjects_file = Path(config.subjects_file)
+
+        config.set('jobs', 1)
+        if 'jobs' in config.config_data:
+            config.config_data['jobs'] = 1
+
+        # 3. Setup Worker UI/Logging Redirect
+        if log_queue:
+             log_queue.put(("info", job_id, f"{subject} ({session or 'N/A'})"))
+             
+             # Custom Logging Handler to Queue
+             class QueueHandler(logging.Handler):
+                  def emit(self, record):
+                       msg = self.format(record)
+                       log_queue.put(("log", job_id, msg))
+             
+             root_logger = logging.getLogger()
+             # Clear existing if needed? No, just add ours.
+             q_handler = QueueHandler()
+             q_handler.setFormatter(logging.Formatter('%(message)s'))
+             root_logger.addHandler(q_handler)
+             
+             # Also redirect stdout for prints
+             class StdoutRedirector:
+                  def write(self, s):
+                       if s.strip():
+                            log_queue.put(("log", job_id, s.strip()))
+                  def flush(self): pass
+             
+             sys.stdout = StdoutRedirector()
+
+        # 4. Initialize Pipeline
         if pipeline_name == 'dmri':
             from qmri_neuropipe.workflows.pipelines.dmri import DMRIPipeline
             pipeline_obj = DMRIPipeline(config)
-
         elif pipeline_name == 'anat':
             from qmri_neuropipe.workflows.pipelines.anat import AnatPipeline
             pipeline_obj = AnatPipeline(config)
@@ -716,8 +821,7 @@ def _run_parallel_worker(
         else:
              return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': f"Unknown pipeline {pipeline_name}"}
         
-        # 4. Run (Single Subject mode)
-        # Note: pipeline.run signature is (subjects=..., sessions=...)
+        # 5. Run (Single Subject mode)
         stats = pipeline_obj.run(
             subjects=[subject], 
             sessions=[session] if session else None
@@ -725,9 +829,13 @@ def _run_parallel_worker(
         return stats
         
     except Exception as e:
-        # In batch mode, we don't want to print exception traceback to console for every failure 
-        # unless debug is on. We return the error.
+        if log_queue:
+             log_queue.put(("log", job_id, f"[red]ERROR: {str(e)}[/red]"))
         return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
+    finally:
+         if slot_queue:
+              log_queue.put(("info", job_id, "Idle"))
+              slot_queue.put(job_id)
 
 if __name__ == "__main__":
     app()
