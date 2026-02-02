@@ -580,26 +580,32 @@ def main(
                   def __init__(self, n_jobs, total):
                        self.n_jobs = n_jobs
                        self.buffers = {i: deque(maxlen=8) for i in range(n_jobs)}
-                       self.job_info = {i: "Idle" for i in range(n_jobs)}
+                       self.job_info = {i: "[dim]Idle[/dim]" for i in range(n_jobs)}
+                       self.job_status = {i: "idle" for i in range(n_jobs)}
+                       # Distinct vibrant colors for workers
+                       self.colors = ["cyan", "magenta", "yellow", "green", "blue", "orange", "bright_blue", "bright_magenta"]
                        self.progress = Progress(
                             SpinnerColumn(),
                             TextColumn("[progress.description]{task.description}"),
-                            BarColumn(),
+                            BarColumn(bar_width=None),
                             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                             TimeRemainingColumn(),
-                            console=main_console
+                            console=main_console,
+                            expand=True
                        )
-                       self.overall_task = self.progress.add_task("[green]Overall Progress", total=total)
+                       self.overall_task = self.progress.add_task("[bold green]Total Progress", total=total)
                        self.lock = threading.Lock()
                        self.tasks_done = 0
 
                   def update_log(self, j_id, msg):
                        with self.lock:
+                            # Strip common redundant prefixes if needed, but keep it clean
                             self.buffers[j_id].append(msg)
 
-                  def update_info(self, j_id, info):
+                  def update_info(self, j_id, info, status="running"):
                        with self.lock:
                             self.job_info[j_id] = info
+                            self.job_status[j_id] = status
 
                   def advance(self):
                        with self.lock:
@@ -608,28 +614,33 @@ def main(
 
                   def get_layout(self):
                        with self.lock:
-                            # Create a grid layout based on number of jobs
                             cols = 2 if self.n_jobs > 1 else 1
                             rows = (self.n_jobs + cols - 1) // cols
                             
-                            grid = Table.grid(expand=True)
+                            grid = Table.grid(expand=True, padding=(0, 1))
                             for _ in range(cols):
                                  grid.add_column()
+                            
+                            status_icons = {"idle": "💤", "running": "🔄", "complete": "✅", "failed": "❌"}
                             
                             for r in range(rows):
                                  row_panels = []
                                  for c in range(cols):
                                       idx = r * cols + c
                                       if idx < self.n_jobs:
+                                           color = self.colors[idx % len(self.colors)]
+                                           icon = status_icons.get(self.job_status[idx], "•")
+                                           title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
+                                           
                                            content = Text("\n".join(self.buffers[idx]), style="dim", overflow="ellipsis")
-                                           row_panels.append(Panel(content, title=f"Worker {idx}: {self.job_info[idx]}", border_style="blue"))
+                                           row_panels.append(Panel(content, title=title, border_style=color, box=Panel.box.ROUNDED, padding=(0, 1)))
                                       else:
                                            row_panels.append(Text(""))
                                  grid.add_row(*row_panels)
 
                             layout = Layout()
                             layout.split_column(
-                                 Layout(Panel("[bold blue]qmri-neuropipe Parallel Execution[/bold blue]", style="white on blue"), size=3),
+                                 Layout(Panel("[bold white on blue] qmri-neuropipe [/bold white on blue] [blue]Parallel Processing Monitor[/blue]", box=Panel.box.MINIMAL), size=3),
                                  Layout(grid, name="main"),
                                  Layout(self.progress, size=3)
                             )
@@ -646,7 +657,11 @@ def main(
                             if msg_type == "log":
                                  ui_state.update_log(j_id, msg)
                             elif msg_type == "info":
-                                 ui_state.update_info(j_id, msg)
+                                 # Expecting msg to be (subject_info, status)
+                                 if isinstance(msg, tuple):
+                                      ui_state.update_info(j_id, msg[0], msg[1])
+                                 else:
+                                      ui_state.update_info(j_id, msg)
                        except: break
 
              monitor_thread = threading.Thread(target=log_monitor, daemon=True)
@@ -746,6 +761,7 @@ def _run_parallel_worker(
     import os
     import logging
     import sys
+    from pathlib import Path
     from qmri_neuropipe.core import PipelineConfig
     
     # 0. Acquire Slot and Identify Job
@@ -785,7 +801,8 @@ def _run_parallel_worker(
 
         # 3. Setup Worker UI/Logging Redirect
         if log_queue:
-             log_queue.put(("info", job_id, f"{subject} ({session or 'N/A'})"))
+             log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
+             log_queue.put(("log", job_id, f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]"))
              
              # Custom Logging Handler to Queue
              class QueueHandler(logging.Handler):
@@ -794,9 +811,8 @@ def _run_parallel_worker(
                        log_queue.put(("log", job_id, msg))
              
              root_logger = logging.getLogger()
-             # Clear existing if needed? No, just add ours.
              q_handler = QueueHandler()
-             q_handler.setFormatter(logging.Formatter('%(message)s'))
+             q_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
              root_logger.addHandler(q_handler)
              
              # Also redirect stdout for prints
@@ -826,15 +842,22 @@ def _run_parallel_worker(
             subjects=[subject], 
             sessions=[session] if session else None
         )
+        
+        if log_queue:
+             status = "complete" if stats.get('n_success', 0) > 0 else "failed"
+             log_queue.put(("info", job_id, (f"{subject} (Done)", status)))
+             log_queue.put(("log", job_id, f"✨ [bold green]Finished {subject}[/bold green]"))
+             
         return stats
         
     except Exception as e:
         if log_queue:
-             log_queue.put(("log", job_id, f"[red]ERROR: {str(e)}[/red]"))
+             log_queue.put(("info", job_id, (f"{subject} (Error)", "failed")))
+             log_queue.put(("log", job_id, f"[bold red]FATAL ERROR: {str(e)}[/bold red]"))
         return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
     finally:
          if slot_queue:
-              log_queue.put(("info", job_id, "Idle"))
+              # Reset info after a short delay might be nice, but leaving it as (Done) is better
               slot_queue.put(job_id)
 
 if __name__ == "__main__":
