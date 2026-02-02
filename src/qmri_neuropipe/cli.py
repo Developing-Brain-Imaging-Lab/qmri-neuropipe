@@ -584,7 +584,7 @@ def main(
                        self.job_info = {i: "[dim]Idle[/dim]" for i in range(n_jobs)}
                        self.job_status = {i: "idle" for i in range(n_jobs)}
                        # Distinct vibrant colors for workers
-                       self.colors = ["cyan", "magenta", "yellow", "green", "blue", "orange", "bright_blue", "bright_magenta"]
+                       self.colors = ["cyan", "magenta", "yellow", "green", "blue", "red", "bright_blue", "bright_magenta"]
                        self.progress = Progress(
                             SpinnerColumn(),
                             TextColumn("[progress.description]{task.description}"),
