@@ -127,11 +127,11 @@ class BaseProcessingStep(ABC):
         """
         import re
         step_base = step_name.replace("Step", "")
-        # Convert CamelCase to Snake_Case if needed
-        if re.search(r'[a-z][A-Z]', step_base):
-             tracker_module = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', step_base)
-        else:
-             tracker_module = step_base
+        # Robust CamelCase/Prefix to Snake_Case conversion
+        # Handles: EddyCorrection -> Eddy_Correction, Synb0Estimation -> Synb0_Estimation, DMRIReorient -> DMRI_Reorient
+        tracker_module = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', step_base)
+        # Handle cases like DMRIReorient or B0Fieldmap
+        tracker_module = re.sub(r'([A-Z])([A-Z][a-z])', r'\1_\2', tracker_module)
 
         # Standard mappings for tracker columns to match Excel sheet headers
         mismatch_map = {
@@ -139,6 +139,12 @@ class BaseProcessingStep(ABC):
             "DMRI_Reorient": "Reorienting",
             "Reorient": "Reorienting",
             "Syn_B0": "SynB0",
+            "Synb0_Estimation": "SynB0",
+            "Syn_B0_Estimation": "SynB0",
+            "Synb0": "SynB0",
+            "Top_Up": "Topup",
+            "Top_up": "Topup",
+            "TopUp": "Topup",
             "DTI_Fitting": "Model_Fits",
             "DKI_Fitting": "Model_Fits",
             "CSD_Fitting": "Model_Fits",
@@ -148,7 +154,10 @@ class BaseProcessingStep(ABC):
             "Stats_Extraction": "Analysis",
             "Recon_All": "Segmentation",
             "Free_Surfer_Stats": "Analysis",
-            "Nonlinear_Registration": "Coregistration"
+            "Nonlinear_Registration": "Coregistration",
+            "Brain_Masking": "Brain_Masking",
+            "SPGR_Motion_Correction": "Motion_Correction",
+            "B1_Mapping": "B1_Mapping_Method"
         }
         return mismatch_map.get(tracker_module, tracker_module)
     

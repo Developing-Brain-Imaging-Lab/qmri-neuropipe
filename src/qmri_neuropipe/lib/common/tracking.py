@@ -140,13 +140,14 @@ class TrackingStep(BaseProcessingStep):
                     tracker.update_status(subject, session, mod_name, val, study)
                     
                     # Special Method Detection (Context-based)
-                    if base_key.lower() == 'recon_all' and val.lower() == 'complete':
+                    is_complete = val.lower() in ['complete', 'completed', 'completed (cached)']
+                    if base_key.lower() == 'recon_all' and is_complete:
                         final_statuses['Segmentation'] = 'Complete'
                         final_statuses['Segmentation_Method'] = 'FreeSurfer'
-                    elif base_key.lower() == 'fsl_anat' and val.lower() == 'complete':
+                    elif base_key.lower() == 'fsl_anat' and is_complete:
                         final_statuses['Segmentation'] = 'Complete'
                         final_statuses['Segmentation_Method'] = 'FSL_Anat'
-                    elif base_key.lower() == 'b1_mapping' and val.lower() == 'complete':
+                    elif (base_key.lower() == 'b1_mapping' or base_key.lower() == 'b1_mapping_method') and is_complete:
                         final_statuses['B1_Mapping_Method'] = context.get('b1_method', 'Unknown')
 
             # Apply all merged statuses to the modality-specific sheet
@@ -485,6 +486,19 @@ class TrackingStep(BaseProcessingStep):
             # Check for bias (T1w or T2w)
             if list(anat_path.glob("*desc-*bias*.nii.gz")): 
                 results['Anatomical']['Bias_Correction'] = 'Complete'
+            
+            # Check for reorienting
+            if list(anat_path.glob("*desc-*reorient*.nii.gz")):
+                results['Anatomical']['Reorienting'] = 'Complete'
+                
+            # Check for coregistration (T2 to T1 or vice-versa)
+            if list(anat_path.glob("*desc-*coreg*.nii.gz")):
+                results['Anatomical']['Coregistration'] = 'Complete'
+                
+            # Check for normalization
+            if list(anat_path.glob("*desc-*norm*.nii.gz")):
+                results['Anatomical']['Coregistration'] = 'Complete' # Standard space usually implies coreg/norm done
+                # Results could also distinguish if we have separate columns
 
         # Diffusion
         if dwi_path.exists():

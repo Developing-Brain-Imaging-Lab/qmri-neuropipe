@@ -2140,6 +2140,27 @@ class DMRIPipeline(BasePipeline):
             if (output_dir / "statistics").exists():
                  preprocessed_context['segmentation_status'] = 'completed'
 
+            # --- Update Tracker for Skipped Preprocessing ---
+            tracker = self.config.tracker
+            if tracker and subject and session:
+                # Common steps that are usually part of a complete preproc run
+                skipped_modules = ["Denoising", "Gibbs_Ringing", "Eddy_Correction", "Bias_Correction", "Reorienting"]
+                
+                # Check for Topup/SynB0 if in config
+                preproc_cfg = dmri_cfg.get('preprocessing', {})
+                if preproc_cfg.get('topup', {}).get('enabled', False):
+                     skipped_modules.append("Topup")
+                if preproc_cfg.get('synb0', {}).get('enabled', False):
+                     skipped_modules.append("SynB0")
+                if preproc_cfg.get('coregistration', {}).get('enabled', False):
+                     skipped_modules.append("Coregistration")
+                
+                for mod in skipped_modules:
+                    tracker.update_status(subject, session, mod, "completed (cached)", study, modality="Diffusion")
+                
+                tracker.update_status(subject, session, "Overall", "completed", study, modality="Diffusion")
+                tracker.save()
+
             if reporter:
                 # Reporting for Skipped Run
                 reporter.set_dmri_input_summary(f"DWI Files: {len(dwi_files)} (Pipeline Skipped - Output Exists)")

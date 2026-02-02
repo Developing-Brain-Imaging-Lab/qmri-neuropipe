@@ -223,6 +223,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                       
                       # If using FS, skip standard T1w preproc
                       if use_fs and isinstance(step, (ResampleStep, ReorientStep, DenoisingStep, GibbsUnringingStep, BiasCorrectionStep, SharpeningStep)):
+                           tracker = self.config.tracker
+                           if tracker and context.get('subject') and context.get('session'):
+                                tracker_module = step.normalize_tracker_module(step.__class__.__name__)
+                                tracker.update_status(context['subject'], context['session'], tracker_module, "completed (FreeSurfer)", modality="Anatomical")
                            continue
                       
                       step_name = step.__class__.__name__
@@ -403,6 +407,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                    processed_t2 = img_obj
                                    skipped = True
                                    step_metrics.append({"Step": f"T2w_{step_name}", "Status": "Skipped (Found)", "Duration": "0s"})
+                                   
+                                   # Update tracker for skip
+                                   tracker_module = step.normalize_tracker_module(step_name)
+                                   tracker = self.config.tracker
+                                   subject = context.get('subject')
+                                   session = context.get('session')
+                                   study = context.get('study_name', self.config.get('study_name'))
+                                   
+                                   if tracker and subject and session:
+                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                       tracker.save()
                                except Exception:
                                    pass
 
@@ -464,6 +479,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                            if progress_ctx: progress_ctx.update(task_id, description="[cyan]Coregistration")
                            
                            coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method=coreg_cfg_run.get("method", "fsl"))
+                           coreg_step.modality = "Anatomical"
                            
                            ref_img = coreg_cfg_run.get("reference_image", "t1w").lower()
                            
@@ -586,6 +602,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                               context["brain_mask"] = ImageFile(entities=m_ents, img=m_dest)
                               skipped_mask = True
                               step_metrics.append({"Step": "BrainMasking", "Status": "Skipped (Found)", "Duration": "0s"})
+                              
+                              # Update tracker for skip
+                              tracker_module = mask_step.normalize_tracker_module(mask_step.__class__.__name__)
+                              tracker = self.config.tracker
+                              subject = context.get('subject')
+                              session = context.get('session')
+                              study = context.get('study_name', self.config.get('study_name'))
+                              
+                              if tracker and subject and session:
+                                  tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                  tracker.save()
                     
                     if not skipped_mask:
                         st = time.time()
@@ -697,6 +724,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                            else:
                                 self.logger.info(f"Skipping T2w Normalization (Exists): {norm_t2_path}")
                                 context["preprocessed_t2w"] = ImageFile(norm_t2_path, self.config.bids_dir, entities=ents)
+                                
+                                # Update tracker for skip
+                                tracker = self.config.tracker
+                                if tracker and context.get('subject') and context.get('session'):
+                                     # Use 'Coregistration' as normalization is mapped there
+                                     tracker.update_status(context['subject'], context['session'], "Coregistration", "completed (cached)", modality="Anatomical")
+                                     tracker.save()
 
                  if progress_ctx: progress_ctx.advance(task_id)
 
@@ -1108,6 +1142,12 @@ class AnatPipeline(BasePipeline):
              except Exception:
                  pass
              
+             # Final Overall Status Update
+             tracker = self.config.tracker
+             if tracker and subject and session:
+                  tracker.update_status(subject, session, "Overall_Status", "Complete", modality="Anatomical")
+                  tracker.save()
+                  
         except Exception as e:
              self.logger.error(f"Error processing sub-{subject}: {e}")
              if self.config.stop_on_error: raise e
