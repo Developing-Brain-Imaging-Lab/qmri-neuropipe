@@ -151,23 +151,65 @@ if final_tracker_path:
                           st.info("No recent activity timestamps found.")
 
             with col2:
+                st.subheader("📊 Pipeline Status Distribution")
+                
+                # Gather all status data to show side-by-side or selectable
+                status_plots = []
+                
+                # 1. Overall
                 if "Processing_Status" in data:
                     df_ps = data["Processing_Status"]
                     if selected_study != "All" and "Study" in df_ps.columns:
                          df_ps = df_ps[df_ps["Study"] == selected_study]
-                         
                     if "Overall_Pipeline_Status" in df_ps.columns:
-                        counts = df_ps["Overall_Pipeline_Status"].value_counts().reset_index()
-                        counts.columns = ["Status", "Count"]
-                        color_map = {
-                            "Complete": "#C6EFCE", "In Progress": "#BEE5EB", "Failed": "#FFC7CE",
-                            "Pending": "#E2E3E5", "Error": "#FFC7CE", "Warning": "#FFEB9C"
-                        }
-                        fig = px.pie(counts, values="Count", names="Status", title="Overall Pipeline Status Distribution",
-                                     color="Status", color_discrete_map=color_map)
-                        # Center the title
-                        fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
-                        st.plotly_chart(fig, use_container_width=True)
+                         counts = df_ps["Overall_Pipeline_Status"].value_counts().reset_index()
+                         counts.columns = ["Status", "Count"]
+                         status_plots.append(("Overall", counts))
+                
+                # 2. Modalities
+                for mod_name, sheet in [("Anatomical", "Anatomical_Status"), ("Diffusion", "Diffusion_Status"), ("Relaxometry", "Relaxometry_Status")]:
+                     if sheet in data:
+                          df_mod = data[sheet]
+                          if selected_study != "All" and "Study" in df_mod.columns:
+                               df_mod = df_mod[df_mod["Study"] == selected_study]
+                          if "Overall_Status" in df_mod.columns:
+                               counts = df_mod["Overall_Status"].value_counts().reset_index()
+                               counts.columns = ["Status", "Count"]
+                               status_plots.append((mod_name, counts))
+                
+                if status_plots:
+                     color_map = {
+                         "Complete": "#C6EFCE", "In Progress": "#BEE5EB", "Failed": "#FFC7CE",
+                         "Pending": "#E2E3E5", "Error": "#FFC7CE", "Warning": "#FFEB9C"
+                     }
+                     
+                     # If we have multiple, use a columns or a facet-able df
+                     if len(status_plots) > 1:
+                          view_type = st.radio("Chart View", ["Grid View", "Slide View"], horizontal=True, label_visibility="collapsed")
+                          
+                          if view_type == "Grid View":
+                               sub_col1, sub_col2 = st.columns(2)
+                               for i, (p_name, p_counts) in enumerate(status_plots):
+                                    target_col = sub_col1 if i % 2 == 0 else sub_col2
+                                    fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Status",
+                                                 color="Status", color_discrete_map=color_map)
+                                    fig.update_layout(title_x=0.5, margin=dict(t=30, b=0, l=0, r=0), showlegend=False if i > 0 else True)
+                                    target_col.plotly_chart(fig, use_container_width=True)
+                          else:
+                               # Combined for slide or dropdown
+                               selected_plot = st.selectbox("Select Modality Status", [p[0] for p in status_plots])
+                               p_name, p_counts = next(p for p in status_plots if p[0] == selected_plot)
+                               fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Status Distribution",
+                                            color="Status", color_discrete_map=color_map)
+                               fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
+                               st.plotly_chart(fig, use_container_width=True)
+                     else:
+                          # Just one
+                          p_name, p_counts = status_plots[0]
+                          fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Pipeline Status Distribution",
+                                       color="Status", color_discrete_map=color_map)
+                          fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
+                          st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No summary data found. Re-save your tracker to generate a summary.")
     
