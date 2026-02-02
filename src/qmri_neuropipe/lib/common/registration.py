@@ -324,7 +324,14 @@ class CoregistrationStep(BaseProcessingStep):
             if cost == 'bbr':
                 try:
                     from ..anat.segmentation import generate_wm_segmentation
-                    wm_seg = generate_wm_segmentation(target, output_dir, method=options.get('wm_seg_method', 'fast'), nthreads=nthreads)
+                    use_gpu = getattr(self.config, 'use_gpu', False)
+                    wm_seg = generate_wm_segmentation(
+                        target, 
+                        output_dir, 
+                        method=options.get('wm_seg_method', 'fast'), 
+                        nthreads=nthreads,
+                        gpu=use_gpu
+                    )
                     fsl_opts['wmseg'] = wm_seg
                 except Exception as e:
                     self.logger.warning(f"BBR setup failed: {e}. Falling back to default cost function.")

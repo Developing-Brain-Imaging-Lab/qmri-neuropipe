@@ -317,8 +317,15 @@ class BrainMaskingStep(BaseProcessingStep):
             
             elif self.method == "hd-bet":
                  # HD-BET
+                 use_gpu = getattr(self.config, 'use_gpu', False)
                  gpu_ids = self.config.get('gpu_ids') if hasattr(self.config, 'get') else getattr(self.config, 'gpu_ids', None)
-                 device = str(gpu_ids[0]) if gpu_ids and len(gpu_ids) > 0 else 'cpu'
+                 
+                 if gpu_ids and len(gpu_ids) > 0:
+                     device = str(gpu_ids[0])
+                 elif use_gpu:
+                     device = 'cuda'
+                 else:
+                     device = 'cpu'
                  
                  hdbet.hd_bet(in_file=tool_input, out_file=tool_brain_out, device=device)
                  # HD-BET produces out_file and out_file_mask.nii.gz

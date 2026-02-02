@@ -8,9 +8,9 @@ from ..core.utils import extract_image_path
 def hd_bet(
     in_file: Union[ImageLike, Path], 
     out_file: Path, 
-    device: str = 'cpu', 
-    mode: Literal['fast', 'accurate'] = 'fast', 
-    tta: bool = False
+    device: str = 'cuda', 
+    disable_tta: bool = False,
+    verbose: bool = False
 ):
     """
     Run HD-BET brain extraction.
@@ -18,17 +18,23 @@ def hd_bet(
     Args:
         in_file: Input image.
         out_file: Output brain image.
-        device: 'cpu' or '0' (for GPU 0) etc.
-        mode: 'fast' or 'accurate'
-        tta: Test time augmentation (can improve accuracy but slower).
+        device: 'cuda', 'cpu', 'mps', or a GPU index like '0'.
+        disable_tta: If True, disables test time augmentation (faster).
+        verbose: If True, enables verbose output.
     """
     in_p = extract_image_path(in_file)
     out_p = Path(out_file)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     
-    # hd-bet -i <input> -o <output> [-device DEVICE] [-mode MODE] [-tta TTA]
-    tta_val = 1 if tta else 0
-    cmd = f"hd-bet -i {in_p} -o {out_p} -device {device} -mode {mode} -tta {tta_val}"
+    # hd-bet -i <input> -o <output> [-device DEVICE] [--disable_tta] [--verbose]
+    cmd = ["hd-bet", f"-i {in_p}", f"-o {out_p}", f"-device {device}"]
     
-    run_cmd(cmd, label="hd-bet")
+    if disable_tta:
+        cmd.append("--disable_tta")
+    
+    if verbose:
+        cmd.append("--verbose")
+    
+    run_cmd(" ".join(cmd), label="hd-bet")
     return out_p
+

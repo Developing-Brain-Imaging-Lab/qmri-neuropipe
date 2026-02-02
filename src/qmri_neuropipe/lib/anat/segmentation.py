@@ -17,7 +17,8 @@ def generate_wm_segmentation(
     in_file: Union[Path, ImageLike], 
     out_dir: Path, 
     method: Literal['fast', 'synthseg'] = 'fast',
-    nthreads: int = 1
+    nthreads: int = 1,
+    gpu: bool = False
 ) -> Path:
     """
     Generate a White Matter binary segmentation mask from a T1w/Anatomical image.
@@ -67,7 +68,7 @@ def generate_wm_segmentation(
         # Run SynthSeg
         synth_seg = out_dir / f"{stem}_synthseg.nii.gz"
         if not synth_seg.exists():
-             freesurfer.mri_synthseg(in_file, synth_seg, nthreads=nthreads)
+             freesurfer.mri_synthseg(in_file, synth_seg, nthreads=nthreads, gpu=gpu)
              
         # Extract WM from SynthSeg labels
         # SynthSeg labels: Left WM=2, Right WM=41. 

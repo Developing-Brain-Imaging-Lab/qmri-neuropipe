@@ -180,7 +180,8 @@ def mri_synthseg(
     nthreads: int = 1,
     robust: bool = True,
     parc: bool = False,
-    extra_args: str = ""
+    extra_args: str = "",
+    gpu: bool = False
 ):
     """
     Wrapper for FreeSurfer mri_synthseg.
@@ -191,7 +192,8 @@ def mri_synthseg(
         nthreads: Number of threads.
         robust: Use robust (less sensitive to artifacts) mode (default True).
         parc: Output parcellation instead of just segmentation? 
-              SynthSeg produces one main output. Flags control behavior.
+        extra_args: Additional arguments for mri_synthseg.
+        gpu: Use GPU for processing. If False, adds --cpu flag.
     """
     in_p = extract_image_path(in_file)
     out_p = Path(out_file)
@@ -200,7 +202,6 @@ def mri_synthseg(
     if out_p.exists():
         return
         
-    # mri_synthseg --i <input> --o <output> --threads <n>
     cmd = ["mri_synthseg", f"--i {in_p}", f"--o {out_p}"]
     
     if nthreads > 1:
@@ -209,10 +210,14 @@ def mri_synthseg(
     if robust:
         cmd.append("--robust")
         
+    if not gpu:
+        cmd.append("--cpu")
+        
     if extra_args:
         cmd.append(extra_args)
         
     run_cmd(" ".join(cmd), label="mri_synthseg")
+
 
 def mri_binarize(in_file: Union[Path, ImageLike], out_file: Path, min_val: float = 1, match: Optional[list] = None):
     """
