@@ -11,10 +11,23 @@ This module provides:
 
 from __future__ import annotations
 import sys
+import warnings
 from pathlib import Path
 from typing import List, Optional
 import typer
 from rich.table import Table
+
+# Global Warning Silencing
+# 1. Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+warnings.filterwarnings("ignore", message=".*resource_tracker: There appear to be.*leaked semaphore.*", category=UserWarning)
+
+# 2. Suppress solution inaccuracy warnings (e.g. from CVXPY used in MAPMRI)
+warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
+# 3. Suppress DIPY DKI overflow warnings
+warnings.filterwarnings("ignore", message=".*overflow encountered in exp.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*invalid value encountered in log.*", category=RuntimeWarning)
+
 
 from qmri_neuropipe.core import PipelineConfig
 from qmri_neuropipe.core.exceptions import ConfigurationError

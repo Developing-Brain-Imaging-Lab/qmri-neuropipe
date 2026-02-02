@@ -7,6 +7,17 @@ This module provides the fundamental building blocks for neuroimaging pipelines:
 - Provenance tracking (ProvenanceTracker)
 - Exception hierarchy (PipelineError and subclasses)
 
+import warnings
+# Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+warnings.filterwarnings("ignore", message=".*resource_tracker: There appear to be.*leaked semaphore.*", category=UserWarning)
+
+# Suppress solution inaccuracy warnings (e.g. from CVXPY used in MAPMRI)
+warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
+# Suppress DIPY DKI overflow warnings
+warnings.filterwarnings("ignore", message=".*overflow encountered in exp.*", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message=".*invalid value encountered in log.*", category=RuntimeWarning)
+
 Public API:
     Base classes:
         - BasePipeline: Base class for complete pipelines

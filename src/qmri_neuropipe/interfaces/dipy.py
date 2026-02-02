@@ -10,8 +10,10 @@ import warnings
 
 # Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
 warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+warnings.filterwarnings("ignore", message=".*resource_tracker: There appear to be.*leaked semaphore.*", category=UserWarning)
 # Suppress cvxpy solution inaccuracy warnings (common in MAPMRI on noisy data)
 warnings.filterwarnings("ignore", message=".*Solution may be inaccurate.*", category=UserWarning)
+
 
 # Try to import optional dependencies
 # Moved to local scope to optimize import time
