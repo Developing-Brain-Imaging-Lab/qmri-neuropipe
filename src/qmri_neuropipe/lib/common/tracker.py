@@ -389,6 +389,10 @@ class NeuroimagingTracker:
             # Ensure it's object dtype from the start to avoid float64 FutureWarning
             df = df.reindex(columns=list(df.columns) + [col])
             df[col] = df[col].astype(object)
+        elif pd.api.types.is_numeric_dtype(df[col]):
+            # If it exists but is numeric (common on reload from Excel), cast to object
+            # to allow string statuses like 'Complete' or 'running'
+            df[col] = df[col].astype(object)
             
         df.at[idx, col] = status
         
@@ -412,6 +416,9 @@ class NeuroimagingTracker:
             for c in new_cols: df[c] = df[c].astype(object)
             
         for key, val in metrics.items():
+            if key in df.columns and not isinstance(val, (int, float, complex, np.number)) and val is not None:
+                if pd.api.types.is_numeric_dtype(df[key]):
+                    df[key] = df[key].astype(object)
             df.at[idx, key] = val
         
         # De-fragment
@@ -502,6 +509,9 @@ class NeuroimagingTracker:
             for c in new_cols: df[c] = df[c].astype(object)
             
         for key, val in metadata.items():
+            if key in df.columns and not isinstance(val, (int, float, complex, np.number)) and val is not None:
+                if pd.api.types.is_numeric_dtype(df[key]):
+                    df[key] = df[key].astype(object)
             df.at[idx, key] = val
             
         self._data['Subject_Metadata'] = df.copy()
@@ -509,10 +519,15 @@ class NeuroimagingTracker:
     def log_error(self, subject_id: str, session: str, module: str, error_msg: str, study: Optional[str] = None):
         """Log a processing error."""
         idx = self._ensure_row('Errors_Notes', subject_id, session, study)
-        self._data['Errors_Notes'].at[idx, 'Has_Processing_Errors'] = True
-        self._data['Errors_Notes'].at[idx, 'Error_Module'] = module
-        self._data['Errors_Notes'].at[idx, 'Error_Message'] = error_msg
-        self._data['Errors_Notes'].at[idx, 'Error_Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        df = self._data['Errors_Notes']
+        for col in ['Has_Processing_Errors', 'Error_Module', 'Error_Message', 'Error_Timestamp']:
+             if col in df.columns and pd.api.types.is_numeric_dtype(df[col]):
+                  df[col] = df[col].astype(object)
+
+        df.at[idx, 'Has_Processing_Errors'] = True
+        df.at[idx, 'Error_Module'] = module
+        df.at[idx, 'Error_Message'] = error_msg
+        df.at[idx, 'Error_Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     def log_time(self, subject_id: str, session: str, module: str, time_min: float, study: Optional[str] = None):
         """Log processing time for a module."""
@@ -575,6 +590,10 @@ class NeuroimagingTracker:
                 )
                 if mask.any():
                     idx = df.index[mask][0]
+                    # Ensure columns can handle string values
+                    for col in ['Value', 'Timestamp']:
+                         if col in df.columns and pd.api.types.is_numeric_dtype(df[col]):
+                              df[col] = df[col].astype(object)
                     df.at[idx, 'Value'] = row['Value']
                     df.at[idx, 'Timestamp'] = row['Timestamp']
                 else:
