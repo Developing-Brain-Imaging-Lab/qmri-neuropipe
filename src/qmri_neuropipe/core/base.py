@@ -168,13 +168,13 @@ class BaseProcessingStep(ABC):
             # Validate outputs after processing
             self.validate_outputs(result)
             
-            # Log provenance if tracker is available
-            if self.provenance:
-                self._log_provenance(*args, result=result, **kwargs)
-            
             # Record completion time
             self.end_time = datetime.now()
             duration_s = (self.end_time - self.start_time).total_seconds()
+            
+            # Log provenance if tracker is available
+            if self.provenance:
+                self._log_provenance(*args, result=result, **kwargs)
             
             if tracker and subject and session:
                 tracker.update_status(subject, session, tracker_module, "completed", study)
