@@ -226,7 +226,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                            tracker = self.config.tracker
                            if tracker and context.get('subject') and context.get('session'):
                                 tracker_module = step.normalize_tracker_module(step.__class__.__name__)
-                                tracker.update_status(context['subject'], context['session'], tracker_module, "completed (FreeSurfer)", modality="Anatomical")
+                                study = context.get('study_name', self.config.get('study_name'))
+                                tracker.update_status(context['subject'], context['session'], tracker_module, "completed (FreeSurfer)", study=study, modality="Anatomical")
                            continue
                       
                       step_name = step.__class__.__name__
@@ -293,7 +294,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                    study = context.get('study_name', self.config.get('study_name'))
                                    
                                    if tracker and subject and session:
-                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study=study, modality="Anatomical")
                                        tracker.save()
                                except Exception as e:
                                    self.logger.warning(f"Failed to load existing intermediate {fname}: {e}. Re-running.")
@@ -416,7 +417,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                    study = context.get('study_name', self.config.get('study_name'))
                                    
                                    if tracker and subject and session:
-                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study=study, modality="Anatomical")
                                        tracker.save()
                                except Exception:
                                    pass
@@ -611,7 +612,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                               study = context.get('study_name', self.config.get('study_name'))
                               
                               if tracker and subject and session:
-                                  tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                  tracker.update_status(subject, session, tracker_module, "completed (cached)", study=study, modality="Anatomical")
                                   tracker.save()
                     
                     if not skipped_mask:
@@ -729,7 +730,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                 tracker = self.config.tracker
                                 if tracker and context.get('subject') and context.get('session'):
                                      # Use 'Coregistration' as normalization is mapped there
-                                     tracker.update_status(context['subject'], context['session'], "Coregistration", "completed (cached)", modality="Anatomical")
+                                     study = context.get('study_name', self.config.get('study_name'))
+                                     tracker.update_status(context['subject'], context['session'], "Coregistration", "completed (cached)", study=study, modality="Anatomical")
                                      tracker.save()
 
                  if progress_ctx: progress_ctx.advance(task_id)
@@ -1145,7 +1147,8 @@ class AnatPipeline(BasePipeline):
              # Final Overall Status Update
              tracker = self.config.tracker
              if tracker and subject and session:
-                  tracker.update_status(subject, session, "Overall_Status", "Complete", modality="Anatomical")
+                  study = self.config.get('study_name')
+                  tracker.update_status(subject, session, "Overall_Status", "Complete", study=study, modality="Anatomical")
                   tracker.save()
                   
         except Exception as e:

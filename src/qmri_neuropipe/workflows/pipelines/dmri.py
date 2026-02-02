@@ -2143,6 +2143,7 @@ class DMRIPipeline(BasePipeline):
             # --- Update Tracker for Skipped Preprocessing ---
             tracker = self.config.tracker
             if tracker and subject and session:
+                study = self.config.get('study_name')
                 # Common steps that are usually part of a complete preproc run
                 skipped_modules = ["Denoising", "Gibbs_Ringing", "Eddy_Correction", "Bias_Correction", "Reorienting"]
                 
