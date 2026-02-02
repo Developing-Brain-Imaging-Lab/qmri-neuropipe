@@ -1155,12 +1155,12 @@ getenv = True{concurrency_directive}
         )
         fh.setFormatter(file_formatter)
         
-        # Get log level from config
-        log_level = self.config.get('log_level', 'INFO')
-        if self.config.get('debug', False):
-            log_level = 'DEBUG'
-        
         # Console Handler
+        # Skip console handler in parallel mode to avoid duplication in TUI
+        if os.environ.get('QMRI_PARALLEL_WORKER'):
+            logger.info(f"Logging to {log_file} (Console handler suppressed in parallel mode)")
+            return logger
+
         console_formatter = logging.Formatter('%(levelname)s: %(message)s')
         
         try:
@@ -1189,10 +1189,9 @@ getenv = True{concurrency_directive}
         logger.addHandler(fh)
         logger.addHandler(ch)
         
-        # ALSO configure the 'qmri-neuropipe' logger used by utilities (run.py)
-        # to ensure command logging is captured
+        # ALSO configure the 'qmri-neuropipe' logger used by utilities
         lib_logger = logging.getLogger("qmri-neuropipe")
-        lib_logger.setLevel(logging.DEBUG) # Always capture, handler filters
+        lib_logger.setLevel(logging.DEBUG) 
         lib_logger.handlers.clear()
         lib_logger.addHandler(fh)
         lib_logger.addHandler(ch)

@@ -576,8 +576,7 @@ def main(
              for i in range(jobs):
                   slot_queue.put(i)
              
-             # UI State tracking
-             class UIState:
+             # UI State tracking             class UIState:
                   def __init__(self, n_jobs, total):
                        self.n_jobs = n_jobs
                        self.buffers = {i: deque(maxlen=10) for i in range(n_jobs)}
@@ -615,7 +614,12 @@ def main(
 
                   def get_layout(self):
                        with self.lock:
-                            status_icons = {"idle": "💤", "running": "🔄", "complete": "✅", "failed": "❌"}
+                            status_icons = {
+                                 "idle": "💤 [dim]Idle[/dim]",
+                                 "running": "🔄 [bold cyan]Running[/bold cyan]",
+                                 "complete": "✅ [bold green]Done[/bold green]",
+                                 "failed": "❌ [bold red]ERROR[/bold red]"
+                            }
                             
                             # Build the main body grid using Layout
                             cols = 2 if self.n_jobs > 1 else 1
@@ -633,7 +637,12 @@ def main(
                                            icon = status_icons.get(self.job_status[idx], "•")
                                            title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
                                            
-                                           content = Text("\n".join(self.buffers[idx]), style="dim", overflow="ellipsis")
+                                           # Convert buffer lines from ANSI to Rich Text objects to preserve colors
+                                           rich_buffer = []
+                                           for line in self.buffers[idx]:
+                                                rich_buffer.append(Text.from_ansi(line))
+                                           
+                                           content = Text("\n").join(rich_buffer)
                                            col_layouts.append(Layout(Panel(content, title=title, border_style=color, box=box.ROUNDED, padding=(0, 1))))
                                       else:
                                            col_layouts.append(Layout())
@@ -781,6 +790,9 @@ def _run_parallel_worker(
     if slot_queue:
          job_id = slot_queue.get()
 
+    # Communication flag for parallel-aware modules
+    os.environ["QMRI_PARALLEL_WORKER"] = "1"
+
     # 1. Robust OS-level Redirection (Capture all stdout/stderr, including C-extensions and subprocesses)
     if log_queue:
         pipe_out, pipe_in = os.pipe()
@@ -842,19 +854,20 @@ def _run_parallel_worker(
 
         # 4. Setup Worker UI/Logging (Now that redirection is active)
         if log_queue:
-             # Force NO terminal features for child processes to prevent layout corruption
-             ui.console = Console(force_terminal=False, color_system=None, soft_wrap=True, legacy_windows=False)
+             # Force TRUE terminal features for child processes so they generate ANSI colors/styles
+             ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
 
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
              log_queue.put(("log", job_id, f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]"))
              
              # Configure logging to use the redirected stderr (FD 2)
-             # By using a simple StreamHandler on sys.stderr, we let the OS-level pipe
-             # handle the capture, ensuring consistent formatting and NO duplication.
+             # We use basicConfig to catch EVERYTHING on the root logger.
              logging.basicConfig(level=logging.INFO, force=True, handlers=[
                  logging.StreamHandler(sys.stderr)
              ])
-             # Ensure root logger is at least INFO
+             # CRITICAL: Disable propagation for the main library logger so it doesn't 
+             # double-report to the root logger we just set up.
+             logging.getLogger("qmri-neuropipe").propagate = False
              logging.getLogger().setLevel(logging.INFO)
              
 
@@ -887,7 +900,7 @@ def _run_parallel_worker(
     except Exception as e:
         if log_queue:
              log_queue.put(("info", job_id, (f"{subject} (Error)", "failed")))
-             log_queue.put(("log", job_id, f"[bold red]FATAL ERROR: {str(e)}[/bold red]"))
+             log_queue.put(("log", job_id, f"❌ [bold red]FATAL ERROR: {str(e)}[/bold red]"))
         return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
     finally:
          if slot_queue:
