@@ -156,7 +156,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                      if isinstance(step, (DenoisingStep, GibbsUnringingStep, ReorientStep)):
                          # ReorientStep usually takes 1 arg.
                          # Denoising/Gibbs take 1 arg + kwargs.
-                         curr = step.run(curr, output_dir=intermediate_dir)
+                         curr = step(curr, output_dir=intermediate_dir)
                  out_list.append(curr)
              return out_list
 
@@ -194,15 +194,15 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Pass ALL concatenated? Or run separately with same ref?
              # Run SPGR first to get Ref stable.
              # NOTE: Output dir for moco is anat_out_dir (Final Preproc)
-             spgr_moco = moco_step.run(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR")
+             spgr_moco = moco_step(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR")
              
              # Register SSFP to same SPGR Ref
              if ssfp_pre:
-                 ssfp_moco = moco_step.run(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP")
+                 ssfp_moco = moco_step(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP")
                  
              if ir_pre:
                  # Ensure IR is also processed
-                 ir_moco = moco_step.run(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR")
+                 ir_moco = moco_step(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR")
                  
         context['processed_spgr'] = spgr_moco
         context['processed_ssfp'] = ssfp_moco
@@ -241,7 +241,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              # We let it output to intermediate_dir. 
              # BrainMaskingStep usually creates a subfolder 'brainmasking' inside output_dir?
              # Let's check BrainMaskingStep impl... defaulting to intermediate_dir
-             masked_ref, mask_obj = mask_step.run(ref_img, output_dir=intermediate_dir, return_mask=True)
+             masked_ref, mask_obj = mask_step(ref_img, output_dir=intermediate_dir, return_mask=True)
              
              if mask_obj.img != target_mask_name:
                   # Move ONLY the final mask to anat_out_dir
@@ -278,7 +278,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              fmap_inter_dir = fmap_out_dir / "intermediate"
              fmap_inter_dir.mkdir(parents=True, exist_ok=True)
              
-             b1_map_inter = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
+             b1_map_inter = b1_step(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
              
              # Move final Map to fmap_out_dir
              # Warning: b1_map_inter.img might be 'TB1map.nii.gz' or similar. 
@@ -326,7 +326,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                   self.logger.info(f"Found existing B1 Map: {existing_b1[0].name}")
                   b1_map = ImageFile(img=existing_b1[0], entities={}) # Entities?
              else:
-                  b1_map_inter = b1_step.run(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
+                  b1_map_inter = b1_step(curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref)
                   final_path = fmap_out_dir / b1_map_inter.img.name
                   shutil.move(b1_map_inter.img, final_path)
                   b1_map = ImageFile(img=final_path, entities=b1_map_inter.entities)
@@ -558,15 +558,10 @@ class RelaxometryWorkflow(BaseWorkflow):
              # Set Context Current Image to T1w (Reference for Atlases)
              context['current_image'] = t1w_anat 
              
-             # A. Atlas Registration
-             atlas_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
              if atlas_step:
                  self.logger.info("Running Atlas Registration...")
-                 # Run Atlas Registration (Registers MNI->T1w)
-                 # Output to post_out or default?
-                 # AtlasRegistrationStep uses config to determine atlases
                  try:
-                    atlas_step.run(context, output_dir=post_out)
+                    atlas_step(context, output_dir=post_out)
                  except Exception as e:
                     self.logger.warning(f"Atlas Registration failed: {e}")
 
@@ -575,7 +570,7 @@ class RelaxometryWorkflow(BaseWorkflow):
              if stats_step:
                  self.logger.info("Running Statistics Extraction...")
                  try:
-                    stats_step.run(context, output_dir=post_out)
+                    stats_step(context, output_dir=post_out)
                  except Exception as e:
                     self.logger.warning(f"Stats Extraction failed: {e}")
                     

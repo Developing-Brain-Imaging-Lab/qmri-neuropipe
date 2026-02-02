@@ -475,7 +475,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                     
                     # Run Global Step
                     force_run = self.config.get("dmri", {}).get("force_run", False)
-                    new_ctx = step.run(context, output_dir=output_dir, force=force_run)
+                    # Run step using __call__ for tracker integration
+                    new_ctx = step(context, output_dir=output_dir, force=force_run)
                     
                     if new_ctx is not context:
                         context.update(new_ctx)
@@ -609,7 +610,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                              from time import time as now
                              st = now()
                              force_run = self.config.get("dmri", {}).get("force_run", False)
-                             result = step.run(img_ctx, output_dir=output_dir, force=force_run, **step_kwargs)
+                             result = step(img_ctx, output_dir=output_dir, force=force_run, **step_kwargs)
                              dur = now() - st
                              
                              # Extract output
@@ -1579,6 +1580,19 @@ class ModelingWorkflow(BaseWorkflow):
                     if skipping:
                         progress.update(task_id, description=f"Skipping {step_name} (Exists)")
                         progress.advance(task_id)
+                        
+                        # Update tracker for skip
+                        import re
+                        tracker_module = re.sub(r'(?<!^)(?=[A-Z])', '_', step_name.replace("Step", ""))
+                        tracker = self.config.tracker
+                        subject = context.get('subject')
+                        session = context.get('session')
+                        study = context.get('study_name', self.config.get('study_name'))
+                        
+                        if tracker and subject and session:
+                            tracker.update_status(subject, session, tracker_module, "completed (cached)", study)
+                            tracker.save()
+                            
                         # Report skipped step
                         if reporter:
                              try:
@@ -1591,8 +1605,8 @@ class ModelingWorkflow(BaseWorkflow):
                     progress.update(task_id, description=f"Processing {img_name} - {step_name}")
                     
                     try:
-                        # Run step writing to STAGING directory
-                        step.run(context, output_dir=staging_dir, mask=mask)
+                        # Run step using __call__ to ensure tracker integration
+                        step(context, output_dir=staging_dir, mask=mask)
                         
                         # Copy results to final destination immediately (excluding figures)
                         if final_output_dir:
@@ -1749,7 +1763,7 @@ class NormalizationWorkflow(BaseWorkflow):
                 # Those should be there from ModelingWorkflow
                 
                 try:
-                    step.run(context, output_dir=staging_dir)
+                    step(context, output_dir=staging_dir)
                     
                     # Copy to final (excluding figures for now or not?)
                     # NormalizationStep.run already copies to internal output_dir structure
@@ -1829,7 +1843,7 @@ class SegmentationWorkflow(BaseWorkflow):
         
         for step in self.steps:
             try:
-                step.run(context, output_dir=staging_dir)
+                step(context, output_dir=staging_dir)
             except Exception as e:
                 self.logger.error(f"Step {step.__class__.__name__} failed: {e}")
                 # Don't stop? or stop?

@@ -279,6 +279,18 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                       "Status": "Skipped (Found)",
                                       "Duration": "0s"
                                    })
+                                   
+                                   # Update tracker for skip
+                                   import re
+                                   tracker_module = re.sub(r'(?<!^)(?=[A-Z])', '_', step_name.replace("Step", ""))
+                                   tracker = self.config.tracker
+                                   subject = context.get('subject')
+                                   session = context.get('session')
+                                   study = context.get('study_name', self.config.get('study_name'))
+                                   
+                                   if tracker and subject and session:
+                                       tracker.update_status(subject, session, tracker_module, "completed (cached)", study, modality="Anatomical")
+                                       tracker.save()
                                except Exception as e:
                                    self.logger.warning(f"Failed to load existing intermediate {fname}: {e}. Re-running.")
                       
@@ -287,7 +299,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                           prev_t1 = processed_t1
                           st = time.time()
                           # Pass force if step accepts it within kwargs (BaseProcessingStep does)
-                          processed_t1 = step.run(processed_t1, output_dir=output_dir, force=force_run)
+                          processed_t1 = step(processed_t1, output_dir=output_dir, force=force_run)
                           dur = time.time() - st
                           
                           step_metrics.append({
@@ -397,7 +409,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                       if not skipped:
                           st = time.time()
                           st = time.time()
-                          processed_t2 = step.run(processed_t2, output_dir=output_dir)
+                          processed_t2 = step(processed_t2, output_dir=output_dir)
                           dur = time.time() - st
                           
                           step_metrics.append({
@@ -466,7 +478,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                            if ref_img == 't2w':
                                # Reference is T2w. Moving is T1w.
                                self.logger.info("Coregistration: Reference=T2w. Registering T1w -> T2w.")
-                               res_t1 = coreg_step.run(processed_t1, output_dir=output_dir, target=processed_t2.img, options=coreg_options)
+                               res_t1 = coreg_step(processed_t1, output_dir=output_dir, target=processed_t2.img, options=coreg_options)
                                if isinstance(res_t1, dict): 
                                     res_t1 = res_t1.get("current_image")
                                
@@ -488,7 +500,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                            else:
                                # Reference is T1w (Default). Moving is T2w.
                                self.logger.info("Coregistration: Reference=T1w. Registering T2w -> T1w.")
-                               res_t2 = coreg_step.run(processed_t2, output_dir=output_dir, target=processed_t1.img, options=coreg_options)
+                               res_t2 = coreg_step(processed_t2, output_dir=output_dir, target=processed_t1.img, options=coreg_options)
                                if isinstance(res_t2, dict):
                                     res_t2 = res_t2.get("current_image")
                                
@@ -578,7 +590,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     if not skipped_mask:
                         st = time.time()
                     try:
-                        brain_masked, mask = mask_step.run(target_img, output_dir=output_dir, return_mask=True)
+                        brain_masked, mask = mask_step(target_img, output_dir=output_dir, return_mask=True)
                         processed_masks.append(mask)
                         dur = time.time() - st
                         step_metrics.append({"Step": "BrainMasking", "Status": "Completed", "Duration": f"{dur:.2f}s"})
@@ -635,7 +647,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                  if t1_img:
                       self.logger.info("Running Normalization on T1w...")
                       # Run step (updates context with 'template_transform')
-                      norm_step.run(context, output_dir=output_dir) 
+                      norm_step(context, output_dir=output_dir) 
                       
                       # output is updated 'current_image' -> context['current_image']
                       # We should update preprocessed_t1w
@@ -726,7 +738,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if fs_stats_step:
                  if progress_ctx: progress_ctx.update(task_id, description="[cyan]FreeSurfer Stats")
                  self.logger.info("Parsing FreeSurfer Stats...")
-                 fs_stats_step.run(context, output_dir=output_dir)
+                 fs_stats_step(context, output_dir=output_dir)
                  if progress_ctx: progress_ctx.advance(task_id)
                  
             # 9. Segmentation
@@ -735,7 +747,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if seg_step:
                  if progress_ctx: progress_ctx.update(task_id, description="[cyan]Segmentation")
                  self.logger.info("Running Segmentation...")
-                 seg_step.run(context, output_dir=output_dir)
+                 seg_step(context, output_dir=output_dir)
                  if progress_ctx: progress_ctx.advance(task_id)
                  
                  # SAVE INTERMEDIATE: Segmentation

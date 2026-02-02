@@ -149,9 +149,14 @@ class BaseProcessingStep(ABC):
         session = context.get('session') if context else None
         study = context.get('study_name', self.config.get('study_name')) if context else self.config.get('study_name')
         
+        # Normalize step name for tracker (e.g. BrainMaskingStep -> Brain_Masking, DenoisingStep -> Denoising)
+        import re
+        step_base = self.step_name.replace("Step", "")
+        tracker_module = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', step_base)
+        
         tracker = self.config.tracker
         if tracker and subject and session:
-            tracker.update_status(subject, session, self.step_name.replace("Step", "").lower(), "running", study)
+            tracker.update_status(subject, session, tracker_module, "running", study)
 
         try:
             # Validate inputs before processing
@@ -172,9 +177,8 @@ class BaseProcessingStep(ABC):
             duration_s = (self.end_time - self.start_time).total_seconds()
             
             if tracker and subject and session:
-                suffix = self.step_name.replace("Step", "").lower()
-                tracker.update_status(subject, session, suffix, "completed", study)
-                tracker.log_time(subject, session, suffix, duration_s / 60.0, study)
+                tracker.update_status(subject, session, tracker_module, "completed", study)
+                tracker.log_time(subject, session, tracker_module, duration_s / 60.0, study)
                 tracker.save() # Auto-save if enabled
             
             self.logger.info(
@@ -185,16 +189,16 @@ class BaseProcessingStep(ABC):
             
         except ValidationError as e:
             if tracker and subject and session:
-                tracker.update_status(subject, session, self.step_name.replace("Step", "").lower(), "failed", study)
-                tracker.log_error(subject, session, self.step_name.replace("Step", "").lower(), str(e), study)
+                tracker.update_status(subject, session, tracker_module, "failed", study)
+                tracker.log_error(subject, session, tracker_module, str(e), study)
                 tracker.save()
             self.logger.error(f"{self.step_name} validation failed: {e}")
             raise
             
         except Exception as e:
             if tracker and subject and session:
-                tracker.update_status(subject, session, self.step_name.replace("Step", "").lower(), "failed", study)
-                tracker.log_error(subject, session, self.step_name.replace("Step", "").lower(), str(e), study)
+                tracker.update_status(subject, session, tracker_module, "failed", study)
+                tracker.log_error(subject, session, tracker_module, str(e), study)
                 tracker.save()
             self.logger.error(
                 f"{self.step_name} processing failed: {e}",
