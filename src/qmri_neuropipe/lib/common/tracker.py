@@ -189,9 +189,16 @@ class NeuroimagingTracker:
                             for sheet_name in xls.sheet_names:
                                 try:
                                     existing_df = pd.read_excel(xls, sheet_name=sheet_name)
+                                    if sheet_name in ['Summary', 'README']:
+                                        continue
+
                                     if sheet_name in self._data:
                                         # UPSERT: Merge existing with current
-                                        pk_cols = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Model', 'Alert_ID']
+                                        pk_cols = [
+                                            'Subject_ID', 'Session', 'Study', 'Modality', 'Step_Name', 'Parameter',
+                                            'Atlas', 'ROI_Source', 'ROI_Name', 'Metric', 'Statistic', 'Model', 
+                                            'Structure', 'Method', 'Alert_ID'
+                                        ]
                                         subset = [c for c in pk_cols if c in existing_df.columns and c in self._data[sheet_name].columns]
                                         
                                         # Filter out empty DataFrames to avoid FutureWarning
@@ -214,9 +221,10 @@ class NeuroimagingTracker:
                                                             merged[pk_col] = merged[pk_col].apply(_norm_session)
                                                 self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
                                             else:
-                                                # If no PKs, just keep newest? or append? 
-                                                # For README etc, we usually don't reach here anyway
-                                                self._data[sheet_name] = merged
+                                                # If no PKs found but we have memory data, we must decide:
+                                                # For generated/calculated sheets, memory usually wins.
+                                                # For safety, if it's a known tracking sheet, we keep the newest.
+                                                self._data[sheet_name] = merged.drop_duplicates(keep='last')
                                         else:
                                             pass
                                     elif sheet_name == 'README':
