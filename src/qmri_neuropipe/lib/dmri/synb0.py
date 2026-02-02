@@ -169,7 +169,8 @@ class Synb0EstimationStep(BaseProcessingStep):
                 input_image=t1w_norm_nii,
                 output_dir=output_dir,
                 method="synthstrip",
-                return_mask=True
+                return_mask=True,
+                use_gpu=getattr(self.config, 'use_gpu', False)
             )
             
             # Get paths

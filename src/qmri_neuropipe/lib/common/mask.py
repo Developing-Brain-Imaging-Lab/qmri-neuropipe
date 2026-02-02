@@ -312,7 +312,8 @@ class BrainMaskingStep(BaseProcessingStep):
                      pass
     
             elif self.method == "synthstrip":
-                 freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path)
+                 use_gpu = getattr(self.config, 'use_gpu', False)
+                 freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path, gpu=use_gpu)
             
             elif self.method == "hd-bet":
                  # HD-BET
@@ -417,6 +418,7 @@ def mask_brain(
     nthreads: int = 1,
     return_mask: bool = False,
     structural_mask: Optional[ImageLike | Path] = None,
+    use_gpu: bool = False,
 ) -> ImageFile | Tuple[ImageFile, ImageFile]:
     """Quick brain‑masking without building a full pipeline.
 
@@ -424,6 +426,8 @@ def mask_brain(
     it creates a temporary ``BrainMaskingStep`` instance, runs it, and returns
     the resulting ``ImageFile``.
     """
-    # ``None`` config/provenance are acceptable for a one‑off call.
-    step = BrainMaskingStep(config={'n_cpus': nthreads}, method=method, nthreads=nthreads)
+    # Create a minimal config dictionary
+    config = {'n_cpus': nthreads, 'use_gpu': use_gpu}
+    
+    step = BrainMaskingStep(config=config, method=method, nthreads=nthreads)
     return step.run(first_arg=input_image, output_dir=output_dir, return_mask=return_mask, structural_mask=structural_mask)
