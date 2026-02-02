@@ -90,14 +90,72 @@ if final_tracker_path:
 
     with tab_summary:
         st.header("Executive Summary")
+        
+        # 1. High-Level Metric Cards
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        
+        # Calculate live metrics
+        total_subjs = 0
+        total_sess = 0
+        comp_rate = "0%"
+        avg_snr = "N/A"
+        avg_mot = "N/A"
+        
+        if "Processing_Status" in data:
+            df_ps_all = data["Processing_Status"]
+            if selected_study != "All" and "Study" in df_ps_all.columns:
+                 df_ps_all = df_ps_all[df_ps_all["Study"] == selected_study]
+            
+            total_subjs = df_ps_all["Subject_ID"].nunique()
+            total_sess = len(df_ps_all)
+            
+            if "Overall_Pipeline_Status" in df_ps_all.columns:
+                 complete = (df_ps_all["Overall_Pipeline_Status"].astype(str).str.contains("Complete", case=False)).sum()
+                 comp_rate = f"{(complete/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
+        
+        if "Quality_Metrics" in data:
+             df_qm = data["Quality_Metrics"]
+             if selected_study != "All" and "Study" in df_qm.columns:
+                  df_qm = df_qm[df_qm["Study"] == selected_study]
+             
+             if "DWI_SNR" in df_qm.columns:
+                  val = df_qm["DWI_SNR"].dropna().mean()
+                  if pd.notna(val): avg_snr = f"{val:.1f}"
+             if "Motion_FD_Mean" in df_qm.columns:
+                  val = df_qm["Motion_FD_Mean"].dropna().mean()
+                  if pd.notna(val): avg_mot = f"{val:.3f}"
+
+        col_m1.metric("Total Subjects", total_subjs)
+        col_m2.metric("Total Sessions", total_sess)
+        col_m3.metric("Completion Rate", comp_rate)
+        col_m4.metric("Avg SNR / Motion", f"{avg_snr} / {avg_mot}")
+
+        st.markdown("---")
+
+        # 2. Main Content Row
         if "Summary" in data:
-            df_sum = data["Summary"]
             col1, col2 = st.columns([1, 2])
             with col1:
-                st.dataframe(df_sum, width='stretch', hide_index=True)
+                st.subheader("📋 Study Summary")
+                df_sum = data["Summary"]
+                st.dataframe(df_sum, width=None, use_container_width=True, hide_index=True)
+                
+                # Recently Processed
+                if "Processing_Status" in data:
+                     st.subheader("🕒 Recent Activity")
+                     df_recent = data["Processing_Status"].copy()
+                     if "Last_Processing_Date" in df_recent.columns:
+                          df_recent = df_recent.sort_values("Last_Processing_Date", ascending=False).head(5)
+                          st.dataframe(df_recent[["Subject_ID", "Session", "Overall_Pipeline_Status"]], use_container_width=True, hide_index=True)
+                     else:
+                          st.info("No recent activity timestamps found.")
+
             with col2:
                 if "Processing_Status" in data:
                     df_ps = data["Processing_Status"]
+                    if selected_study != "All" and "Study" in df_ps.columns:
+                         df_ps = df_ps[df_ps["Study"] == selected_study]
+                         
                     if "Overall_Pipeline_Status" in df_ps.columns:
                         counts = df_ps["Overall_Pipeline_Status"].value_counts().reset_index()
                         counts.columns = ["Status", "Count"]
@@ -107,6 +165,8 @@ if final_tracker_path:
                         }
                         fig = px.pie(counts, values="Count", names="Status", title="Overall Pipeline Status Distribution",
                                      color="Status", color_discrete_map=color_map)
+                        # Center the title
+                        fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
                         st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No summary data found. Re-save your tracker to generate a summary.")
