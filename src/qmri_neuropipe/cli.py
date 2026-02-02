@@ -714,14 +714,16 @@ def main(
              log_queue.put("STOP")
              monitor_thread.join(timeout=1)
 
-             # Aggregate Stats
+             # Aggregate Stats and collect failures
              stats = {'n_success': 0, 'n_failed': 0, 'n_skipped': 0}
+             failures = []
              for r in results:
                   stats['n_success'] += r.get('n_success', 0)
                   stats['n_failed'] += r.get('n_failed', 0)
                   stats['n_skipped'] += r.get('n_skipped', 0)
+                  if r.get('n_failed', 0) > 0:
+                       failures.append(r)
         
-
         else:
             # Create and run pipeline
             console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
@@ -743,12 +745,24 @@ def main(
             # Run pipeline
             console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
             stats = pipeline_obj.run(pairs=tasks)
+            # Single processing doesn't handle failures list yet, but we'll focus on parallel for now
+            failures = []
         
 
         if stats:
             if stats.get('n_failed', 0) > 0:
                  console.print(f"\n[bold red]Pipeline completed with errors![/bold red]")
-                 console.print(f"Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
+                 
+                 # Print detailed summary of failed subjects
+                 if failures:
+                      console.print("\n[bold red]Failed Subjects Summary:[/bold red]")
+                      for f in failures:
+                           sub_info = f"sub-{f.get('subject')}"
+                           if f.get('session'): sub_info += f" ses-{f.get('session')}"
+                           err = f.get('error', 'Unknown error')
+                           console.print(f"  ❌ [bold]{sub_info}[/bold]: {err}")
+                 
+                 console.print(f"\n[bold yellow]Totals:[/bold yellow] Success: {stats['n_success']}, Failed: {stats['n_failed']}, Skipped: {stats['n_skipped']}")
                  raise typer.Exit(code=1)
             
             console.print("\n[bold green]Pipeline completed successfully![/bold green]")
@@ -896,13 +910,21 @@ def _run_parallel_worker(
              log_queue.put(("info", job_id, (f"{subject} (Done)", status)))
              log_queue.put(("log", job_id, f"✨ [bold green]Finished {subject}[/bold green]"))
              
+        stats.update({'subject': subject, 'session': session})
         return stats
         
     except Exception as e:
         if log_queue:
              log_queue.put(("info", job_id, (f"{subject} (Error)", "failed")))
              log_queue.put(("log", job_id, f"❌ [bold red]FATAL ERROR: {str(e)}[/bold red]"))
-        return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': str(e)}
+        return {
+            'n_success': 0, 
+            'n_failed': 1, 
+            'n_skipped': 0, 
+            'error': str(e),
+            'subject': subject,
+            'session': session
+        }
     finally:
          if slot_queue:
               # Reset info after a short delay might be nice, but leaving it as (Done) is better
