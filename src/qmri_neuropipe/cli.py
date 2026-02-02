@@ -19,6 +19,7 @@ from rich.table import Table
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
+from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Group
 from rich.text import Text
@@ -633,14 +634,14 @@ def main(
                                            title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
                                            
                                            content = Text("\n".join(self.buffers[idx]), style="dim", overflow="ellipsis")
-                                           row_panels.append(Panel(content, title=title, border_style=color, box=Panel.box.ROUNDED, padding=(0, 1)))
+                                           row_panels.append(Panel(content, title=title, border_style=color, box=box.ROUNDED, padding=(0, 1)))
                                       else:
                                            row_panels.append(Text(""))
                                  grid.add_row(*row_panels)
 
                             layout = Layout()
                             layout.split_column(
-                                 Layout(Panel("[bold white on blue] qmri-neuropipe [/bold white on blue] [blue]Parallel Processing Monitor[/blue]", box=Panel.box.MINIMAL), size=3),
+                                 Layout(Panel("[bold white on blue] qmri-neuropipe [/bold white on blue] [blue]Parallel Processing Monitor[/blue]", box=box.MINIMAL), size=3),
                                  Layout(grid, name="main"),
                                  Layout(self.progress, size=3)
                             )
