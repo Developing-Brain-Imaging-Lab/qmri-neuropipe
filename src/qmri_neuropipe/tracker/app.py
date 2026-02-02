@@ -84,8 +84,8 @@ if final_tracker_path:
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
     # Tabs for different views
-    tab_summary, tab_overview, tab_subject, tab_volumes, tab_distribution, tab_correlation, tab_raw = st.tabs([
-        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "🧠 Volumes & ROIs", "📈 Distributions", "🔗 Correlations", "📋 Raw Data"
+    tab_summary, tab_overview, tab_subject, tab_study_details, tab_correlation, tab_raw = st.tabs([
+        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "📊 Study Details", "🔗 Correlations", "📋 Raw Data"
     ])
 
     with tab_summary:
@@ -411,138 +411,116 @@ if final_tracker_path:
              st.warning("No subjects found in tracker.")
 
 
-    with tab_volumes:
-        st.header("🧠 Anatomical Volumes & ROI Metrics")
-        vol_tab, roi_tab = st.tabs(["Volume Statistics", "ROI Metrics"])
-        with vol_tab:
-            st.subheader("Anatomical Structure Volumes")
-            if "Volume_Statistics" in data:
-                df_vol = data["Volume_Statistics"].copy()
-                if selected_study != "All" and "Study" in df_vol.columns:
-                    df_vol = df_vol[df_vol["Study"] == selected_study]
-                if not df_vol.empty:
-                    c1, c2 = st.columns(2)
-                    methods = ["All"] + df_vol["Method"].unique().tolist() if "Method" in df_vol.columns else ["All"]
-                    structures = ["All"] + df_vol["Structure"].unique().tolist() if "Structure" in df_vol.columns else ["All"]
-                    sel_method = c1.selectbox("Filter by Method", methods)
-                    sel_struct = c2.selectbox("Filter by Structure", structures)
-                    if sel_method != "All": df_vol = df_vol[df_vol["Method"] == sel_method]
-                    if sel_struct != "All": df_vol = df_vol[df_vol["Structure"] == sel_struct]
-                    st.dataframe(df_vol, use_container_width=True, hide_index=True)
-                    if len(df_vol) > 0 and "Structure" in df_vol.columns and "Volume_mm3" in df_vol.columns:
-                        st.markdown("---")
-                        st.subheader("Volume Comparison")
-                        try:
-                            chart_df = df_vol.groupby("Structure")["Volume_mm3"].mean().reset_index()
-                            chart_df = chart_df.sort_values("Volume_mm3", ascending=False).head(20)
-                            st.bar_chart(chart_df.set_index("Structure")["Volume_mm3"])
-                        except Exception as e:
-                            st.warning(f"Could not create chart: {e}")
-                else:
-                    st.info("No volume statistics available.")
-            else:
-                st.info("Volume Statistics sheet not found.")
+    with tab_study_details:
+        st.header("📊 Study-Wide Metric Analysis")
+        st.info("Filter and visualize metrics across the entire study population.")
         
-        with roi_tab:
-            st.subheader("Region of Interest (ROI) Metrics")
-            metric_sheets = [s for s in data.keys() if s.endswith("_Metrics")]
-            if metric_sheets:
-                sel_metric_sheet = st.selectbox("Select Atlas / Metric Sheet", metric_sheets)
-                df_roi = data[sel_metric_sheet].copy()
-                if selected_study != "All" and "Study" in df_roi.columns:
-                    df_roi = df_roi[df_roi["Study"] == selected_study]
-                if not df_roi.empty:
-                    c1, c2, c3 = st.columns(3)
-                    models = ["All"] + df_roi["Model"].unique().tolist() if "Model" in df_roi.columns else ["All"]
-                    metrics = ["All"] + df_roi["Metric"].unique().tolist() if "Metric" in df_roi.columns else ["All"]
-                    stats = ["All"] + df_roi["Statistic"].unique().tolist() if "Statistic" in df_roi.columns else ["All"]
-                    sel_model = c1.selectbox("Filter by Model", models, key=f"roi_mod_{sel_metric_sheet}")
-                    sel_met = c2.selectbox("Filter by Metric", metrics, key=f"roi_met_{sel_metric_sheet}")
-                    sel_stat = c3.selectbox("Filter by Statistic", stats, key=f"roi_stat_{sel_metric_sheet}")
-                    if sel_model != "All": df_roi = df_roi[df_roi["Model"] == sel_model]
-                    if sel_met != "All": df_roi = df_roi[df_roi["Metric"] == sel_met]
-                    if sel_stat != "All": df_roi = df_roi[df_roi["Statistic"] == sel_stat]
-                    st.dataframe(df_roi, use_container_width=True, hide_index=True)
-                    meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp']
-                    roi_cols = [c for c in df_roi.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(df_roi[c])]
-                    if roi_cols:
-                        st.markdown("---")
-                        st.subheader(f"Mean Values")
-                        try:
-                            means = df_roi[roi_cols].mean().reset_index()
-                            means.columns = ['ROI', 'Mean_Value']
-                            means = means.sort_values('Mean_Value', ascending=False).head(30)
-                            fig = px.bar(means, x='ROI', y='Mean_Value', title=f"Top 30 Regions: {sel_met}")
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e:
-                            st.warning(f"Could not create chart: {e}")
-                else:
-                    st.info(f"No data found in {sel_metric_sheet}.")
-            else:
-                st.info("No ROI Metric sheets found.")
-
-    with tab_distribution:
-        st.header("Metric Distributions")
+        # 1. Global Filters for this Tab
         sheet_names = list(data.keys())
-        selected_sheet = st.selectbox("Select Data Sheet", sheet_names)
-        df = data[selected_sheet]
-        if selected_study != "All" and "Study" in df.columns:
-            df = df[df["Study"] == selected_study]
-        sel_roi = None
-        is_tidy = "Metric" in df.columns and "Statistic" in df.columns
-        is_wide = selected_sheet.endswith("_Metrics") and not is_tidy 
-        if is_tidy or is_wide:
-            c1, c2, c3 = st.columns(3)
-            if "Model" in df.columns:
-                models = ["All"] + df["Model"].unique().tolist()
-                sel_model = c1.selectbox("Filter by Model (Dist)", models)
-                if sel_model != "All": df = df[df["Model"] == sel_model]
-            if "Metric" in df.columns:
-                metrics = df["Metric"].unique().tolist()
-                sel_metric = c2.selectbox("Select Metric (Dist)", metrics)
-                df = df[df["Metric"] == sel_metric]
-            if "Statistic" in df.columns:
-                stats = df["Statistic"].unique().tolist()
-                sel_stat = c3.selectbox("Select Statistic (Dist)", stats)
-                df = df[df["Statistic"] == sel_stat]
-            cola, colr = st.columns(2)
-            if "Atlas" in df.columns:
-                 atlases = ["All"] + df["Atlas"].unique().tolist()
-                 sel_altas = cola.selectbox("Filter by Atlas (Dist)", atlases)
-                 if sel_altas != "All": df = df[df["Atlas"] == sel_altas]
-            if "ROI_Name" in df.columns:
-                 rois = sorted(df["ROI_Name"].unique().tolist())
-                 sel_roi = colr.multiselect("Filter by ROI (Dist)", rois)
-                 if sel_roi: df = df[df["ROI_Name"].isin(sel_roi)]
-            elif is_wide:
-                 meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp']
-                 potential_rois = sorted([c for c in df.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(df[c])])
-                 sel_roi_cols = colr.multiselect("Select regions to compare (Dist)", potential_rois)
-                 if sel_roi_cols:
-                      df = df.melt(id_vars=[c for c in df.columns if c not in sel_roi_cols], value_vars=sel_roi_cols, var_name='ROI_Name', value_name='ROI_Value')
-                      sel_roi = sel_roi_cols
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if numeric_cols:
-            if 'ROI_Value' in df.columns: selected_metric = 'ROI_Value'
-            else:
-                 default_metric = "Value" if "Value" in numeric_cols else numeric_cols[0]
-                 selected_metric = st.selectbox("Select Metric to Visualize", numeric_cols, index=numeric_cols.index(default_metric))
-            group_options = ["None"] + [c for c in df.columns if df[c].dtype == object and c not in [selected_metric]]
-            if sel_roi and "ROI_Name" in df.columns:
-                 sel_group = st.selectbox("Group By (Dist)", group_options, index=group_options.index("ROI_Name") if "ROI_Name" in group_options else 0)
-            else:
-                 sel_group = st.selectbox("Group By (Dist)", group_options)
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_hist = px.histogram(df, x=selected_metric, nbins=20, color=None if sel_group == "None" else sel_group,
-                                       title=f"Distribution of {selected_metric}", marginal="box", barmode="overlay")
-                st.plotly_chart(fig_hist, use_container_width=True)
-            with c2:
-                fig_box = px.box(df, y=selected_metric, x=None if sel_group == "None" else sel_group,
-                                color=None if sel_group == "None" else sel_group, title=f"Boxplot of {selected_metric}", points="all")
-                st.plotly_chart(fig_box, use_container_width=True)
+        metric_sheets = [s for s in sheet_names if s.endswith("_Metrics") or s == "Volume_Statistics"]
+        
+        if not metric_sheets:
+            st.warning("No metric or volume sheets found in tracker.")
         else:
-            st.warning("No numeric metrics found.")
+            c1, c2, c3, c4 = st.columns(4)
+            sel_sheet = c1.selectbox("Select Data Sheet", metric_sheets, key="sd_sheet")
+            df = data[sel_sheet].copy()
+            
+            if selected_study != "All" and "Study" in df.columns:
+                df = df[df["Study"] == selected_study]
+            
+            # Dynamic Filters based on Sheet
+            is_volume = sel_sheet == "Volume_Statistics"
+            is_tidy = "Metric" in df.columns and "Statistic" in df.columns
+            is_wide = sel_sheet.endswith("_Metrics") and not is_tidy 
+            
+            models = ["All"]
+            metrics = []
+            stats = ["All"]
+            
+            if "Model" in df.columns:
+                models = ["All"] + sorted(df["Model"].unique().tolist())
+            if "Metric" in df.columns:
+                metrics = sorted(df["Metric"].unique().tolist())
+            if is_volume:
+                metrics = sorted(df["Structure"].unique().tolist()) if "Structure" in df.columns else []
+            if "Statistic" in df.columns:
+                stats = ["All"] + sorted(df["Statistic"].unique().tolist())
+
+            sel_model = c2.selectbox("Filter by Model", models, key="sd_model")
+            sel_metric = c3.selectbox("Select Metric/Structure", metrics, key="sd_metric")
+            sel_stat = c4.selectbox("Filter by Statistic", stats, key="sd_stat")
+            
+            # Apply Filters
+            if sel_model != "All" and "Model" in df.columns: df = df[df["Model"] == sel_model]
+            if is_volume:
+                df = df[df["Structure"] == sel_metric]
+                val_col = "Volume_mm3"
+                roi_col = "Structure"
+            else:
+                if "Metric" in df.columns: df = df[df["Metric"] == sel_metric]
+                if sel_stat != "All" and "Statistic" in df.columns: df = df[df["Statistic"] == sel_stat]
+                val_col = "Value"
+                roi_col = "ROI_Name"
+
+            # ROI/Region Selection
+            meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp', 'Structure', 'Method', 'Atlas']
+            potential_rois = []
+            if is_wide:
+                potential_rois = sorted([c for c in df.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(df[c])])
+            elif roi_col in df.columns:
+                potential_rois = sorted(df[roi_col].unique().tolist())
+            
+            sel_rois = st.multiselect("Filter by Region(s)", potential_rois, key="sd_rois")
+            
+            if is_wide and sel_rois:
+                df = df.melt(id_vars=[c for c in df.columns if c not in sel_rois], value_vars=sel_rois, var_name='ROI_Name', value_name='Value')
+                roi_col = "ROI_Name"
+                val_col = "Value"
+            elif sel_rois:
+                df = df[df[roi_col].isin(sel_rois)]
+
+            if not df.empty and val_col in df.columns:
+                # 2. Study-Wide Averages
+                st.markdown("---")
+                st.subheader(f"📈 Overall Averages: {sel_metric}")
+                try:
+                    # Determine grouping for averages
+                    avg_group = roi_col if roi_col in df.columns else "Metric"
+                    if avg_group in df.columns:
+                        means = df.groupby(avg_group)[val_col].mean().reset_index()
+                        means.columns = ['Region', 'Mean_Value']
+                        means = means.sort_values('Mean_Value', ascending=False).head(30)
+                        fig_avg = px.bar(means, x='Region', y='Mean_Value', color='Mean_Value',
+                                       title=f"Mean {sel_metric} across Subjects (Top 30)", color_continuous_scale="Viridis")
+                        st.plotly_chart(fig_avg, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error calculating averages: {e}")
+
+                # 3. Distributions
+                st.markdown("---")
+                st.subheader("📊 Metric Distributions")
+                
+                group_options = ["None"] + [c for c in df.columns if df[c].dtype == object and c not in [val_col]]
+                default_group = roi_col if roi_col in group_options else "None"
+                sel_group = st.selectbox("Group Distributions By", group_options, index=group_options.index(default_group))
+                
+                dist_col1, dist_col2 = st.columns(2)
+                with dist_col1:
+                    fig_hist = px.histogram(df, x=val_col, nbins=20, color=None if sel_group == "None" else sel_group,
+                                           title=f"Distribution of {sel_metric}", marginal="box", barmode="overlay")
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                with dist_col2:
+                    fig_box = px.box(df, y=val_col, x=None if sel_group == "None" else sel_group,
+                                    color=None if sel_group == "None" else sel_group, 
+                                    title=f"Variation in {sel_metric}", points="all", hover_data=["Subject_ID"])
+                    st.plotly_chart(fig_box, use_container_width=True)
+
+                # 4. Data Table
+                with st.expander("📋 View Filtered Data Table", expanded=False):
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.warning("No data matches the selected filters.")
 
     with tab_correlation:
         st.header("Metric Correlations")

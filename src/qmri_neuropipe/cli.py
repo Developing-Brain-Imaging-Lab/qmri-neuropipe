@@ -873,7 +873,7 @@ def _run_parallel_worker(
              ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
 
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
-             log_queue.put(("log", job_id, f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]"))
+             ui.console.print(f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]")
              
              # Configure logging to use the redirected stderr (FD 2)
              # We use basicConfig to catch EVERYTHING on the root logger.
@@ -908,7 +908,7 @@ def _run_parallel_worker(
         if log_queue:
              status = "complete" if stats.get('n_success', 0) > 0 else "failed"
              log_queue.put(("info", job_id, (f"{subject} (Done)", status)))
-             log_queue.put(("log", job_id, f"✨ [bold green]Finished {subject}[/bold green]"))
+             ui.console.print(f"✨ [bold green]Finished {subject}[/bold green]")
              
         stats.update({'subject': subject, 'session': session})
         return stats
@@ -916,7 +916,7 @@ def _run_parallel_worker(
     except Exception as e:
         if log_queue:
              log_queue.put(("info", job_id, (f"{subject} (Error)", "failed")))
-             log_queue.put(("log", job_id, f"❌ [bold red]FATAL ERROR: {str(e)}[/bold red]"))
+             ui.console.print(f"❌ [bold red]FATAL ERROR: {str(e)}[/bold red]")
         return {
             'n_success': 0, 
             'n_failed': 1, 
