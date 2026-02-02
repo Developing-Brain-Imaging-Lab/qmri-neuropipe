@@ -835,6 +835,8 @@ def _run_parallel_worker(
                        if s.strip():
                             log_queue.put(("log", job_id, s.strip()))
                   def flush(self): pass
+                  def fileno(self): return sys.__stdout__.fileno() if hasattr(sys.__stdout__, 'fileno') else 1
+                  def isatty(self): return False
              
              sys.stdout = StdoutRedirector()
              sys.stderr = StdoutRedirector()
