@@ -171,7 +171,9 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     
     ants_interp = interpolator
     if interpolator == 'nearest': ants_interp = 'nearestNeighbor'
-    elif interpolator == 'cubic': ants_interp = 'bspline' # approximate default for cubic-like
+    elif interpolator == 'cubic': ants_interp = 'bspline'
+    elif interpolator == 'label': ants_interp = 'genericLabel'
+    elif interpolator == 'multilabel': ants_interp = 'multiLabel'
 
     resampled = ants.resample_image_to_target(
         image=src_img,

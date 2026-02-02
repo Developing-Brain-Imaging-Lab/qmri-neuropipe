@@ -224,13 +224,17 @@ class AtlasRegistrationStep(BaseProcessingStep):
                       self.logger.warning(f"Atlas {name} label file not found: {label_path}")
                       continue
                       
-                  # Check for Probabilistic flag
-                  is_prob = False
+                  # Interpolator: Default to genericLabel for discrete and linear for probabilistic
+                  # But allow user override in config
+                  interp = None
                   if isinstance(atlas_cfg, dict):
                        is_prob = atlas_cfg.get('is_probabilistic', False)
+                       interp = atlas_cfg.get('interpolation')
+                  else:
+                       is_prob = False
                   
-                  # Interpolator: Linear for Probabilistic (preserve 0-1), Nearest for Label Maps
-                  interp = 'linear' if is_prob else 'nearestNeighbor'
+                  if not interp:
+                       interp = 'linear' if is_prob else 'genericLabel'
 
                   # Create Atlas Directory: atlases/{Name}
                   atlas_subdir = atlas_out / name
