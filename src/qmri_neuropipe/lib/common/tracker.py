@@ -419,8 +419,9 @@ class NeuroimagingTracker:
 
     def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, atlas_name: str, study: Optional[str] = None):
         """
-        Parse an ROI stats TSV and update the tracker in a Fully Long (Tidy) format.
-        Layout: Subject, Session, Atlas, ROI_Name, Metric, Statistic, Value
+        Parse an ROI stats TSV and update the tracker in a 'Wide-ROI' format.
+        Each Atlas gets its own sheet (e.g., HarvardOxford_Metrics).
+        ROIs become columns. Model, Metric, and Statistic are rows.
         """
         if not tsv_path.exists():
             return
@@ -439,57 +440,56 @@ class NeuroimagingTracker:
                 new_stats['model'] = 'ROI_Stats'
         
         # Melt stats so that each Statistic (Mean, Median, Std) becomes a row
-        # Expected columns in new_stats: roi_name, model, metric, mean, median, std, etc.
         stat_cols = [c for c in ['mean', 'median', 'std'] if c in new_stats.columns]
         if not stat_cols:
              return
 
-        # Group by Model to handle separate sheets
-        for model, model_df in new_stats.groupby('model'):
-            sheet_name = f"{model}_Metrics"
-            
-            # Prepare rows to add
-            rows_to_add = []
-            for _, row in model_df.iterrows():
-                roi = row.get('roi_name', 'Unknown')
-                metric = row.get('metric', 'Unknown')
-                
-                for s_col in stat_cols:
-                    val = row[s_col]
-                    stat_name = s_col.capitalize()
-                    
-                    rows_to_add.append({
-                        'Subject_ID': subject_id,
-                        'Session': session,
-                        'Study': study or '',
-                        'Atlas': atlas_name,
-                        'ROI_Name': roi,
-                        'Metric': metric,
-                        'Statistic': stat_name,
-                        'Value': val
-                    })
-            
-            if not rows_to_add:
-                continue
-
-            # Update Tracker Data
-            if sheet_name not in self._data:
-                self._data[sheet_name] = pd.DataFrame(columns=['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic', 'Value'])
-            
+        # Prepare for PIVOTING: we want ROI as columns
+        # First melt stats columns
+        melted = new_stats.melt(
+            id_vars=['roi_name', 'model', 'metric'],
+            value_vars=stat_cols,
+            var_name='Statistic',
+            value_name='Value'
+        )
+        melted['Statistic'] = melted['Statistic'].str.capitalize()
+        
+        # Normalize session
+        session_norm = self._norm_ses(session)
+        
+        # Sheet name is now Atlas-specific to avoid row blowout
+        # Sanitize atlas name for excel sheet
+        safe_atlas = str(atlas_name).replace(' ', '_').replace('/', '_')[:20]
+        sheet_name = f"{safe_atlas}_Metrics"
+        
+        # Pivot to WIDE format: ROI_Name becomes columns
+        wide_df = melted.pivot_table(
+            index=['model', 'metric', 'Statistic'],
+            columns='roi_name',
+            values='Value'
+        ).reset_index()
+        
+        # Add metadata columns
+        wide_df.insert(0, 'Subject_ID', str(subject_id))
+        wide_df.insert(1, 'Session', session_norm)
+        wide_df.insert(2, 'Study', study or '')
+        
+        # Rename 'model' to 'Model', 'metric' to 'Metric' for consistency
+        wide_df = wide_df.rename(columns={'model': 'Model', 'metric': 'Metric'})
+        
+        # Merge with existing sheet data
+        if sheet_name not in self._data:
+            self._data[sheet_name] = wide_df
+        else:
             df = self._data[sheet_name]
-            new_df = pd.DataFrame(rows_to_add)
+            # Concat and deduplicate by Subject/Session/Model/Metric/Statistic
+            merged = pd.concat([df, wide_df], ignore_index=True)
+            subset = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic']
+            # Re-normalize just in case
+            for col in subset:
+                 if col in merged.columns: merged[col] = merged[col].astype(str).str.strip()
             
-            # Use ensure_row or just concat and deduplicate? 
-            # Df.append/pd.concat is easier for Fully Long
-            # Filter out empty DataFrames to avoid FutureWarning
-            dfs_to_concat = [d for d in [df, new_df] if not d.empty]
-            if dfs_to_concat:
-                merged = pd.concat(dfs_to_concat, ignore_index=True)
-                subset = ['Subject_ID', 'Session', 'Study', 'Atlas', 'ROI_Name', 'Metric', 'Statistic']
-                # Filter subset to only existing columns
-                actual_subset = [c for c in subset if c in merged.columns]
-                
-                self._data[sheet_name] = merged.drop_duplicates(subset=actual_subset, keep='last')
+            self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
 
     def update_metadata(self, subject_id: str, session: str, metadata: Dict[str, Any], study: Optional[str] = None):
         """Update subject demographic or scan metadata."""
@@ -658,67 +658,49 @@ class NeuroimagingTracker:
         study: Optional[str] = None
     ):
         """
-        Log ROI metrics (cross-modal extraction) to the tracker.
-        
-        Args:
-            subject_id: Subject ID.
-            session: Session ID.
-            roi_metrics: DataFrame with columns: ROI_Name, ROI_Source, Modality, Metric, Statistic, Value.
-            study: Study name.
+        Log ROI metrics (cross-modal extraction) to the tracker in Wide-ROI format.
+        Grouping by ROI_Source (Atlas) into separate sheets.
         """
-        sheet_name = 'ROI_Metrics'
-        if sheet_name not in self._data:
-            self._data[sheet_name] = pd.DataFrame(columns=[
-                'Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value'
-            ])
-        
         if roi_metrics.empty:
             return
             
-        # Normalize session
-        def _norm_ses(s):
-            if pd.isna(s) or s is None: return "N/A"
-            s_str = str(s).strip().replace('ses-', '')
-            if s_str.isdigit(): s_str = str(int(s_str))
-            return s_str if s_str else "N/A"
+        session_norm = self._norm_ses(session)
         
-        session_norm = _norm_ses(session)
-        
-        # Add subject/session/study to the metrics dataframe
-        metrics_df = roi_metrics.copy()
-        metrics_df['Subject_ID'] = str(subject_id)
-        metrics_df['Session'] = session_norm
-        metrics_df['Study'] = study or ''
-        
-        # Ensure required columns exist
-        required_cols = ['ROI_Name', 'ROI_Source', 'Modality', 'Metric', 'Statistic', 'Value']
-        for col in required_cols:
-            if col not in metrics_df.columns:
-                metrics_df[col] = ''
-        
-        # Select and reorder columns
-        final_cols = ['Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value']
-        metrics_df = metrics_df[final_cols]
-        
-        # Upsert logic
-        df = self._data[sheet_name]
-        for _, row in metrics_df.iterrows():
-            mask = (
-                (df['Subject_ID'].astype(str) == row['Subject_ID']) &
-                (df['Session'].astype(str) == row['Session']) &
-                (df['Study'] == row['Study']) &
-                (df['ROI_Source'] == row['ROI_Source']) &
-                (df['ROI_Name'] == row['ROI_Name']) &
-                (df['Modality'] == row['Modality']) &
-                (df['Metric'] == row['Metric']) &
-                (df['Statistic'] == row['Statistic'])
-            )
-            if mask.any():
-                idx = df.index[mask][0]
-                df.at[idx, 'Value'] = row['Value']
-            else:
-                self._data[sheet_name] = pd.concat([df, pd.DataFrame([row]).astype(df.dtypes)], ignore_index=True)
-                df = self._data[sheet_name]
+        # Group by Atlas
+        for atlas, atlas_df in roi_metrics.groupby('ROI_Source'):
+             safe_atlas = str(atlas).replace(' ', '_').replace('/', '_')[:20]
+             sheet_name = f"{safe_atlas}_Metrics"
+             
+             # Pivot to WIDE format
+             # If Modality is present, include it in index
+             index_cols = ['Modality', 'Metric', 'Statistic']
+             actual_index = [c for c in index_cols if c in atlas_df.columns]
+             
+             wide_df = atlas_df.pivot_table(
+                 index=actual_index,
+                 columns='ROI_Name',
+                 values='Value'
+             ).reset_index()
+             
+             # Add metadata
+             wide_df.insert(0, 'Subject_ID', str(subject_id))
+             wide_df.insert(1, 'Session', session_norm)
+             wide_df.insert(2, 'Study', study or '')
+             
+             # Merge with existing
+             if sheet_name not in self._data:
+                 self._data[sheet_name] = wide_df
+             else:
+                 df = self._data[sheet_name]
+                 merged = pd.concat([df, wide_df], ignore_index=True)
+                 subset = ['Subject_ID', 'Session', 'Study'] + actual_index
+                 self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+
+    def _norm_ses(self, s):
+        if pd.isna(s) or s is None: return "N/A"
+        s_str = str(s).strip().replace('ses-', '')
+        if s_str.isdigit(): s_str = str(int(s_str))
+        return s_str if s_str else "N/A"
 
     def _recalculate_summary(self):
         """Recalculate high-level metrics for the Summary sheet."""

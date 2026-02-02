@@ -337,54 +337,62 @@ if final_tracker_path:
                 st.info("Volume Statistics sheet not found. Run anatomical processing with segmentation enabled.")
         
         with roi_tab:
-            st.subheader("Cross-Modal ROI Metrics")
-            if "ROI_Metrics" in data:
-                df_roi = data["ROI_Metrics"].copy()
+            st.subheader("Region of Interest (ROI) Metrics")
+            
+            # Find all metric sheets
+            metric_sheets = [s for s in data.keys() if s.endswith("_Metrics")]
+            
+            if metric_sheets:
+                sel_metric_sheet = st.selectbox("Select Atlas / Metric Sheet", metric_sheets)
+                df_roi = data[sel_metric_sheet].copy()
+                
                 if selected_study != "All" and "Study" in df_roi.columns:
                     df_roi = df_roi[df_roi["Study"] == selected_study]
                 
                 if not df_roi.empty:
-                    # Filters
-                    col1, col2, col3, col4 = st.columns(4)
+                    # Filters: for Wide format, we filter by Model/Metric/Statistic rows
+                    col1, col2, col3 = st.columns(3)
                     
-                    sources = ["All"] + df_roi["ROI_Source"].unique().tolist() if "ROI_Source" in df_roi.columns else ["All"]
-                    modalities = ["All"] + df_roi["Modality"].unique().tolist() if "Modality" in df_roi.columns else ["All"]
+                    models = ["All"] + df_roi["Model"].unique().tolist() if "Model" in df_roi.columns else ["All"]
                     metrics = ["All"] + df_roi["Metric"].unique().tolist() if "Metric" in df_roi.columns else ["All"]
-                    rois = ["All"] + df_roi["ROI_Name"].unique().tolist() if "ROI_Name" in df_roi.columns else ["All"]
+                    stats = ["All"] + df_roi["Statistic"].unique().tolist() if "Statistic" in df_roi.columns else ["All"]
                     
-                    sel_source = col1.selectbox("ROI Source", sources)
-                    sel_modality = col2.selectbox("Modality", modalities)
-                    sel_metric = col3.selectbox("Metric", metrics)
-                    sel_roi = col4.selectbox("ROI", rois)
+                    sel_model = col1.selectbox("Filter by Model", models, key=f"roi_mod_{sel_metric_sheet}")
+                    sel_met = col2.selectbox("Filter by Metric", metrics, key=f"roi_met_{sel_metric_sheet}")
+                    sel_stat = col3.selectbox("Filter by Statistic", stats, key=f"roi_stat_{sel_metric_sheet}")
                     
-                    if sel_source != "All":
-                        df_roi = df_roi[df_roi["ROI_Source"] == sel_source]
-                    if sel_modality != "All":
-                        df_roi = df_roi[df_roi["Modality"] == sel_modality]
-                    if sel_metric != "All":
-                        df_roi = df_roi[df_roi["Metric"] == sel_metric]
-                    if sel_roi != "All":
-                        df_roi = df_roi[df_roi["ROI_Name"] == sel_roi]
+                    if sel_model != "All":
+                        df_roi = df_roi[df_roi["Model"] == sel_model]
+                    if sel_met != "All":
+                        df_roi = df_roi[df_roi["Metric"] == sel_met]
+                    if sel_stat != "All":
+                        df_roi = df_roi[df_roi["Statistic"] == sel_stat]
                     
                     st.dataframe(df_roi, use_container_width=True, hide_index=True)
                     
-                    # Visualization
-                    if len(df_roi) > 0 and "Value" in df_roi.columns:
+                    # Visualization: Wide format to Bar chart
+                    # Identify ROI columns (usually numeric and not in metadata)
+                    meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp']
+                    roi_cols = [c for c in df_roi.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(df_roi[c])]
+                    
+                    if roi_cols:
                         st.markdown("---")
-                        st.subheader("ROI Metric Visualization")
+                        st.subheader(f"Mean Values for {sel_met} ({sel_stat})")
                         
-                        # Group by ROI and compute mean
                         try:
-                            if "ROI_Name" in df_roi.columns:
-                                chart_df = df_roi.groupby("ROI_Name")["Value"].mean().reset_index()
-                                chart_df = chart_df.sort_values("Value", ascending=False).head(20)
-                                st.bar_chart(chart_df.set_index("ROI_Name")["Value"])
+                            # Average across subjects
+                            means = df_roi[roi_cols].mean().reset_index()
+                            means.columns = ['ROI', 'Mean_Value']
+                            means = means.sort_values('Mean_Value', ascending=False).head(30)
+                            
+                            fig = px.bar(means, x='ROI', y='Mean_Value', title=f"Top 30 Regions: {sel_met}")
+                            st.plotly_chart(fig, use_container_width=True)
                         except Exception as e:
                             st.warning(f"Could not create chart: {e}")
                 else:
-                    st.info("No ROI metrics available for the selected study.")
+                    st.info(f"No data found in {sel_metric_sheet} for the selected study.")
             else:
-                st.info("ROI Metrics sheet not found. Run anatomical processing with cross-modal ROI extraction enabled.")
+                st.info("No ROI Metric sheets found. Run processing with ROI extraction enabled.")
 
     with tab_distribution:
         st.header("Metric Distributions")
@@ -397,24 +405,30 @@ if final_tracker_path:
         if selected_study != "All" and "Study" in df.columns:
             df = df[df["Study"] == selected_study]
             
-        # Tidy Sheet Handling
+        # Tidy Sheet Handling (Long format) or Wide Metric Sheet
         sel_roi = None
         is_tidy = "Metric" in df.columns and "Statistic" in df.columns
-        if is_tidy:
+        is_wide = selected_sheet.endswith("_Metrics") and not is_tidy 
+        
+        # If it's the new format, it actually HAS Metric/Statistic rows, but ROI columns
+        if is_tidy or is_wide:
             col1, col2, col3 = st.columns(3)
+            # Filter rows first
             if "Model" in df.columns:
                 models = ["All"] + df["Model"].unique().tolist()
                 sel_model = col1.selectbox("Filter by Model", models)
                 if sel_model != "All":
                     df = df[df["Model"] == sel_model]
             
-            metrics = df["Metric"].unique().tolist()
-            sel_metric = col2.selectbox("Select Metric", metrics)
-            df = df[df["Metric"] == sel_metric]
+            if "Metric" in df.columns:
+                metrics = df["Metric"].unique().tolist()
+                sel_metric = col2.selectbox("Select Metric", metrics)
+                df = df[df["Metric"] == sel_metric]
             
-            stats = df["Statistic"].unique().tolist()
-            sel_stat = col3.selectbox("Select Statistic", stats)
-            df = df[df["Statistic"] == sel_stat]
+            if "Statistic" in df.columns:
+                stats = df["Statistic"].unique().tolist()
+                sel_stat = col3.selectbox("Select Statistic", stats)
+                df = df[df["Statistic"] == sel_stat]
 
             # Atlas and ROI Filters
             cola, colr = st.columns(2)
@@ -425,23 +439,37 @@ if final_tracker_path:
                       df = df[df["Atlas"] == sel_atlas]
             
             if "ROI_Name" in df.columns:
+                 # Legacy Long Format
                  rois = sorted(df["ROI_Name"].unique().tolist())
                  sel_roi = colr.multiselect("Filter by ROI (Leave empty for All)", rois)
                  if sel_roi:
                       df = df[df["ROI_Name"].isin(sel_roi)]
-            else:
-                 sel_roi = None
+            elif is_wide:
+                 # New Wide Format: ROIs are columns
+                 meta_cols = ['Subject_ID', 'Session', 'Study', 'Model', 'Metric', 'Statistic', 'Modality', 'ROI_Source', 'Timestamp']
+                 potential_rois = sorted([c for c in df.columns if c not in meta_cols and pd.api.types.is_numeric_dtype(df[c])])
+                 sel_roi_cols = colr.multiselect("Select regions to compare", potential_rois)
+                 if sel_roi_cols:
+                      # To visualize multiple ROIs, we need to melt them back for px.histogram/box
+                      df = df.melt(id_vars=[c for c in df.columns if c not in sel_roi_cols], 
+                                  value_vars=sel_roi_cols, var_name='ROI_Name', value_name='ROI_Value')
+                      # Mark that we filtered/selected ROIs and use the melted value column
+                      sel_roi = sel_roi_cols
 
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         
         if numeric_cols:
-            default_metric = "Value" if "Value" in numeric_cols else numeric_cols[0]
-            selected_metric = st.selectbox("Select Metric to Visualize", numeric_cols, index=numeric_cols.index(default_metric))
+            if 'ROI_Value' in df.columns:
+                 selected_metric = 'ROI_Value'
+            else:
+                 default_metric = "Value" if "Value" in numeric_cols else numeric_cols[0]
+                 selected_metric = st.selectbox("Select Metric to Visualize", numeric_cols, index=numeric_cols.index(default_metric))
             
             # Grouping Option
             group_options = ["None"] + [c for c in df.columns if df[c].dtype == object and c not in [selected_metric]]
-            if sel_roi and isinstance(sel_roi, list) and len(sel_roi) > 1:
-                 # Default to ROI if multiple selected
+            
+            # Smart default grouping
+            if sel_roi and "ROI_Name" in df.columns:
                  sel_group = st.selectbox("Group By", group_options, index=group_options.index("ROI_Name") if "ROI_Name" in group_options else 0)
             else:
                  sel_group = st.selectbox("Group By", group_options)
