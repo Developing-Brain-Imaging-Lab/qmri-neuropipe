@@ -771,22 +771,51 @@ def _run_parallel_worker(
     Worker function for parallel pipeline execution.
     """
     import os
-    import logging
     import sys
+    import threading
+    import logging
     from pathlib import Path
-    from qmri_neuropipe.core import PipelineConfig
     
     # 0. Acquire Slot and Identify Job
     job_id = 0
     if slot_queue:
          job_id = slot_queue.get()
 
+    # 1. Robust OS-level Redirection (Capture all stdout/stderr, including C-extensions and subprocesses)
+    if log_queue:
+        pipe_out, pipe_in = os.pipe()
+        
+        def forwarder():
+            try:
+                # Use os.fdopen to read lines from the pipe
+                with os.fdopen(pipe_out, 'r', errors='replace') as f:
+                    for line in f:
+                        if line.strip():
+                            log_queue.put(("log", job_id, line.strip()))
+            except Exception:
+                pass
+
+        threading.Thread(target=forwarder, daemon=True).start()
+
+        # Redirect FD 1 and 2 (stdout/stderr) to pipe
+        os.dup2(pipe_in, 1)
+        os.dup2(pipe_in, 2)
+        # Original pipe_in is no longer needed
+        os.close(pipe_in)
+        
+        # Force Python to flush and use the new FDs
+        sys.stdout = os.fdopen(1, 'w', buffering=1)
+        sys.stderr = os.fdopen(2, 'w', buffering=1)
+
     try:
-        # 1. Isolate GPU Environment
+        from qmri_neuropipe.core import PipelineConfig, ui
+        from rich.console import Console
+
+        # 2. Isolate GPU Environment
         if gpu_id is not None:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
             
-        # 2. Reconstruct Config
+        # 3. Reconstruct Config
         valid_keys = set(PipelineConfig.__annotations__.keys())
         if 'config_data' in valid_keys:
             valid_keys.remove('config_data')
@@ -811,39 +840,23 @@ def _run_parallel_worker(
         if 'jobs' in config.config_data:
             config.config_data['jobs'] = 1
 
-        # 3. Setup Worker UI/Logging Redirect
+        # 4. Setup Worker UI/Logging (Now that redirection is active)
         if log_queue:
-             # Redirect global rich console immediately
-             from qmri_neuropipe.core import ui
-             from rich.console import Console
              # Force NO terminal features for child processes to prevent layout corruption
-             ui.console = Console(file=sys.stdout, force_terminal=False, color_system=None, soft_wrap=True, legacy_windows=False)
+             ui.console = Console(force_terminal=False, color_system=None, soft_wrap=True, legacy_windows=False)
 
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
              log_queue.put(("log", job_id, f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]"))
              
-             # Custom Logging Handler to Queue
-             class QueueHandler(logging.Handler):
-                  def emit(self, record):
-                       msg = self.format(record)
-                       log_queue.put(("log", job_id, msg))
+             # Configure logging to use the redirected stderr (FD 2)
+             # By using a simple StreamHandler on sys.stderr, we let the OS-level pipe
+             # handle the capture, ensuring consistent formatting and NO duplication.
+             logging.basicConfig(level=logging.INFO, force=True, handlers=[
+                 logging.StreamHandler(sys.stderr)
+             ])
+             # Ensure root logger is at least INFO
+             logging.getLogger().setLevel(logging.INFO)
              
-             root_logger = logging.getLogger()
-             q_handler = QueueHandler()
-             q_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-             root_logger.addHandler(q_handler)
-             
-             # Also redirect stdout for prints
-             class StdoutRedirector:
-                  def write(self, s):
-                       if s.strip():
-                            log_queue.put(("log", job_id, s.strip()))
-                  def flush(self): pass
-                  def fileno(self): return sys.__stdout__.fileno() if hasattr(sys.__stdout__, 'fileno') else 1
-                  def isatty(self): return False
-             
-             sys.stdout = StdoutRedirector()
-             sys.stderr = StdoutRedirector()
 
         # 4. Initialize Pipeline
         if pipeline_name == 'dmri':
