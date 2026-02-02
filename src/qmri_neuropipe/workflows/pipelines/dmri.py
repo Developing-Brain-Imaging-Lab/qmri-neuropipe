@@ -265,13 +265,13 @@ class PreprocessingWorkflow(BaseWorkflow):
         # 5. Bias Field Correction
         bias_cfg = dmri_cfg.get('bias_correction', {})
         # Check explicit enabled flag in 'dmri.preprocessing.bias_correction' OR top-level legacy 'do_bias_correction' (default False)
-        do_bias = bias_cfg.get('enabled') or self.config.get("do_bias_correction", False)
-        
-        if do_bias and bias_cfg.get('enabled', False):
-             # If bias_cfg exists, use it. If not, fallback to top-level.
-             # Careful: if bias_cfg['enabled'] is False, we should skip.
-             if bias_cfg.get('enabled') is False:
-                 do_bias = False
+        do_bias = bias_cfg.get('enabled')
+        if do_bias is None:
+             do_bias = self.config.get("do_bias_correction", False)
+             
+        # If bias_cfg['enabled'] was explicitly set to False, it should override any legacy 'do_bias_correction'
+        if do_bias and bias_cfg.get('enabled') is False:
+            do_bias = False
              
         if do_bias:
             method = bias_cfg.get('method') or self.config.get("bias_method", "ants")
@@ -286,11 +286,11 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         # 6. Coregistration (to T1w)
         coreg_cfg = dmri_cfg.get('coregistration', {})
-        do_coreg = coreg_cfg.get('enabled') or self.config.get("do_coregistration", False)
-        
-        if coreg_cfg.get('enabled') is False:
-             do_coreg = False
-        
+        do_coreg = coreg_cfg.get('enabled')
+        if do_coreg is None:
+             do_coreg = self.config.get("do_coregistration", False)
+             
+
         # We track if coregistration changed the resolution/grid
         coreg_resampled = False
         native_dwi_ref = None # To store native reference for GNL if needed
@@ -345,8 +345,10 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         # 8. Final Brain Masking
         mask_cfg = dmri_cfg.get('brain_masking', {})
-        do_masking = mask_cfg.get('enabled') or self.config.get("do_brain_masking", False)
-
+        do_masking = mask_cfg.get('enabled')
+        if do_masking is None:
+             do_masking = self.config.get("do_brain_masking", False)
+             
         if do_masking:
             method = mask_cfg.get('method') or self.config.get("masking_method", "mrtrix")
             self.logger.info(f"Adding BrainMaskingStep (method={method})")
@@ -563,7 +565,9 @@ class PreprocessingWorkflow(BaseWorkflow):
                              step_kwargs["return_mask"] = True
                              
                              # Optimization: Use structural mask if coregistered to anatomical space
-                             coreg_enabled = coreg_cfg.get('enabled', False) or self.config.get("do_coregistration", False)
+                             coreg_enabled = coreg_cfg.get('enabled')
+                             if coreg_enabled is None:
+                                 coreg_enabled = self.config.get("do_coregistration", False)
                              
                              # Check output resolution (default anatomical)
                              coreg_opts = coreg_cfg.get("options", {}) if isinstance(coreg_cfg.get("options"), dict) else {}
