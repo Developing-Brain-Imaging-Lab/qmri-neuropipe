@@ -649,7 +649,7 @@ def main(
 
              ui_state = UIState(jobs, len(tasks))
              
-             def log_monitor():
+             def log_monitor(live_obj):
                   while True:
                        try:
                             item = log_queue.get()
@@ -663,13 +663,20 @@ def main(
                                       ui_state.update_info(j_id, msg[0], msg[1])
                                  else:
                                       ui_state.update_info(j_id, msg)
+                            
+                            # Trigger UI refresh
+                            if live_obj and live_obj.is_started:
+                                 try:
+                                       live_obj.update(ui_state.get_layout())
+                                 except: pass
                        except: break
 
-             monitor_thread = threading.Thread(target=log_monitor, daemon=True)
-             monitor_thread.start()
-
              results = []
-             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4) as live:
+             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4, screen=False) as live:
+                  # Start monitor with live access
+                  monitor_thread = threading.Thread(target=log_monitor, args=(live,), daemon=True)
+                  monitor_thread.start()
+
                   with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
                        futures = {}
                        for i, (sub, ses) in enumerate(tasks):
@@ -802,6 +809,12 @@ def _run_parallel_worker(
 
         # 3. Setup Worker UI/Logging Redirect
         if log_queue:
+             # Redirect global rich console immediately
+             from qmri_neuropipe.core import ui
+             from rich.console import Console
+             # Force NO terminal features for child processes to prevent layout corruption
+             ui.console = Console(file=sys.stdout, force_terminal=False, color_system=None, soft_wrap=True, legacy_windows=False)
+
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
              log_queue.put(("log", job_id, f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]"))
              
@@ -824,6 +837,7 @@ def _run_parallel_worker(
                   def flush(self): pass
              
              sys.stdout = StdoutRedirector()
+             sys.stderr = StdoutRedirector()
 
         # 4. Initialize Pipeline
         if pipeline_name == 'dmri':
