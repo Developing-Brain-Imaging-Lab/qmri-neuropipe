@@ -84,8 +84,8 @@ if final_tracker_path:
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
     # Tabs for different views
-    tab_summary, tab_overview, tab_subject, tab_study_details, tab_correlation, tab_raw = st.tabs([
-        "📊 Summary", "⚙️ Processing Status", "👤 Subject Details", "📊 Study Details", "🔗 Correlations", "📋 Raw Data"
+    tab_summary, tab_study_details, tab_subject, tab_overview, tab_correlation, tab_raw = st.tabs([
+        "📊 Summary", "📊 Study Details", "👤 Subject Details", "⚙️ Processing Status", "🔗 Correlations", "📋 Raw Data"
     ])
 
     with tab_summary:
@@ -97,9 +97,8 @@ if final_tracker_path:
         # Calculate live metrics
         total_subjs = 0
         total_sess = 0
-        comp_rate = "0%"
-        avg_snr = "N/A"
-        avg_mot = "N/A"
+        anat_comp_rate = "0%"
+        diff_comp_rate = "0%"
         
         if "Processing_Status" in data:
             df_ps_all = data["Processing_Status"]
@@ -109,9 +108,19 @@ if final_tracker_path:
             total_subjs = df_ps_all["Subject_ID"].nunique()
             total_sess = len(df_ps_all)
             
-            if "Overall_Pipeline_Status" in df_ps_all.columns:
-                 complete = (df_ps_all["Overall_Pipeline_Status"].astype(str).str.contains("Complete", case=False)).sum()
-                 comp_rate = f"{(complete/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
+        if "Anatomical_Status" in data:
+             df_anat = data["Anatomical_Status"]
+             if selected_study != "All" and "Study" in df_anat.columns: df_anat = df_anat[df_anat["Study"] == selected_study]
+             if "Overall_Status" in df_anat.columns:
+                  comp = (df_anat["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
+                  anat_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
+                  
+        if "Diffusion_Status" in data:
+             df_diff = data["Diffusion_Status"]
+             if selected_study != "All" and "Study" in df_diff.columns: df_diff = df_diff[df_diff["Study"] == selected_study]
+             if "Overall_Status" in df_diff.columns:
+                  comp = (df_diff["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
+                  diff_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
         
         if "Quality_Metrics" in data:
              df_qm = data["Quality_Metrics"]
@@ -127,8 +136,13 @@ if final_tracker_path:
 
         col_m1.metric("Total Subjects", total_subjs)
         col_m2.metric("Total Sessions", total_sess)
-        col_m3.metric("Completion Rate", comp_rate)
-        col_m4.metric("Avg SNR / Motion", f"{avg_snr} / {avg_mot}")
+        col_m3.metric("Anatomical Success", anat_comp_rate)
+        col_m4.metric("Diffusion Success", diff_comp_rate)
+        
+        # Second row for quality metrics
+        q_col1, q_col2 = st.columns(2)
+        q_col1.metric("Avg DWI SNR", avg_snr)
+        q_col2.metric("Avg Mean FD", avg_mot)
 
         st.markdown("---")
 
@@ -192,7 +206,7 @@ if final_tracker_path:
                                for i, (p_name, p_counts) in enumerate(status_plots):
                                     target_col = sub_col1 if i % 2 == 0 else sub_col2
                                     fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Status",
-                                                 color="Status", color_discrete_map=color_map)
+                                                 color="Status", color_discrete_map=color_map, hole=0.4)
                                     fig.update_layout(title_x=0.5, margin=dict(t=30, b=0, l=0, r=0), showlegend=False if i > 0 else True)
                                     target_col.plotly_chart(fig, use_container_width=True)
                           else:
@@ -200,14 +214,14 @@ if final_tracker_path:
                                selected_plot = st.selectbox("Select Modality Status", [p[0] for p in status_plots])
                                p_name, p_counts = next(p for p in status_plots if p[0] == selected_plot)
                                fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Status Distribution",
-                                            color="Status", color_discrete_map=color_map)
+                                            color="Status", color_discrete_map=color_map, hole=0.4)
                                fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
                                st.plotly_chart(fig, use_container_width=True)
                      else:
                           # Just one
                           p_name, p_counts = status_plots[0]
                           fig = px.pie(p_counts, values="Count", names="Status", title=f"{p_name} Pipeline Status Distribution",
-                                       color="Status", color_discrete_map=color_map)
+                                       color="Status", color_discrete_map=color_map, hole=0.4)
                           fig.update_layout(title_x=0.5, margin=dict(t=50, b=0, l=0, r=0))
                           st.plotly_chart(fig, use_container_width=True)
         else:
