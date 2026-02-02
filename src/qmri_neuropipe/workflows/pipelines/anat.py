@@ -113,7 +113,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                  self.config, self.logger, self.provenance,
                  atlas_file=seg_cfg.get("atlas_file"),
                  atlas_labels=seg_cfg.get("atlas_labels"),
-                 metrics=seg_cfg.get("metrics")
+                 metrics=seg_cfg.get("metrics"),
+                 atlas_threshold=seg_cfg.get("atlas_threshold")
              ))
 
 

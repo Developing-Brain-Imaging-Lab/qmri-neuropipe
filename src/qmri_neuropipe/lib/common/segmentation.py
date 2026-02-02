@@ -26,11 +26,12 @@ class SegmentationStep(BaseProcessingStep):
         metrics: List of metric names/suffixes to include. If empty, tries to find all available.
     """
     
-    def __init__(self, config, logger, provenance, atlas_file: str = None, atlas_labels: str = None, metrics: list = None, **kwargs):
+    def __init__(self, config, logger, provenance, atlas_file: str = None, atlas_labels: str = None, metrics: list = None, atlas_threshold: float = None, **kwargs):
         super().__init__(config, logger, provenance)
         self.atlas_file = Path(atlas_file) if atlas_file else None
         self.atlas_labels = Path(atlas_labels) if atlas_labels else None
         self.target_metrics = metrics or [] # List of suffixes or names to include
+        self.atlas_threshold = atlas_threshold
         self.kwargs = kwargs
         
     def run(self, context: dict, output_dir: Path, **kwargs) -> dict:
@@ -121,10 +122,40 @@ class SegmentationStep(BaseProcessingStep):
         # 2. Load Atlas
         try:
             atlas_img = nib.load(str(self.atlas_file))
-            atlas_data = atlas_img.get_fdata().astype(int)
+            atlas_raw = atlas_img.get_fdata()
             atlas_affine = atlas_img.affine
+            
+            # Determine threshold
+            threshold = self.atlas_threshold
+            if threshold is None:
+                threshold = self.config.get('anat', {}).get('segmentation', {}).get('atlas_threshold')
+            
+            # If threshold is still None and data is float, we might want a default safely
+            is_probabilistic = np.issubdtype(atlas_raw.dtype, np.floating) or atlas_raw.ndim == 4
+            
+            if atlas_raw.ndim == 4:
+                # 4D probabilistic atlas (e.g. FSL Harvard-Oxford)
+                thr = threshold if threshold is not None else 0.5
+                self.logger.info(f"Detected 4D probabilistic atlas. Creating label map (threshold={thr}).")
+                
+                if atlas_raw.shape[3] == 1:
+                    # Single volume probability map
+                    atlas_data = (atlas_raw[..., 0] >= thr).astype(int)
+                else:
+                    # Multi-volume probabilities: Winner takes all above threshold
+                    max_prob = np.max(atlas_raw, axis=-1)
+                    atlas_data = (np.argmax(atlas_raw, axis=-1) + 1).astype(int)
+                    atlas_data[max_prob < thr] = 0
+            else:
+                # 3D Atlas
+                if threshold is not None:
+                    self.logger.info(f"Applying threshold {threshold} to 3D atlas.")
+                    atlas_data = (atlas_raw >= threshold).astype(int)
+                else:
+                    atlas_data = atlas_raw.astype(int)
+                    
         except Exception as e:
-            self.logger.error(f"Failed to load atlas {self.atlas_file}: {e}")
+            self.logger.error(f"Failed to load/process atlas {self.atlas_file}: {e}")
             return context
             
         # Load Labels (Optional)

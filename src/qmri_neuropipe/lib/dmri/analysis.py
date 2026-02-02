@@ -400,6 +400,12 @@ class StatsExtractionStep(BaseProcessingStep):
              
         lut_map = {}
         atlases_cfg = analysis_cfg.get("atlases", {})
+        
+        # Determine global threshold for probabilistic atlases
+        prob_thresh_global = analysis_cfg.get('atlas_threshold')
+        if prob_thresh_global is None:
+             prob_thresh_global = 0.01 # Default fallback
+             
         for name, cfg in atlases_cfg.items():
              if isinstance(cfg, dict) and cfg.get('lut'):
                  lut_map[name] = self._load_lut(Path(cfg['lut']))
@@ -455,8 +461,14 @@ class StatsExtractionStep(BaseProcessingStep):
                       # Retrieve config for this atlas
                       atlas_cfg = atlases_cfg.get(atlas_name, {})
                       is_prob = False
+                      prob_thresh = prob_thresh_global
+                      
                       if isinstance(atlas_cfg, dict):
                            is_prob = atlas_cfg.get('is_probabilistic', False)
+                           if 'threshold' in atlas_cfg:
+                                prob_thresh = atlas_cfg['threshold']
+                           elif 'atlas_threshold' in atlas_cfg:
+                                prob_thresh = atlas_cfg['atlas_threshold']
 
                       try:
                           seg_img = nib.load(str(atlas_path))
@@ -481,7 +493,6 @@ class StatsExtractionStep(BaseProcessingStep):
                                 pass
                            
                            n_vols = seg_data.shape[3] if seg_data.ndim == 4 else 1
-                           prob_thresh = 0.01  # Ignore voxels with almost 0 weight
                            
                            for vol_idx in range(n_vols):
                                 if seg_data.ndim == 4:
