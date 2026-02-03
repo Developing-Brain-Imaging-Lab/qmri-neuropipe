@@ -1183,7 +1183,7 @@ getenv = True{concurrency_directive}
             ch = logging.StreamHandler()
             ch.setFormatter(console_formatter)
         
-        ch.setLevel(getattr(logging, log_level))
+        ch.setLevel(getattr(logging, self.config.log_level))
         
         # Add handlers to pipeline logger
         logger.addHandler(fh)
