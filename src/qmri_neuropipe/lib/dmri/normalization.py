@@ -138,8 +138,17 @@ class NormalizationStep(BaseProcessingStep):
                  all_exist = False
                  
         if skip and all_exist:
-             self.logger.info("Skipping Normalization (All outputs exist).")
-             # Populate context
+             # Check timestamps
+             # ref_path is the driving metric
+             in_mtime = ref_path.stat().st_mtime
+             # out_mtime is the first predicted output
+             out_mtime = predicted_outputs[0].stat().st_mtime
+             
+             if in_mtime > out_mtime:
+                  self.logger.info(f"Normalization driving metric ({ref_path.name}) is newer than output. Re-running.")
+             else:
+                  self.logger.info("Skipping Normalization (All outputs exist and are up-to-date).")
+                  # Populate context
              normalized_results = {}
              # Re-scan or use predicted?
              # Re-scan to match logic below

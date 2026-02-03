@@ -225,8 +225,8 @@ class CoregistrationStep(BaseProcessingStep):
                         mrtrix.dwiextract(input_image, avg_b0_path, bzero=True, nthreads=nthreads, force=True)
                         mrtrix.mrmath(avg_b0_path, "mean", avg_b0_path, axis=3, nthreads=nthreads, force=True)
                     except Exception as e:
-                        self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to first volume.")
-                        run_cmd(f"fslroi {in_path} {avg_b0_path} 0 1", label="extract_first_vol")
+                        self.logger.warning(f"MRtrix extraction failed: {e}. Falling back to total series mean via fslmaths.")
+                        run_cmd(f"fslmaths {in_path} -Tmean {avg_b0_path}", label="calculate_total_mean_ref")
                 moving_for_reg = avg_b0_path
         
         # --- GRID CONSOLIDATION: Resample target if native resolution requested ---

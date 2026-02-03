@@ -222,7 +222,9 @@ class DTIFittingStep(BaseProcessingStep):
             if hasattr(dwi, 'Delta') and dwi.Delta: dipy_kwargs['Delta_file'] = dwi.Delta
             if hasattr(dwi, 'delta') and dwi.delta: dipy_kwargs['delta_file'] = dwi.delta
                 
-            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **dipy_kwargs)
+            # Standardized threading resolution
+            nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)
+            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=nthreads, **dipy_kwargs)
             
         elif self.method == 'fsl':
             from ...interfaces.fsl import fit_dti
@@ -247,7 +249,9 @@ class DTIFittingStep(BaseProcessingStep):
             if gnl_map:
                 self.logger.warning("Gradient nonlinearity tensor map found but not currently supported by MRtrix backend (in this pipeline). GNL correction will be ignored.")
                 
-            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **mrtrix_kwargs)
+            # Standardized threading resolution
+            nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)
+            fit_dti(dwi, model_out, mask_file=mask_path, nthreads=nthreads, **mrtrix_kwargs)
         else:
             raise ValueError(f"Unknown DTI method: {self.method}")
             
@@ -994,7 +998,9 @@ class FWDTIFittingStep(BaseProcessingStep):
                      self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY FWE-DTI: {gnl_map}")
                      step_kwargs['grad_nonlin'] = gnl_map
             
-            fit_fwe_dti(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **step_kwargs)
+            # Standardized threading resolution
+            nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)
+            fit_fwe_dti(dwi, model_out, mask_file=mask_path, nthreads=nthreads, **step_kwargs)
             
         else:
             raise ValueError(f"Unknown FWE-DTI method: {self.method} (only 'dipy' supported)")

@@ -556,7 +556,7 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         
         # Create new gradient table
         # Optimized: minimal check
-        vox_gtab = gradient_table(new_bvals, bvecs=new_bvecs, big_delta=big_delta, small_delta=small_delta)
+        vox_gtab = gradient_table(new_bvals, bvecs=new_bvecs, big_delta=big_delta, small_delta=small_delta, b0_threshold=kwargs.get('b0_threshold', 50))
         
         # Instantiate Model
         # Use filtered kwargs (without metrics)
@@ -668,7 +668,8 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
                 'big_delta': big_delta,
                 'small_delta': small_delta,
                 'model_class': model_class,
-                'model_kwargs': model_kwargs
+                'model_kwargs': model_kwargs,
+                'b0_threshold': model_kwargs.get('b0_threshold', 50)
             }
             # Use global generic wrapper
             pool_args.append((i, chunks_data[i], None, _gnl_worker_func, kw))
@@ -692,7 +693,8 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
             'big_delta': big_delta,
             'small_delta': small_delta,
             'model_class': model_class,
-            'model_kwargs': model_kwargs
+            'model_kwargs': model_kwargs,
+            'b0_threshold': model_kwargs.get('b0_threshold', 50)
         }
         all_params = _gnl_worker_func(0, data_flat, None, kw)
         
@@ -825,7 +827,7 @@ def fit_dti(
          
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     big_delta, small_delta = _load_timings(Delta_file, delta_file)
-    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta, b0_threshold=kwargs.get('b0_threshold', 50))
     if big_delta is not None and small_delta is not None:
          print(f"  - Using custom diffusion times (Delta/delta)")
 
@@ -1054,7 +1056,7 @@ def fit_dki(
 
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     big_delta, small_delta = _load_timings(Delta_file, delta_file)
-    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta, b0_threshold=kwargs.get('b0_threshold', 50))
     if big_delta is not None and small_delta is not None:
          print(f"  - Using custom diffusion times (Delta/delta)")
     
@@ -1244,7 +1246,7 @@ def fit_mapmri(
 
     bvals, bvecs = read_bvals_bvecs(str(bval_file), str(bvec_file))
     big_delta, small_delta = _load_timings(Delta_file, delta_file)
-    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta)
+    gtab = gradient_table(bvals, bvecs=bvecs, big_delta=big_delta, small_delta=small_delta, b0_threshold=kwargs.get('b0_threshold', 50))
     if big_delta is not None and small_delta is not None:
          print(f"  - Using custom diffusion times (Delta/delta)")
 

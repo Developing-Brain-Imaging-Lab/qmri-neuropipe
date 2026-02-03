@@ -101,14 +101,26 @@ class TopupStep(BaseProcessingStep):
                 base_name = f"topup_group{idx}"
                 base = topup_dir / base_name
                 
-                # Check if outputs exist
-                fieldcoef = base.with_name(f"{base.name}_fieldcoef.nii.gz")
-                movpar = base.with_name(f"{base.name}_movpar.txt")
-                field_map = base.with_name(f"{base.name}_fmap.nii.gz")
+                # Define output paths
+                fieldcoef = base.with_name(f"{base_name}_fieldcoef.nii.gz")
+                movpar = base.with_name(f"{base_name}_movpar.txt")
+                field_map = base.with_name(f"{base_name}_fmap.nii.gz")
                 
+                should_skip = False
                 if fieldcoef.exists() and movpar.exists() and field_map.exists() and not kwargs.get('force', False):
-                     self.logger.info(f"Skipping Topup group {idx} (outputs exist): {base}")
-                else:
+                     # Check timestamps of inputs (peek at first entry)
+                     from ...core.utils import extract_image_path
+                     in_p = extract_image_path(group[0])
+                     in_mtime = in_p.stat().st_mtime
+                     out_mtime = fieldcoef.stat().st_mtime
+                     
+                     if in_mtime > out_mtime:
+                          self.logger.info(f"Topup input ({in_p.name}) is newer than output. Re-running group {idx}.")
+                     else:
+                          self.logger.info(f"Skipping Topup group {idx} (outputs exist and are up-to-date): {base}")
+                          should_skip = True
+                
+                if not should_skip:
                     # Optional Coregistration to first b0
                     if distcorr_cfg.get('coregister_inputs', False):
                         self.logger.info(f"Coregistering Topup inputs using MCFLIRT...")

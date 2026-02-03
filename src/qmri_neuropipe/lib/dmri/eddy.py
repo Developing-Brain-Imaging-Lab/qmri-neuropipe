@@ -260,11 +260,29 @@ class EddyCorrectionStep(BaseProcessingStep):
                      mask = mask.img
                 
                 if not mask:
-                     self.logger.info("No mask provided for eddy. Generating temporary BET mask...")
+                     self.logger.info("No mask provided for eddy. Generating temporary robust BET mask...")
                      mask_path = output_dir / "eddy_mask.nii.gz"
+                     temp_ref = output_dir / f"temp_eddy_ref_{input_img.img.name}"
+                     
+                     bet_input = input_img.img
+                     # Check if 4D
+                     try:
+                         hdr = nib.load(str(input_img.img)).header
+                         if len(hdr.get_data_shape()) > 3 and hdr.get_data_shape()[3] > 1:
+                             # Calculate mean image over series for robust mask reference
+                             from ...core.run import run_cmd
+                             run_cmd(f"fslmaths {input_img.img} -Tmean {temp_ref}", label="calculate_mean_ref_for_eddy_mask")
+                             bet_input = temp_ref
+                     except Exception as e:
+                         self.logger.warning(f"Failed to check image dimensions or calculate mean: {e}")
+
                      # Use fsl.bet
-                     # Note: fsl.bet expects ImageLike or Path
-                     fsl.bet(in_file=input_img, out_file=mask_path, frac=0.1)
+                     fsl.bet(in_file=bet_input, out_file=mask_path, frac=0.1)
+                     
+                     # Cleanup temp ref
+                     if bet_input == temp_ref and temp_ref.exists():
+                         try: temp_ref.unlink()
+                         except: pass
                      
                      # Dilate and Binarize (Improve coverage)
                      # Use configured mask_dilation (default 3)

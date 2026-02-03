@@ -208,8 +208,19 @@ class DenoisingStep(BaseProcessingStep):
         noise_map_path  = output_dir / build_bids_name({**input_img.entities, "desc": noise_map_desc})
         
         # Check if output exists and is valid
-        if self.check_output_validity(output_img_path) and not kwargs.get('force', False):
-             self.logger.info(f"Skipping {self.method} denoising (Output exists: {output_img_path.name})")
+        should_skip = False
+        if output_img_path.exists() and not kwargs.get('force', False):
+             # Check timestamps
+             in_mtime = input_img.img.stat().st_mtime
+             out_mtime = output_img_path.stat().st_mtime
+             
+             if in_mtime > out_mtime:
+                 self.logger.info(f"Denoising input ({input_img.img.name}) is newer than output. Re-running.")
+             else:
+                 self.logger.info(f"Skipping {self.method} denoising (Output exists and up-to-date: {output_img_path.name})")
+                 should_skip = True
+        
+        if should_skip:
              # Reconstruct result object
              if isinstance(input_img, DWIFile):
                  result_img = DWIFile(
@@ -232,8 +243,8 @@ class DenoisingStep(BaseProcessingStep):
              else:
                 return result_img
         
-        # Get nthreads from kwargs or config
-        nthreads = kwargs.get('nthreads', self.config.n_cpus)
+        # Standardized threading resolution
+        nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)
         
         # Optimization: Generate temporary mask if not provided to speed up denoising
         # Primarily for MRTrix/MP-PCA which benefits significantly from masking, but also valid for others (NLMeans, ANTs)
@@ -263,10 +274,9 @@ class DenoisingStep(BaseProcessingStep):
                  
                  bet_input = input_img.img
                  if is_4d:
-                      # Extract first volume (b0 usually)
-                      # fslroi <input> <output> <tmin> <tsize>
-                      # Use force=True to overwrite temp if exists
-                      run_cmd(f"fslroi {input_img.img} {temp_ref} 0 1", label="extract_ref_for_mask")
+                      # Calculate mean image over series for robust mask reference
+                      # Previously used first volume: fslroi {input_img.img} {temp_ref} 0 1
+                      run_cmd(f"fslmaths {input_img.img} -Tmean {temp_ref}", label="calculate_mean_ref_for_mask")
                       bet_input = temp_ref
                  
                  # 2. Run FSL BET

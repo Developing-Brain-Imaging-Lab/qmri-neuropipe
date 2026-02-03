@@ -54,7 +54,14 @@ class ResampleStep(BaseProcessingStep):
         output_img = output_dir / build_bids_name({**entities, "suffix": orig_suffix})
 
         if output_img.exists() and not kwargs.get('force', False):
-             self.logger.info(f"Skipping resampling (exists): {output_img}")
+             # Check timestamps
+             in_mtime = in_p.stat().st_mtime
+             out_mtime = output_img.stat().st_mtime
+             
+             if in_mtime > out_mtime:
+                  self.logger.info(f"Resample input ({in_p.name}) is newer than output. Re-running.")
+             else:
+                  self.logger.info(f"Skipping resampling (exists and up-to-date): {output_img}")
         else:
              in_p = self._extract_path(input_image)
              # Use mri_convert

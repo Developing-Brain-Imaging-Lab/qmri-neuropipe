@@ -116,7 +116,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         real_json = input_dwi.json
         
         output_dir = self.get_step_output_dir(output_dir)
-        
+        should_skip = False
         # 1. Check if outputs exist
         syn_b0_path = output_dir / "syn_b0_desc-synthetic.nii.gz"
         syn_b0_native_path = output_dir / "syn_b0_native.nii.gz"
@@ -125,8 +125,18 @@ class Synb0EstimationStep(BaseProcessingStep):
         dummy_bval_path = output_dir / "b0.bval"
         
         if syn_b0_path.exists() and b0_path.exists() and syn_b0_native_path.exists() and syn_json_path.exists() and dummy_bval_path.exists() and not kwargs.get('force', False):
-            self.logger.info(f"Skipping Synb0 estimation (outputs exist): {syn_b0_path}")
-        else:
+            # Check timestamps
+            out_mtime = syn_b0_path.stat().st_mtime
+            t1_mtime = t1w_path.stat().st_mtime
+            dwi_mtime = input_dwi.img.stat().st_mtime
+            
+            if t1_mtime > out_mtime or dwi_mtime > out_mtime:
+                 self.logger.info(f"Synb0 inputs (T1 or DWI) are newer than output. Re-running.")
+            else:
+                 self.logger.info(f"Skipping Synb0 estimation (outputs exist and are up-to-date): {syn_b0_path}")
+                 should_skip = True
+        
+        if not should_skip:
             # Extract real b0
             img = nib.load(str(input_dwi.img))
             data = img.get_fdata()

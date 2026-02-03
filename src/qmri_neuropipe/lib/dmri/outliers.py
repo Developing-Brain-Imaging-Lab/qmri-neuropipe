@@ -44,12 +44,21 @@ class OutlierRemovalStep(BaseProcessingStep):
         bad_indices = []
         
         # --- Check if output already exists ---
-        fname = current_img.img.name.replace(".nii", "_clean.nii")
-        # Handle .nii.gz case properly if needed, but the replace works for .nii.gz too
-        # If input: desc-eddy_dwi.nii.gz -> desc-eddy_dwi_clean.nii.gz
+        # Use BIDS naming utilities
+        from ...core.utils import get_nifti_stem
+        stem = get_nifti_stem(current_img.img)
         
-        out_path = output_dir / fname
-        out_bvec_path = output_dir / (current_img.bvec.stem + "_clean.bvec") if current_img.bvec else None
+        # Determine output paths using entities
+        out_ents = current_img.entities.copy()
+        out_ents['desc'] = f"{out_ents.get('desc', '')}clean" if out_ents.get('desc') else 'clean'
+        
+        out_path = output_dir / build_bids_name(out_ents)
+        
+        out_bvec_path = None
+        if current_img.bvec:
+             bvec_ents = out_ents.copy()
+             bvec_ents['suffix'] = 'dwi' # ensure suffix for bvec/bval
+             out_bvec_path = output_dir / build_bids_name({**bvec_ents, 'extension': '.bvec'})
         
         # If output exists, we assume outlier removal was performed successfully previously.
         # Note: If previous run found NO outliers, out_path wouldn't exist, and we'd correctly fall through to check again.
@@ -175,13 +184,7 @@ class OutlierRemovalStep(BaseProcessingStep):
         new_data = data[..., keep_indices]
         new_img = nib.Nifti1Image(new_data, img.affine, img.header)
         
-        # Save new image
-        fname = current_img.img.name.replace(".nii", "_clean.nii")
-        # Ensure .gz if original was .gz and replacement didn't catch it (replace affects only first match? No, all. But .nii inside .nii.gz?)
-        # If foo.nii.gz -> replace .nii -> foo_clean.nii.gz. Correct.
-        # If foo.nii -> foo_clean.nii. Correct.
-        
-        out_path = output_dir / fname
+        # Save new image using determined out_path
         nib.save(new_img, out_path)
         self.logger.info(f"Saved outlier-removed DWI to: {out_path} (dims: {new_data.shape})")
 
@@ -198,7 +201,7 @@ class OutlierRemovalStep(BaseProcessingStep):
              else:
                   new_bvals = bvals[:, keep_indices] # Usually (N,)
              
-             new_bval_path = output_dir / (current_img.bval.stem + "_clean.bval")
+             new_bval_path = output_dir / build_bids_name({**out_ents, 'suffix': 'dwi', 'extension': '.bval'})
              np.savetxt(new_bval_path, new_bvals, fmt='%d', newline=' ') # FSL style usually single line
              
         # Bvecs

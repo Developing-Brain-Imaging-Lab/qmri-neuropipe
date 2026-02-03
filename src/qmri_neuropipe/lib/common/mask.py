@@ -161,8 +161,8 @@ class BrainMaskingStep(BaseProcessingStep):
              else:
                  should_skip = True
         
-        # Override nthreads from kwargs if provided
-        nthreads = kwargs.get('nthreads', self.nthreads)
+        # Standardized threading resolution
+        nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)
         
         if should_skip:
              self.logger.info(f"Skipping brain masking (outputs exist): {target_output}")
@@ -215,15 +215,16 @@ class BrainMaskingStep(BaseProcessingStep):
                  tool_input = temp_avg_b0
                  temp_ref = temp_avg_b0
              except Exception as e:
-                 self.logger.warning(f"Failed to create average b0 via MRTrix: {e}. Falling back to first volume.")
-                 # Fallback to first volume using nibabel (fast, no external deps)
-                 temp_vol0 = output_dir / f"{stem}_vol0.nii.gz"
+                 self.logger.warning(f"Failed to create average b0 via MRTrix: {e}. Falling back to total series mean via nibabel/numpy.")
+                 # Fallback to mean image using nibabel (fast, no external deps)
+                 temp_mean = output_dir / f"{stem}_mean.nii.gz"
                  img_nii = nib.load(str(in_path))
                  if img_nii.ndim == 4:
-                     vol0 = img_nii.get_fdata()[..., 0]
-                     nib.save(nib.Nifti1Image(vol0, img_nii.affine, img_nii.header), temp_vol0)
-                     tool_input = temp_vol0
-                     temp_ref = temp_vol0
+                     # Calculate mean across time dimension
+                     mean_data = np.mean(img_nii.get_fdata(), axis=3)
+                     nib.save(nib.Nifti1Image(mean_data.astype(img_nii.get_data_dtype()), img_nii.affine, img_nii.header), temp_mean)
+                     tool_input = temp_mean
+                     temp_ref = temp_mean
                  else:
                      tool_input = in_path
         else:
