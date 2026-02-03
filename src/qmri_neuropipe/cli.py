@@ -555,7 +555,9 @@ def main(
             console.print("No subject selection provided. Discovering all subjects...")
             data = loader.load_multiple_subjects()
         
-        tasks = list(data.keys())
+        tasks = [t for t in data.keys() if t[0] is not None]
+        if len(tasks) < len(data):
+             console.print(f"[yellow]Skipped {len(data) - len(tasks)} invalid tasks with no subject ID.[/yellow]")
         console.print(f"Total tasks to process: {len(tasks)}")
 
         # If parallel execution requested
@@ -705,9 +707,13 @@ def main(
                             sub_id, ses_id = futures[f]
                             try:
                                  res = f.result()
-                                 results.append(res or {'n_failed': 1})
+                                 if res:
+                                       res.update({'subject': sub_id, 'session': ses_id})
+                                       results.append(res)
+                                 else:
+                                       results.append({'n_failed': 1, 'subject': sub_id, 'session': ses_id})
                             except Exception as e:
-                                 results.append({'n_failed': 1, 'error': str(e)})
+                                 results.append({'n_failed': 1, 'error': str(e), 'subject': sub_id, 'session': ses_id})
                             ui_state.advance()
                             live.update(ui_state.get_layout())
 
@@ -807,34 +813,45 @@ def _run_parallel_worker(
 
     # Communication flag for parallel-aware modules
     os.environ["QMRI_PARALLEL_WORKER"] = "1"
-
-    # 1. Robust OS-level Redirection (Capture all stdout/stderr, including C-extensions and subprocesses)
+    
+    from qmri_neuropipe.core import ui
+    from rich.console import Console
+    
+    # 0.5. Initialize console BEFORE redirection to probe terminal features correctly
     if log_queue:
-        pipe_out, pipe_in = os.pipe()
-        
-        def forwarder():
-            try:
-                # Use os.fdopen to read lines from the pipe
-                with os.fdopen(pipe_out, 'r', errors='replace') as f:
-                    for line in f:
-                        if line.strip():
-                            log_queue.put(("log", job_id, line.strip()))
-            except Exception:
-                pass
-
-        threading.Thread(target=forwarder, daemon=True).start()
-
-        # Redirect FD 1 and 2 (stdout/stderr) to pipe
-        os.dup2(pipe_in, 1)
-        os.dup2(pipe_in, 2)
-        # Original pipe_in is no longer needed
-        os.close(pipe_in)
-        
-        # Force Python to flush and use the new FDs
-        sys.stdout = os.fdopen(1, 'w', buffering=1)
-        sys.stderr = os.fdopen(2, 'w', buffering=1)
+         ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
 
     try:
+        # 1. Robust OS-level Redirection
+        if log_queue:
+            pipe_out, pipe_in = os.pipe()
+            
+            def forwarder():
+                try:
+                    with os.fdopen(pipe_out, 'r', errors='replace') as f:
+                        for line in f:
+                            if line.strip():
+                                log_queue.put(("log", job_id, line.strip()))
+                except Exception:
+                    pass
+
+            threading.Thread(target=forwarder, daemon=True).start()
+
+            # Flush current streams before redirecting
+            try:
+                 sys.stdout.flush()
+                 sys.stderr.flush()
+            except: pass
+            
+            # Redirect FD 1 and 2 (stdout/stderr) to pipe
+            os.dup2(pipe_in, 1)
+            os.dup2(pipe_in, 2)
+            os.close(pipe_in)
+            
+            # NOTE: We do NOT re-open sys.stdout/stderr using os.fdopen() here.
+            # Python's existing sys.stdout/stderr objects already point to FD 1/2.
+            # Re-opening them creates new file objects that may try to close the FDs 
+            # upon garbage collection, causing "Bad file descriptor" during process reuse.
         from qmri_neuropipe.core import PipelineConfig, ui
         from rich.console import Console
 
@@ -869,8 +886,6 @@ def _run_parallel_worker(
 
         # 4. Setup Worker UI/Logging (Now that redirection is active)
         if log_queue:
-             # Force TRUE terminal features for child processes so they generate ANSI colors/styles
-             ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
 
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
              ui.console.print(f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]")
