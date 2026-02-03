@@ -555,9 +555,9 @@ def main(
             console.print("No subject selection provided. Discovering all subjects...")
             data = loader.load_multiple_subjects()
         
-        tasks = [t for t in data.keys() if t[0] is not None]
+        tasks = [t for t in data.keys() if t[0] and str(t[0]).lower() != "none"]
         if len(tasks) < len(data):
-             console.print(f"[yellow]Skipped {len(data) - len(tasks)} invalid tasks with no subject ID.[/yellow]")
+             console.print(f"[yellow]Skipped {len(data) - len(tasks)} invalid tasks with no valid subject ID.[/yellow]")
         console.print(f"Total tasks to process: {len(tasks)}")
 
         # If parallel execution requested
@@ -817,9 +817,7 @@ def _run_parallel_worker(
     from qmri_neuropipe.core import ui
     from rich.console import Console
     
-    # 0.5. Initialize console BEFORE redirection to probe terminal features correctly
-    if log_queue:
-         ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
+    # We will initialize the console AFTER redirection.
 
     try:
         # 1. Robust OS-level Redirection
@@ -848,10 +846,14 @@ def _run_parallel_worker(
             os.dup2(pipe_in, 2)
             os.close(pipe_in)
             
-            # NOTE: We do NOT re-open sys.stdout/stderr using os.fdopen() here.
-            # Python's existing sys.stdout/stderr objects already point to FD 1/2.
-            # Re-opening them creates new file objects that may try to close the FDs 
-            # upon garbage collection, causing "Bad file descriptor" during process reuse.
+            # Update Python's sys.stdout/stderr to point to the new FDs.
+            # CRITICAL: Use closefd=False to prevent Python from closing FD 1/2 
+            # when these objects are garbage collected between tasks in the pool.
+            sys.stdout = os.fdopen(1, 'w', buffering=1, closefd=False)
+            sys.stderr = os.fdopen(2, 'w', buffering=1, closefd=False)
+
+            # Initialize the worker console to use the redirected streams
+            ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
         from qmri_neuropipe.core import PipelineConfig, ui
         from rich.console import Console
 
