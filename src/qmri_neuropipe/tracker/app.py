@@ -99,6 +99,8 @@ if final_tracker_path:
         total_sess = 0
         anat_comp_rate = "0%"
         diff_comp_rate = "0%"
+        avg_snr = "N/A"
+        avg_mot = "N/A"
         
         if "Processing_Status" in data:
             df_ps_all = data["Processing_Status"]
