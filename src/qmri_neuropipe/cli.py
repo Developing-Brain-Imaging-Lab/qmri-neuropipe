@@ -894,13 +894,15 @@ def _run_parallel_worker(
              
              # Configure logging to use the redirected stderr (FD 2)
              # We use basicConfig to catch EVERYTHING on the root logger.
-             logging.basicConfig(level=logging.INFO, force=True, handlers=[
+             log_level = getattr(logging, config.log_level, logging.INFO)
+             
+             logging.basicConfig(level=log_level, force=True, handlers=[
                  logging.StreamHandler(sys.stderr)
              ])
              # CRITICAL: Disable propagation for the main library logger so it doesn't 
              # double-report to the root logger we just set up.
              logging.getLogger("qmri-neuropipe").propagate = False
-             logging.getLogger().setLevel(logging.INFO)
+             logging.getLogger().setLevel(log_level)
              
 
         # 4. Initialize Pipeline

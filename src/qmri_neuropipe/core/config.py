@@ -291,6 +291,10 @@ class PipelineConfig:
         Raises:
             ValueError: If configuration is invalid
         """
+        # Automatically set log_level to DEBUG if debug is true
+        if self.debug:
+            self.log_level = 'DEBUG'
+
         errors = []
         
         # Check required fields
