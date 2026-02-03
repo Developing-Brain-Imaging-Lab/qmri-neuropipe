@@ -359,7 +359,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                 provenance=self.provenance,
                 method=method,
                 apply_mask=mask_cfg.get('apply_mask', True),
-                mask_input=mask_cfg.get('mask_input', 'b0')
+                mask_input=mask_cfg.get('mask_input', 'b0'),
+                use_gpu=mask_cfg.get('use_gpu')
             ))
 
 

@@ -54,12 +54,14 @@ class BrainMaskingStep(BaseProcessingStep):
         nthreads: int = 1,
         mask_input: Literal["b0", "average"] = "b0",
         apply_mask: bool = True,
+        use_gpu: Optional[bool] = None,
     ):
         super().__init__(config, logger, provenance)
         self.method = method
         self.nthreads = nthreads
         self.mask_input = mask_input
         self.apply_mask = apply_mask
+        self.use_gpu = use_gpu
         if hasattr(self.config, 'n_cpus'):
              self.nthreads = self.config.n_cpus
         elif isinstance(self.config, dict):
@@ -312,12 +314,12 @@ class BrainMaskingStep(BaseProcessingStep):
                      pass
     
             elif self.method == "synthstrip":
-                 use_gpu = getattr(self.config, 'use_gpu', False)
+                 use_gpu = self.use_gpu if self.use_gpu is not None else getattr(self.config, 'use_gpu', False)
                  freesurfer.mri_synthstrip(in_file=tool_input, out_file=tool_brain_out, nthreads=nthreads, mask_out=mask_generated_path, gpu=use_gpu)
             
             elif self.method == "hd-bet":
                  # HD-BET
-                 use_gpu = getattr(self.config, 'use_gpu', False)
+                 use_gpu = self.use_gpu if self.use_gpu is not None else getattr(self.config, 'use_gpu', False)
                  gpu_ids = self.config.get('gpu_ids') if hasattr(self.config, 'get') else getattr(self.config, 'gpu_ids', None)
                  
                  if gpu_ids and len(gpu_ids) > 0:

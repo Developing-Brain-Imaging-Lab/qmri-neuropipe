@@ -92,7 +92,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         use_fs = anat_cfg.get("use_freesurfer", False)
         
         if mask_cfg.get("enabled", False) and not use_fs:
-             self.add_step(BrainMaskingStep(self.config, self.logger, self.provenance, method=mask_cfg.get("method", "ants")))
+             self.add_step(BrainMaskingStep(
+                 self.config, 
+                 self.logger, 
+                 self.provenance, 
+                 method=mask_cfg.get("method", "ants"),
+                 use_gpu=mask_cfg.get("use_gpu")
+             ))
 
         # 7. Recon-all
         recon_cfg = anat_cfg.get("recon_all", {})
