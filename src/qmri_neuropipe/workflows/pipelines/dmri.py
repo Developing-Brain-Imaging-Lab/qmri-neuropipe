@@ -954,7 +954,7 @@ class PreprocessingWorkflow(BaseWorkflow):
          # Extract reporting logic
          curr_img_obj = current_arg.get("current_image") if isinstance(current_arg, dict) else current_arg
          try:
-             from qmri_neuropipe.lib.reporting.viz import create_ortho_view
+             from qmri_neuropipe.lib.reporting.viz import create_ortho_view, plot_comparison
              
              figures_list = []
              details = {}
