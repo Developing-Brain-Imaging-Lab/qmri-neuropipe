@@ -70,17 +70,9 @@ class EddyCorrectionStep(BaseProcessingStep):
         self.method = method
         self.mask_dilation = mask_dilation
         
-
-        
         self.logger.info(f"Initialized eddy current correction with method: {method}")
-    
 
-
-
-
-        # --- Helper to get an image from either context or direct ImageLike ---
-    
-    # _extract_image logic replaced by self.unpack_input in base class
+    # _unpack_input in base class handles context vs direct ImageLike
 
     def _validate_image(self, image: ImageLike) -> None:
         """Your existing validate_inputs logic, moved here."""

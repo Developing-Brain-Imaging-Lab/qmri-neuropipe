@@ -53,6 +53,7 @@ class ResampleStep(BaseProcessingStep):
         orig_suffix = entities.get('suffix', 'T1w')
         output_img = output_dir / build_bids_name({**entities, "suffix": orig_suffix})
 
+        in_p = self._extract_path(input_image)
         if output_img.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = in_p.stat().st_mtime
@@ -63,7 +64,6 @@ class ResampleStep(BaseProcessingStep):
              else:
                   self.logger.info(f"Skipping resampling (exists and up-to-date): {output_img}")
         else:
-             in_p = self._extract_path(input_image)
              # Use mri_convert
              # Logic: mri_convert -vs x x x
              # The mri_convert wrapper in freesurfer.py needs to support extra args or we assume isometric

@@ -170,9 +170,8 @@ class CoregistrationStep(BaseProcessingStep):
         options = options or {}
         apply_method = options.get('apply_method', 'native').lower() # 'native' or 'mrtrix'
         
-        # Suffix handling
-        # Standardize stem cleanup
-        input_stem = in_path.name.replace(".nii.gz", "").replace(".nii", "")
+        from ...core.utils import get_nifti_stem
+        input_stem = get_nifti_stem(in_path)
         
         new_desc = "coreg"
         # BIDS name generic approach often appends entities to a base or rebuilds.
@@ -189,13 +188,8 @@ class CoregistrationStep(BaseProcessingStep):
         # For transform filename:
         transform_name_full = build_bids_name({**entities, "desc": "coreg", "suffix": "transform"})
         
-        output_transform = output_dir / transform_name_full
-        if output_transform.suffix: # if it has extension
-             output_transform = output_transform.with_suffix("").with_suffix("") # handle .nii.gz
-             # If .nii only, one with_suffix is enough.
-             # Safe remove:
-             while output_transform.suffix:
-                  output_transform = output_transform.with_suffix("")
+        # No extensions for base transform path
+        output_transform = output_dir / get_nifti_stem(transform_name_full)
         
         # Define standard transform paths for both calculation and application
         output_mat = output_transform.with_suffix(".mat")
