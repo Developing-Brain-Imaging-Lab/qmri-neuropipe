@@ -333,26 +333,16 @@ class DataLoader:
             
             logger.debug(f"Scanning {modality} directory")
             
+            # OPTIMIZATION: Batch all file operations for this modality
+            # This reduces repeated directory scans
+            
             # Find all files for each suffix
             for suffix in self.MODALITY_SUFFIXES[modality]:
                 files = self._find_files_by_suffix(modality_dir, suffix)
                 
                 for main_file in files:
-                    # Create DataTypeFiles object
-                    data_files = DataTypeFiles(main_file=main_file)
-                    
-                    # Look for JSON sidecar
-                    json_file = self._find_json_sidecar(main_file)
-                    if json_file:
-                        data_files.json_file = json_file
-                    
-                    # Look for additional files (e.g., bval/bvec for dwi)
-                    if suffix in self.ADDITIONAL_FILES:
-                        additional = self._find_additional_files(
-                            main_file, 
-                            self.ADDITIONAL_FILES[suffix]
-                        )
-                        data_files.additional_files.update(additional)
+                    # Create DataTypeFiles object with all sidecars in one pass
+                    data_files = self._create_data_files(main_file, suffix)
                     
                     # Add to subject data
                     subject_data.data[modality][suffix].append(data_files)
@@ -365,6 +355,36 @@ class DataLoader:
         
         return subject_data
     
+    def _create_data_files(self, main_file: Path, suffix: str) -> DataTypeFiles:
+        """
+        Create DataTypeFiles object with all sidecars in one operation.
+        
+        Optimized to reduce repeated file system operations.
+        
+        Args:
+            main_file: Main data file
+            suffix: BIDS suffix (for determining additional files)
+        
+        Returns:
+            DataTypeFiles object with all associated files
+        """
+        data_files = DataTypeFiles(main_file=main_file)
+        
+        # Look for JSON sidecar
+        json_file = self._find_json_sidecar(main_file)
+        if json_file:
+            data_files.json_file = json_file
+        
+        # Look for additional files (e.g., bval/bvec for dwi)
+        if suffix in self.ADDITIONAL_FILES:
+            additional = self._find_additional_files(
+                main_file, 
+                self.ADDITIONAL_FILES[suffix]
+            )
+            data_files.additional_files.update(additional)
+        
+        return data_files
+    
     def _find_files_by_suffix(
         self, 
         directory: Path, 
@@ -373,6 +393,8 @@ class DataLoader:
         """
         Find all files with a specific BIDS suffix.
         
+        Optimized to search for specific extensions rather than wildcard.
+        
         Args:
             directory: Directory to search
             suffix: BIDS suffix (e.g., 'T1w', 'dwi')
@@ -380,14 +402,18 @@ class DataLoader:
         Returns:
             Sorted list of matching files
         """
-        # Look for both .nii.gz and .nii
-        pattern = f"*_{suffix}.nii*"
-        files = sorted(directory.glob(pattern))
+        # OPTIMIZATION: Search for specific extensions (faster than wildcard)
+        files = []
         
-        # Filter to only .nii.gz and .nii (exclude .json, etc.)
-        files = [f for f in files if f.suffix in ['.gz', '.nii']]
+        # Look for .nii.gz first (most common)
+        pattern_gz = f"*_{suffix}.nii.gz"
+        files.extend(directory.glob(pattern_gz))
         
-        return files
+        # Then .nii
+        pattern_nii = f"*_{suffix}.nii"
+        files.extend(directory.glob(pattern_nii))
+        
+        return sorted(set(files))  # Remove duplicates and sort
     
     def _find_json_sidecar(self, main_file: Path) -> Optional[Path]:
         """

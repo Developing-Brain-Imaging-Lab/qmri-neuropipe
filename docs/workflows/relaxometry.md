@@ -2,6 +2,8 @@
 
 The Relaxometry Workflow is designed to process Variable Flip Angle (VFA) data, typically consisting of SPGR and SSFP sequences, to generate quantitative maps such as T1, T2, M0, B1, and in the case of mcDESPOT, Myelin Water Fraction (MWF).
 
+See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
+
 ## Workflow Steps
 
 ### 1. Preprocessing
@@ -22,12 +24,73 @@ The preprocessing stage ensures that all input images are artifact-free and alig
     - All SPGR and SSFP volumes are rigidly registered to the SPGR Reference image.
     - If inputs are 4D (multiple flip angles in one file), they are split, registered individually, and re-merged.
 
+**Available tools**
+*   Denoising: `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian`
+*   Gibbs: `mrtrix`, `dipy`
+*   Reorient: `fsl` (fslreorient2std)
+*   Motion correction: `ants`, `fsl`
+
+**Config**
+```yaml
+relaxometry:
+  preprocessing:
+    reorient:
+      enabled: true
+    denoising:
+      enabled: true
+      method: mrtrix
+    degibbs:
+      enabled: true
+      method: mrtrix
+    motion_correction:
+      enabled: true
+      method: ants
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `relaxometry.preprocessing.reorient.enabled` | bool | false | Enable reorientation |
+| `relaxometry.preprocessing.denoising.enabled` | bool | false | Enable denoising |
+| `relaxometry.preprocessing.denoising.method` | str | `mrtrix` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| `relaxometry.preprocessing.denoising.patch_radius` | int | 2 | MP-PCA |
+| `relaxometry.preprocessing.denoising.block_radius` | int | 5 | MP-PCA |
+| `relaxometry.preprocessing.denoising.mask_dilation` | int | 2 | Temporary mask dilation |
+| `relaxometry.preprocessing.denoising.pca_method` | str | `eig` | MP-PCA |
+| `relaxometry.preprocessing.denoising.model` | str | `ridge` | Patch2Self |
+| `relaxometry.preprocessing.degibbs.enabled` | bool | false | Enable Gibbs |
+| `relaxometry.preprocessing.degibbs.method` | str | `mrtrix` | `mrtrix`, `dipy` |
+| `relaxometry.preprocessing.motion_correction.enabled` | bool | false | Enable motion correction |
+| `relaxometry.preprocessing.motion_correction.method` | str | `ants` | `ants`, `fsl` |
+
 ### 2. Brain Masking
 
 - **Timing**: Performed immediately after Motion Correction.
 - **Input**: The motion-corrected SPGR Reference image.
 - **Output**: A binary brain mask (`sub-XX_desc-brain-mask.nii.gz`).
 - **Usage**: This mask is passed to all subsequent fitting steps to restrict computation to brain voxels, significantly speeding up processing and ensuring clean outputs.
+
+**Available tools**
+*   `fsl` (bet)
+*   `mrtrix` (dwi2mask)
+*   `ants` (antsBrainExtraction)
+*   `freesurfer` (mri_watershed)
+*   `synthstrip` (mri_synthstrip)
+*   `hd-bet` (HD-BET)
+
+**Config**
+```yaml
+relaxometry:
+  masking:
+    enabled: true
+    method: fsl
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `relaxometry.masking.enabled` | bool | false | Enable masking |
+| `relaxometry.masking.method` | str | `fsl` | `mrtrix`, `fsl`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
 
 ### 3. Model Fitting (DESPOT)
 
@@ -86,6 +149,26 @@ relaxometry:
       enabled: true
       mcdespot: true # Enable Myelin Water Fraction mapping
 ```
+
+**B1 Mapping Tools**
+*   `afi` (AFI-derived B1)
+*   `external` (provided B1 map)
+*   `hifi` (DESPOT1-HIFI)
+
+**B1 Config**
+```yaml
+relaxometry:
+  preprocessing:
+    b1:
+      method: afi   # afi | external | hifi
+      smoothing_fwhm: 0.0
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `relaxometry.preprocessing.b1.method` | str | `afi` | `afi`, `external`, `hifi` |
+| `relaxometry.preprocessing.b1.smoothing_fwhm` | float | 0.0 | Optional smoothing |
 
 ## Naming Conventions
 

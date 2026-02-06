@@ -37,6 +37,21 @@ qmri-neuropipe \
   --participant-label sub-01
 ```
 
+## Optional Extras
+
+Install optional features via extras:
+
+```bash
+pip install -e .[all]
+pip install -e .[amico]
+pip install -e .[nifreeze]
+pip install -e .[pyafq]
+pip install -e .[tracker]
+pip install -e .[reporting]
+```
+
+See `docs/tool_reference.md` for per-step tool lists and config keys.
+
 ## Required Arguments
 
 These arguments **must** be provided either via config file or command line:

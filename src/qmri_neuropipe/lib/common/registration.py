@@ -311,7 +311,7 @@ class CoregistrationStep(BaseProcessingStep):
             cost = options.get("cost", "normmi")
             
             # Known args to exclude from extra_opts
-            known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method']
+            known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method', 'transform_type']
             fsl_opts = {k: v for k, v in options.items() if k not in known_args}
 
             # Setup BBR if requested

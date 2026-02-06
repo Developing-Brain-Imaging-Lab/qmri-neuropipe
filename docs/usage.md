@@ -100,3 +100,145 @@ For a full list, run:
 ```bash
 qmri-neuropipe --help
 ```
+
+## Workflow Step Parameters (Quick Reference)
+
+For full per-step defaults and options, see `docs/tool_reference.md`. Below is a compact map of the most commonly used keys.
+
+### Diffusion (dMRI)
+
+| Step | Key |
+| --- | --- |
+| Distortion correction | `dmri.preprocessing.distcorr` |
+| Denoising | `dmri.preprocessing.denoising` |
+| Gibbs unringing | `dmri.preprocessing.degibbs` |
+| Eddy | `dmri.preprocessing.eddy` |
+| Outliers | `dmri.preprocessing.outliers` |
+| Bias correction | `dmri.preprocessing.bias_correction` |
+| Coregistration | `dmri.preprocessing.coregistration` |
+| Gradient nonlinearity | `dmri.preprocessing.grad_nonlin` |
+| Brain masking | `dmri.preprocessing.brain_masking` |
+
+**Example**
+```yaml
+dmri:
+  preprocessing:
+    distcorr:
+      method: topup
+      fallback: true
+    denoising:
+      enabled: true
+      method: mppca
+    degibbs:
+      enabled: true
+      method: mrtrix
+    eddy:
+      enabled: true
+      method: eddy
+    outliers:
+      enabled: true
+      method: eddy_qc
+    bias_correction:
+      enabled: true
+      method: ants
+    coregistration:
+      enabled: true
+      method: ants
+    grad_nonlin:
+      enabled: false
+    brain_masking:
+      enabled: true
+      method: mrtrix
+```
+
+### Anatomical (anat)
+
+| Step | Key |
+| --- | --- |
+| Resample | `anat.preprocessing.resample` |
+| Reorient | `anat.preprocessing.reorient` |
+| Denoising | `anat.preprocessing.denoising` |
+| Gibbs unringing | `anat.preprocessing.degibbs` |
+| Bias correction | `anat.preprocessing.bias_correction` |
+| Sharpen | `anat.preprocessing.sharpen` |
+| Coregistration | `anat.preprocessing.coregistration` |
+| Brain masking | `anat.preprocessing.brain_masking` |
+| Recon-all | `anat.preprocessing.recon_all` |
+| Normalization | `anat.preprocessing.normalization` |
+
+**Example**
+```yaml
+anat:
+  preprocessing:
+    resample:
+      enabled: true
+      resolution: 1.0
+    reorient:
+      enabled: true
+    denoising:
+      enabled: true
+      method: ants
+    degibbs:
+      enabled: true
+      method: mrtrix
+    bias_correction:
+      enabled: true
+      method: ants
+    sharpen:
+      enabled: false
+    coregistration:
+      enabled: true
+      method: fsl
+      reference_image: t1w
+    brain_masking:
+      enabled: true
+      method: ants
+    recon_all:
+      enabled: false
+    normalization:
+      enabled: false
+```
+
+### Relaxometry
+
+| Step | Key |
+| --- | --- |
+| Denoising | `relaxometry.preprocessing.denoising` |
+| Gibbs unringing | `relaxometry.preprocessing.degibbs` |
+| Motion correction | `relaxometry.preprocessing.motion_correction` |
+| B1 mapping | `relaxometry.preprocessing.b1` |
+| Brain masking | `relaxometry.masking` |
+
+**Example**
+```yaml
+relaxometry:
+  preprocessing:
+    denoising:
+      enabled: true
+      method: mrtrix
+    degibbs:
+      enabled: true
+      method: mrtrix
+    motion_correction:
+      enabled: true
+      method: ants
+    b1:
+      method: afi
+      smoothing_fwhm: 0.0
+  masking:
+    enabled: true
+    method: fsl
+```
+
+## Optional Extras
+
+Install optional features via extras:
+
+```bash
+pip install -e .[all]
+pip install -e .[amico]
+pip install -e .[nifreeze]
+pip install -e .[pyafq]
+pip install -e .[tracker]
+pip install -e .[reporting]
+```

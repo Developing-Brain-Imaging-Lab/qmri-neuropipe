@@ -10,6 +10,7 @@ Welcome to qmri-neuropipe's documentation!
    installation
    data_organization
    usage
+   tool_reference
    hosting
    source/user_guide/cli_tools
    workflows/anatomical

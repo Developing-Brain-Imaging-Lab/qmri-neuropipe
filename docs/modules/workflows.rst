@@ -12,3 +12,13 @@ High-level pipelines.
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. automodule:: qmri_neuropipe.workflows.pipelines.normalization_workflow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: qmri_neuropipe.workflows.pipelines.segmentation_workflow
+   :members:
+   :undoc-members:
+   :show-inheritance:

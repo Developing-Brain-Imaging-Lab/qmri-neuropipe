@@ -4,6 +4,7 @@ dMRI Reorientation step.
 from pathlib import Path
 from typing import Any
 import shutil
+import nibabel as nib
 
 from ...core import BaseProcessingStep, ValidationError
 from ...core.types import DWIFile
@@ -75,9 +76,29 @@ class DMRIReorientStep(BaseProcessingStep):
         
         # If output exists and skip_existing, assume done
         if self.config.get("skip_existing") and out_path.exists() and out_bvec_path.exists() and not kwargs.get('force', False):
-             self.logger.info(f"Skipping dMRI Reorientation (exists): {out_path.name}")
-        else:
-             mrtrix.mrconvert(
+             try:
+                 _ = nib.load(out_path)
+             except Exception as e:
+                 self.logger.warning(
+                     f"Existing reoriented DWI is invalid ({out_path.name}): {e}. Re-running."
+                 )
+                 try:
+                     out_path.unlink(missing_ok=True)
+                 except Exception:
+                     pass
+             else:
+                 self.logger.info(f"Skipping dMRI Reorientation (exists): {out_path.name}")
+                 
+                 result = DWIFile(
+                     img=out_path,
+                     bval=out_bval_path if out_bval_path.exists() else None,
+                     bvec=out_bvec_path if out_bvec_path.exists() else None,
+                     json=out_path.with_suffix("").with_suffix(".json"),
+                     entities=entities
+                 )
+                 return result
+        
+        mrtrix.mrconvert(
                  in_file=input_image.img,
                  out_file=out_path,
                  stride=stride,

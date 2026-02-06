@@ -54,14 +54,19 @@ class OutlierRemovalStep(BaseProcessingStep):
         
         out_path = output_dir / build_bids_name(out_ents)
         
-        out_bvec_path = None
-        if current_img.bvec:
-             bvec_ents = out_ents.copy()
-             bvec_ents['suffix'] = 'dwi' # ensure suffix for bvec/bval
-             out_bvec_path = output_dir / build_bids_name({**bvec_ents, 'extension': '.bvec'})
-        
         # If output exists, we assume outlier removal was performed successfully previously.
         # Note: If previous run found NO outliers, out_path wouldn't exist, and we'd correctly fall through to check again.
+        if out_path.exists() and not kwargs.get('force', False):
+             try:
+                 _ = nib.load(out_path)
+             except Exception as e:
+                 self.logger.warning(
+                     f"Existing outlier-removed DWI is invalid ({out_path.name}): {e}. Removing and re-running."
+                 )
+                 try:
+                     out_path.unlink(missing_ok=True)
+                 except Exception:
+                     pass
         if out_path.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = current_img.img.stat().st_mtime
@@ -71,27 +76,49 @@ class OutlierRemovalStep(BaseProcessingStep):
                  self.logger.info(f"Outlier input ({current_img.img.name}) is newer than output. Re-running.")
                  self.logger.debug(f"Debug: Input mtime={in_mtime}, Output mtime={out_mtime}, Diff={in_mtime-out_mtime:.2f}s")
              else:
-                 self.logger.info(f"Skipping Outlier Removal (Output exists and up-to-date: {out_path.name})")
-             
-                 # Construct output object
-                 new_bval_path = output_dir / (current_img.bval.stem + "_clean.bval") if current_img.bval else None
-                 # Re-verify existence of sidecars
-                 if new_bval_path and not new_bval_path.exists(): new_bval_path = current_img.bval
-                 if out_bvec_path and not out_bvec_path.exists(): out_bvec_path = current_img.bvec
+                 # Validate existing output before skipping
+                 try:
+                     _ = nib.load(out_path)
+                 except Exception as e:
+                     self.logger.warning(
+                         f"Existing outlier-removed DWI is invalid ({out_path.name}): {e}. Re-running."
+                     )
+                 else:
+                     self.logger.info(f"Skipping Outlier Removal (Output exists and up-to-date: {out_path.name})")
                  
-                 new_dwi_file = DWIFile(
-                      entities=current_img.entities,
-                      img=out_path,
-                      json=current_img.json,
-                      bval=new_bval_path,
-                      bvec=out_bvec_path
-                 )
-                 
-                 context["current_image"] = new_dwi_file
-                 
-                 # Attempt to load stats if possible? 
-                 # For now, just return context to ensure downstream steps get the CLEAN image.
-                 return context
+                     # Construct output object using consistent BIDS naming
+                     new_bval_path = None
+                     new_bvec_path = None
+                     
+                     if current_img.bval:
+                         base_name = build_bids_name(out_ents)
+                         bval_name = base_name.replace('.nii.gz', '.bval').replace('.nii', '.bval')
+                         new_bval_path = output_dir / bval_name
+                         # Fallback to original if cleaned version doesn't exist
+                         if not new_bval_path.exists(): 
+                             new_bval_path = current_img.bval
+                     
+                     if current_img.bvec:
+                         base_name = build_bids_name(out_ents)
+                         bvec_name = base_name.replace('.nii.gz', '.bvec').replace('.nii', '.bvec')
+                         new_bvec_path = output_dir / bvec_name
+                         # Fallback to original if cleaned version doesn't exist
+                         if not new_bvec_path.exists(): 
+                             new_bvec_path = current_img.bvec
+                     
+                     new_dwi_file = DWIFile(
+                          entities=current_img.entities,
+                          img=out_path,
+                          json=current_img.json,
+                          bval=new_bval_path,
+                          bvec=new_bvec_path
+                     )
+                     
+                     context["current_image"] = new_dwi_file
+                     
+                     # Attempt to load stats if possible? 
+                     # For now, just return context to ensure downstream steps get the CLEAN image.
+                     return context
 
         # 1. Identify Bad Indices
         if self.method == "manual":
@@ -182,39 +209,127 @@ class OutlierRemovalStep(BaseProcessingStep):
              
         # Create cleaned image
         new_data = data[..., keep_indices]
-        new_img = nib.Nifti1Image(new_data, img.affine, img.header)
+        # Copy header to avoid modifying original
+        new_header = img.header.copy()
+        new_img = nib.Nifti1Image(new_data, img.affine.copy(), new_header)
         
-        # Save new image using determined out_path
-        nib.save(new_img, out_path)
+        # Save new image using a temp file, then atomically replace
+        tmp_name = f"{out_path.name}.tmp"
+        if out_path.name.endswith(".nii.gz"):
+            tmp_name = out_path.name.replace(".nii.gz", ".tmp.nii.gz")
+        elif out_path.name.endswith(".nii"):
+            tmp_name = out_path.name.replace(".nii", ".tmp.nii")
+        tmp_path = out_path.with_name(tmp_name)
+        
+        # Ensure output directory exists
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save with explicit flush to disk
+        try:
+            nib.save(new_img, tmp_path)
+            # Force sync to disk before validation
+            import os
+            if hasattr(os, 'sync'):
+                os.sync()
+        except Exception as e:
+            self.logger.error(f"Failed to save outlier-removed DWI to {tmp_path}: {e}")
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            context["current_image"] = current_img
+            return context
+        
+        # Validate the saved file
+        try:
+            test_img = nib.load(tmp_path)
+            test_data = test_img.get_fdata()
+            assert test_data.shape == new_data.shape, f"Shape mismatch: {test_data.shape} != {new_data.shape}"
+        except Exception as e:
+            self.logger.warning(
+                f"Outlier-removed DWI validation failed ({tmp_path.name}): {e}. Using original DWI instead."
+            )
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            context["current_image"] = current_img
+            return context
+        
+        # Atomic replace
+        tmp_path.replace(out_path)
         self.logger.info(f"Saved outlier-removed DWI to: {out_path} (dims: {new_data.shape})")
 
         # Handle bvals/bvecs
         new_bval_path = None
         new_bvec_path = None
         
+        
         # Bvals
         if current_img.bval and current_img.bval.exists():
-             bvals = np.loadtxt(current_img.bval)
-             # bvals might be 1D or 2D row
-             if bvals.ndim == 1:
-                  new_bvals = bvals[keep_indices]
-             else:
-                  new_bvals = bvals[:, keep_indices] # Usually (N,)
-             
-             new_bval_path = output_dir / build_bids_name({**out_ents, 'suffix': 'dwi', 'extension': '.bval'})
-             np.savetxt(new_bval_path, new_bvals, fmt='%d', newline=' ') # FSL style usually single line
-             
+             try:
+                 bvals = np.loadtxt(current_img.bval)
+                 # bvals might be 1D or 2D row
+                 if bvals.ndim == 1:
+                      new_bvals = bvals[keep_indices]
+                 else:
+                      new_bvals = bvals[:, keep_indices] # Usually (N,)
+                 
+                 # Build the base BIDS name and replace image extension with .bval
+                 base_name = build_bids_name(out_ents)
+                 bval_name = base_name.replace('.nii.gz', '.bval').replace('.nii', '.bval')
+                 new_bval_path = output_dir / bval_name
+                 tmp_bval = output_dir / f"{bval_name}.tmp"
+                 
+                 # Save to temp file first
+                 np.savetxt(tmp_bval, new_bvals.reshape(1, -1), fmt='%d') # FSL style: single row
+                 
+                 # Validate it can be read back
+                 _ = np.loadtxt(tmp_bval)
+                 
+                 # Atomic replace
+                 tmp_bval.replace(new_bval_path)
+                 self.logger.info(f"Saved cleaned bvals to: {new_bval_path}")
+             except Exception as e:
+                 self.logger.error(f"Failed to save cleaned bvals: {e}")
+                 if 'tmp_bval' in locals():
+                     try:
+                         tmp_bval.unlink(missing_ok=True)
+                     except Exception:
+                         pass
+        
         # Bvecs
         if current_img.bvec and current_img.bvec.exists():
-             bvecs = np.loadtxt(current_img.bvec)
-             # bvecs is usually (3, N)
-             if bvecs.shape[0] == 3:
-                  new_bvecs = bvecs[:, keep_indices]
-             else:
-                  new_bvecs = bvecs[keep_indices, :].T # Reshape to 3xN logic?
-             
-             new_bvec_path = output_dir / (current_img.bvec.stem + "_clean.bvec")
-             np.savetxt(new_bvec_path, new_bvecs, fmt='%.6f')
+             try:
+                 bvecs = np.loadtxt(current_img.bvec)
+                 # bvecs is usually (3, N)
+                 if bvecs.shape[0] == 3:
+                      new_bvecs = bvecs[:, keep_indices]
+                 else:
+                      new_bvecs = bvecs[keep_indices, :].T # Reshape to 3xN logic?
+                 
+                 # Build the base BIDS name and replace image extension with .bvec
+                 base_name = build_bids_name(out_ents)
+                 bvec_name = base_name.replace('.nii.gz', '.bvec').replace('.nii', '.bvec')
+                 new_bvec_path = output_dir / bvec_name
+                 tmp_bvec = output_dir / f"{bvec_name}.tmp"
+                 
+                 # Save to temp file first
+                 np.savetxt(tmp_bvec, new_bvecs, fmt='%.6f')
+                 
+                 # Validate it can be read back
+                 _ = np.loadtxt(tmp_bvec)
+                 
+                 # Atomic replace
+                 tmp_bvec.replace(new_bvec_path)
+                 self.logger.info(f"Saved cleaned bvecs to: {new_bvec_path}")
+             except Exception as e:
+                 self.logger.error(f"Failed to save cleaned bvecs: {e}")
+                 if 'tmp_bvec' in locals():
+                     try:
+                         tmp_bvec.unlink(missing_ok=True)
+                     except Exception:
+                         pass
 
         # --- Calculate Statistics ---
         total_vols = n_vols
@@ -227,7 +342,7 @@ class OutlierRemovalStep(BaseProcessingStep):
             "percent_removed": percent_removed,
             "bvalue_stats": []
         }
-        
+                
         # Detailed stats (reuse loaded bvals if possible, or reload)
         current_bvals = None
         if current_img.bval and current_img.bval.exists():
@@ -255,7 +370,8 @@ class OutlierRemovalStep(BaseProcessingStep):
                      })
              except Exception as e:
                  self.logger.warning(f"Could not calculate b-value stats: {e}")
-        
+                 
+
         # Update context
         new_dwi_file = DWIFile(
              entities=current_img.entities,
@@ -267,7 +383,7 @@ class OutlierRemovalStep(BaseProcessingStep):
         
         context["current_image"] = new_dwi_file
         context["outlier_stats"] = stats
-        
+                
         # --- Save persistent stats JSON ---
         try:
              stats_ents = dict(current_img.entities)
@@ -281,5 +397,6 @@ class OutlierRemovalStep(BaseProcessingStep):
              self.logger.info(f"Saved outlier statistics to: {stats_json_path}")
         except Exception as e:
              self.logger.warning(f"Failed to save outlier stats JSON: {e}")
+
 
         return context

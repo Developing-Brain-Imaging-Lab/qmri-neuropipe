@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 import typer
 from rich.table import Table
 from rich.layout import Layout
@@ -637,13 +637,21 @@ def main(
                                  for c in range(cols):
                                       idx = r * cols + c
                                       if idx < self.n_jobs:
-                                           color = self.colors[idx % len(self.colors)]
+                                           # Extended color palette for more workers
+                                           color_palette = [
+                                                "cyan", "magenta", "yellow", "green", 
+                                                "blue", "red", "bright_blue", "bright_magenta",
+                                                "bright_cyan", "bright_yellow", "bright_green", "bright_red"
+                                           ]
+                                           color = color_palette[idx % len(color_palette)]
                                            icon = status_icons.get(self.job_status[idx], "•")
                                            title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
                                            
                                            # Convert buffer lines from ANSI to Rich Text objects to preserve colors
+                                           # Create snapshot of buffer to avoid lock issues
+                                           buffer_snapshot = list(self.buffers[idx])
                                            rich_buffer = []
-                                           for line in self.buffers[idx]:
+                                           for line in buffer_snapshot:
                                                 rich_buffer.append(Text.from_ansi(line))
                                            
                                            content = Text("\n").join(rich_buffer)
@@ -697,11 +705,9 @@ def main(
                   with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
                        futures = {}
                        for i, (sub, ses) in enumerate(tasks):
-                            g_id = None
-                            if config.gpu_ids:
-                                 g_id = config.gpu_ids[i % len(config.gpu_ids)]
-                            
-                            f = executor.submit(_run_parallel_worker, sub, ses, config_dict, g_id, pipeline_name, log_queue, slot_queue)
+                            # GPU assignment now handled in worker based on slot_queue
+                            # Pass None to let worker determine GPU based on job_id
+                            f = executor.submit(_run_parallel_worker, sub, ses, config_dict, None, pipeline_name, log_queue, slot_queue)
                             futures[f] = (sub, ses)
 
                        for f in concurrent.futures.as_completed(futures):
@@ -800,6 +806,9 @@ def _run_parallel_worker(
 ) -> dict:
     """
     Worker function for parallel pipeline execution.
+    
+    Handles OS-level stdout/stderr redirection for clean parallel logging,
+    GPU isolation, and proper resource cleanup.
     """
     import os
     import sys
@@ -819,10 +828,20 @@ def _run_parallel_worker(
     from rich.console import Console
     
     # We will initialize the console AFTER redirection.
+    
+    # Resource cleanup tracking
+    original_stdout_fd = None
+    original_stderr_fd = None
+    pipe_out = None
+    pipe_in = None
 
     try:
-        # 1. Robust OS-level Redirection
+        # 1. Robust OS-level Redirection with cleanup tracking
         if log_queue:
+            # Save original file descriptors for restoration
+            original_stdout_fd = os.dup(1)
+            original_stderr_fd = os.dup(2)
+            
             pipe_out, pipe_in = os.pipe()
             
             def forwarder():
@@ -846,6 +865,7 @@ def _run_parallel_worker(
             os.dup2(pipe_in, 1)
             os.dup2(pipe_in, 2)
             os.close(pipe_in)
+            pipe_in = None  # Mark as closed
             
             # Update Python's sys.stdout/stderr to point to the new FDs.
             # CRITICAL: Use closefd=False to prevent Python from closing FD 1/2 
@@ -859,8 +879,14 @@ def _run_parallel_worker(
         from rich.console import Console
 
         # 2. Isolate GPU Environment
+        # Use worker slot-based GPU assignment for deterministic scheduling
         if gpu_id is not None:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        elif config_dict.get('gpu_ids') and job_id is not None:
+            # Fallback: assign based on worker slot
+            gpu_list = config_dict['gpu_ids']
+            assigned_gpu = gpu_list[job_id % len(gpu_list)]
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
             
         # 3. Reconstruct Config
         valid_keys = set(PipelineConfig.__annotations__.keys())
@@ -893,17 +919,23 @@ def _run_parallel_worker(
              log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
              ui.console.print(f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]")
              
-             # Configure logging to use the redirected stderr (FD 2)
-             # We use basicConfig to catch EVERYTHING on the root logger.
+             # Configure worker-specific logging to avoid conflicts
+             # Use worker-specific logger instances instead of reconfiguring root
              log_level = getattr(logging, config.log_level, logging.INFO)
              
-             logging.basicConfig(level=log_level, force=True, handlers=[
-                 logging.StreamHandler(sys.stderr)
-             ])
-             # CRITICAL: Disable propagation for the main library logger so it doesn't 
-             # double-report to the root logger we just set up.
-             logging.getLogger("qmri-neuropipe").propagate = False
-             logging.getLogger().setLevel(log_level)
+             worker_logger = logging.getLogger(f"qmri-neuropipe.worker.{job_id}")
+             worker_logger.setLevel(log_level)
+             
+             # Clear any existing handlers
+             worker_logger.handlers.clear()
+             
+             # Add stderr handler for this worker
+             handler = logging.StreamHandler(sys.stderr)
+             handler.setLevel(log_level)
+             formatter = logging.Formatter('[%(name)s] %(levelname)s: %(message)s')
+             handler.setFormatter(formatter)
+             worker_logger.addHandler(handler)
+             worker_logger.propagate = False
              
 
         # 4. Initialize Pipeline
@@ -946,8 +978,35 @@ def _run_parallel_worker(
             'session': session
         }
     finally:
+         # Clean up file descriptors and restore original streams
+         if original_stdout_fd is not None:
+              try:
+                   # Flush Python streams
+                   sys.stdout.flush()
+                   sys.stderr.flush()
+                   
+                   # Restore original file descriptors
+                   os.dup2(original_stdout_fd, 1)
+                   os.dup2(original_stderr_fd, 2)
+                   
+                   # Close duplicates
+                   os.close(original_stdout_fd)
+                   os.close(original_stderr_fd)
+                   
+                   # Recreate Python streams pointing to restored FDs
+                   sys.stdout = os.fdopen(1, 'w', buffering=1, closefd=False)
+                   sys.stderr = os.fdopen(2, 'w', buffering=1, closefd=False)
+              except Exception:
+                   pass  # Best effort cleanup
+         
+         # Close pipe_in if still open (shouldn't be, but safety)
+         if pipe_in is not None:
+              try:
+                   os.close(pipe_in)
+              except: pass
+         
+         # Release worker slot
          if slot_queue:
-              # Reset info after a short delay might be nice, but leaving it as (Done) is better
               slot_queue.put(job_id)
 
 if __name__ == "__main__":

@@ -1,3 +1,10 @@
 sphinx>=5.0
 sphinx-rtd-theme
 myst-parser
+amico
+nifreeze
+pyafq
+openpyxl
+plotly
+streamlit
+weasyprint

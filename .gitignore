@@ -11,6 +11,12 @@ __pycache__/
 build/
 dist/
 .eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+*.bak
 
 # Environments
 .env
@@ -30,6 +36,9 @@ mriqc/
 *.log
 *.html # If reports are generated in root
 metrics/ # If metrics are generated in root
+docs/_build/
+.gemini/artifacts/
+*.cannedSearch/
 
 # Test Artifacts (Keep tests source, ignore outputs)
 tests/verify_temp_seg/

@@ -67,3 +67,18 @@ The pipeline will automatically assign each parallel worker a specific GPU ID in
 - Worker 5 -> GPU 0
 
 This ensures optimal utilization of multi-GPU resources.
+
+## Optional Extras
+
+Install optional features via extras:
+
+```bash
+pip install -e .[all]
+pip install -e .[amico]
+pip install -e .[nifreeze]
+pip install -e .[pyafq]
+pip install -e .[tracker]
+pip install -e .[reporting]
+```
+
+See the [Tool Reference](../../tool_reference.md) for per-step tool lists and config keys.

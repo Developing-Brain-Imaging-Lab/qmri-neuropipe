@@ -11,6 +11,7 @@ import numpy as np
 import nibabel as nib
 import logging
 import json
+import gzip
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
@@ -52,6 +53,18 @@ def _run_synb0_worker(in_file, t1_file, out_file, gpu_ids=None):
         print("Synb0 Worker failed with error:")
         traceback.print_exc()
         sys.exit(1)
+
+def _validate_nifti(path: Path, logger: logging.Logger, label: str) -> None:
+    if not path.exists():
+        raise ProcessingError(f"{label} does not exist: {path}")
+    if path.stat().st_size == 0:
+        raise ProcessingError(f"{label} is empty (0 bytes): {path}")
+    if path.suffix == ".gz":
+        try:
+            with gzip.open(path, "rb") as f:
+                _ = f.read(2)
+        except Exception as e:
+            raise ProcessingError(f"{label} is not valid gzip: {path} ({e})")
 
 class Synb0EstimationStep(BaseProcessingStep):
     """
@@ -111,8 +124,21 @@ class Synb0EstimationStep(BaseProcessingStep):
         # Let's assume we do it for the first DWI file and assume others share distortion if valid.
         # Ideally, we should check for different PE directions.
         
-        # For simplicity, pick the first DWI as the "forward" b0 source.
-        input_dwi = dwi_files[0]
+        # For simplicity, pick the first valid DWI as the "forward" b0 source.
+        input_dwi = None
+        for candidate in dwi_files:
+            try:
+                _validate_nifti(candidate.img, self.logger, "Input DWI")
+                _ = nib.load(str(candidate.img))
+            except Exception as e:
+                self.logger.warning(f"Skipping invalid DWI for Synb0: {candidate.img} ({e})")
+                continue
+            input_dwi = candidate
+            break
+
+        if input_dwi is None:
+            raise ProcessingError("No valid DWI files found for Synb0 estimation.")
+
         real_json = input_dwi.json
         
         output_dir = self.get_step_output_dir(output_dir)
@@ -138,7 +164,15 @@ class Synb0EstimationStep(BaseProcessingStep):
         
         if not should_skip:
             # Extract real b0
-            img = nib.load(str(input_dwi.img))
+            _validate_nifti(input_dwi.img, self.logger, "Input DWI")
+            try:
+                img = nib.load(str(input_dwi.img))
+            except Exception as e:
+                size = input_dwi.img.stat().st_size
+                raise ProcessingError(
+                    f"Failed to read input DWI NIfTI: {input_dwi.img} (size={size} bytes). "
+                    f"Original error: {e}"
+                )
             data = img.get_fdata()
             
             # Use bvals to find b0

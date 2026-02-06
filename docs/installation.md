@@ -57,6 +57,22 @@ It is highly recommended to use a virtual environment to manage dependencies and
 *   **Standard Install**:
     Use `pip install .` for a static installation.
 
+## Optional Extras
+
+Optional features are provided via extras. Install the ones you need:
+
+```bash
+# Everything
+pip install -e .[all]
+
+# Feature-specific
+pip install -e .[amico]
+pip install -e .[nifreeze]
+pip install -e .[pyafq]
+pip install -e .[tracker]
+pip install -e .[reporting]
+```
+
 ## Verify Installation
 
 Check that the CLI tool is available:

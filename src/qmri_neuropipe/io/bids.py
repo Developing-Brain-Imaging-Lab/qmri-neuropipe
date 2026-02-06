@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 import re, json
 import pandas as pd
+from functools import lru_cache
 
 
 BIDS_ENTITY_REGEX = re.compile(r'([a-zA-Z0-9]+)-([^\_]+)')
@@ -114,9 +115,12 @@ def build_from_parsed(parsed, root=None, override=None):
         **entities
     )
 
+@lru_cache(maxsize=1024)
 def parse_bids_filename(path):
     """
     Extract BIDS entities from a filename, returning a dict.
+    
+    Cached version for better performance when parsing the same files repeatedly.
     """
     path = Path(path)
     name = path.name
@@ -149,6 +153,8 @@ get_entities_from_path = parse_bids_filename
 def bids_find(root, suffix=None, extension=None):
     """
     Recursively find BIDS-like files under root.
+    
+    Optimized version with targeted glob patterns for better performance.
 
     Returns
     -------
@@ -157,14 +163,46 @@ def bids_find(root, suffix=None, extension=None):
     """
     root = Path(root)
     results = []
-
-    for path in root.rglob("*"):
+    
+    # OPTIMIZATION: Use targeted patterns to avoid walking entire tree
+    # Build glob pattern based on extension filter
+    if extension:
+        # Convert to list if single extension
+        exts = [extension] if isinstance(extension, str) else extension
+        patterns = []
+        
+        # Create specific patterns for each extension
+        for ext in exts:
+            if ext in ('.nii', '.nii.gz'):
+                patterns.extend(['**/*.nii', '**/*.nii.gz'])
+            elif ext == '.json':
+                patterns.append('**/*.json')
+            elif ext in ('.bval', '.bvec'):
+                patterns.extend(['**/*.bval', '**/*.bvec'])
+            else:
+                patterns.append(f'**/*{ext}')
+        
+        # Remove duplicates
+        patterns = list(set(patterns))
+    else:
+        # Default: search common BIDS extensions only (much faster than "*")
+        patterns = ['**/*.nii', '**/*.nii.gz', '**/*.json', '**/*.bval', '**/*.bvec']
+    
+    # Collect all matching paths
+    paths_to_process = set()
+    for pattern in patterns:
+        paths_to_process.update(root.rglob(pattern))
+    
+    # Process paths
+    for path in paths_to_process:
         if not path.is_file():
             continue
 
-        # Fast extension filter
+        # Get full extension
         full_ext = "".join(path.suffixes)
-        if extension and full_ext not in extension:
+        
+        # Extension filter (already mostly filtered by glob, but double-check)
+        if extension and full_ext not in (extension if isinstance(extension, (list, tuple)) else [extension]):
             continue
 
         ent = parse_bids_filename(path)
@@ -208,6 +246,8 @@ def bids_to_dataframe(entries):
 def bids_collect_series(root, suffix=None):
     """
     Collect BIDS series (NIfTI + JSON + optional bval/bvec) under root.
+    
+    Optimized version with better filtering and grouping logic.
 
     Parameters
     ----------
@@ -226,54 +266,102 @@ def bids_collect_series(root, suffix=None):
             - 'bval'    : Path or None
             - 'bvec'    : Path or None
     """
-    files = bids_find(root, suffix=suffix, extension=None)
-
-    # Group by canonical entity key
-    groups = {}
-
-    for ent in files:
-        key = (
-            ent.get("sub"),
-            ent.get("ses"),
-            ent.get("task"),
-            ent.get("acq"),
-            ent.get("dir"),
-            ent.get("run"),
-            ent.get("suffix"),
-            ent.get("space"),
-            ent.get("desc"),
-        )
-
-        rec = groups.setdefault(
-            key,
-            {
-                "entities": {
-                    k: v
-                    for k, v in ent.items()
-                    if k
-                    not in (
-                        "path",
-                        "extension",
-                    )
-                },
-                "nii": None,
+    # OPTIMIZATION: Only search for relevant extensions upfront
+    # This is much faster than searching for everything
+    if suffix:
+        # If suffix specified, we can be more targeted
+        # Look for NIfTI files first, then find sidecars
+        nii_files = bids_find(root, suffix=suffix, extension=['.nii', '.nii.gz'])
+        
+        # Group by canonical key and pre-populate with NIfTI
+        groups = {}
+        for ent in nii_files:
+            key = (
+                ent.get("sub"),
+                ent.get("ses"),
+                ent.get("task"),
+                ent.get("acq"),
+                ent.get("dir"),
+                ent.get("run"),
+                ent.get("suffix"),
+                ent.get("space"),
+                ent.get("desc"),
+            )
+            
+            # Create entities dict (exclude path/extension)
+            entities = {
+                k: v for k, v in ent.items()
+                if k not in ("path", "extension")
+            }
+            
+            nii_path = ent["path"]
+            
+            groups[key] = {
+                "entities": entities,
+                "nii": nii_path,
                 "json": None,
                 "bval": None,
                 "bvec": None,
-            },
-        )
+            }
+            
+            # Check for sidecars using _sidecar helper
+            json_path = _sidecar(nii_path, '.json')
+            if json_path.exists():
+                groups[key]["json"] = json_path
+            
+            # For DWI, check for bval/bvec
+            if ent.get("suffix") == "dwi":
+                bval_path = _sidecar(nii_path, '.bval')
+                bvec_path = _sidecar(nii_path, '.bvec')
+                if bval_path.exists():
+                    groups[key]["bval"] = bval_path
+                if bvec_path.exists():
+                    groups[key]["bvec"] = bvec_path
+    else:
+        # No suffix filter - use old logic but optimized
+        files = bids_find(root, suffix=None, extension=['.nii', '.nii.gz', '.json', '.bval', '.bvec'])
+        
+        groups = {}
+        
+        for ent in files:
+            key = (
+                ent.get("sub"),
+                ent.get("ses"),
+                ent.get("task"),
+                ent.get("acq"),
+                ent.get("dir"),
+                ent.get("run"),
+                ent.get("suffix"),
+                ent.get("space"),
+                ent.get("desc"),
+            )
 
-        ext = ent["extension"]
-        path = ent["path"]
+            rec = groups.setdefault(
+                key,
+                {
+                    "entities": {
+                        k: v
+                        for k, v in ent.items()
+                        if k not in ("path", "extension")
+                    },
+                    "nii": None,
+                    "json": None,
+                    "bval": None,
+                    "bvec": None,
+                },
+            )
 
-        if ext in (".nii", ".nii.gz"):
-            rec["nii"] = path
-        elif ext == ".json":
-            rec["json"] = path
-        elif ext == ".bval":
-            rec["bval"] = path
-        elif ext == ".bvec":
-            rec["bvec"] = path
+            ext = ent["extension"]
+            path = ent["path"]
+
+            if ext in (".nii", ".nii.gz"):
+                rec["nii"] = path
+            elif ext == ".json":
+                rec["json"] = path
+            elif ext == ".bval":
+                rec["bval"] = path
+            elif ext == ".bvec":
+                rec["bvec"] = path
 
     # Turn into a sorted list
     def sort_key(item):
