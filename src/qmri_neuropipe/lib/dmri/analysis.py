@@ -51,24 +51,40 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # Check context for FA map.
         # 1. Identify Target Image (Subject Space)
         # Search all models for FA map (e.g. DTI, DKI)
+        analysis_cfg = self.config.get("analysis") or self.config.get("dmri", {}).get("analysis", {})
+
         target_img = None
         modeling_results = context.get('modeling_results', {})
+
+        reg_target = analysis_cfg.get("registration_target") or analysis_cfg.get("registration_metric")
+        if isinstance(reg_target, (list, tuple)):
+            target_metrics = [str(t).upper() for t in reg_target if t]
+        elif reg_target:
+            target_metrics = [str(reg_target).upper()]
+        else:
+            target_metrics = ["FA"]
         
         for model_name, metrics in modeling_results.items():
-             # Check exact match
-             if 'FA' in metrics:
-                 target_img = metrics['FA']
-                 break
-             # Check case-insensitive
-             for k, v in metrics.items():
-                 if k.upper() == 'FA':
-                     target_img = v
+             for t in target_metrics:
+                 # Check exact match
+                 if t in metrics:
+                     target_img = metrics[t]
                      break
-             if target_img: break
+                 # Check case-insensitive
+                 for k, v in metrics.items():
+                     if k.upper() == t:
+                         target_img = v
+                         break
+                 if target_img:
+                     break
+             if target_img:
+                 break
         
         if not target_img:
             # Fallback to b0 logic...
-            self.logger.warning("No FA map found for registration target. Trying DWI/B0 (First Volume)...")
+            self.logger.warning(
+                f"No {', '.join(target_metrics)} map found for registration target. Trying DWI/B0 (First Volume)..."
+            )
             
             # Ensure we use a 3D volume.
             # If dwi.img is 4D, we must extract B0.
@@ -92,6 +108,39 @@ class AtlasRegistrationStep(BaseProcessingStep):
                 pass
             # Ideally we compute FA quickly or use b0? b0 has different contrast from T1 template.
         
+        # Ensure fixed image is 3D for registration
+        try:
+            fixed_path = Path(target_img.img) if hasattr(target_img, 'img') else Path(target_img)
+            fixed_img = nib.load(str(fixed_path))
+            if len(fixed_img.shape) == 4:
+                reg_tmp = atlas_out / ".reg_tmp"
+                reg_tmp.mkdir(parents=True, exist_ok=True)
+
+                b0_mean = None
+                bvals_path = getattr(dwi, 'bval', None)
+                if bvals_path and Path(bvals_path).exists():
+                    try:
+                        bvals = np.loadtxt(bvals_path)
+                        if bvals.ndim > 1:
+                            bvals = bvals.ravel()
+                        b0_idx = np.where(bvals <= 50)[0]
+                        if b0_idx.size > 0:
+                            data = fixed_img.get_fdata()
+                            b0_mean = np.mean(data[..., b0_idx], axis=3)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to compute b0 mean for registration: {e}")
+
+                if b0_mean is None:
+                    data = fixed_img.get_fdata()
+                    b0_mean = data[..., 0]
+
+                fixed_3d = nib.Nifti1Image(b0_mean, fixed_img.affine, fixed_img.header)
+                fixed_path = reg_tmp / "fixed_3d.nii.gz"
+                nib.save(fixed_3d, fixed_path)
+                target_img = fixed_path
+        except Exception as e:
+            self.logger.warning(f"Failed to coerce fixed image to 3D for registration: {e}")
+
         # 2. Identify Templates & Atlases
         # These paths should be provided in config or found in standard locations.
         # We assume standard FSL/MNI paths if not provided.
@@ -111,7 +160,6 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # Implementation Detail: We need a mapping of "Atlas Name" -> "Label File".
         # Let's assume a simplified config structure or standard FSL atlases.
         
-        analysis_cfg = self.config.get("analysis") or self.config.get("dmri", {}).get("analysis", {})
         atlases_to_reg = analysis_cfg.get("atlases", {})
         # Example config:
         # analysis:
@@ -192,7 +240,17 @@ class AtlasRegistrationStep(BaseProcessingStep):
              warp_prefix_name = build_bids_name(prefix_ents).replace('.nii.gz', '') + "_"
              warp_cache_prefix = cache_dir / warp_prefix_name
              
-             self.logger.info(f"Registering {tpl_path.name} to Subject FA...")
+             try:
+                 fixed_path_dbg = Path(target_img.img) if hasattr(target_img, 'img') else Path(target_img)
+                 moving_path_dbg = Path(tpl_path)
+                 fixed_shape_dbg = nib.load(str(fixed_path_dbg)).shape
+                 moving_shape_dbg = nib.load(str(moving_path_dbg)).shape
+                 self.logger.info(
+                     f"Registering {tpl_path.name} to Subject FA (fixed={fixed_shape_dbg}, moving={moving_shape_dbg})..."
+                 )
+             except Exception as e:
+                 self.logger.info(f"Registering {tpl_path.name} to Subject FA...")
+                 self.logger.warning(f"Failed to read image shapes for registration debug: {e}")
              
              _, tx_forward = ants.registration(
                 fixed_file=target_img,

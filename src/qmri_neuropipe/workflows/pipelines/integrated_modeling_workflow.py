@@ -313,6 +313,7 @@ class ModelingWorkflow(BaseWorkflow):
                 
                 # Update tracker
                 self._update_tracker_for_cache(context)
+                self._populate_modeling_results_from_cache(preprocessed_dwis, final_dest, context)
                 
                 # Report all
                 if reporter:
@@ -483,6 +484,58 @@ class ModelingWorkflow(BaseWorkflow):
                     return False
         
         return True
+
+    def _populate_modeling_results_from_cache(self, dwis, output_dir, context):
+        """Populate modeling_results in context when outputs are already cached."""
+        from qmri_neuropipe.io.bids import build_bids_name
+
+        modeling_results = context.setdefault('modeling_results', {})
+
+        # Use first DWI for naming; modeling results are per-subject/session here.
+        dwi = dwis[0] if dwis else None
+        if not dwi:
+            return
+
+        ents_base = dwi.entities.copy()
+        if 'desc' in ents_base:
+            del ents_base['desc']
+        if 'suffix' in ents_base:
+            del ents_base['suffix']
+
+        model_specs = {
+            'DTI': ['FA', 'MD', 'AD', 'RD'],
+            'DKI': ['MK', 'AK', 'RK'],
+            'NODDI': ['ODI', 'NDI', 'FISO'],
+            'CSD': ['fod'],
+            'MAPMRI': ['RTOP', 'RTAP', 'RTPP'],
+            'SANDI': ['Fsoma', 'Fneurite'],
+            'FWDTI': ['FWF', 'MD', 'FA']
+        }
+
+        for model_name, metrics in model_specs.items():
+            model_dir = output_dir / model_name
+            if not model_dir.exists():
+                continue
+
+            model_results = modeling_results.setdefault(model_name, {})
+            ents = ents_base.copy()
+            ents['model'] = model_name
+
+            for metric in metrics:
+                suffix = metric
+                fname = build_bids_name(ents, suffix=suffix)
+                fpath = model_dir / fname
+                if not str(fpath).endswith('.nii.gz'):
+                    fpath = Path(str(fpath) + '.nii.gz')
+
+                if fpath.exists():
+                    model_results[metric] = fpath
+                    continue
+
+                # Fallback glob search
+                matches = list(model_dir.glob(f"*{metric}*.nii.gz"))
+                if matches:
+                    model_results[metric] = matches[0]
     
     def _update_tracker_for_cache(self, context):
         """Update tracker for all cached steps."""
