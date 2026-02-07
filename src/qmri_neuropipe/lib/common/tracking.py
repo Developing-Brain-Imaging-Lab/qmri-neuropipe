@@ -16,7 +16,12 @@ class TrackingStep(BaseProcessingStep):
 
     def __init__(self, config, logger: Optional[logging.Logger] = None, provenance = None):
         super().__init__(config, logger, provenance)
-        self.tracker_path = self.config.get('tracker_file')
+        self.tracker_path = (
+            self.config.get('tracker_file') or
+            self.config.get('tracker.file') or
+            self.config.get('tracker.tracker_file') or
+            self.config.get('tracker.path')
+        )
         if not self.tracker_path:
             # Try to find it in the output_dir
             out_dir = Path(self.config.get('output_dir', '.'))
@@ -37,6 +42,11 @@ class TrackingStep(BaseProcessingStep):
                 self.logger.warning("No tracker file specified and no active tracker in config. Skipping TrackingStep.")
                 return context
             tracker = NeuroimagingTracker(self.tracker_path, logger=self.logger)
+
+        try:
+            self.logger.info(f"Tracker update target: {tracker.excel_path}")
+        except Exception:
+            pass
 
         subject = context.get('subject')
         session = context.get('session')
@@ -467,6 +477,13 @@ class TrackingStep(BaseProcessingStep):
                   
                   if atlas_name not in roi_files:
                        roi_files[atlas_name] = tsv
+
+        try:
+            self.logger.info(
+                f"Tracker ROI stats: {len(roi_files)} atlas TSV(s) found: {', '.join(sorted(roi_files.keys()))}"
+            )
+        except Exception:
+            pass
 
         for atlas_name, tsv_path in roi_files.items():
             tracker.add_roi_stats(subject, session, Path(tsv_path), atlas_name, study)

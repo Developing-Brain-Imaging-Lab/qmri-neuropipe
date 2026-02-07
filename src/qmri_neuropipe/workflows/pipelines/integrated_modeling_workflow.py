@@ -504,7 +504,7 @@ class ModelingWorkflow(BaseWorkflow):
 
         model_specs = {
             'DTI': ['FA', 'MD', 'AD', 'RD'],
-            'DKI': ['MK', 'AK', 'RK'],
+            'DKI': ['MK', 'AK', 'RK', 'FA', 'MD', 'AD', 'RD'],
             'NODDI': ['ODI', 'NDI', 'FISO'],
             'CSD': ['fod'],
             'MAPMRI': ['RTOP', 'RTAP', 'RTPP'],
