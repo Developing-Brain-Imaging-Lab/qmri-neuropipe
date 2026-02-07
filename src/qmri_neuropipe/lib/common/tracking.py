@@ -50,7 +50,13 @@ class TrackingStep(BaseProcessingStep):
 
         subject = context.get('subject')
         session = context.get('session')
-        study = context.get('study_name', self.config.get('study_name'))
+        study = (
+            context.get('study_name') or
+            self.config.get('study_name') or
+            self.config.get('study.name') or
+            self.config.get('tracker.study_name') or
+            self.config.get('tracker.study')
+        )
         
         if not subject:
             self.logger.error("Missing subject in context. Cannot update tracker.")
