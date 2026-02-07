@@ -55,8 +55,11 @@ class TrackingStep(BaseProcessingStep):
             self.config.get('study_name') or
             self.config.get('study.name') or
             self.config.get('tracker.study_name') or
-            self.config.get('tracker.study')
+            self.config.get('tracker.study') or
+            getattr(self.config, 'config_data', {}).get('study_name')
         )
+        if study is not None and str(study).strip().lower() == 'nan':
+            study = None
         
         if not subject:
             self.logger.error("Missing subject in context. Cannot update tracker.")
@@ -239,6 +242,14 @@ class TrackingStep(BaseProcessingStep):
             qc_metrics['DWI_Outliers_Removed_Volumes'] = total_removed
             qc_metrics['DWI_Outliers_Removed_Pct'] = (total_removed / total_vols) * 100
             qc_metrics['DWI_Outliers_Total_Volumes'] = total_vols
+        else:
+            # Explicitly record zero outliers if no stats were found
+            if 'DWI_Outliers_Removed_Volumes' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Removed_Volumes'] = 0
+            if 'DWI_Outliers_Total_Volumes' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Total_Volumes'] = 0
+            if 'DWI_Outliers_Removed_Pct' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Removed_Pct'] = 0.0
             
         for bv, counts in bval_stats_agg.items():
             qc_metrics[f'DWI_Bval_{bv}_Total'] = counts['total']
