@@ -50,6 +50,16 @@ debug: false               # Enable debug mode
 verbose: true              # Enable verbose output
 
 # ============================================================================
+# STUDY TRACKER
+# ============================================================================
+tracker:
+  enabled: false           # Enable study tracker updates
+  file: /path/to/study_tracker.xlsx
+
+# Optional: legacy tracker file path (only used if tracker.enabled is true)
+# tracker_file: /path/to/study_tracker.xlsx
+
+# ============================================================================
 # DMRI PIPELINE CONFIGURATION
 # ============================================================================
 dmri:

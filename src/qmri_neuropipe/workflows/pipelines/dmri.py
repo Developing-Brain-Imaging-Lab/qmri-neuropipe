@@ -356,6 +356,8 @@ class DMRIPipeline(BasePipeline):
 
     def _update_study_tracker(self, context: dict, output_dir: Path):
         """Update study tracking system."""
+        if not self.config.get('tracker.enabled', False):
+            return
         try:
             context['study_name'] = self.config.get('study_name')
             tracking = TrackingStep(self.config, self.logger)

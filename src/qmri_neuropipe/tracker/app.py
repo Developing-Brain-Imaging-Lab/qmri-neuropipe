@@ -101,6 +101,8 @@ if final_tracker_path:
         diff_comp_rate = "0%"
         avg_snr = "N/A"
         avg_mot = "N/A"
+        outliers_removed = "N/A"
+        outliers_removed_pct = "N/A"
         
         if "Processing_Status" in data:
             df_ps_all = data["Processing_Status"]
@@ -132,9 +134,21 @@ if final_tracker_path:
              if "DWI_SNR" in df_qm.columns:
                   val = df_qm["DWI_SNR"].dropna().mean()
                   if pd.notna(val): avg_snr = f"{val:.1f}"
-             if "Motion_FD_Mean" in df_qm.columns:
-                  val = df_qm["Motion_FD_Mean"].dropna().mean()
+             motion_col = None
+             if "DWI_Motion_FD_Mean" in df_qm.columns:
+                  motion_col = "DWI_Motion_FD_Mean"
+             elif "Motion_FD_Mean" in df_qm.columns:
+                  motion_col = "Motion_FD_Mean"
+             if motion_col:
+                  val = df_qm[motion_col].dropna().mean()
                   if pd.notna(val): avg_mot = f"{val:.3f}"
+
+             if "DWI_Outliers_Removed_Volumes" in df_qm.columns:
+                  val = df_qm["DWI_Outliers_Removed_Volumes"].dropna().sum()
+                  if pd.notna(val): outliers_removed = f"{int(val)}"
+             if "DWI_Outliers_Removed_Pct" in df_qm.columns:
+                  val = df_qm["DWI_Outliers_Removed_Pct"].dropna().mean()
+                  if pd.notna(val): outliers_removed_pct = f"{val:.2f}%"
 
         col_m1.metric("Total Subjects", total_subjs)
         col_m2.metric("Total Sessions", total_sess)
@@ -142,9 +156,11 @@ if final_tracker_path:
         col_m4.metric("Diffusion Success", diff_comp_rate)
         
         # Second row for quality metrics
-        q_col1, q_col2 = st.columns(2)
+        q_col1, q_col2, q_col3, q_col4 = st.columns(4)
         q_col1.metric("Avg DWI SNR", avg_snr)
         q_col2.metric("Avg Mean FD", avg_mot)
+        q_col3.metric("Outliers Removed", outliers_removed)
+        q_col4.metric("Outliers Removed (%)", outliers_removed_pct)
 
         st.markdown("---")
 

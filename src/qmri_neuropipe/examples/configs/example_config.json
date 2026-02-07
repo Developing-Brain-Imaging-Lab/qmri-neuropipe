@@ -15,6 +15,11 @@
   "log_level": "INFO",
   "debug": false,
   "verbose": true,
+
+  "tracker": {
+    "enabled": false,
+    "file": "/path/to/study_tracker.xlsx"
+  },
   
   "dmri": {
     "preprocessing": {

@@ -28,6 +28,8 @@ class TrackingStep(BaseProcessingStep):
         """
         Aggregate data from the current context and update the tracker.
         """
+        if not self.config.get('tracker.enabled', False):
+            return context
         # 1. Use existing tracker from config if available, otherwise create one
         tracker = self.config.tracker
         if not tracker:
@@ -220,6 +222,7 @@ class TrackingStep(BaseProcessingStep):
         if total_vols > 0:
             qc_metrics['DWI_Outliers_Removed_Volumes'] = total_removed
             qc_metrics['DWI_Outliers_Removed_Pct'] = (total_removed / total_vols) * 100
+            qc_metrics['DWI_Outliers_Total_Volumes'] = total_vols
             
         for bv, counts in bval_stats_agg.items():
             qc_metrics[f'DWI_Bval_{bv}_Total'] = counts['total']
@@ -330,6 +333,16 @@ class TrackingStep(BaseProcessingStep):
 
         # --- CONTEXT OVERRIDES ---
         # Allow registry entries to override if available (useful for non-persistent or custom steps)
+        context_qc = context.get('qc_metrics', {})
+        for k, v in context_qc.items():
+            if k.startswith('QC_DWI_'):
+                new_k = k.replace('QC_DWI_', 'DWI_')
+                if new_k not in qc_metrics:
+                    qc_metrics[new_k] = v
+            elif k.startswith('DWI_'):
+                if k not in qc_metrics:
+                    qc_metrics[k] = v
+
         qc_registry = context.get('qc_registry', {})
         for img_name, record in qc_registry.items():
             for k, v in record.items():
@@ -339,6 +352,30 @@ class TrackingStep(BaseProcessingStep):
                     qc_metrics[new_k] = v
                 elif k.startswith('DWI_'):
                     qc_metrics[k] = v
+
+        # --- CONTEXT OUTLIER STATS ---
+        # Prefer explicit outlier stats from the outlier removal step if present.
+        outlier_stats = context.get('outlier_stats', {})
+        if isinstance(outlier_stats, dict) and outlier_stats:
+            total_vols = outlier_stats.get('total_volumes')
+            removed_vols = outlier_stats.get('removed_volumes')
+            removed_pct = outlier_stats.get('percent_removed')
+
+            if removed_vols is not None and 'DWI_Outliers_Removed_Volumes' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Removed_Volumes'] = removed_vols
+            if total_vols is not None and 'DWI_Outliers_Total_Volumes' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Total_Volumes'] = total_vols
+            if removed_pct is not None and 'DWI_Outliers_Removed_Pct' not in qc_metrics:
+                qc_metrics['DWI_Outliers_Removed_Pct'] = removed_pct
+
+            for b_entry in outlier_stats.get('bvalue_stats', []) or []:
+                bv = b_entry.get('b_value', 0)
+                if f'DWI_Bval_{bv}_Total' not in qc_metrics:
+                    qc_metrics[f'DWI_Bval_{bv}_Total'] = b_entry.get('total', 0)
+                if f'DWI_Bval_{bv}_Removed' not in qc_metrics:
+                    qc_metrics[f'DWI_Bval_{bv}_Removed'] = b_entry.get('removed', 0)
+                if f'DWI_Bval_{bv}_Pct' not in qc_metrics and b_entry.get('total', 0) > 0:
+                    qc_metrics[f'DWI_Bval_{bv}_Pct'] = (b_entry.get('removed', 0) / b_entry.get('total', 1)) * 100
 
         # Add Scan Metadata
         current_img = context.get('current_image')
