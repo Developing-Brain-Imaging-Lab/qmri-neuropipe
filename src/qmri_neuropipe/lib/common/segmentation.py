@@ -130,12 +130,31 @@ class SegmentationStep(BaseProcessingStep):
             if threshold is None:
                 threshold = self.config.get('anat', {}).get('segmentation', {}).get('atlas_threshold')
             
-            # If threshold is still None and data is float, we might want a default safely
-            is_probabilistic = np.issubdtype(atlas_raw.dtype, np.floating) or atlas_raw.ndim == 4
+            # Use a light sample to characterize atlas values
+            sample = atlas_raw[np.isfinite(atlas_raw)]
+            if sample.size > 100000:
+                sample = sample[:: max(sample.size // 100000, 1)]
+            sample_min = float(np.min(sample)) if sample.size else 0.0
+            sample_max = float(np.max(sample)) if sample.size else 0.0
+            is_integer_like = bool(sample.size) and np.allclose(sample, np.round(sample), atol=1e-3)
+            
+            def _normalize_threshold(thr, max_val):
+                if thr is None:
+                    return None
+                try:
+                    thr_f = float(thr)
+                except Exception:
+                    return None
+                # Interpret 0-100 range as percent when atlas values are percent-like
+                if thr_f > 1.0 and max_val <= 100.0:
+                    return thr_f / 100.0
+                return thr_f
             
             if atlas_raw.ndim == 4:
                 # 4D probabilistic atlas (e.g. FSL Harvard-Oxford)
-                thr = threshold if threshold is not None else 0.5
+                thr = _normalize_threshold(threshold, sample_max)
+                if thr is None:
+                    thr = 0.5
                 self.logger.info(f"Detected 4D probabilistic atlas. Creating label map (threshold={thr}).")
                 
                 if atlas_raw.shape[3] == 1:
@@ -148,10 +167,19 @@ class SegmentationStep(BaseProcessingStep):
                     atlas_data[max_prob < thr] = 0
             else:
                 # 3D Atlas
-                if threshold is not None:
-                    self.logger.info(f"Applying threshold {threshold} to 3D atlas.")
-                    atlas_data = (atlas_raw >= threshold).astype(int)
+                thr = _normalize_threshold(threshold, sample_max)
+                is_probabilistic = (
+                    (sample_min >= 0.0 and sample_max <= 1.0) or
+                    (thr is not None and sample_min >= 0.0 and sample_max <= 100.0 and not is_integer_like)
+                )
+                if thr is not None and is_probabilistic:
+                    self.logger.info(f"Applying threshold {thr} to 3D probabilistic atlas.")
+                    atlas_data = (atlas_raw >= thr).astype(int)
                 else:
+                    if thr is not None and is_integer_like:
+                        self.logger.warning(
+                            f"Atlas threshold ignored for label atlas (values appear integer-like). Threshold={thr}."
+                        )
                     atlas_data = atlas_raw.astype(int)
                     
         except Exception as e:

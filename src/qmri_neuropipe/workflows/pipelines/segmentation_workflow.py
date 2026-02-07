@@ -3,6 +3,7 @@ from typing import Optional
 
 from qmri_neuropipe.core import BaseWorkflow
 from qmri_neuropipe.lib.common.segmentation import SegmentationStep
+from qmri_neuropipe.lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
 
 
 class SegmentationWorkflow(BaseWorkflow):
@@ -25,16 +26,20 @@ class SegmentationWorkflow(BaseWorkflow):
         if enabled is False:
             return
 
-        step = SegmentationStep(
-            self.config,
-            self.logger,
-            self.provenance,
-            atlas_file=cfg.get("atlas_file"),
-            atlas_labels=cfg.get("atlas_labels"),
-            metrics=cfg.get("metrics"),
-            atlas_threshold=cfg.get("atlas_threshold"),
-        )
-        self.add_step(step)
+        if cfg.get("atlases"):
+            self.add_step(AtlasRegistrationStep(self.config, self.logger, self.provenance))
+            self.add_step(StatsExtractionStep(self.config, self.logger, self.provenance))
+        else:
+            step = SegmentationStep(
+                self.config,
+                self.logger,
+                self.provenance,
+                atlas_file=cfg.get("atlas_file"),
+                atlas_labels=cfg.get("atlas_labels"),
+                metrics=cfg.get("metrics"),
+                atlas_threshold=cfg.get("atlas_threshold"),
+            )
+            self.add_step(step)
 
     def run(
         self,
@@ -49,5 +54,7 @@ class SegmentationWorkflow(BaseWorkflow):
         out_dir = final_output_dir or output_dir
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        result = self.steps[0].run(context, out_dir)
+        result = context
+        for step in self.steps:
+            result = step.run(result, out_dir)
         return result
