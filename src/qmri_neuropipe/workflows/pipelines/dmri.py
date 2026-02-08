@@ -21,7 +21,7 @@ from qmri_neuropipe.core import BasePipeline, PipelineConfig
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 
 # BIDS I/O
-from qmri_neuropipe.io.bids import build_bids_name
+from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
 from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w
 from qmri_neuropipe.io.dmri.bids import bids_find_dwi, find_reversed_phase_groups
 
@@ -29,6 +29,7 @@ from qmri_neuropipe.io.dmri.bids import bids_find_dwi, find_reversed_phase_group
 from qmri_neuropipe.interfaces.mriqc import run_mriqc
 from qmri_neuropipe.lib.reporting.report import ReportGenerator
 from qmri_neuropipe.lib.common.tracking import TrackingStep
+from qmri_neuropipe.utils.data_io import DataIOManager
 
 # Anatomical workflow
 from .anat import AnatPreprocessingWorkflow
@@ -318,6 +319,17 @@ class DMRIPipeline(BasePipeline):
         self.logger.info("  RUNNING DIFFUSION PREPROCESSING   ")
         self.logger.info("="*60)
         
+        if self.config.get("skip_existing", True) and not self.config.get("force", False):
+            cached = self._load_preprocessed_from_output(context, output_dir)
+            if cached:
+                self.logger.info(
+                    f"⚡ FAST SKIP: Found {len(cached['preprocessed_dwis'])} "
+                    f"preprocessed DWI output(s) in {output_dir}"
+                )
+                context.update(cached)
+                context["preprocessing_skipped"] = True
+                return context
+
         self.preprocessing.build_pipeline(context)
         return self.preprocessing.run(work_dir, context, reporter=reporter)
 
@@ -364,6 +376,93 @@ class DMRIPipeline(BasePipeline):
             tracking.run(context, output_dir)
         except Exception as e:
             self.logger.warning(f"Tracker update failed: {e}")
+
+    def _load_preprocessed_from_output(self, context: dict, output_dir: Path) -> Optional[dict]:
+        """Load existing preprocessed DWIs from the final output directory."""
+        dwi_files = context.get("dwi_files", [])
+        if not dwi_files:
+            return None
+
+        subject = context.get("subject")
+        session = context.get("session")
+        io_manager = DataIOManager(self.config, self.logger)
+
+        preprocessed_dwis = []
+        preprocessed_masks = []
+        missing = 0
+
+        for dwi in dwi_files:
+            ents = (dwi.entities or {}).copy()
+            if subject:
+                ents["sub"] = subject
+            if session:
+                ents["ses"] = session
+
+            ents["desc"] = "preproc"
+            ents["suffix"] = "dwi"
+            fname = build_bids_name(ents)
+            if not fname.endswith(".nii.gz"):
+                fname += ".nii.gz"
+
+            target_img = output_dir / fname
+            if not target_img.exists():
+                missing += 1
+                continue
+
+            bval = io_manager._find_sidecar_for_image(target_img, ".bval", [output_dir])
+            bvec = io_manager._find_sidecar_for_image(target_img, ".bvec", [output_dir])
+            jsn = io_manager._find_sidecar_for_image(target_img, ".json", [output_dir])
+
+            preprocessed_dwis.append(
+                DWIFile(img=target_img, bval=bval, bvec=bvec, json=jsn, entities=ents)
+            )
+
+            mask_path = io_manager._find_mask_for_image(target_img, [output_dir])
+            if mask_path:
+                mask_ents = ents.copy()
+                mask_ents["suffix"] = "mask"
+                preprocessed_masks.append(ImageFile(img=mask_path, json=None, entities=mask_ents))
+            else:
+                preprocessed_masks.append(None)
+
+        if missing and preprocessed_dwis:
+            self.logger.info(
+                f"Found {len(preprocessed_dwis)} preprocessed DWI outputs, "
+                f"but {missing} expected file(s) were missing"
+            )
+            return None
+
+        if not preprocessed_dwis:
+            candidates = sorted(output_dir.glob("*desc-preproc*_dwi.nii*"))
+            for candidate in candidates:
+                try:
+                    ents = parse_bids_filename(candidate)
+                except Exception:
+                    ents = {"sub": subject, "ses": session, "suffix": "dwi", "desc": "preproc"}
+
+                bval = io_manager._find_sidecar_for_image(candidate, ".bval", [output_dir])
+                bvec = io_manager._find_sidecar_for_image(candidate, ".bvec", [output_dir])
+                jsn = io_manager._find_sidecar_for_image(candidate, ".json", [output_dir])
+                preprocessed_dwis.append(
+                    DWIFile(img=candidate, bval=bval, bvec=bvec, json=jsn, entities=ents)
+                )
+
+                mask_path = io_manager._find_mask_for_image(candidate, [output_dir])
+                if mask_path:
+                    mask_ents = ents.copy()
+                    mask_ents["suffix"] = "mask"
+                    preprocessed_masks.append(ImageFile(img=mask_path, json=None, entities=mask_ents))
+                else:
+                    preprocessed_masks.append(None)
+
+        if not preprocessed_dwis:
+            return None
+
+        return {
+            "preprocessed_dwis": preprocessed_dwis,
+            "preprocessed_masks": preprocessed_masks,
+            "current_image": preprocessed_dwis[0]
+        }
 
 
 # Example usage
