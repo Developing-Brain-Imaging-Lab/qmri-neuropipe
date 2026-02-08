@@ -1405,6 +1405,58 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if reporter:
             reporter.add_anat_summary("Anatomical Execution Summary", step_metrics)
 
+    def _load_preprocessed_from_output(self, context: dict, final_output_dir: Optional[Path]) -> Optional[dict]:
+        """Load existing preprocessed anatomical outputs from the final output directory."""
+        if not final_output_dir:
+            return None
+
+        t1w_files = context.get("t1w_files", [])
+        t2w_files = context.get("t2w_files", [])
+
+        if not t1w_files:
+            return None
+
+        preprocessed_t1w = None
+        preprocessed_t2w = None
+        brain_mask = None
+
+        t1w = t1w_files[0]
+        t1_entities = dict(getattr(t1w, "entities", {}) or {})
+        t1_entities.setdefault("suffix", "T1w")
+        t1_entities["desc"] = "preproc"
+        t1_name = build_bids_name(t1_entities)
+        t1_path = final_output_dir / t1_name
+
+        if not t1_path.exists():
+            return None
+
+        preprocessed_t1w = ImageFile(entities=t1_entities, img=t1_path, json=None)
+
+        mask_entities = dict(t1_entities)
+        mask_entities["suffix"] = "mask"
+        mask_name = build_bids_name(mask_entities)
+        mask_path = final_output_dir / mask_name
+        if mask_path.exists():
+            brain_mask = ImageFile(entities=mask_entities, img=mask_path, json=None)
+
+        if t2w_files:
+            t2w = t2w_files[0]
+            t2_entities = dict(getattr(t2w, "entities", {}) or {})
+            t2_entities.setdefault("suffix", "T2w")
+            t2_entities["desc"] = "preproc"
+            t2_name = build_bids_name(t2_entities)
+            t2_path = final_output_dir / t2_name
+            if t2_path.exists():
+                preprocessed_t2w = ImageFile(entities=t2_entities, img=t2_path, json=None)
+            else:
+                return None
+
+        return {
+            "preprocessed_t1w": preprocessed_t1w,
+            "preprocessed_t2w": preprocessed_t2w,
+            "brain_mask": brain_mask
+        }
+
     def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
         """
         Execute the anatomical preprocessing workflow.
@@ -1414,6 +1466,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         output_dir.mkdir(parents=True, exist_ok=True)
         if final_output_dir:
             final_output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.config.get("skip_existing", True) and not self.config.get("force", False):
+            cached = self._load_preprocessed_from_output(context, final_output_dir)
+            if cached:
+                self.logger.info(
+                    f"⚡ FAST SKIP: Found preprocessed anatomical outputs in {final_output_dir}"
+                )
+                context = dict(context)
+                context.update({k: v for k, v in cached.items() if v is not None})
+                context["anat_preprocessing_skipped"] = True
+                return context
 
         figures_dir = output_dir / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
