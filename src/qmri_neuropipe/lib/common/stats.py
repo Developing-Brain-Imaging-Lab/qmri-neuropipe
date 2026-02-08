@@ -56,6 +56,10 @@ class ROIStatsStep(BaseProcessingStep):
         for lab in labels:
              mask = (seg == lab)
              vals = data[mask]
+             vals = vals[np.isfinite(vals)]
+             vals = vals[vals != 0]
+             if vals.size == 0:
+                 continue
              
              mean_val = np.mean(vals)
              std_val = np.std(vals)
