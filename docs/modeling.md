@@ -50,3 +50,20 @@ dmri:
       model_type: "smt"
 ```
 
+## Modeling-Level Gradient Nonlinearity Map
+
+When preprocessing outputs already exist (and are skipped), you can still
+force modeling to use a gradient nonlinearity tensor map by enabling the
+modeling-level GNL block. This will compute (or use) a tensor map and pass
+it to DIPY/FSL backends during model fitting.
+
+```yaml
+dmri:
+  modeling:
+    grad_nonlin:
+      enabled: true
+      coeff_file: /path/to/coeffs.dat
+      force: false
+      # Optional: use an existing map instead of computing it
+      # map_path: /path/to/gnl_tensor.nii.gz
+```

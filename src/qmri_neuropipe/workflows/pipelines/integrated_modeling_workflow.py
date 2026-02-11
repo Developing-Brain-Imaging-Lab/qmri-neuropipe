@@ -384,11 +384,79 @@ class ModelingWorkflow(BaseWorkflow):
     ):
         """Execute modeling steps with progress tracking."""
         import shutil
+        from pathlib import Path
         from ...utils.reporting import report_modeling_step
+        from qmri_neuropipe.io.bids import build_bids_name
+        from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
         
         for i, (dwi, mask) in enumerate(zip(dwis, masks)):
             img_name = dwi.img.name
             context['current_image'] = dwi
+            
+            # Optional modeling-level GNL map generation.
+            gnl_cfg = (self.config.get('dmri', {}).get('modeling') or {}).get('grad_nonlin', {})
+            if gnl_cfg.get('enabled', False):
+                gnl_map_path = gnl_cfg.get('map_path') or gnl_cfg.get('map_file')
+                force_gnl = gnl_cfg.get('force', False)
+
+                if gnl_map_path:
+                    gnl_map = Path(gnl_map_path)
+                    if gnl_map.exists():
+                        context['gnl_map'] = gnl_map
+                    else:
+                        self.logger.warning(
+                            f"Modeling GNL map configured but not found: {gnl_map}"
+                        )
+                        context.pop('gnl_map', None)
+                else:
+                    existing_gnl = context.get('gnl_map')
+                    if (existing_gnl and isinstance(existing_gnl, Path)
+                            and existing_gnl.exists() and not force_gnl):
+                        gnl_map = existing_gnl
+                    else:
+                        coeff_file = gnl_cfg.get('coeff_file')
+                        if not coeff_file:
+                            coeff_file = (
+                                self.config.get('dmri', {})
+                                .get('preprocessing', {})
+                                .get('grad_nonlin', {})
+                                .get('coeff_file')
+                            )
+                        if not coeff_file:
+                            self.logger.warning(
+                                "Modeling GNL enabled but no coeff_file provided."
+                            )
+                            context.pop('gnl_map', None)
+                            gnl_map = None
+                        else:
+                            coeffs = Path(coeff_file)
+                            out_dir = staging_dir / "grad_nonlin"
+                            out_dir.mkdir(parents=True, exist_ok=True)
+                            output_map = out_dir / build_bids_name(
+                                {**dwi.entities, "desc": "gnl_tensor"}
+                            )
+                            try:
+                                gnl_map = create_gnl_map(
+                                    input_image=dwi,
+                                    output_path=output_map,
+                                    grad_coeffs=coeffs,
+                                    native_reference=None,
+                                    nthreads=self.config.n_cpus,
+                                    force=force_gnl,
+                                    logger=self.logger
+                                )
+                                context['gnl_map'] = gnl_map
+                            except Exception as e:
+                                if self.config.stop_on_error:
+                                    raise
+                                self.logger.error(f"Modeling GNL map failed: {e}")
+                                context.pop('gnl_map', None)
+                                gnl_map = None
+
+                if context.get('gnl_map'):
+                    gnl_maps = context.setdefault('gnl_maps', [])
+                    if context['gnl_map'] not in gnl_maps:
+                        gnl_maps.append(context['gnl_map'])
             
             for step in self.steps:
                 step_name = step.__class__.__name__
