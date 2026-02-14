@@ -525,8 +525,12 @@ class StatsExtractionStep(BaseProcessingStep):
                       is_prob = False
                       prob_thresh = prob_thresh_global
                       
+                      include_zero_label = analysis_cfg.get('include_zero_label', False)
+                      background_label = analysis_cfg.get('background_label', 0)
                       if isinstance(atlas_cfg, dict):
                            is_prob = atlas_cfg.get('is_probabilistic', False)
+                           include_zero_label = atlas_cfg.get('include_zero_label', include_zero_label)
+                           background_label = atlas_cfg.get('background_label', background_label)
                            if 'threshold' in atlas_cfg:
                                 prob_thresh = atlas_cfg['threshold']
                            elif 'atlas_threshold' in atlas_cfg:
@@ -620,7 +624,16 @@ class StatsExtractionStep(BaseProcessingStep):
                       else:
                            # DETERMINISTIC / LABEL MAP
                            rois = np.unique(seg_data)
-                           rois = rois[rois > 0]
+                           if include_zero_label and background_label == 0:
+                                self.logger.warning(
+                                    f"Atlas {atlas_name} include_zero_label=True with background_label=0. "
+                                    "Label 0 will be included as an ROI."
+                                )
+                                background_label = None
+                           if background_label is not None:
+                                rois = rois[rois != background_label]
+                           if not include_zero_label:
+                                rois = rois[rois != 0]
                            
                            for roi_idx in rois:
                                 roi_mask = (seg_data == roi_idx)

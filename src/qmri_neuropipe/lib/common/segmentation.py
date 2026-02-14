@@ -32,6 +32,8 @@ class SegmentationStep(BaseProcessingStep):
         self.atlas_labels = Path(atlas_labels) if atlas_labels else None
         self.target_metrics = metrics or [] # List of suffixes or names to include
         self.atlas_threshold = atlas_threshold
+        self.include_zero_label = kwargs.get('include_zero_label')
+        self.background_label = kwargs.get('background_label')
         self.kwargs = kwargs
         
     def run(self, context: dict, output_dir: Path, **kwargs) -> dict:
@@ -130,6 +132,23 @@ class SegmentationStep(BaseProcessingStep):
             if threshold is None:
                 threshold = self.config.get('anat', {}).get('segmentation', {}).get('atlas_threshold')
             
+            include_zero_label = (
+                self.include_zero_label
+                if self.include_zero_label is not None
+                else self.config.get('dmri', {}).get('analysis', {}).get('include_zero_label', False)
+            )
+            background_label = (
+                self.background_label
+                if self.background_label is not None
+                else self.config.get('dmri', {}).get('analysis', {}).get('background_label', 0)
+            )
+            if include_zero_label and background_label == 0:
+                self.logger.warning(
+                    "include_zero_label is enabled with background_label=0. "
+                    "Label 0 will be included as an ROI."
+                )
+                background_label = None
+            
             # Use a light sample to characterize atlas values
             sample = atlas_raw[np.isfinite(atlas_raw)]
             if sample.size > 100000:
@@ -163,8 +182,14 @@ class SegmentationStep(BaseProcessingStep):
                 else:
                     # Multi-volume probabilities: Winner takes all above threshold
                     max_prob = np.max(atlas_raw, axis=-1)
-                    atlas_data = (np.argmax(atlas_raw, axis=-1) + 1).astype(int)
-                    atlas_data[max_prob < thr] = 0
+                    if include_zero_label:
+                        atlas_data = np.argmax(atlas_raw, axis=-1).astype(int)
+                    else:
+                        atlas_data = (np.argmax(atlas_raw, axis=-1) + 1).astype(int)
+                    bg_label = background_label if background_label is not None else 0
+                    if include_zero_label and bg_label == 0:
+                        bg_label = -1
+                    atlas_data[max_prob < thr] = bg_label
             else:
                 # 3D Atlas
                 thr = _normalize_threshold(threshold, sample_max)
@@ -202,7 +227,10 @@ class SegmentationStep(BaseProcessingStep):
         
         # Determine labels to process
         unique_labels = np.unique(atlas_data)
-        unique_labels = unique_labels[unique_labels > 0] # Exclude background
+        if background_label is not None:
+            unique_labels = unique_labels[unique_labels != background_label]
+        if not include_zero_label:
+            unique_labels = unique_labels[unique_labels != 0]
         
         if not roi_map:
             for l in unique_labels:

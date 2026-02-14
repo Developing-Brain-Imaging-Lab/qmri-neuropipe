@@ -63,6 +63,12 @@
       "noddi": {
         "enabled": false
       },
+      "nexi": {
+        "enabled": false,
+        "td_file": "/path/to/td.txt",
+        "lowb_noisemap": "/path/to/lowb_noisemap.nii.gz",
+        "metrics": ["t_ex", "di", "de", "f", "sigma"]
+      },
       "tractography": {
         "enabled": false,
         "algorithm": "iFOD2",

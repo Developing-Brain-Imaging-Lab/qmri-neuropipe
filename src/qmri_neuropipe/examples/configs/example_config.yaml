@@ -114,6 +114,18 @@ dmri:
     # NODDI (Neurite Orientation Dispersion and Density Imaging)
     noddi:
       enabled: false
+
+    # NEXI (Neurite Exchange Imaging)
+    nexi:
+      enabled: false
+      td_file: /path/to/td.txt
+      lowb_noisemap: /path/to/lowb_noisemap.nii.gz
+      metrics:
+        - t_ex
+        - di
+        - de
+        - f
+        - sigma
       
     # Tractography
     tractography:

@@ -75,6 +75,69 @@ def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, nthreads: Optional
     return out_file, mask_out
 
 
+def mri_synthmorph_register(
+    moving: ImageLike | Path,
+    target: ImageLike | Path,
+    transform_out: Path,
+    output_image: Optional[Path] = None,
+    extra_args: str = ""
+):
+    """
+    Run FreeSurfer mri_synthmorph register to estimate a transform.
+
+    Args:
+        moving: moving image
+        target: target/template image
+        transform_out: path to save transform (-t)
+        output_image: optional warped moving image (-o)
+        extra_args: additional CLI args to pass to mri_synthmorph register
+    """
+    mov_p = extract_image_path(moving)
+    targ_p = extract_image_path(target)
+    tx_p = Path(transform_out)
+    tx_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if tx_p.exists():
+        return tx_p
+
+    out_arg = f"-o {output_image}" if output_image else ""
+    extra = extra_args or ""
+    cmd = f"mri_synthmorph register -t {tx_p} {out_arg} {extra} {mov_p} {targ_p}".strip()
+    run_cmd(cmd, label="mri_synthmorph_register")
+    return tx_p
+
+
+def mri_synthmorph_apply(
+    moving: ImageLike | Path,
+    target: ImageLike | Path,
+    transform_in: Path,
+    out_file: Path,
+    extra_args: str = ""
+):
+    """
+    Run FreeSurfer mri_synthmorph apply to warp a moving image using a transform.
+
+    Args:
+        moving: moving image
+        target: target/template image
+        transform_in: transform to apply
+        out_file: output warped image
+        extra_args: additional CLI args to pass to mri_synthmorph apply
+    """
+    mov_p = extract_image_path(moving)
+    _ = extract_image_path(target)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        return out_p
+
+    extra = extra_args or ""
+    cmd = f"mri_synthmorph apply {transform_in} {mov_p} {out_p} {extra}".strip()
+    run_cmd(cmd, label="mri_synthmorph_apply")
+    return out_p
+
+
 def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1", fsl_mat_out: Path = None, subjects_dir: Path = None):
     """
     Run FreeSurfer bbregister.

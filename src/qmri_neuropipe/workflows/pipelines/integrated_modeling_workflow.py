@@ -14,6 +14,7 @@ from qmri_neuropipe.lib.dmri.fitting import (
     DKIFittingStep,
     NODDIFittingStep,
     SANDIFittingStep,
+    NEXIFittingStep,
     MAPMRIFittingStep,
     CSDFittingStep,
     FWDTIFittingStep
@@ -46,6 +47,7 @@ class ModelingWorkflow(BaseWorkflow):
         self._add_csd_step(modeling_cfg)
         self._add_noddi_step(modeling_cfg)
         self._add_sandi_step(modeling_cfg)
+        self._add_nexi_step(modeling_cfg)
         self._add_mapmri_step(modeling_cfg)
         self._add_fwdti_step(modeling_cfg)
         
@@ -177,6 +179,30 @@ class ModelingWorkflow(BaseWorkflow):
                 method=method,
                 n_cpus=self.config.n_cpus,
                 **sandi_cfg.get('parameters', {})
+            ))
+
+    def _add_nexi_step(self, modeling_cfg: dict):
+        """Add NEXI fitting step if enabled."""
+        nexi_cfg = modeling_cfg.get('nexi', {})
+        if nexi_cfg.get('enabled', False):
+            method = nexi_cfg.get('method', 'nexi')
+            self.logger.info(f"Adding NEXIFittingStep (method={method})")
+
+            nexi_kwargs = dict(nexi_cfg)
+            if 'parameters' in nexi_kwargs:
+                nexi_kwargs.update(nexi_kwargs.pop('parameters'))
+            if 'options' in nexi_kwargs:
+                nexi_kwargs.update(nexi_kwargs.pop('options'))
+            nexi_kwargs.pop('enabled', None)
+            nexi_kwargs.pop('method', None)
+
+            self.add_step(NEXIFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=method,
+                n_cpus=self.config.n_cpus,
+                **nexi_kwargs
             ))
 
     def _add_mapmri_step(self, modeling_cfg: dict):
@@ -393,70 +419,88 @@ class ModelingWorkflow(BaseWorkflow):
             img_name = dwi.img.name
             context['current_image'] = dwi
             
-            # Optional modeling-level GNL map generation.
-            gnl_cfg = (self.config.get('dmri', {}).get('modeling') or {}).get('grad_nonlin', {})
-            if gnl_cfg.get('enabled', False):
-                gnl_map_path = gnl_cfg.get('map_path') or gnl_cfg.get('map_file')
-                force_gnl = gnl_cfg.get('force', False)
+            # Optional GNL map usage (enabled in preprocessing or modeling config).
+            modeling_gnl_cfg = (self.config.get('dmri', {}).get('modeling') or {}).get('grad_nonlin', {})
+            preproc_gnl_cfg = (self.config.get('dmri', {}).get('preprocessing') or {}).get('grad_nonlin', {})
+            gnl_enabled = modeling_gnl_cfg.get('enabled', False) or preproc_gnl_cfg.get('enabled', False)
+            if gnl_enabled:
+                gnl_map_path = (
+                    modeling_gnl_cfg.get('map_path')
+                    or modeling_gnl_cfg.get('map_file')
+                    or preproc_gnl_cfg.get('map_path')
+                    or preproc_gnl_cfg.get('map_file')
+                )
+                force_gnl = modeling_gnl_cfg.get('force', False) or preproc_gnl_cfg.get('force', False)
 
+                gnl_map = None
                 if gnl_map_path:
-                    gnl_map = Path(gnl_map_path)
-                    if gnl_map.exists():
-                        context['gnl_map'] = gnl_map
+                    candidate = Path(gnl_map_path)
+                    if candidate.exists():
+                        gnl_map = candidate
                     else:
                         self.logger.warning(
-                            f"Modeling GNL map configured but not found: {gnl_map}"
+                            f"GNL map configured but not found: {candidate}"
                         )
-                        context.pop('gnl_map', None)
-                else:
+
+                if not gnl_map:
                     existing_gnl = context.get('gnl_map')
                     if (existing_gnl and isinstance(existing_gnl, Path)
                             and existing_gnl.exists() and not force_gnl):
                         gnl_map = existing_gnl
-                    else:
-                        coeff_file = gnl_cfg.get('coeff_file')
-                        if not coeff_file:
-                            coeff_file = (
-                                self.config.get('dmri', {})
-                                .get('preprocessing', {})
-                                .get('grad_nonlin', {})
-                                .get('coeff_file')
-                            )
-                        if not coeff_file:
-                            self.logger.warning(
-                                "Modeling GNL enabled but no coeff_file provided."
-                            )
-                            context.pop('gnl_map', None)
-                            gnl_map = None
-                        else:
-                            coeffs = Path(coeff_file)
-                            out_dir = staging_dir / "grad_nonlin"
-                            out_dir.mkdir(parents=True, exist_ok=True)
-                            output_map = out_dir / build_bids_name(
-                                {**dwi.entities, "desc": "gnl_tensor"}
-                            )
-                            try:
-                                gnl_map = create_gnl_map(
-                                    input_image=dwi,
-                                    output_path=output_map,
-                                    grad_coeffs=coeffs,
-                                    native_reference=None,
-                                    nthreads=self.config.n_cpus,
-                                    force=force_gnl,
-                                    logger=self.logger
-                                )
-                                context['gnl_map'] = gnl_map
-                            except Exception as e:
-                                if self.config.stop_on_error:
-                                    raise
-                                self.logger.error(f"Modeling GNL map failed: {e}")
-                                context.pop('gnl_map', None)
-                                gnl_map = None
 
-                if context.get('gnl_map'):
+                # Prefer preprocessed output location for caching and reuse.
+                ents = dwi.entities.copy()
+                sub = ents.get("sub") or context.get("subject", "unknown")
+                ses = ents.get("ses")
+                ents["sub"] = sub
+                if ses:
+                    ents["ses"] = ses
+                ents["desc"] = "gnl_tensor"
+
+                preproc_out_dir = self.config.output_dir / f"sub-{sub}"
+                if ses:
+                    preproc_out_dir /= f"ses-{ses}"
+                preproc_out_dir /= "dwi"
+                preproc_out_dir.mkdir(parents=True, exist_ok=True)
+
+                output_map = preproc_out_dir / build_bids_name(ents)
+
+                if not gnl_map and output_map.exists() and not force_gnl:
+                    gnl_map = output_map
+
+                if not gnl_map:
+                    coeff_file = modeling_gnl_cfg.get('coeff_file') or preproc_gnl_cfg.get('coeff_file')
+                    if not coeff_file:
+                        self.logger.warning(
+                            "GNL enabled but no coeff_file provided."
+                        )
+                        context.pop('gnl_map', None)
+                        gnl_map = None
+                    else:
+                        coeffs = Path(coeff_file)
+                        try:
+                            gnl_map = create_gnl_map(
+                                input_image=dwi,
+                                output_path=output_map,
+                                grad_coeffs=coeffs,
+                                native_reference=None,
+                                nthreads=self.config.n_cpus,
+                                force=force_gnl,
+                                logger=self.logger
+                            )
+                        except Exception as e:
+                            if self.config.stop_on_error:
+                                raise
+                            self.logger.error(f"GNL map generation failed: {e}")
+                            gnl_map = None
+
+                if gnl_map and gnl_map.exists():
+                    context['gnl_map'] = gnl_map
                     gnl_maps = context.setdefault('gnl_maps', [])
-                    if context['gnl_map'] not in gnl_maps:
-                        gnl_maps.append(context['gnl_map'])
+                    if gnl_map not in gnl_maps:
+                        gnl_maps.append(gnl_map)
+                else:
+                    context.pop('gnl_map', None)
             
             for step in self.steps:
                 step_name = step.__class__.__name__

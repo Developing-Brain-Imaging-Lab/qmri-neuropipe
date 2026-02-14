@@ -38,6 +38,8 @@ class SegmentationWorkflow(BaseWorkflow):
                 atlas_labels=cfg.get("atlas_labels"),
                 metrics=cfg.get("metrics"),
                 atlas_threshold=cfg.get("atlas_threshold"),
+                include_zero_label=cfg.get("include_zero_label"),
+                background_label=cfg.get("background_label"),
             )
             self.add_step(step)
 

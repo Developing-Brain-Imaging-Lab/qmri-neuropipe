@@ -23,6 +23,10 @@ Click on a model below for detailed configuration and usage instructions.
     *   Features: Standard NODDI, **SMT-NODDI**, External FISO Constraints.
     *   Backend: `dmipy`, `amico`.
 
+*   [**NEXI (Neurite Exchange Imaging)**](models/nexi.md)
+    *   Estimates neurite exchange time and compartment diffusivities.
+    *   Backend: `nexi`.
+
 *   [**MAP-MRI (Mean Apparent Propagator MRI)**](models/mapmri.md)
     *   Reconstructs the full Ensemble Average Propagator (EAP).
     *   Backend: `dipy`.
@@ -55,7 +59,9 @@ dmri:
 When preprocessing outputs already exist (and are skipped), you can still
 force modeling to use a gradient nonlinearity tensor map by enabling the
 modeling-level GNL block. This will compute (or use) a tensor map and pass
-it to DIPY/FSL backends during model fitting.
+it to DIPY/FSL backends during model fitting. When enabled (either in
+preprocessing or modeling), the pipeline prefers a cached GNL tensor in the
+preprocessed output directory and only recomputes if missing or forced.
 
 ```yaml
 dmri:

@@ -35,6 +35,14 @@ class NormalizationWorkflow(BaseWorkflow):
             tool=cfg.get("tool", "ants"),
             save_transforms=cfg.get("save_transforms", True),
             transform_type=cfg.get("transform_type", "SyN"),
+            include_all_metrics=cfg.get("include_all_metrics", True),
+            synthmorph_args=cfg.get("synthmorph_args", ""),
+            synthmorph_moving_flag=cfg.get("synthmorph_moving_flag", "--mov"),
+            synthmorph_target_flag=cfg.get("synthmorph_target_flag", "--targ"),
+            synthmorph_output_flag=cfg.get("synthmorph_output_flag", "--o"),
+            synthmorph_transform_ext=cfg.get("synthmorph_transform_ext", ".lta"),
+            synthmorph_register_args=cfg.get("synthmorph_register_args", ""),
+            synthmorph_apply_args=cfg.get("synthmorph_apply_args", ""),
         )
         self.add_step(step)
 

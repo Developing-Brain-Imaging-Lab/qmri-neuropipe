@@ -190,6 +190,52 @@ anat:
 | `options.cost` | str | `normmi` | FSL |
 | `options.transform_type` | str | `Rigid` | ANTs |
 
+## Normalization (dMRI)
+
+**Tools**
+- `ants`
+- `synthmorph` (FreeSurfer mri_synthmorph)
+
+**Config**
+```yaml
+dmri:
+  normalization:
+    enabled: true
+    template: /path/to/template.nii.gz
+    driving_metric: FA
+    space_name: MNI
+    tool: ants
+    transform_type: SyN
+    save_transforms: true
+    include_all_metrics: true
+    # For synthmorph only:
+    synthmorph_args: ""
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `enabled` | bool | false | Enable step |
+| `template` | path | required | Template image |
+| `driving_metric` | str | `FA` | Metric used for registration |
+| `space_name` | str | `Standard` | BIDS `space-` label |
+| `tool` | str | `ants` | `ants`, `synthmorph` |
+| `transform_type` | str | `SyN` | ANTs only |
+| `save_transforms` | bool | true | ANTs only |
+| `include_all_metrics` | bool | true | Normalize all model outputs found |
+| `synthmorph_transform_ext` | str | `.lta` | Output extension for `-t` transform |
+| `synthmorph_register_args` | str | none | Extra args for `mri_synthmorph register` |
+| `synthmorph_apply_args` | str | none | Extra args for `mri_synthmorph apply` |
+| `synthmorph_args` | str | none | Legacy passthrough (register/apply) |
+| `synthmorph_moving_flag` | str | `--mov` | Deprecated (not used in register/apply) |
+| `synthmorph_target_flag` | str | `--targ` | Deprecated (not used in register/apply) |
+| `synthmorph_output_flag` | str | `--o` | Deprecated (not used in register/apply) |
+
+**Notes**
+- If gradient nonlinearity correction is enabled in preprocessing or modeling, the pipeline
+  will reuse the cached GNL tensor from the preprocessed outputs and only recompute if missing
+  or forced.
+
 ## Distortion Correction
 
 **Tools**

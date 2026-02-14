@@ -693,6 +693,164 @@ class SANDIFittingStep(BaseProcessingStep):
         return context
 
 
+class NEXIFittingStep(BaseProcessingStep):
+    def __init__(self, config, logger, provenance, method='nexi', nthreads=1, **kwargs):
+        super().__init__(config, logger, provenance)
+        self.method = method
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+            self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+            self.nthreads = self.config.get('n_cpus', nthreads)
+        self.kwargs = kwargs
+
+    def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
+        from ...io.bids import build_bids_name, get_entities_from_path
+
+        dwi = context if not isinstance(context, dict) else context.get('current_image')
+        model_out = output_dir / "NEXI"
+        model_out.mkdir(parents=True, exist_ok=True)
+
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+
+        ents = dwi.entities.copy()
+        ents['model'] = 'NEXI'
+        if 'desc' in ents:
+            del ents['desc']
+        if 'suffix' in ents:
+            del ents['suffix']
+
+        requested_metrics = kwargs.get('metrics')
+        if not requested_metrics:
+            requested_metrics = self.kwargs.get('metrics')
+        if not requested_metrics:
+            if isinstance(self.config, dict):
+                requested_metrics = self.config.get('metrics', [])
+            elif hasattr(self.config, 'metrics'):
+                requested_metrics = getattr(self.config, 'metrics')
+
+        if not requested_metrics:
+            requested_metrics = ["t_ex", "di", "de", "f", "sigma"]
+
+        metric_key_map = {
+            "t_ex": "t_ex",
+            "tex": "t_ex",
+            "t-ex": "t_ex",
+            "di": "di",
+            "de": "de",
+            "f": "f",
+            "sigma": "sigma",
+        }
+
+        suffix_map = {
+            "t_ex": "TEX",
+            "di": "DI",
+            "de": "DE",
+            "f": "F",
+            "sigma": "SIGMA",
+        }
+
+        resolved_metrics = []
+        for metric in requested_metrics:
+            key = metric_key_map.get(str(metric).strip().lower())
+            if key:
+                resolved_metrics.append(key)
+
+        if not resolved_metrics:
+            resolved_metrics = ["t_ex", "di", "de", "f", "sigma"]
+
+        should_run = True
+        existing_results = {}
+        if not force:
+            missing = []
+            for key in resolved_metrics:
+                suffix = suffix_map[key]
+                fpath = model_out / build_bids_name(ents, suffix=suffix)
+                if fpath.exists():
+                    existing_results[suffix] = fpath
+                else:
+                    found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                    if found:
+                        existing_results[suffix] = found[0]
+                    else:
+                        missing.append(key)
+            if not missing:
+                should_run = False
+                self.logger.info(
+                    f"Skipping NEXI fit for {dwi.img.name} (Found all requested metrics)."
+                )
+
+        if not should_run:
+            context.setdefault('modeling_results', {})['NEXI'] = existing_results
+            return context
+
+        self.logger.info(f"Running NEXI fit ({self.method}) on {dwi.img.name}")
+
+        if mask and hasattr(mask, 'img'):
+            mask_path = mask.img
+        else:
+            mask_path = mask
+
+        if self.method != 'nexi':
+            raise ValueError(f"Unknown NEXI method: {self.method}")
+
+        step_kwargs = self.kwargs.copy()
+        td_file = step_kwargs.pop('td_file', None)
+        td_file = td_file or step_kwargs.pop('td_path', None)
+        lowb_noisemap_file = step_kwargs.pop('lowb_noisemap', None)
+        lowb_noisemap_file = lowb_noisemap_file or step_kwargs.pop('lowb_noisemap_file', None)
+        step_kwargs.pop('metrics', None)
+        if isinstance(self.config, dict):
+            td_file = td_file or self.config.get('td_file')
+            lowb_noisemap_file = lowb_noisemap_file or self.config.get('lowb_noisemap')
+        else:
+            td_file = td_file or getattr(self.config, 'td_file', None)
+            lowb_noisemap_file = lowb_noisemap_file or getattr(self.config, 'lowb_noisemap', None)
+
+        from ...interfaces.nexi import fit_nexi
+
+        outputs = fit_nexi(
+            dwi,
+            model_out,
+            td_file=td_file,
+            lowb_noisemap_file=lowb_noisemap_file,
+            mask_file=mask_path,
+            **step_kwargs,
+        )
+
+        ent_base = get_entities_from_path(dwi.img)
+        if 'desc' in ent_base:
+            del ent_base['desc']
+        ent_base['model'] = 'NEXI'
+
+        results = {}
+        for key, path in outputs.items():
+            key_lower = key.lower()
+            if key_lower not in suffix_map:
+                continue
+            suffix = suffix_map[key_lower]
+            new_name = build_bids_name({**ent_base, 'suffix': suffix})
+            new_path = model_out / new_name
+            if path.exists():
+                path.rename(new_path)
+                sidecar = {
+                    "ModelName": "NEXI_Rice_Mean",
+                    "FittingSoftware": "nexi",
+                    "InputData": dwi.img.name,
+                    "Metric": suffix,
+                    "DiffusionTimeFile": str(td_file) if td_file else None,
+                    "LowBNoiseMap": str(lowb_noisemap_file) if lowb_noisemap_file else None,
+                }
+                import json
+
+                with open(str(new_path).replace('.nii.gz', '.json'), 'w') as f:
+                    json.dump(sidecar, f, indent=4)
+                results[suffix] = new_path
+
+        context.setdefault('modeling_results', {})['NEXI'] = results
+        return context
+
+
 class MAPMRIFittingStep(BaseProcessingStep):
     def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)

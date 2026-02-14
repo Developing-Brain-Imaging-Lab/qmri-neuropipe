@@ -29,6 +29,9 @@ dependencies = [
 amico = [
     "amico"
 ]
+nexi = [
+    "nexi"
+]
 nifreeze = [
     "nifreeze"
 ]
@@ -45,6 +48,7 @@ reporting = [
 ]
 all = [
     "amico",
+    "nexi",
     "nifreeze",
     "openpyxl",
     "plotly",
