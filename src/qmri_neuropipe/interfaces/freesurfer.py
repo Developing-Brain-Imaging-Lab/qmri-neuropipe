@@ -80,6 +80,7 @@ def mri_synthmorph_register(
     target: ImageLike | Path,
     transform_out: Path,
     output_image: Optional[Path] = None,
+    model: Optional[str] = None,
     extra_args: str = ""
 ):
     """
@@ -90,6 +91,7 @@ def mri_synthmorph_register(
         target: target/template image
         transform_out: path to save transform (-t)
         output_image: optional warped moving image (-o)
+        model: synthmorph model to use (e.g. joint, deform, affine, rigid)
         extra_args: additional CLI args to pass to mri_synthmorph register
     """
     mov_p = extract_image_path(moving)
@@ -101,8 +103,9 @@ def mri_synthmorph_register(
         return tx_p
 
     out_arg = f"-o {output_image}" if output_image else ""
+    model_arg = f"-m {model}" if model else ""
     extra = extra_args or ""
-    cmd = f"mri_synthmorph register -t {tx_p} {out_arg} {extra} {mov_p} {targ_p}".strip()
+    cmd = f"mri_synthmorph register -t {tx_p} {model_arg} {out_arg} {extra} {mov_p} {targ_p}".strip()
     run_cmd(cmd, label="mri_synthmorph_register")
     return tx_p
 

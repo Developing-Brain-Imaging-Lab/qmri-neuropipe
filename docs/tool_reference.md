@@ -209,6 +209,7 @@ dmri:
     save_transforms: true
     include_all_metrics: true
     # For synthmorph only:
+    synthmorph_model: deform
     synthmorph_args: ""
 ```
 
@@ -224,6 +225,7 @@ dmri:
 | `save_transforms` | bool | true | ANTs only |
 | `include_all_metrics` | bool | true | Normalize all model outputs found |
 | `synthmorph_transform_ext` | str | `.lta` | Output extension for `-t` transform |
+| `synthmorph_model` | str | none | Model passed to `mri_synthmorph register -m` (e.g., `joint`, `deform`, `affine`, `rigid`) |
 | `synthmorph_register_args` | str | none | Extra args for `mri_synthmorph register` |
 | `synthmorph_apply_args` | str | none | Extra args for `mri_synthmorph apply` |
 | `synthmorph_args` | str | none | Legacy passthrough (register/apply) |

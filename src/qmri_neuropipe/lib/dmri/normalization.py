@@ -318,7 +318,8 @@ class NormalizationStep(BaseProcessingStep):
                      target=self.template,
                      transform_out=synthmorph_tx,
                      output_image=None,
-                     extra_args=self.kwargs.get('synthmorph_register_args', '')
+                     model=self.kwargs.get('synthmorph_model', None),
+                    extra_args=self.kwargs.get('synthmorph_register_args', '')
                  )
              except Exception as e:
                  self.logger.warning(f"SynthMorph register failed: {e}")
