@@ -36,7 +36,10 @@ class NormalizationStep(BaseProcessingStep):
         self.template = Path(template) if template else None
         self.driving_metric = driving_metric
         self.space_name = space_name or "Standard"
-        self.tool = tool.lower()
+        tool_normalized = tool.lower()
+        if tool_normalized == 'mri_synthmorph':
+            tool_normalized = 'synthmorph'
+        self.tool = tool_normalized
         self.save_transforms = kwargs.get('save_transforms', True)
         self.include_all_metrics = kwargs.get('include_all_metrics', True)
         self.kwargs = kwargs
@@ -204,7 +207,7 @@ class NormalizationStep(BaseProcessingStep):
              tx_path = norm_out / build_bids_name(d_ents, extension=ext)
              if not tx_path.exists():
                  all_exist = False
-        elif self.save_transforms and self.tool != 'ants':
+        elif self.save_transforms and self.tool not in ['ants', 'synthmorph']:
              self.logger.warning(f"Save transforms not supported for tool '{self.tool}'.")
                  
         if skip and all_exist:
