@@ -251,65 +251,65 @@ class NormalizationStep(BaseProcessingStep):
         synthmorph_tx = None
         
         if self.tool == 'ants':
-               try:
-                 import ants
-                 mov_raw = ants.image_read(str(ref_path))
-                 mov, _ = self._ensure_3d(mov_raw, is_driving=True)
-                 
-                 fix = ants.image_read(str(self.template))
-                 # Fix should also be 3D
-                 if fix.dimension == 4:
-                     fix = ants.slice_image(fix, axis=3, idx=0)
+            try:
+                import ants
+                mov_raw = ants.image_read(str(ref_path))
+                mov, _ = self._ensure_3d(mov_raw, is_driving=True)
+                
+                fix = ants.image_read(str(self.template))
+                # Fix should also be 3D
+                if fix.dimension == 4:
+                    fix = ants.slice_image(fix, axis=3, idx=0)
 
-                 # Registration
-                 # Use SyN usually? 
-                 # type_of_transform: 'SyN', 'SyNRA', 'Rigid', 'Affine'
-                 tf_type = self.kwargs.get('transform_type', 'SyN')
-                 
-                 # Check for existing transform?
-                 # ...
-                 
-                 # ...
-                 
-                 reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type)
-                 tx_forward = reg['fwdtransforms']
-                 
-                 # Save transforms if requested
-                 if self.save_transforms:
-                     # Copy transform files to output dir with BIDS names
-                     import shutil
-                     from ...io.bids import build_bids_name, get_entities_from_path
-                     
-                     d_ents = get_entities_from_path(ref_path)
-                     # Clean ents for transform
-                     for k in ['acq', 'dir', 'run', 'echo', 'part', 'model']: 
-                         if k in d_ents: del d_ents[k]
-                     
-                     d_ents['space'] = self.space_name
-                     d_ents['suffix'] = 'xfm'
-                     
-                     # ANTs returns [Warp, Affine] usually for SyN
-                     # Check what tx_forward contains. usually paths to tmp files.
-                     # 0GenericAffine.mat, 1Warp.nii.gz
-                     
-                     for tf_file in tx_forward:
-                         tf_path = Path(tf_file)
-                         if tf_path.suffix == '.mat':
-                             d_ents['desc'] = 'affine'
-                             # Explicitly pass extension as the function kwarg overrides it or defaults to .nii.gz
-                             out_name = build_bids_name(d_ents, extension='.mat')
-                             shutil.copy(tf_path, norm_out / out_name)
-                         elif 'Warp' in tf_path.name and tf_path.suffix == '.gz': 
-                             d_ents['desc'] = 'warp'
-                             out_name = build_bids_name(d_ents, extension='.nii.gz')
-                             shutil.copy(tf_path, norm_out / out_name)
-                 
-                 # Save warped driving metric
-                 # reg['warpedmovout']
-                 
-             except ImportError:
-                 self.logger.error("ANTsPy not installed.")
-                 return context
+                # Registration
+                # Use SyN usually? 
+                # type_of_transform: 'SyN', 'SyNRA', 'Rigid', 'Affine'
+                tf_type = self.kwargs.get('transform_type', 'SyN')
+                
+                # Check for existing transform?
+                # ...
+                
+                # ...
+                
+                reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type)
+                tx_forward = reg['fwdtransforms']
+                
+                # Save transforms if requested
+                if self.save_transforms:
+                    # Copy transform files to output dir with BIDS names
+                    import shutil
+                    from ...io.bids import build_bids_name, get_entities_from_path
+                    
+                    d_ents = get_entities_from_path(ref_path)
+                    # Clean ents for transform
+                    for k in ['acq', 'dir', 'run', 'echo', 'part', 'model']: 
+                        if k in d_ents: del d_ents[k]
+                    
+                    d_ents['space'] = self.space_name
+                    d_ents['suffix'] = 'xfm'
+                    
+                    # ANTs returns [Warp, Affine] usually for SyN
+                    # Check what tx_forward contains. usually paths to tmp files.
+                    # 0GenericAffine.mat, 1Warp.nii.gz
+                    
+                    for tf_file in tx_forward:
+                        tf_path = Path(tf_file)
+                        if tf_path.suffix == '.mat':
+                            d_ents['desc'] = 'affine'
+                            # Explicitly pass extension as the function kwarg overrides it or defaults to .nii.gz
+                            out_name = build_bids_name(d_ents, extension='.mat')
+                            shutil.copy(tf_path, norm_out / out_name)
+                        elif 'Warp' in tf_path.name and tf_path.suffix == '.gz': 
+                            d_ents['desc'] = 'warp'
+                            out_name = build_bids_name(d_ents, extension='.nii.gz')
+                            shutil.copy(tf_path, norm_out / out_name)
+                
+                # Save warped driving metric
+                # reg['warpedmovout']
+                
+            except ImportError:
+                self.logger.error("ANTsPy not installed.")
+                return context
         elif self.tool == 'synthmorph':
             from ...interfaces.freesurfer import mri_synthmorph_apply, mri_synthmorph_register
             d_ents = get_entities_from_path(ref_path)
