@@ -306,6 +306,22 @@ class NormalizationStep(BaseProcessingStep):
                 
                 # Save warped driving metric
                 # reg['warpedmovout']
+                from ...io.bids import build_bids_name, get_entities_from_path
+                driving_ents = get_entities_from_path(ref_path)
+                driving_ents['space'] = self.space_name
+                if not driving_ents.get('model'):
+                    driving_ents['model'] = 'Unknown'
+                driving_out = norm_out / build_bids_name(driving_ents)
+                try:
+                    warped_driving = ants.apply_transforms(
+                        fixed=fix,
+                        moving=mov,
+                        transformlist=tx_forward,
+                        imagetype=0
+                    )
+                    ants.image_write(warped_driving, str(driving_out))
+                except Exception as e:
+                    self.logger.warning(f"Failed to normalize driving metric: {e}")
                 
             except ImportError:
                 self.logger.error("ANTsPy not installed.")
@@ -340,6 +356,9 @@ class NormalizationStep(BaseProcessingStep):
             driving_ents['space'] = self.space_name
             if not driving_ents.get('model'):
                 driving_ents['model'] = 'Unknown'
+            if not driving_ents.get('suffix'):
+                driving_name_part = Path(ref_path).name.replace(".nii.gz", "")
+                driving_ents['suffix'] = driving_name_part.split("_")[-1]
             driving_out = norm_out / build_bids_name(driving_ents)
             try:
                 mri_synthmorph_apply(
