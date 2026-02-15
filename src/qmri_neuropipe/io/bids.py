@@ -127,7 +127,7 @@ def parse_bids_filename(path):
     
     entities = {k: None for k in [
         "sub", "ses", "task", "acq", "ce", "rec", "dir", "run",
-        "echo", "flip", "inv", "mt", "chunk"
+        "space", "model", "desc", "echo", "flip", "inv", "mt", "chunk"
     ]}
     
     matches = BIDS_ENTITY_REGEX.findall(name)
