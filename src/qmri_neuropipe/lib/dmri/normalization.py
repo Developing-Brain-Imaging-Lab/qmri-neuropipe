@@ -251,7 +251,7 @@ class NormalizationStep(BaseProcessingStep):
         synthmorph_tx = None
         
         if self.tool == 'ants':
-             try:
+               try:
                  import ants
                  mov_raw = ants.image_read(str(ref_path))
                  mov, _ = self._ensure_3d(mov_raw, is_driving=True)
@@ -311,32 +311,31 @@ class NormalizationStep(BaseProcessingStep):
                  self.logger.error("ANTsPy not installed.")
                  return context
         elif self.tool == 'synthmorph':
-             from ...interfaces.freesurfer import mri_synthmorph_register
-             d_ents = get_entities_from_path(ref_path)
-             for k in ['acq', 'dir', 'run', 'echo', 'part']:
-                 if k in d_ents:
-                     del d_ents[k]
-             d_ents['space'] = self.space_name
-             d_ents['suffix'] = 'xfm'
-             d_ents['desc'] = 'synthmorph'
-             ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
-             synthmorph_tx = norm_out / build_bids_name(d_ents, extension=ext)
+            from ...interfaces.freesurfer import mri_synthmorph_apply, mri_synthmorph_register
+            d_ents = get_entities_from_path(ref_path)
+            for k in ['acq', 'dir', 'run', 'echo', 'part']:
+                if k in d_ents:
+                    del d_ents[k]
+            d_ents['space'] = self.space_name
+            d_ents['suffix'] = 'xfm'
+            d_ents['desc'] = 'synthmorph'
+            ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
+            synthmorph_tx = norm_out / build_bids_name(d_ents, extension=ext)
 
-             try:
-                 mri_synthmorph_register(
-                     moving=ref_path,
-                     target=self.template,
-                     transform_out=synthmorph_tx,
-                     output_image=None,
-                     model=self.kwargs.get('synthmorph_model', None),
+            try:
+                mri_synthmorph_register(
+                    moving=ref_path,
+                    target=self.template,
+                    transform_out=synthmorph_tx,
+                    output_image=None,
+                    model=self.kwargs.get('synthmorph_model', None),
                     extra_args=self.kwargs.get('synthmorph_register_args', '')
-                 )
-             except Exception as e:
-                 self.logger.warning(f"SynthMorph register failed: {e}")
-                 return context
+                )
+            except Exception as e:
+                self.logger.warning(f"SynthMorph register failed: {e}")
+                return context
 
             # Ensure the driving metric itself gets warped to template.
-            from ...interfaces.freesurfer import mri_synthmorph_apply
             driving_ents = get_entities_from_path(ref_path)
             driving_ents['space'] = self.space_name
             if not driving_ents.get('model'):
@@ -353,8 +352,8 @@ class NormalizationStep(BaseProcessingStep):
             except Exception as e:
                 self.logger.warning(f"Failed to normalize driving metric: {e}")
         else:
-             self.logger.warning(f"Normalization tool '{self.tool}' not implemented.")
-             return context
+            self.logger.warning(f"Normalization tool '{self.tool}' not implemented.")
+            return context
              
         # 3. Apply to all metrics
         from ...io.bids import build_bids_name, get_entities_from_path
