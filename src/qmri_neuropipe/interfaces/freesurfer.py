@@ -115,7 +115,8 @@ def mri_synthmorph_apply(
     target: ImageLike | Path,
     transform_in: Path,
     out_file: Path,
-    extra_args: str = ""
+    extra_args: str = "",
+    overwrite: bool = False
 ):
     """
     Run FreeSurfer mri_synthmorph apply to warp a moving image using a transform.
@@ -126,6 +127,7 @@ def mri_synthmorph_apply(
         transform_in: transform to apply
         out_file: output warped image
         extra_args: additional CLI args to pass to mri_synthmorph apply
+        overwrite: replace out_file if it already exists
     """
     mov_p = extract_image_path(moving)
     _ = extract_image_path(target)
@@ -133,7 +135,9 @@ def mri_synthmorph_apply(
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
     if out_p.exists():
-        return out_p
+        if not overwrite:
+            return out_p
+        out_p.unlink()
 
     extra = extra_args or ""
     cmd = f"mri_synthmorph apply {transform_in} {mov_p} {out_p} {extra}".strip()

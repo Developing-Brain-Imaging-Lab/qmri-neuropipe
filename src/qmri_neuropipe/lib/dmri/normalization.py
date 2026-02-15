@@ -361,14 +361,13 @@ class NormalizationStep(BaseProcessingStep):
                 driving_ents['suffix'] = driving_name_part.split("_")[-1]
             driving_out = norm_out / build_bids_name(driving_ents)
             try:
-                if driving_out.exists() and not skip:
-                    driving_out.unlink()
                 mri_synthmorph_apply(
                     moving=ref_path,
                     target=self.template,
                     transform_in=synthmorph_tx,
                     out_file=driving_out,
-                    extra_args=self.kwargs.get('synthmorph_apply_args', '')
+                    extra_args=self.kwargs.get('synthmorph_apply_args', ''),
+                    overwrite=not skip
                 )
             except Exception as e:
                 self.logger.warning(f"Failed to normalize driving metric: {e}")
@@ -419,7 +418,8 @@ class NormalizationStep(BaseProcessingStep):
                               target=self.template,
                               transform_in=synthmorph_tx,
                               out_file=out_path,
-                              extra_args=self.kwargs.get('synthmorph_apply_args', '')
+                              extra_args=self.kwargs.get('synthmorph_apply_args', ''),
+                              overwrite=not skip
                           )
                       except Exception as e:
                           self.logger.warning(f"Failed to normalize {name}: {e}")
