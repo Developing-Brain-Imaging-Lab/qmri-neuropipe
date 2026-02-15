@@ -334,6 +334,24 @@ class NormalizationStep(BaseProcessingStep):
              except Exception as e:
                  self.logger.warning(f"SynthMorph register failed: {e}")
                  return context
+
+            # Ensure the driving metric itself gets warped to template.
+            from ...interfaces.freesurfer import mri_synthmorph_apply
+            driving_ents = get_entities_from_path(ref_path)
+            driving_ents['space'] = self.space_name
+            if not driving_ents.get('model'):
+                driving_ents['model'] = 'Unknown'
+            driving_out = norm_out / build_bids_name(driving_ents)
+            try:
+                mri_synthmorph_apply(
+                    moving=ref_path,
+                    target=self.template,
+                    transform_in=synthmorph_tx,
+                    out_file=driving_out,
+                    extra_args=self.kwargs.get('synthmorph_apply_args', '')
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to normalize driving metric: {e}")
         else:
              self.logger.warning(f"Normalization tool '{self.tool}' not implemented.")
              return context
