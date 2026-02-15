@@ -81,7 +81,8 @@ def mri_synthmorph_register(
     transform_out: Path,
     output_image: Optional[Path] = None,
     model: Optional[str] = None,
-    extra_args: str = ""
+    extra_args: str = "",
+    overwrite: bool = False
 ):
     """
     Run FreeSurfer mri_synthmorph register to estimate a transform.
@@ -90,9 +91,10 @@ def mri_synthmorph_register(
         moving: moving image
         target: target/template image
         transform_out: path to save transform (-t)
-        output_image: optional warped moving image (-o)
+        output_image: optional warped moving image (-O)
         model: synthmorph model to use (e.g. joint, deform, affine, rigid)
         extra_args: additional CLI args to pass to mri_synthmorph register
+        overwrite: replace outputs if they already exist
     """
     mov_p = extract_image_path(moving)
     targ_p = extract_image_path(target)
@@ -100,9 +102,11 @@ def mri_synthmorph_register(
     tx_p.parent.mkdir(parents=True, exist_ok=True)
 
     if tx_p.exists():
-        return tx_p
+        if not overwrite:
+            if output_image is None or Path(output_image).exists():
+                return tx_p
 
-    out_arg = f"-o {output_image}" if output_image else ""
+    out_arg = f"-O {output_image}" if output_image else ""
     model_arg = f"-m {model}" if model else ""
     extra = extra_args or ""
     cmd = f"mri_synthmorph register -t {tx_p} {model_arg} {out_arg} {extra} {mov_p} {targ_p}".strip()

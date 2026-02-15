@@ -338,20 +338,7 @@ class NormalizationStep(BaseProcessingStep):
             ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
             synthmorph_tx = norm_out / build_bids_name(d_ents, extension=ext)
 
-            try:
-                mri_synthmorph_register(
-                    moving=ref_path,
-                    target=self.template,
-                    transform_out=synthmorph_tx,
-                    output_image=None,
-                    model=self.kwargs.get('synthmorph_model', None),
-                    extra_args=self.kwargs.get('synthmorph_register_args', '')
-                )
-            except Exception as e:
-                self.logger.warning(f"SynthMorph register failed: {e}")
-                return context
-
-            # Ensure the driving metric itself gets warped to template.
+            # Compute driving metric output path so register can write it directly.
             driving_ents = get_entities_from_path(ref_path)
             driving_ents['space'] = self.space_name
             if not driving_ents.get('model'):
@@ -360,17 +347,34 @@ class NormalizationStep(BaseProcessingStep):
                 driving_name_part = Path(ref_path).name.replace(".nii.gz", "")
                 driving_ents['suffix'] = driving_name_part.split("_")[-1]
             driving_out = norm_out / build_bids_name(driving_ents)
+
             try:
-                mri_synthmorph_apply(
+                mri_synthmorph_register(
                     moving=ref_path,
                     target=self.template,
-                    transform_in=synthmorph_tx,
-                    out_file=driving_out,
-                    extra_args=self.kwargs.get('synthmorph_apply_args', ''),
+                    transform_out=synthmorph_tx,
+                    output_image=driving_out,
+                    model=self.kwargs.get('synthmorph_model', None),
+                    extra_args=self.kwargs.get('synthmorph_register_args', ''),
                     overwrite=not skip
                 )
             except Exception as e:
-                self.logger.warning(f"Failed to normalize driving metric: {e}")
+                self.logger.warning(f"SynthMorph register failed: {e}")
+                return context
+
+            # Fallback: if register didn't produce the warped driving image, apply the transform.
+            if not driving_out.exists():
+                try:
+                    mri_synthmorph_apply(
+                        moving=ref_path,
+                        target=self.template,
+                        transform_in=synthmorph_tx,
+                        out_file=driving_out,
+                        extra_args=self.kwargs.get('synthmorph_apply_args', ''),
+                        overwrite=not skip
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Failed to normalize driving metric: {e}")
         else:
             self.logger.warning(f"Normalization tool '{self.tool}' not implemented.")
             return context
