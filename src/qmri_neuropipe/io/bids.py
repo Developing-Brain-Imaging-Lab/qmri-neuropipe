@@ -147,8 +147,12 @@ def parse_bids_filename(path):
     
     return entities
 
-extract_bids_entities = parse_bids_filename
-get_entities_from_path = parse_bids_filename
+def extract_bids_entities(path):
+    return parse_bids_filename(path).copy()
+
+
+def get_entities_from_path(path):
+    return parse_bids_filename(path).copy()
 
 def bids_find(root, suffix=None, extension=None):
     """
