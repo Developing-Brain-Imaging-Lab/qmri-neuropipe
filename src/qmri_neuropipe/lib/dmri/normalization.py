@@ -145,6 +145,16 @@ class NormalizationStep(BaseProcessingStep):
              self.logger.warning(f"Normalization skipped: Driving metric '{self.driving_metric}' not found in results.")
              return context
 
+        # Ensure driving metric is included for warping even if it wasn't
+        # listed in modeling_results (e.g., custom metrics lists).
+        ref_ents = get_entities_from_path(ref_path)
+        ref_model = ref_ents.get('model') or 'Unknown'
+        ref_metric = ref_ents.get('suffix')
+        if not ref_metric:
+             ref_name_part = Path(ref_path).name.replace(".nii.gz", "")
+             ref_metric = ref_name_part.split("_")[-1]
+        _add_metric(ref_model, ref_metric, Path(ref_path))
+
         # Output dir
         norm_out = output_dir.parent / "normalization" / f"space-{self.space_name}"
         if output_dir.name == 'modeling': # heuristic fix if nested
