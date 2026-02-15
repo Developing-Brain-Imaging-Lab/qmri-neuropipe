@@ -361,6 +361,8 @@ class NormalizationStep(BaseProcessingStep):
                 driving_ents['suffix'] = driving_name_part.split("_")[-1]
             driving_out = norm_out / build_bids_name(driving_ents)
             try:
+                if driving_out.exists() and not skip:
+                    driving_out.unlink()
                 mri_synthmorph_apply(
                     moving=ref_path,
                     target=self.template,
