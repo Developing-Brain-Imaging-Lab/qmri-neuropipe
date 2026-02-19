@@ -343,22 +343,25 @@ class EddyCorrectionStep(BaseProcessingStep):
              except Exception as e:
                  self.logger.warning(f"Int16 conversion failed: {e}. Using original float input.")
 
+        # Resolve GPU settings once — shared by 'eddy' and 'two-pass'
+        cuda_enabled = self.config.use_gpu
+        cuda_device = 0
+        if self.config.gpu_ids is not None:
+            cuda_enabled = True
+            gpus = self.config.gpu_ids
+            if isinstance(gpus, int):
+                gpus = [gpus]
+            cuda_device = gpus[0]
+
+        # Subset of kwargs that fsl.eddy accepts as dedicated params
+        _EDDY_PASSTHROUGH = ('force', 'json_file', 'external_field')
+
         try:
             if self.method == 'eddy-correct':
-                ecc = fsl.eddy_correct(in_file=input_img, 
+                ecc = fsl.eddy_correct(in_file=input_img,
                                        out_file=output_img
                                        )
             elif self.method == 'eddy':
-                # Determine GPU settings
-                cuda_enabled = self.config.use_gpu
-                cuda_device = 0
-                if self.config.gpu_ids is not None:
-                     cuda_enabled = True
-                     gpus = self.config.gpu_ids
-                     if isinstance(gpus, int):
-                         gpus = [gpus]
-                     cuda_device = gpus[0]
-                
                 ecc = fsl.eddy(
                     in_file=current_input_img,
                     out_file=output_img,
@@ -373,7 +376,31 @@ class EddyCorrectionStep(BaseProcessingStep):
                     **kwargs,
                 )
             elif self.method == 'two-pass':
-                raise NotImplementedError("Two-pass eddy correction is not yet implemented.")
+                # --- Pass 1: FSL eddy (model-based, GPU-aware) ---
+                pass1_out = output_dir / build_bids_name(
+                    {**input_img.entities, "desc": "eddypass1"}
+                )
+                self.logger.info("Two-pass eddy: running Pass 1 (fsl.eddy)...")
+                pass1_result = fsl.eddy(
+                    in_file=current_input_img,
+                    out_file=pass1_out,
+                    mask=mask,
+                    topup_base=topup_base,
+                    acqp=acqp,
+                    index=index,
+                    extra_opts=dict(extra_opts),   # copy — eddy mutates the dict in-place
+                    nthreads=nthreads,
+                    cuda=cuda_enabled,
+                    cuda_device=cuda_device,
+                    **{k: v for k, v in kwargs.items() if k in _EDDY_PASSTHROUGH},
+                )
+
+                # --- Pass 2: FSL eddy_correct (affine refinement) ---
+                self.logger.info("Two-pass eddy: running Pass 2 (fsl.eddy_correct)...")
+                ecc = fsl.eddy_correct(
+                    in_file=pass1_result,
+                    out_file=output_img,
+                )
 
             else:
                 raise ValueError(f"Unknown eddy current correction method: {self.method}")
