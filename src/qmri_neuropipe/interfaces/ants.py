@@ -10,6 +10,7 @@ def n4bias(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, shrink:
     
     os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
     import ants
+    import numpy as np
 
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -18,19 +19,56 @@ def n4bias(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, shrink:
     mask_p = extract_image_path(mask) if mask else None
     
     image  = ants.image_read( str(in_p) )
-    n4_img = ants.n4_bias_field_correction(image, 
-                                           shrink_factor=shrink, 
-                                           convergence={'iters': iters, 'tol':1e-7}, 
-                                           mask=ants.image_read( str(mask_p) ) if mask_p else None)
+    
+    if image.dimension == 4:
+        # For 4D images (like DWI), estimate bias field on a reference volume (usually first)
+        b0_np = image.numpy()[..., 0]
+        # Create 3D ANTsImage for N4
+        b0 = ants.from_numpy(b0_np, origin=image.origin[:3], spacing=image.spacing[:3], direction=image.direction[:3,:3])
+        
+        # Prepare 3D mask
+        ants_mask = None
+        if mask_p:
+            ants_mask = ants.image_read(str(mask_p))
+            if ants_mask.dimension == 4:
+                ants_mask = ants.from_numpy(ants_mask.numpy()[...,0], origin=ants_mask.origin[:3], spacing=ants_mask.spacing[:3], direction=ants_mask.direction[:3,:3])
+        
+        # Estimate bias field (3D)
+        b_field = ants.n4_bias_field_correction(
+            b0, shrink_factor=shrink, 
+            convergence={'iters': iters, 'tol':1e-7}, 
+            mask=ants_mask, 
+            return_bias_field=True
+        )
+        
+        # Apply to entire 4D series
+        img_np = image.numpy()
+        bf_np = b_field.numpy()
+        # Avoid division by zero
+        bf_np[bf_np == 0] = 1.0
+        
+        corrected_np = img_np / bf_np[..., np.newaxis]
+        n4_img = ants.from_numpy(corrected_np, origin=image.origin, spacing=image.spacing, direction=image.direction)
+        
+        if bf_p:
+            ants.image_write(b_field, str(bf_p))
+            
+    else:
+        # Standard 2D/3D case
+        ants_mask = ants.image_read(str(mask_p)) if mask_p else None
+        n4_img = ants.n4_bias_field_correction(image, 
+                                               shrink_factor=shrink, 
+                                               convergence={'iters': iters, 'tol':1e-7}, 
+                                               mask=ants_mask)
+        if bf_p:
+            b_field = ants.n4_bias_field_correction(image, 
+                                                    shrink_factor=shrink, 
+                                                    convergence={'iters': iters, 'tol':1e-7}, 
+                                                    mask=ants_mask,
+                                                    return_bias_field=True)
+            ants.image_write(b_field, str(bf_p))
     
     ants.image_write( n4_img, str(out_p) )
-    if bias_field:
-        n4_img = ants.n4_bias_field_correction(image, 
-                                                shrink_factor=shrink, 
-                                                convergence={'iters': iters, 'tol':1e-7}, 
-                                                mask=ants.image_read( str(mask_p) ) if mask_p else None,
-                                                return_bias_field=True)
-        ants.image_write( n4_img, str(bf_p) )
     
     return str(out_p), (str(bf_p) if bf_p else None)
 
