@@ -22,12 +22,16 @@ def hd_bet(
         disable_tta: If True, disables test time augmentation (faster).
         verbose: If True, enables verbose output.
     """
+    import shlex
     in_p = extract_image_path(in_file)
     out_p = Path(out_file)
     out_p.parent.mkdir(parents=True, exist_ok=True)
     
-    # hd-bet -i <input> -o <output> [-device DEVICE] [--disable_tta] [--verbose]
-    cmd = ["hd-bet", f"-i {in_p}", f"-o {out_p}", f"-device {device}"]
+    # Correct command construction: arguments should be separate
+    cmd = ["hd-bet", "-i", str(in_p), "-o", str(out_p)]
+    
+    if device:
+        cmd.extend(["-device", str(device)])
     
     if disable_tta:
         cmd.append("--disable_tta")
@@ -35,6 +39,6 @@ def hd_bet(
     if verbose:
         cmd.append("--verbose")
     
-    run_cmd(" ".join(cmd), label="hd-bet")
+    run_cmd(shlex.join(cmd), label="hd-bet")
     return out_p
 

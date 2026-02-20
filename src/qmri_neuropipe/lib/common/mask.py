@@ -323,10 +323,13 @@ class BrainMaskingStep(BaseProcessingStep):
                  use_gpu = self.use_gpu if self.use_gpu is not None else getattr(self.config, 'use_gpu', False)
                  gpu_ids = self.config.get('gpu_ids') if hasattr(self.config, 'get') else getattr(self.config, 'gpu_ids', None)
                  
+                 import platform
+                 is_mac = platform.system() == "Darwin"
+
                  if gpu_ids and len(gpu_ids) > 0:
                      device = str(gpu_ids[0])
                  elif use_gpu:
-                     device = 'cuda'
+                     device = 'mps' if is_mac else 'cuda'
                  else:
                      device = 'cpu'
                  
