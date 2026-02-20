@@ -33,6 +33,9 @@ def hd_bet(
     if device:
         cmd.extend(["-device", str(device)])
     
+    # Always save the mask as the pipeline expects it
+    cmd.append("--save_bet_mask")
+    
     if disable_tta:
         cmd.append("--disable_tta")
     

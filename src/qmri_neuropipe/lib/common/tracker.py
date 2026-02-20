@@ -184,7 +184,8 @@ class NeuroimagingTracker:
                 if self.excel_path.exists() and self.excel_path.stat().st_size > 0:
                     try:
                         # CREATE BACKUP BEFORE MODIFYING
-                        shutil.copy2(self.excel_path, bak_path)
+                        # Use copy instead of copy2 to avoid metadata permission issues on shared drives
+                        shutil.copy(self.excel_path, bak_path)
 
                         with pd.ExcelFile(self.excel_path, engine='openpyxl') as xls:
                             for sheet_name in xls.sheet_names:

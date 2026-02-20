@@ -333,14 +333,28 @@ class BrainMaskingStep(BaseProcessingStep):
                  else:
                      device = 'cpu'
                  
-                 hdbet.hd_bet(in_file=tool_input, out_file=tool_brain_out, device=device)
-                 # HD-BET produces out_file and out_file_mask.nii.gz
-                 # We need to find the mask.
+                 hdbet.hd_bet(in_file=tool_input, out_file=tool_brain_out, device=device, verbose=True)
+                 # HD-BET produced out_file and potentially out_file_mask.nii.gz 
+                 # Or sometimes it appends '_bet' to the filename anyway.
+                 
                  hdbet_mask = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_mask.nii.gz"))
+                 hdbet_mask_alt = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_bet_mask.nii.gz"))
+                 hdbet_brain_alt = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_bet.nii.gz"))
+                 
+                 # Handle unexpected '_bet' suffix for the brain image
+                 if hdbet_brain_alt.exists() and not tool_brain_out.exists():
+                     self.logger.info(f"HD-BET produced {hdbet_brain_alt.name}, renaming to expected {tool_brain_out.name}")
+                     hdbet_brain_alt.rename(tool_brain_out)
+                     # If brain was _bet, mask is likely _bet_mask
+                     if hdbet_mask_alt.exists() and not hdbet_mask.exists():
+                         hdbet_mask_alt.rename(hdbet_mask)
+
                  if hdbet_mask.exists():
                      hdbet_mask.rename(mask_generated_path)
+                 elif hdbet_mask_alt.exists():
+                     hdbet_mask_alt.rename(mask_generated_path)
                  else:
-                     raise ProcessingError("HD-BET failed to generate mask output.")
+                     raise ProcessingError(f"HD-BET failed to generate mask output (checked {hdbet_mask.name} and {hdbet_mask_alt.name})")
             
             else:
                  raise ProcessingError(f"Unsupported method: {self.method}")
