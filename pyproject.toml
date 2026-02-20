@@ -22,7 +22,8 @@ dependencies = [
     "dipy>=1.8",
     "pywavelets",
     "threadpoolctl",
-    "tqdm"
+    "tqdm",
+    "HD-BET"
 ]
 
 [project.optional-dependencies]
@@ -54,7 +55,8 @@ all = [
     "plotly",
     "pyafq",
     "streamlit",
-    "weasyprint"
+    "weasyprint",
+    "HD-BET"
 ]
 [project.scripts]
 qmri-neuropipe = "qmri_neuropipe.cli:app"

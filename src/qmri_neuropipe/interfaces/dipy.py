@@ -1196,6 +1196,9 @@ def fit_dki(
         elif m_norm == 'rd':
             nib.save(nib.Nifti1Image(dkifit.rd, img.affine), str(out_path))
             saved = True
+        elif m_norm == 'kfa':
+            nib.save(nib.Nifti1Image(dkifit.kfa, img.affine), str(out_path))
+            saved = True
             
         if saved:
              output_files[m_norm] = out_path

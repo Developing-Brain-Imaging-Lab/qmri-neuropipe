@@ -293,6 +293,77 @@ def mri_synthseg(
     run_cmd(" ".join(cmd), label="mri_synthseg")
 
 
+def mri_super_synth(
+    in_file: Union[Path, ImageLike, str],
+    out_dir: Path,
+    mode: str = "invivo",
+    threads: int = -1,
+    device: Optional[str] = None,
+    sharpen_synths: bool = False,
+    overwrite: bool = False,
+) -> Path:
+    """
+    Wrapper for FreeSurfer mri_super_synth (SuperSynth).
+
+    Produces brain region segmentation, MNI atlas registration, and synthetic
+    1mm isotropic T1w, T2w, and FLAIR images from any 3D brain volume.
+    Supports in vivo, ex vivo, single-hemisphere, and cerebrum-only inputs.
+
+    Requires FreeSurfer development build newer than October 2025.
+
+    Args:
+        in_file: Input image (single scan mode) or path to a CSV file (batch
+            mode).  In batch mode ``out_dir`` and ``mode`` are ignored because
+            they are encoded per-row in the CSV.
+        out_dir: Output directory (single scan mode only).
+        mode: Type of input volume.  One of: ``invivo``, ``exvivo``,
+            ``cerebrum``, ``left-hemi``, ``right-hemi``.
+        threads: Number of CPU cores.  Pass ``-1`` to use all available cores.
+        device: Compute device — ``"cpu"`` or ``"cuda"``.  If *None*, the
+            tool default is used (cuda when available).
+        sharpen_synths: Apply sharpening to the synthetic T1w/T2w/FLAIR
+            predictions.
+        overwrite: Re-run even if outputs already exist.
+
+    Returns:
+        Path to the output directory (single scan mode) or to the CSV file
+        that was passed as input (batch mode).
+    """
+    # Determine whether this is CSV batch mode or single-scan mode
+    is_csv = isinstance(in_file, (str, Path)) and Path(in_file).suffix.lower() == ".csv"
+
+    if is_csv:
+        csv_p = Path(in_file)
+        if not csv_p.exists():
+            raise FileNotFoundError(f"mri_super_synth CSV not found: {csv_p}")
+        cmd = f"mri_super_synth --i {csv_p} --threads {threads}"
+        if device:
+            cmd += f" --device {device}"
+        if sharpen_synths:
+            cmd += " --sharpen_synths"
+        run_cmd(cmd, label="mri_super_synth")
+        return csv_p
+
+    # Single-scan mode
+    in_p = extract_image_path(in_file)
+    out_p = Path(out_dir)
+    out_p.mkdir(parents=True, exist_ok=True)
+
+    # Skip if outputs already exist (use segmentation file as sentinel)
+    seg_sentinel = out_p / "seg.nii.gz"
+    if seg_sentinel.exists() and not overwrite:
+        return out_p
+
+    cmd = f"mri_super_synth --i {in_p} --o {out_p} --mode {mode} --threads {threads}"
+    if device:
+        cmd += f" --device {device}"
+    if sharpen_synths:
+        cmd += " --sharpen_synths"
+
+    run_cmd(cmd, label="mri_super_synth")
+    return out_p
+
+
 def mri_binarize(in_file: Union[Path, ImageLike], out_file: Path, min_val: float = 1, match: Optional[list] = None):
     """
     Run FreeSurfer mri_binarize.

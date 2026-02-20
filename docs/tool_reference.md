@@ -353,6 +353,61 @@ relaxometry:
 | `enabled` | bool | false | Enable step |
 | `method` | str | `ants` | `ants`, `fsl` |
 
+## SuperSynth (Anatomical)
+
+A modality-agnostic U-Net that produces brain segmentation, MNI atlas registration,
+and synthetic 1 mm isotropic T1w, T2w, and FLAIR images from any 3D brain volume.
+Accepts inputs of any resolution or contrast, including low-field scans, ex vivo
+tissue, cerebrum-only acquisitions, and single hemispheres.
+
+Requires a FreeSurfer development build newer than **October 2025**.
+
+**Tools**
+- `freesurfer` (`mri_super_synth`)
+
+**Config**
+```yaml
+anat:
+  super_synth:
+    enabled: true
+    mode: invivo        # invivo | exvivo | cerebrum | left-hemi | right-hemi
+    sharpen_synths: false
+    device: null        # null = tool default (cuda when available), or "cpu" / "cuda"
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `anat.super_synth.enabled` | bool | false | Enable step |
+| `anat.super_synth.mode` | str | `invivo` | `invivo`, `exvivo`, `cerebrum`, `left-hemi`, `right-hemi` |
+| `anat.super_synth.sharpen_synths` | bool | false | Sharpen synthetic T1w/T2w/FLAIR predictions |
+| `anat.super_synth.device` | str\|null | null | Compute device: `cpu` or `cuda` |
+
+**Outputs** (written to `super_synth/sub-<id>/[ses-<id>/]`)
+| File | Description |
+| --- | --- |
+| `seg.nii.gz` | Brain region segmentation |
+| `T1w.nii.gz` | Synthetic 1 mm isotropic T1w |
+| `T2w.nii.gz` | Synthetic 1 mm isotropic T2w |
+| `FLAIR.nii.gz` | Synthetic 1 mm isotropic FLAIR |
+
+**Context keys set**
+| Key | Value |
+| --- | --- |
+| `super_synth_dir` | Path to the per-subject output directory |
+| `super_synth_outputs` | Dict mapping `seg`, `synth_t1w`, `synth_t2w`, `synth_flair` → `Path` |
+| `preprocessed_t1w` | Set to the synthetic T1w `ImageFile` if not already present in context |
+
+**Notes**
+- Output filenames above reflect common FreeSurfer Synth tool conventions; verify
+  against your specific build and update `_OUTPUT_STEMS` in
+  `lib/anat/super_synth.py` if they differ.
+- The tool also registers the input to MNI space and writes Dice scores for QC.
+  These files are preserved in `super_synth_dir` but not currently parsed into
+  pipeline context.
+- Threads default to `-1` (all available cores); override via `n_cpus` in the
+  top-level config.
+
 ## B1 Mapping (Relaxometry)
 
 **Tools**

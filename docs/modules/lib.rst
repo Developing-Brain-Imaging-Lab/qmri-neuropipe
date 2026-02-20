@@ -58,3 +58,8 @@ Anatomical (Anat)
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. automodule:: qmri_neuropipe.lib.anat.super_synth
+   :members:
+   :undoc-members:
+   :show-inheritance:

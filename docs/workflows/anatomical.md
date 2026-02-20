@@ -243,7 +243,55 @@ anat:
 | --- | --- | --- | --- |
 | `anat.preprocessing.recon_all.enabled` | bool | false | Enable step |
 
-### 9. Nonlinear Registration (Optional)
+### 9. SuperSynth (Optional)
+
+Runs FreeSurfer `mri_super_synth`, a modality-agnostic U-Net that produces brain
+region segmentation, MNI atlas registration, and synthetic 1 mm isotropic T1w,
+T2w, and FLAIR images from any 3D brain volume — regardless of resolution or
+contrast.  It supports in vivo, ex vivo, cerebrum-only, and single-hemisphere
+acquisitions.
+
+> **Requires** a FreeSurfer development build newer than October 2025.
+
+**Available tools**
+*   `freesurfer` (`mri_super_synth`)
+
+**Config**
+```yaml
+anat:
+  super_synth:
+    enabled: true
+    mode: invivo         # invivo | exvivo | cerebrum | left-hemi | right-hemi
+    sharpen_synths: false
+    device: null         # null = tool default (cuda when available)
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `anat.super_synth.enabled` | bool | false | Enable step |
+| `anat.super_synth.mode` | str | `invivo` | Input type — `invivo`, `exvivo`, `cerebrum`, `left-hemi`, `right-hemi` |
+| `anat.super_synth.sharpen_synths` | bool | false | Sharpen synthetic T1w/T2w/FLAIR predictions |
+| `anat.super_synth.device` | str\|null | null | `cpu` or `cuda`; omit to use tool default |
+
+**Outputs** (written to `<output_dir>/super_synth/sub-<id>/[ses-<id>/]`)
+| File | Description |
+| --- | --- |
+| `seg.nii.gz` | Brain region segmentation |
+| `T1w.nii.gz` | Synthetic 1 mm isotropic T1w |
+| `T2w.nii.gz` | Synthetic 1 mm isotropic T2w |
+| `FLAIR.nii.gz` | Synthetic 1 mm isotropic FLAIR |
+
+**Notes**
+- The step sets `super_synth_dir` and `super_synth_outputs` in the pipeline
+  context.  If no `preprocessed_t1w` is present, the synthetic T1w is injected
+  automatically so downstream steps receive a structural reference.
+- The tool also performs MNI registration internally and writes Dice scores for
+  QC; both are preserved in the output directory.
+- See [Tool Reference](../tool_reference.md#supersynth-anatomical) for the full
+  parameter list and output-file notes.
+
+### 10. Nonlinear Registration (Optional)
 Registers the structural image to a template (e.g., MNI).
 *   **Config**: `anat.preprocessing.normalization`
 
