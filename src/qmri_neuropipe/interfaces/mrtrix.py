@@ -435,7 +435,11 @@ def dwi2fod(
         cmd.extend(["-mask", str(mask_file)])
         
     if lmax:
-        cmd.extend(["-lmax", str(lmax)])
+        if isinstance(lmax, (list, tuple)):
+            lmax_str = ",".join(map(str, lmax))
+        else:
+            lmax_str = str(lmax)
+        cmd.extend(["-lmax", lmax_str])
         
     if nthreads > 1:
         cmd.extend(["-nthreads", str(nthreads)])
@@ -444,6 +448,9 @@ def dwi2fod(
     if force:
         cmd.append("-force")
     
+    # Use shlex.join for robustness if we were using a list, 
+    # but run_cmd currently expects a string. 
+    # For now, keep " ".join(cmd) but ensure args are sanitized.
     run_cmd(" ".join(cmd), label=f"dwi2fod-{algorithm}")
     
     return fods
@@ -548,7 +555,11 @@ def mrtransform(
         cmd.extend(["-datatype", datatype])
     
     if strides:
-        cmd.extend(["-strides", str(strides)])
+        if isinstance(strides, (list, tuple)):
+            strides_str = ",".join(map(str, strides))
+        else:
+            strides_str = str(strides)
+        cmd.extend(["-strides", strides_str])
         
     if nthreads > 1:
         cmd.extend(["-nthreads", str(nthreads)])
