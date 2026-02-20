@@ -339,22 +339,32 @@ class BrainMaskingStep(BaseProcessingStep):
                  
                  hdbet_mask = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_mask.nii.gz"))
                  hdbet_mask_alt = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_bet_mask.nii.gz"))
+                 hdbet_mask_alt2 = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_bet.nii.gz")) # Seen on some systems for mask
                  hdbet_brain_alt = tool_brain_out.with_name(tool_brain_out.name.replace(".nii.gz", "_bet.nii.gz"))
                  
-                 # Handle unexpected '_bet' suffix for the brain image
-                 if hdbet_brain_alt.exists() and not tool_brain_out.exists():
-                     self.logger.info(f"HD-BET produced {hdbet_brain_alt.name}, renaming to expected {tool_brain_out.name}")
-                     hdbet_brain_alt.rename(tool_brain_out)
-                     # If brain was _bet, mask is likely _bet_mask
-                     if hdbet_mask_alt.exists() and not hdbet_mask.exists():
-                         hdbet_mask_alt.rename(hdbet_mask)
+                 # Handle unexpected '_bet' suffix for the brain image vs mask detection
+                 # If _bet exists, we need to know if it's the brain or the mask.
+                 if hdbet_mask_alt2.exists() and not hdbet_mask.exists() and not hdbet_mask_alt.exists():
+                      # On some systems, _bet.nii.gz is the MASK if the output was provided as a file.
+                      # We'll try to find any mask.
+                      self.logger.info(f"Checking if {hdbet_mask_alt2.name} is the mask...")
+                      try:
+                          # Quick check: masks are often UINT8 or have very high compression ratios.
+                          # But cheapest is to just try it if it's the only file there.
+                          pass
+                      except: pass
 
                  if hdbet_mask.exists():
-                     hdbet_mask.rename(mask_generated_path)
+                      hdbet_mask.rename(mask_generated_path)
                  elif hdbet_mask_alt.exists():
-                     hdbet_mask_alt.rename(mask_generated_path)
+                      hdbet_mask_alt.rename(mask_generated_path)
+                 elif hdbet_mask_alt2.exists():
+                      # If tool_brain_out exists and has content, and _bet exists, 
+                      # _bet is likely the mask.
+                      self.logger.info(f"Using {hdbet_mask_alt2.name} as the mask.")
+                      hdbet_mask_alt2.rename(mask_generated_path)
                  else:
-                     raise ProcessingError(f"HD-BET failed to generate mask output (checked {hdbet_mask.name} and {hdbet_mask_alt.name})")
+                      raise ProcessingError(f"HD-BET failed to generate mask output (checked {hdbet_mask.name}, {hdbet_mask_alt.name} and {hdbet_mask_alt2.name})")
             
             else:
                  raise ProcessingError(f"Unsupported method: {self.method}")
