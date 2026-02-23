@@ -749,10 +749,13 @@ def main(
             elif pipeline_name == 'relaxometry':
                 from .workflows.pipelines.relaxometry import RelaxometryPipeline
                 pipeline_obj = RelaxometryPipeline(config)
+            elif pipeline_name == 'fmri':
+                from .workflows.pipelines.fmri_workflow import FmriWorkflow
+                pipeline_obj = FmriWorkflow(config)
             else:
                 raise ConfigurationError(
                     f"Unsupported pipeline: {pipeline_name}",
-                    details=f"Available pipelines: dmri, anat, relaxometry"
+                    details=f"Available pipelines: dmri, anat, relaxometry, fmri"
                 )
             
             # Run pipeline
@@ -948,6 +951,9 @@ def _run_parallel_worker(
         elif pipeline_name == 'relaxometry':
             from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryPipeline
             pipeline_obj = RelaxometryPipeline(config)
+        elif pipeline_name == 'fmri':
+            from qmri_neuropipe.workflows.pipelines.fmri_workflow import FmriWorkflow
+            pipeline_obj = FmriWorkflow(config, logger=worker_logger)
         else:
              return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': f"Unknown pipeline {pipeline_name}"}
         

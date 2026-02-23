@@ -24,6 +24,32 @@ qmri-neuropipe --bids-dir /path/to/bids --output-dir /path/to/derivatives --pipe
 *   `dmri` (default): Diffusion MRI processing (includes optional anatomical preprocessing).
 *   `anat`: Anatomical MRI processing (T1w/T2w preprocessing).
 
+## Data Import
+
+`qmri-neuropipe` provides tools to convert raw DICOM data into BIDS-compliant NIfTI structures using `dcm2niix` or `dcm2bids`.
+
+### Configuration
+
+Add an `import` block to your configuration to enable automated conversion:
+
+```yaml
+import:
+  method: "dcm2bids"  # Options: "dcm2bids", "dcm2niix"
+  
+  dcm2bids:
+    config_file: "/path/to/dcm2bids_config.json"
+    clobber: false
+    
+  dcm2niix:
+    filename: "%p_%s_%t"
+    compress: true
+    bids: true
+```
+
+### Manual Usage
+
+You can also run conversion directly via the library interfaces if needed for custom scripts.
+
 ## Select Subjects
 
 Process specific subjects or sessions:

@@ -76,13 +76,13 @@ class MergeStep(BaseProcessingStep):
         
         out_acqp = merge_dir / "acqparams.txt"
         
-        # Check if outputs exist and are valid
+        # Check if outputs exist and are valid (>100 bytes)
         outputs_valid = (
             self.check_output_validity(out_nii) and 
-            out_bval.exists() and 
-            out_bvec.exists() and 
-            out_index.exists() and 
-            out_acqp.exists()
+            self.check_output_validity(out_bval, min_size=5) and 
+            self.check_output_validity(out_bvec, min_size=5) and 
+            self.check_output_validity(out_index, min_size=1) and 
+            self.check_output_validity(out_acqp, min_size=5)
         )
         
         if outputs_valid and not kwargs.get('force', False):

@@ -166,8 +166,8 @@ class EddyCorrectionStep(BaseProcessingStep):
         out_base = output_img.with_suffix("").with_suffix("")
         out_bvec = out_base.with_suffix(".bvec")
         
-        outputs_exist = output_img.exists()
-        if input_img.bvec and not out_bvec.exists():
+        outputs_exist = self.check_output_validity(output_img)
+        if input_img.bvec and not self.check_output_validity(out_bvec, min_size=5):
             outputs_exist = False
             
         if outputs_exist and not kwargs.get('force', False):

@@ -83,6 +83,62 @@ if final_tracker_path:
     
     selected_study = st.sidebar.selectbox("Filter by Study", studies)
     
+    # --- GLOBAL STUDY METRICS (Calculated once for all tabs) ---
+    total_subjs = 0
+    total_sess = 0
+    anat_comp_rate = "0%"
+    diff_comp_rate = "0%"
+    avg_snr = "N/A"
+    avg_mot = "N/A"
+    outliers_removed = "N/A"
+    outliers_removed_pct = "N/A"
+    
+    if "Processing_Status" in data:
+        df_ps_all = data["Processing_Status"]
+        if selected_study != "All" and "Study" in df_ps_all.columns:
+             df_ps_all = df_ps_all[df_ps_all["Study"] == selected_study]
+        
+        total_subjs = df_ps_all["Subject_ID"].nunique()
+        total_sess = len(df_ps_all)
+        
+    if "Anatomical_Status" in data:
+         df_anat = data["Anatomical_Status"]
+         if selected_study != "All" and "Study" in df_anat.columns: df_anat = df_anat[df_anat["Study"] == selected_study]
+         if "Overall_Status" in df_anat.columns:
+              comp = (df_anat["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
+              anat_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
+              
+    if "Diffusion_Status" in data:
+         df_diff = data["Diffusion_Status"]
+         if selected_study != "All" and "Study" in df_diff.columns: df_diff = df_diff[df_diff["Study"] == selected_study]
+         if "Overall_Status" in df_diff.columns:
+              comp = (df_diff["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
+              diff_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
+    
+    if "Quality_Metrics" in data:
+         df_qm = data["Quality_Metrics"]
+         if selected_study != "All" and "Study" in df_qm.columns:
+              df_qm = df_qm[df_qm["Study"] == selected_study]
+         
+         if "DWI_SNR" in df_qm.columns:
+              val = df_qm["DWI_SNR"].dropna().mean()
+              if pd.notna(val): avg_snr = f"{val:.1f}"
+         motion_col = None
+         if "DWI_Motion_FD_Mean" in df_qm.columns:
+              motion_col = "DWI_Motion_FD_Mean"
+         elif "Motion_FD_Mean" in df_qm.columns:
+              motion_col = "Motion_FD_Mean"
+         if motion_col:
+              val = df_qm[motion_col].dropna().mean()
+              if pd.notna(val): avg_mot = f"{val:.3f}"
+
+         if "DWI_Outliers_Removed_Volumes" in df_qm.columns:
+              val = df_qm["DWI_Outliers_Removed_Volumes"].dropna().sum()
+              if pd.notna(val): outliers_removed = f"{int(val)}"
+         if "DWI_Outliers_Removed_Pct" in df_qm.columns:
+              val = df_qm["DWI_Outliers_Removed_Pct"].dropna().mean()
+              if pd.notna(val): outliers_removed_pct = f"{val:.2f}%"
+
     # Tabs for different views
     tab_summary, tab_study_details, tab_subject, tab_overview, tab_correlation, tab_raw = st.tabs([
         "📊 Summary", "📊 Study Details", "👤 Subject Details", "⚙️ Processing Status", "🔗 Correlations", "📋 Raw Data"
@@ -93,62 +149,6 @@ if final_tracker_path:
         
         # 1. High-Level Metric Cards
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        
-        # Calculate live metrics
-        total_subjs = 0
-        total_sess = 0
-        anat_comp_rate = "0%"
-        diff_comp_rate = "0%"
-        avg_snr = "N/A"
-        avg_mot = "N/A"
-        outliers_removed = "N/A"
-        outliers_removed_pct = "N/A"
-        
-        if "Processing_Status" in data:
-            df_ps_all = data["Processing_Status"]
-            if selected_study != "All" and "Study" in df_ps_all.columns:
-                 df_ps_all = df_ps_all[df_ps_all["Study"] == selected_study]
-            
-            total_subjs = df_ps_all["Subject_ID"].nunique()
-            total_sess = len(df_ps_all)
-            
-        if "Anatomical_Status" in data:
-             df_anat = data["Anatomical_Status"]
-             if selected_study != "All" and "Study" in df_anat.columns: df_anat = df_anat[df_anat["Study"] == selected_study]
-             if "Overall_Status" in df_anat.columns:
-                  comp = (df_anat["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
-                  anat_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
-                  
-        if "Diffusion_Status" in data:
-             df_diff = data["Diffusion_Status"]
-             if selected_study != "All" and "Study" in df_diff.columns: df_diff = df_diff[df_diff["Study"] == selected_study]
-             if "Overall_Status" in df_diff.columns:
-                  comp = (df_diff["Overall_Status"].astype(str).str.contains("Complete", case=False)).sum()
-                  diff_comp_rate = f"{(comp/total_sess)*100:.1f}%" if total_sess > 0 else "0%"
-        
-        if "Quality_Metrics" in data:
-             df_qm = data["Quality_Metrics"]
-             if selected_study != "All" and "Study" in df_qm.columns:
-                  df_qm = df_qm[df_qm["Study"] == selected_study]
-             
-             if "DWI_SNR" in df_qm.columns:
-                  val = df_qm["DWI_SNR"].dropna().mean()
-                  if pd.notna(val): avg_snr = f"{val:.1f}"
-             motion_col = None
-             if "DWI_Motion_FD_Mean" in df_qm.columns:
-                  motion_col = "DWI_Motion_FD_Mean"
-             elif "Motion_FD_Mean" in df_qm.columns:
-                  motion_col = "Motion_FD_Mean"
-             if motion_col:
-                  val = df_qm[motion_col].dropna().mean()
-                  if pd.notna(val): avg_mot = f"{val:.3f}"
-
-             if "DWI_Outliers_Removed_Volumes" in df_qm.columns:
-                  val = df_qm["DWI_Outliers_Removed_Volumes"].dropna().sum()
-                  if pd.notna(val): outliers_removed = f"{int(val)}"
-             if "DWI_Outliers_Removed_Pct" in df_qm.columns:
-                  val = df_qm["DWI_Outliers_Removed_Pct"].dropna().mean()
-                  if pd.notna(val): outliers_removed_pct = f"{val:.2f}%"
 
         col_m1.metric("Total Subjects", total_subjs)
         col_m2.metric("Total Sessions", total_sess)

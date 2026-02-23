@@ -668,10 +668,17 @@ class StatsExtractionStep(BaseProcessingStep):
                           context.setdefault('segmentation_stats', []).append(output_dir / fname)
                           context.setdefault('roi_stats_files', {})[atlas_name] = output_dir / fname
 
-             else:
-                 # Binary Masks (TractSeg, etc.)
+                 # Binary/Probabilistic Masks (TractSeg, etc.)
                  # Treat 'seg_type' as the source name (e.g. 'TractSeg')
                  self.logger.info(f"Extracting stats for: {seg_type}")
+                 
+                 # Check if specific morphology/cleaning is requested for this type
+                 seg_cfg = analysis_cfg.get(seg_type, {})
+                 morph_op = seg_cfg.get('morphology', None) # e.g. 'erode', 'dilate'
+                 morph_iters = seg_cfg.get('morphology_iterations', 1)
+                 prob_thresh = seg_cfg.get('threshold', 0.1) # Lower threshold for probabilities
+                 
+                 from scipy.ndimage import binary_erosion, binary_dilation
                  
                  seg_stats = []
                  for roi_name, roi_path in seg_dict.items():
@@ -679,28 +686,67 @@ class StatsExtractionStep(BaseProcessingStep):
                       
                       try:
                           mask_img = nib.load(str(roi_path))
-                          mask_data = mask_img.get_fdata() > 0.5
+                          mask_data_raw = mask_img.get_fdata()
+                          
+                          is_prob = False
+                          # If it's a probability map or TOM, use weights.
+                          # Typically max is 1.0, but let's check if it's not strictly binary
+                          if mask_data_raw.max() <= 1.0 and not np.array_equal(mask_data_raw, mask_data_raw.astype(bool)):
+                              is_prob = True
+                              weights = mask_data_raw
+                              mask_data = weights > prob_thresh
+                          else:
+                              # Binary Mask
+                              mask_data = mask_data_raw > 0.5
+                              weights = mask_data.astype(float) # Uniform weights
+                              
+                          if morph_op == 'erode':
+                              mask_data = binary_erosion(mask_data, iterations=morph_iters)
+                          elif morph_op == 'dilate':
+                              mask_data = binary_dilation(mask_data, iterations=morph_iters)
+                              
                       except: continue
                       
                       if np.sum(mask_data) == 0: continue
                       
-                      for metric_key, m_info in loaded_maps.items(): # Corrected to use m_info
+                      for metric_key, m_info in loaded_maps.items():
                            m_data = m_info['data']
                            if m_data.shape != mask_data.shape: continue
-                           vals = m_data[mask_data]
-                           vals = vals[np.isfinite(vals)]
-                           vals = vals[vals != 0] # Ignore background/zeros
-                           if vals.size == 0: continue
+                           
+                           w_vals = weights[mask_data]
+                           d_vals = m_data[mask_data]
+                           
+                           # Filter NaNs
+                           valid = np.isfinite(d_vals) & (d_vals != 0)
+                           w_vals = w_vals[valid]
+                           d_vals = d_vals[valid]
+                           
+                           if d_vals.size == 0 or np.sum(w_vals) <= 0: continue
+                           
+                           w_sum = np.sum(w_vals)
+                           w_mean = np.sum(d_vals * w_vals) / w_sum
+                           w_var = np.sum(w_vals * (d_vals - w_mean)**2) / w_sum
+                           w_std = np.sqrt(w_var)
+                           
+                           try:
+                               order = np.argsort(d_vals)
+                               d_sorted = d_vals[order]
+                               w_sorted = w_vals[order]
+                               cum_w = np.cumsum(w_sorted)
+                               cutoff = 0.5 * w_sum
+                               w_median = d_sorted[cum_w >= cutoff][0]
+                           except:
+                               w_median = np.median(d_vals)
                            
                            stat = {
-                                "roi_id": roi_name, # or idx
+                                "roi_id": roi_name,
                                 "roi_name": roi_name,
-                                "model": m_info['model'], # Used m_info directly
-                                "metric": m_info['metric'], # Used m_info directly
-                                "mean": np.mean(vals),
-                                "median": np.median(vals),
-                                "std": np.std(vals),
-                                "count": vals.size
+                                "model": m_info['model'],
+                                "metric": m_info['metric'],
+                                "mean": w_mean,
+                                "median": w_median,
+                                "std": w_std,
+                                "count": d_vals.size
                             }
                            seg_stats.append(stat)
                            

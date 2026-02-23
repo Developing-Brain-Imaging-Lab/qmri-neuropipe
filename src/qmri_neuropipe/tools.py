@@ -440,6 +440,30 @@ def tracker_dashboard_cli(
     except KeyboardInterrupt:
         console.print("\n[yellow]Dashboard stopped.[/yellow]")
 
+@app.command("viewer")
+def viewer_cli(
+    images: List[Path] = typer.Argument(None, help="Generic NIfTI images to load into the viewer"),
+    t1: Optional[Path] = typer.Option(None, "--t1", help="T1 map for synthetic generation"),
+    t2: Optional[Path] = typer.Option(None, "--t2", help="T2 map for synthetic generation"),
+    m0: Optional[Path] = typer.Option(None, "--m0", help="M0 (PD) map for synthetic generation"),
+    adc: Optional[Path] = typer.Option(None, "--adc", help="ADC or MD map for synthetic diffusion")
+):
+    """
+    Launch the interactive Plotly Dash NIfTI Image Viewer & Synthetic MRI Generator.
+    Requires Dash and PyWebView: pip install -e '.[viewer]'
+    """
+    from qmri_neuropipe.lib.plotly_viewer import launch_viewer
+    
+    try:
+        launch_viewer(images=images, t1_path=t1, t2_path=t2, m0_path=m0, adc_path=adc)
+    except ImportError as e:
+        console.print(f"[bold red]Import Error:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[bold red]Viewer Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
 
 if __name__ == "__main__":
     app()

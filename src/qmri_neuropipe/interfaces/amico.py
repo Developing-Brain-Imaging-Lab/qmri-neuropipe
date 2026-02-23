@@ -134,7 +134,15 @@ def fit_sandi(
     ae = amico.Evaluation(str(studies_path), subject_id)
     
     scheme_file = out_dir / 'scheme.txt'
-    amico.util.fsl2scheme(str(bval_file), str(bvec_file), str(scheme_file))
+    
+    Delta_file = in_file.Delta if isinstance(in_file, DWIFile) else kwargs.get('Delta_file')
+    delta_file = in_file.delta if isinstance(in_file, DWIFile) else kwargs.get('delta_file')
+    
+    if Delta_file and delta_file:
+        amico.util.sandi2scheme(str(bval_file), str(bvec_file), str(Delta_file), str(delta_file), schemeFilename=str(scheme_file))
+    else:
+        # Fallback if no explicit time parameters
+        amico.util.fsl2scheme(str(bval_file), str(bvec_file), str(scheme_file))
     
     in_path = extract_image_path(in_file)
     ae.load_data(dwi_filename=str(in_path), scheme_filename=str(scheme_file), mask_filename=str(mask_file))

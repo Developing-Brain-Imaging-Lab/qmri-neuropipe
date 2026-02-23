@@ -101,27 +101,70 @@ class TractSegStep(BaseProcessingStep):
         ts_kwargs = self.kwargs.copy()
         output_type = ts_kwargs.pop('output_type', 'tract_segmentation')
         
-        tractseg.run_tractseg(
-            input_file=input_file,
-            output_dir=tractseg_out,
-            input_type=input_type,
-            output_type=output_type,
-            brain_mask=mask_path,
-            raw_diffusion=dwi.img if input_type == 'dmri' else None,
-            bvals=dwi.bval,
-            bvecs=dwi.bvec,
-            nr_cpus=self.nthreads,
-            extra_args=ts_kwargs
-        )
+        # MNI Registration / Preprocess logic
+        preprocess = ts_kwargs.pop('preprocess', True) # Default to True for "improved segmentation"
+        bundle_names = ts_kwargs.pop('bundles', None) or ts_kwargs.pop('bundle_names', None)
         
-        # TractSeg puts output in a subdirectory typically?
-        # CLI usage: -o output_dir. Files go into output_dir/bundle_masks/
-        # if output_type=bundle_masks
+        # --- Manual Registration Logic ---
+        input_file_for_ts = input_file
         
-        if (tractseg_out / "bundle_masks").exists():
-             context.setdefault('segmentations', {})['TractSeg'] = tractseg_out / "bundle_masks"
+        fwd_xfm = context.get('MNI_fwd_xfm')
+        inv_xfm = context.get('MNI_inv_xfm')
+        mni_ref = context.get('MNI_ref') or ts_kwargs.pop('mni_template', None)
+        
+        if preprocess and fwd_xfm and inv_xfm and mni_ref:
+            self.logger.info("Performing manual MNI warping for TractSeg using pipeline transforms...")
+            mni_peaks = tractseg_out / "peaks_mni.nii.gz"
+            if not mni_peaks.exists() or not skip:
+                self._apply_ants_warp(input_file, mni_peaks, fwd_xfm, mni_ref, interp='linear')
+            
+            input_file_for_ts = mni_peaks
+            mni_out = tractseg_out / "mni"
+            mni_out.mkdir(exist_ok=True)
+            
+            tractseg.run_tractseg(
+                input_file=input_file_for_ts,
+                output_dir=mni_out,
+                input_type=input_type,
+                output_type=output_type,
+                brain_mask=None,
+                nr_cpus=self.nthreads,
+                preprocess=False,
+                bundle_names=bundle_names,
+                extra_args=ts_kwargs
+            )
+            
+            mni_bundle_dir = mni_out / "bundle_masks"
+            if mni_bundle_dir.exists():
+                self.logger.info(f"Inverse warping bundles back to native space...")
+                bundle_out_dir.mkdir(parents=True, exist_ok=True)
+                for mni_bundle in mni_bundle_dir.glob("*.nii.gz"):
+                    native_bundle = bundle_out_dir / mni_bundle.name
+                    if not native_bundle.exists() or not skip:
+                        self._apply_ants_warp(mni_bundle, native_bundle, inv_xfm, input_file, interp='nearestNeighbor')
+                context.setdefault('segmentations', {})['TractSeg'] = bundle_out_dir
         else:
-             self.logger.warning("TractSeg completed but 'bundle_masks' directory not found.")
+            if preprocess:
+                self.logger.info("MNI transforms not found in context. Using TractSeg internal --preprocess.")
+            tractseg.run_tractseg(
+                input_file=input_file,
+                output_dir=tractseg_out,
+                input_type=input_type,
+                output_type=output_type,
+                brain_mask=mask_path,
+                raw_diffusion=dwi.img if input_type == 'dmri' else None,
+                bvals=dwi.bval,
+                bvecs=dwi.bvec,
+                nr_cpus=self.nthreads,
+                preprocess=preprocess,
+                bundle_names=bundle_names,
+                extra_args=ts_kwargs
+            )
+            if (tractseg_out / output_type).exists():
+                 context.setdefault('segmentations', {})['TractSeg'] = tractseg_out / output_type
+            elif (tractseg_out / "bundle_masks").exists():
+                 # Fallback for standard
+                 context.setdefault('segmentations', {})['TractSeg'] = tractseg_out / "bundle_masks"
              
         # Optional: Tractometry
         # If requested via config?
@@ -129,6 +172,39 @@ class TractSegStep(BaseProcessingStep):
         
         return context
 
+    def _apply_ants_warp(self, in_path: Union[Path, str], out_path: Union[Path, str], transform_list: Union[list, str, Path], reference: Union[Path, str], interp: str = 'linear'):
+        """Helper to apply ANTs warping."""
+        try:
+            import ants
+            mov = ants.image_read(str(in_path))
+            fix = ants.image_read(str(reference))
+            
+            # Determine image type
+            # TractSeg peaks are 4D (9 volumes)
+            # ANTs apply_transforms handles 4D if imagetype=3
+            is_4d = mov.dimension == 4
+            imagetype = 3 if is_4d else 0
+            
+            # Ensure transform_list is a list of strings
+            if not isinstance(transform_list, (list, tuple)):
+                transform_list = [transform_list]
+            
+            tx_list = [str(tx) for tx in transform_list]
+            
+            warped = ants.apply_transforms(
+                fixed=fix,
+                moving=mov,
+                transformlist=tx_list,
+                interpolator=interp,
+                imagetype=imagetype
+            )
+            ants.image_write(warped, str(out_path))
+        except ImportError:
+            self.logger.error("ANTsPy not installed. Manual warping failed.")
+            raise ProcessingError("Manual warping requires ANTsPy.")
+        except Exception as e:
+            self.logger.error(f"ANTs warping failed: {e}")
+            raise ProcessingError(f"Warping failed: {e}")
 
 class PyAFQStep(BaseProcessingStep):
     """

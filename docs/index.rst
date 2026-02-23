@@ -16,6 +16,7 @@ Welcome to qmri-neuropipe's documentation!
    workflows/anatomical
    workflows/diffusion
    workflows/relaxometry
+   workflows/fmri
    modeling
    modules/core
    modules/interfaces

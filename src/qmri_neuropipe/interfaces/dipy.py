@@ -491,8 +491,15 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
 def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.fwdti as fwdti
     fit_method = kwargs.get('fit_method', 'NLLS') # Default to NLLS for FWE
-    # Extract other FWE params
-    fwe_kwargs = {k:v for k,v in kwargs.items() if k != 'fit_method'}
+    
+    # Filter out pipeline-specific kwargs
+    fwe_kwargs = kwargs.copy()
+    fwe_kwargs.pop('fit_method', None)
+    fwe_kwargs.pop('n_cpus', None)
+    fwe_kwargs.pop('nthreads', None)
+    fwe_kwargs.pop('smoothing_fwhm', None)
+    fwe_kwargs.pop('grad_nonlin', None)
+    fwe_kwargs.pop('sub_method', None)
     
     model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **fwe_kwargs)
     
@@ -1425,7 +1432,14 @@ def fit_fwe_dti(
     else:
         mask = None
         
-    fwe_model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **kwargs)
+    fwe_kwargs = kwargs.copy()
+    fwe_kwargs.pop('n_cpus', None)
+    fwe_kwargs.pop('nthreads', None)
+    fwe_kwargs.pop('smoothing_fwhm', None)
+    fwe_kwargs.pop('grad_nonlin', None)
+    fwe_kwargs.pop('sub_method', None)
+        
+    fwe_model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **fwe_kwargs)
     
     try:
         if kwargs.get('grad_nonlin'):

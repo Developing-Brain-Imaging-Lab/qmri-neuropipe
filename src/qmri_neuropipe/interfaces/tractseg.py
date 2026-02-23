@@ -34,6 +34,8 @@ def run_tractseg(
     super_resolution: bool = False,
     uncertainty: bool = False,
     tract_definition: str = "TractSeg",
+    preprocess: bool = False,
+    bundle_names: Optional[List[str]] = None,
     extra_args: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """
@@ -60,6 +62,8 @@ def run_tractseg(
         super_resolution: Use super resolution.
         uncertainty: Enable uncertainty estimation.
         tract_definition: 'TractSeg' or 'AutoPTX'.
+        preprocess: If True, registers input to MNI space, segment, and warp back to native.
+        bundle_names: List of specific bundles to segment (defaults to all).
         extra_args: Additional arguments for TractSeg.
 
     Returns:
@@ -113,6 +117,13 @@ def run_tractseg(
         
     if tract_definition and tract_definition != "TractSeg":
          cmd_parts.append(f"--tract_definition {tract_definition}")
+
+    if preprocess:
+        cmd_parts.append("--preprocess")
+        
+    if bundle_names:
+        bundles_str = " ".join(bundle_names)
+        cmd_parts.append(f"--bundles {bundles_str}")
 
     # GPU handling not standard flag in CLI? Checking docs...
     # Regular TractSeg uses pytorch, so it uses CUDA_VISIBLE_DEVICESenv.

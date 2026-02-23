@@ -79,8 +79,8 @@ class DTIFittingStep(BaseProcessingStep):
         should_run = True
         existing_results = {}
         
-        if fa_path.exists() and not force:
-             # Check if ALL requested metrics exist
+        if self.check_output_validity(fa_path) and not force:
+             # Check if ALL requested metrics exist and are valid (non-empty)
              missing_metrics = []
              all_found = True
              
@@ -93,11 +93,11 @@ class DTIFittingStep(BaseProcessingStep):
                  
                  fpath = model_out / build_bids_name(ents, suffix=suffix)
                  
-                 if fpath.exists():
+                 if self.check_output_validity(fpath):
                      existing_results[suffix] = fpath
                  else:
-                     # dynamic glob fallback check
-                     found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                     # dynamic glob fallback check but must be valid
+                     found = [p for p in model_out.glob(f"*_{suffix}.nii.gz") if self.check_output_validity(p)]
                      if found:
                          existing_results[suffix] = found[0]
                      else:
@@ -334,8 +334,8 @@ class DKIFittingStep(BaseProcessingStep):
         should_run = True
         existing_results = {}
         
-        if (mk_path.exists() or (model_out / build_bids_name(ents, suffix='FA')).exists()) and not force:
-             # Check if ALL requested metrics exist
+        if (self.check_output_validity(mk_path) or self.check_output_validity(model_out / build_bids_name(ents, suffix='FA'))) and not force:
+             # Check if ALL requested metrics exist and are valid
              missing_metrics = []
              all_found = True
              
@@ -346,11 +346,11 @@ class DKIFittingStep(BaseProcessingStep):
                  # But for DKI standard metrics, suffix usually matches metric name
                  fpath = model_out / build_bids_name(ents, suffix=suffix)
                  
-                 if fpath.exists():
+                 if self.check_output_validity(fpath):
                      existing_results[suffix] = fpath
                  else:
-                     # dynamic glob fallback?
-                     found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                     # dynamic glob fallback but must be valid
+                     found = [p for p in model_out.glob(f"*_{suffix}.nii.gz") if self.check_output_validity(p)]
                      if found:
                          existing_results[suffix] = found[0]
                      else:
@@ -503,19 +503,33 @@ class NODDIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
-        # AMICO/DMIPY use odi, vic, icvf
-        odi_path = model_out / build_bids_name(ents, suffix='ODI')
-        icvf_path = model_out / build_bids_name(ents, suffix='ICVF')
+        # Required AMICO/DMIPY metrics for a successful NODDI fit
+        required_metrics = ['ODI', 'ICVF', 'FISO']
         
-        if (odi_path.exists() or icvf_path.exists()) and not force:
-             self.logger.info(f"Skipping NODDI fit for {dwi.img.name} (Found NODDI outputs)")
-             # Populate Context
-             results = {}
-             for p in model_out.glob("*.nii.gz"):
-                   name_part = p.name.replace('.nii.gz', '')
-                   suffix = name_part.split('_')[-1]
-                   results[suffix] = p
-             context.setdefault('modeling_results', {})['NODDI'] = results
+        should_run = True
+        existing_results = {}
+        all_found = True
+        
+        for m in required_metrics:
+             fpath = model_out / build_bids_name(ents, suffix=m)
+             if self.check_output_validity(fpath):
+                 existing_results[m] = fpath
+             else:
+                 # Check alternative naming (ISOVF vs FISO)
+                 if m == 'FISO':
+                      alt_path = model_out / build_bids_name(ents, suffix='ISOVF')
+                      if self.check_output_validity(alt_path):
+                           existing_results[m] = alt_path
+                           continue
+                 all_found = False
+                 break
+                 
+        if all_found and not force:
+             self.logger.info(f"Skipping NODDI fit for {dwi.img.name} (Found all required NODDI outputs)")
+             should_run = False
+             context.setdefault('modeling_results', {})['NODDI'] = existing_results
+             
+        if not should_run:
              return context
         
         self.logger.info(f"Running NODDI fit ({self.method}) on {dwi.img.name}")
@@ -656,17 +670,27 @@ class SANDIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
-        fsoma_path = model_out / build_bids_name(ents, suffix='fsoma')
+        # Required AMICO SANDI metrics
+        required_metrics = ['fsoma', 'fneurite', 'fextra']
         
-        if fsoma_path.exists() and not force:
-             self.logger.info(f"Skipping SANDI fit for {dwi.img.name} (Found SANDI outputs)")
-             # Populate Context
-             results = {}
-             for p in model_out.glob("*.nii.gz"):
-                   name_part = p.name.replace('.nii.gz', '')
-                   suffix = name_part.split('_')[-1]
-                   results[suffix] = p
-             context.setdefault('modeling_results', {})['sandi'] = results
+        should_run = True
+        existing_results = {}
+        all_found = True
+        
+        for m in required_metrics:
+             fpath = model_out / build_bids_name(ents, suffix=m)
+             if self.check_output_validity(fpath):
+                 existing_results[m] = fpath
+             else:
+                 all_found = False
+                 break
+                 
+        if all_found and not force:
+             self.logger.info(f"Skipping SANDI fit for {dwi.img.name} (Found all required SANDI outputs)")
+             should_run = False
+             context.setdefault('modeling_results', {})['sandi'] = existing_results
+             
+        if not should_run:
              return context
         
         self.logger.info(f"Running SANDI fit ({self.method}) on {dwi.img.name}")
@@ -690,6 +714,88 @@ class SANDIFittingStep(BaseProcessingStep):
               suffix = name_part.split('_')[-1]
               results[suffix] = p
         context.setdefault('modeling_results', {})['sandi'] = results
+        return context
+
+
+class MicrogliaFittingStep(BaseProcessingStep):
+    def __init__(self, config, logger, provenance, method='dmipy', nthreads=1, **kwargs):
+        super().__init__(config, logger, provenance)
+        self.method = method
+        self.nthreads = nthreads
+        if hasattr(self.config, 'n_cpus'):
+             self.nthreads = self.config.n_cpus
+        elif isinstance(self.config, dict):
+             self.nthreads = self.config.get('n_cpus', nthreads)
+        self.kwargs = kwargs
+
+    def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
+        dwi = context if not isinstance(context, dict) else context.get('current_image')
+        model_out = output_dir / "microglia"
+        model_out.mkdir(parents=True, exist_ok=True)
+        
+        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        
+        ents = dwi.entities.copy()
+        ents['model'] = 'Microglia'
+        if 'desc' in ents: del ents['desc']
+        if 'suffix' in ents: del ents['suffix']
+        
+        from ...io.bids import build_bids_name
+        test_path = model_out / build_bids_name(ents, suffix='f_small_sphere')
+        
+        if self.check_output_validity(test_path) and not force:
+             self.logger.info(f"Skipping Microglia fit for {dwi.img.name} (Found existing outputs)")
+             results = {}
+             for p in [x for x in model_out.glob("*.nii.gz") if self.check_output_validity(x)]:
+                   name_part = p.name.replace('.nii.gz', '')
+                   suffix = name_part.split('_', 2)[-1] if '_model-Microglia_' in name_part else name_part.split('_')[-1]
+                   results[suffix] = p
+             context.setdefault('modeling_results', {})['microglia'] = results
+             return context
+        
+        self.logger.info(f"Running Microglia fit ({self.method}) on {dwi.img.name}")
+        
+        if mask and hasattr(mask, 'img'):
+             mask_path = mask.img
+        else:
+             mask_path = mask
+
+        if self.method == 'dmipy':
+             from ...interfaces.dmipy_microglia import fit_microglia
+             
+             # Extract config from kwargs or self.config
+             fit_kwargs = self.kwargs.copy()
+             
+             # Extract metrics and hyperparams
+             d_par = kwargs.get('parallel_diffusivity') or self.config.get('parallel_diffusivity', 1.7e-9)
+             d_iso = kwargs.get('iso_diffusivity') or self.config.get('iso_diffusivity', 3.0e-9)
+             d_small = kwargs.get('small_diameter') or self.config.get('small_diameter', 4e-6)
+             d_large = kwargs.get('large_diameter') or self.config.get('large_diameter', 8e-6)
+             
+             fit_microglia(
+                 dwi, 
+                 model_out, 
+                 mask_file=mask_path, 
+                 nthreads=self.nthreads, 
+                 parallel_diffusivity=d_par,
+                 iso_diffusivity=d_iso,
+                 small_diameter=d_small,
+                 large_diameter=d_large,
+                 **fit_kwargs
+             )
+        else:
+             raise ValueError(f"Unknown Microglia method: {self.method}")
+
+        results = {}
+        for p in model_out.glob("*.nii.gz"):
+              name_part = p.name.replace('.nii.gz', '')
+              # Extract suffix robustly
+              if '_model-Microglia_' in name_part:
+                  suffix = name_part.split('_model-Microglia_')[-1]
+              else:
+                  suffix = name_part.split('_')[-1]
+              results[suffix] = p
+        context.setdefault('modeling_results', {})['microglia'] = results
         return context
 
 
@@ -766,10 +872,10 @@ class NEXIFittingStep(BaseProcessingStep):
             for key in resolved_metrics:
                 suffix = suffix_map[key]
                 fpath = model_out / build_bids_name(ents, suffix=suffix)
-                if fpath.exists():
+                if self.check_output_validity(fpath):
                     existing_results[suffix] = fpath
                 else:
-                    found = list(model_out.glob(f"*_{suffix}.nii.gz"))
+                    found = [p for p in model_out.glob(f"*_{suffix}.nii.gz") if self.check_output_validity(p)]
                     if found:
                         existing_results[suffix] = found[0]
                     else:
@@ -777,7 +883,7 @@ class NEXIFittingStep(BaseProcessingStep):
             if not missing:
                 should_run = False
                 self.logger.info(
-                    f"Skipping NEXI fit for {dwi.img.name} (Found all requested metrics)."
+                    f"Skipping NEXI fit for {dwi.img.name} (Found all requested valid metrics)."
                 )
 
         if not should_run:
@@ -878,15 +984,27 @@ class MAPMRIFittingStep(BaseProcessingStep):
         
         rtop_path = model_out / build_bids_name(ents, suffix='rtop')
         
-        if rtop_path.exists() and not force:
-             self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found MAPMRI outputs)")
-             # Populate Context
-             results = {}
-             for p in model_out.glob("*.nii.gz"):
-                   name_part = p.name.replace('.nii.gz', '')
-                   suffix = name_part.split('_')[-1]
-                   results[suffix] = p
-             context.setdefault('modeling_results', {})['mapmri'] = results
+        should_run = True
+        existing_results = {}
+        all_found = True
+        
+        # Approximate required MAPMRI metrics
+        required_metrics = ['rtop', 'rtap', 'rtpp', 'msd', 'qiv', 'ng', 'ng_perp', 'ng_parallel']
+        for m in required_metrics:
+             fpath = model_out / build_bids_name(ents, suffix=m)
+             if self.check_output_validity(fpath):
+                 existing_results[m] = fpath
+             else:
+                 found = [p for p in model_out.glob(f"*_{m}.nii.gz") if self.check_output_validity(p)]
+                 if found: existing_results[m] = found[0]
+                 else: all_found = False
+                 
+        if all_found and not force:
+             self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found all required MAPMRI outputs)")
+             should_run = False
+             context.setdefault('modeling_results', {})['mapmri'] = existing_results
+             
+        if not should_run:
              return context
         
         self.logger.info(f"Running MAPMRI fit ({self.method}) on {dwi.img.name}")
@@ -976,21 +1094,21 @@ class CSDFittingStep(BaseProcessingStep):
         if 'desc' in ent_base: del ent_base['desc']
         ent_base['model'] = 'CSD'
         
-        # Approximate check: check if likely outputs exist
+        # Approximate check: check if likely outputs exist and are valid
         check_suffixes = ['wmFOD', 'FOD'] 
         existing_found = False
         
         for s in check_suffixes:
              p = model_out / build_bids_name({**ent_base, 'suffix': s})
-             if p.exists():
+             if self.check_output_validity(p):
                  existing_found = True
                  break
         
         if existing_found and not force:
-             self.logger.info(f"Skipping CSD fit for {dwi.img.name} (Found CSD outputs)")
+             self.logger.info(f"Skipping CSD fit for {dwi.img.name} (Found valid CSD outputs)")
              # Populate Context with existing results
              results = {}
-             for p in model_out.glob("*FOD.nii.gz"):
+             for p in [x for x in model_out.glob("*FOD.nii.gz") if self.check_output_validity(x)]:
                   name_part = p.name.replace('.nii.gz', '')
                   suffix = name_part.split('_')[-1]
                   results[suffix] = p
@@ -1100,7 +1218,7 @@ class FWDTIFittingStep(BaseProcessingStep):
         if 'suffix' in ents: del ents['suffix']
         
         fa_path = model_out / build_bids_name(ents, suffix='FA')
-        return fa_path.exists()
+        return self.check_output_validity(fa_path)
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         # Resolve inputs
@@ -1121,14 +1239,15 @@ class FWDTIFittingStep(BaseProcessingStep):
         
         # Check for key output (FA)
         fa_path = model_out / build_bids_name(ents, suffix='FA')
+        fw_path = model_out / build_bids_name(ents, suffix='FW')
         
-        if fa_path.exists() and not force:
-             self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found existing outputs)")
+        if self.check_output_validity(fa_path) and self.check_output_validity(fw_path) and not force:
+             self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found valid existing outputs)")
              # Collect existing
              existing_results = {}
-             for p in model_out.glob("*_FA.nii.gz"): existing_results['FA'] = p
-             for p in model_out.glob("*_FW.nii.gz"): existing_results['FW'] = p
-             for p in model_out.glob("*_MD.nii.gz"): existing_results['MD'] = p
+             for p in [x for x in model_out.glob("*_FA.nii.gz") if self.check_output_validity(x)]: existing_results['FA'] = p
+             for p in [x for x in model_out.glob("*_FW.nii.gz") if self.check_output_validity(x)]: existing_results['FW'] = p
+             for p in [x for x in model_out.glob("*_MD.nii.gz") if self.check_output_validity(x)]: existing_results['MD'] = p
              
              context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
              return context

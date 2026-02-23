@@ -39,6 +39,14 @@ Click on a model below for detailed configuration and usage instructions.
     *   Estimates Fiber Orientation Distributions (FODs) to resolve crossing fibers.
     *   Backend: `mrtrix3`.
 
+## Tractography & Segmentation
+
+*   [**TractSeg**](models/tractseg.md)
+    *   Deep learning-based bundle segmentation and tracking.
+    *   Features: Initial MNI registration with inverse warping, bundle-specific tracking.
+*   [**PyAFQ**](models/pyafq.md)
+    *   Automated Fiber Quantification for infant and adult data.
+
 ## General Configuration
 
 To enable any model, add a `modeling` section to your `preproc.yaml`:

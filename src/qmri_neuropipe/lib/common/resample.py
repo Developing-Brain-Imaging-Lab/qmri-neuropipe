@@ -54,7 +54,7 @@ class ResampleStep(BaseProcessingStep):
         output_img = output_dir / build_bids_name({**entities, "suffix": orig_suffix})
 
         in_p = self._extract_path(input_image)
-        if output_img.exists() and not kwargs.get('force', False):
+        if self.check_output_validity(output_img) and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = in_p.stat().st_mtime
              out_mtime = output_img.stat().st_mtime
@@ -109,7 +109,7 @@ class ResampleStep(BaseProcessingStep):
                   else:
                        mask_out_path = Path(mask_out_path_str)
                        
-                  if not mask_out_path.exists() or kwargs.get('force', False):
+                  if not self.check_output_validity(mask_out_path) or kwargs.get('force', False):
                        from ...core.run import run_cmd
                        self.logger.info(f"Resampling mask to {res}mm: {mask_in_path.name}")
                        cmd = f"mri_convert {mask_in_path} {mask_out_path} -vs {res_args} -rt nearest"

@@ -17,7 +17,8 @@ from qmri_neuropipe.lib.dmri.fitting import (
     NEXIFittingStep,
     MAPMRIFittingStep,
     CSDFittingStep,
-    FWDTIFittingStep
+    FWDTIFittingStep,
+    MicrogliaFittingStep
 )
 from qmri_neuropipe.lib.dmri.tractography import TractSegStep, PyAFQStep
 
@@ -47,6 +48,7 @@ class ModelingWorkflow(BaseWorkflow):
         self._add_csd_step(modeling_cfg)
         self._add_noddi_step(modeling_cfg)
         self._add_sandi_step(modeling_cfg)
+        self._add_microglia_step(modeling_cfg)
         self._add_nexi_step(modeling_cfg)
         self._add_mapmri_step(modeling_cfg)
         self._add_fwdti_step(modeling_cfg)
@@ -179,6 +181,28 @@ class ModelingWorkflow(BaseWorkflow):
                 method=method,
                 n_cpus=self.config.n_cpus,
                 **sandi_cfg.get('parameters', {})
+            ))
+
+    def _add_microglia_step(self, modeling_cfg: dict):
+        """Add Microglia (4-Compartment) fitting step if enabled."""
+        microglia_cfg = modeling_cfg.get('microglia', {})
+        if microglia_cfg.get('enabled', False):
+            method = microglia_cfg.get('method', 'dmipy')
+            self.logger.info(f"Adding MicrogliaFittingStep (method={method})")
+            
+            step_kwargs = microglia_cfg.copy()
+            step_kwargs.pop('method', None)
+            step_kwargs.pop('enabled', None)
+            if 'parameters' in step_kwargs:
+                step_kwargs.update(step_kwargs.pop('parameters'))
+            
+            self.add_step(MicrogliaFittingStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                method=method,
+                n_cpus=self.config.n_cpus,
+                **step_kwargs
             ))
 
     def _add_nexi_step(self, modeling_cfg: dict):
