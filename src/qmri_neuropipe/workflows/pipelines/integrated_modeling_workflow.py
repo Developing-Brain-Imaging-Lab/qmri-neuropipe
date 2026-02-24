@@ -594,7 +594,10 @@ class ModelingWorkflow(BaseWorkflow):
             for step in self.steps:
                 step_name = step.__class__.__name__
                 
-                if 'DTI' in step_name:
+                if 'FWDTI' in step_name:
+                    model_dir = output_dir / 'FWE_DTI'
+                    required = ['FW', 'FA']
+                elif 'DTI' in step_name:
                     model_dir = output_dir / 'DTI'
                     required = ['FA', 'MD']
                 elif 'DKI' in step_name:
@@ -645,11 +648,12 @@ class ModelingWorkflow(BaseWorkflow):
             'CSD': ['fod'],
             'MAPMRI': ['RTOP', 'RTAP', 'RTPP'],
             'SANDI': ['Fsoma', 'Fneurite'],
-            'FWDTI': ['FWF', 'MD', 'FA']
+            'FWDTI': ['FW', 'MD', 'FA', 'RD', 'AD']
         }
 
         for model_name, metrics in model_specs.items():
-            model_dir = output_dir / model_name
+            dir_name = 'FWE_DTI' if model_name == 'FWDTI' else model_name
+            model_dir = output_dir / dir_name
             if not model_dir.exists():
                 continue
 
