@@ -596,7 +596,7 @@ class ModelingWorkflow(BaseWorkflow):
                 
                 if 'FWDTI' in step_name:
                     model_dir = output_dir / 'FWE_DTI'
-                    required = ['FW', 'FA']
+                    required = ['F', 'FA']
                 elif 'DTI' in step_name:
                     model_dir = output_dir / 'DTI'
                     required = ['FA', 'MD']
@@ -648,7 +648,7 @@ class ModelingWorkflow(BaseWorkflow):
             'CSD': ['fod'],
             'MAPMRI': ['RTOP', 'RTAP', 'RTPP'],
             'SANDI': ['Fsoma', 'Fneurite'],
-            'FWDTI': ['FW', 'MD', 'FA', 'RD', 'AD']
+            'FWDTI': ['F', 'MD', 'FA', 'RD', 'AD']
         }
 
         for model_name, metrics in model_specs.items():

@@ -1239,14 +1239,14 @@ class FWDTIFittingStep(BaseProcessingStep):
         
         # Check for key output (FA)
         fa_path = model_out / build_bids_name(ents, suffix='FA')
-        fw_path = model_out / build_bids_name(ents, suffix='FW')
+        f_path = model_out / build_bids_name(ents, suffix='F')
         
-        if self.check_output_validity(fa_path) and self.check_output_validity(fw_path) and not force:
+        if self.check_output_validity(fa_path) and self.check_output_validity(f_path) and not force:
              self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found valid existing outputs)")
              # Collect existing
              existing_results = {}
              for p in [x for x in model_out.glob("*_FA.nii.gz") if self.check_output_validity(x)]: existing_results['FA'] = p
-             for p in [x for x in model_out.glob("*_FW.nii.gz") if self.check_output_validity(x)]: existing_results['FW'] = p
+             for p in [x for x in model_out.glob("*_F.nii.gz") if self.check_output_validity(x)]: existing_results['F'] = p
              for p in [x for x in model_out.glob("*_MD.nii.gz") if self.check_output_validity(x)]: existing_results['MD'] = p
              
              context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
@@ -1285,7 +1285,7 @@ class FWDTIFittingStep(BaseProcessingStep):
         # Track Outputs
         results = {}
         for p in model_out.glob("*_FA.nii.gz"): results['FA'] = p
-        for p in model_out.glob("*_FW.nii.gz"): results['FW'] = p
+        for p in model_out.glob("*_F.nii.gz"): results['F'] = p
         for p in model_out.glob("*_MD.nii.gz"): results['MD'] = p
         for p in model_out.glob("*_AD.nii.gz"): results['AD'] = p
         for p in model_out.glob("*_RD.nii.gz"): results['RD'] = p

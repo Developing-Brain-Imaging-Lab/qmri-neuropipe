@@ -1497,7 +1497,7 @@ def fit_fwe_dti(
     
     for metric in metrics:
         metric_suffix = metric.upper()
-        if metric == 'f': metric_suffix = 'FW' # Free Water Fraction
+        if metric == 'f': metric_suffix = 'F' # Free Water Fraction
         
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
