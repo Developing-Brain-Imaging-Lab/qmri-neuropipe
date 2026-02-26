@@ -858,6 +858,13 @@ def fit_dti(
 
     # Initialize Model for metadata or serial fallback
     dti_kwargs = kwargs.copy()
+    # Remove pipeline-only keys before creating DIPY model; these may be
+    # forwarded into low-level fit methods and trigger unexpected kwarg errors.
+    dti_kwargs.pop('grad_nonlin', None)
+    dti_kwargs.pop('nthreads', None)
+    dti_kwargs.pop('n_cpus', None)
+    dti_kwargs.pop('smoothing_fwhm', None)
+    dti_kwargs.pop('sub_method', None)
     
     if fit_method != 'RESTORE' and 'return_leverages' not in dti_kwargs:
          dti_kwargs['return_leverages'] = True
@@ -1085,8 +1092,6 @@ def fit_dki(
         
     # Check for MSDKI flag
     use_msdki = kwargs.pop('mean_signal', False)
-    # Re-inject as internal flag for workers
-    kwargs['use_msdki'] = use_msdki
     
     if use_msdki:
         import dipy.reconst.msdki as dipy_msdki
@@ -1096,7 +1101,15 @@ def fit_dki(
         ModelClass = dipy_dki.DiffusionKurtosisModel
         FitClass = dipy_dki.DiffusionKurtosisFit
         
-    dkimodel = ModelClass(gtab, **kwargs)
+    # Build clean kwargs for direct DIPY model initialization
+    dki_kwargs = kwargs.copy()
+    dki_kwargs.pop('n_cpus', None)
+    dki_kwargs.pop('nthreads', None)
+    dki_kwargs.pop('smoothing_fwhm', None)
+    dki_kwargs.pop('grad_nonlin', None)
+    dki_kwargs.pop('sub_method', None)
+
+    dkimodel = ModelClass(gtab, **dki_kwargs)
     
     # Fit
     try:
@@ -1118,8 +1131,7 @@ def fit_dki(
             # No, `ModelClass` (DIPY model) doesn't know `use_msdki`.
             # So `model_kwargs` passed to `_execute_gnl_fit` MUST NOT have `use_msdki` if passing `MeanDiffusionKurtosisModel` explicitly.
             
-            gnl_kwargs = kwargs.copy()
-            gnl_kwargs.pop('use_msdki', None) # Remove internal flag, passing class explicitly
+            gnl_kwargs = dki_kwargs.copy()
             gnl_kwargs.pop('grad_nonlin', None)
             gnl_kwargs = {k:v for k,v in gnl_kwargs.items() if k not in ['n_cpus', 'nthreads']}
 
@@ -1139,13 +1151,15 @@ def fit_dki(
             
         elif nthreads > 1:
             # Parallel Fit
+            worker_kwargs = dki_kwargs.copy()
+            worker_kwargs['use_msdki'] = use_msdki
             vol_params = _parallel_fit_driver(
                 data, 
                 mask, 
                 gtab, 
                 _dki_worker, 
                 nthreads, 
-                worker_kwargs=kwargs
+                worker_kwargs=worker_kwargs
             )
             
             dkifit = FitClass(dkimodel, vol_params)
@@ -1444,10 +1458,8 @@ def fit_fwe_dti(
     try:
         if kwargs.get('grad_nonlin'):
             grad_nonlin = Path(kwargs['grad_nonlin'])
-            # Prepare model_kwargs
-            # Exclude grad_nonlin to be safe, though generic driver takes specific args
-            model_kwargs = kwargs.copy()
-            if 'grad_nonlin' in model_kwargs: del model_kwargs['grad_nonlin']
+            # Reuse cleaned kwargs for voxel-wise model construction
+            model_kwargs = fwe_kwargs.copy()
             model_kwargs['fit_method'] = fit_method
             
             vol_params = _execute_gnl_fit(
@@ -1463,7 +1475,8 @@ def fit_fwe_dti(
             fwe_fit = fwdti.FreeWaterTensorFit(fwe_model, vol_params)
             
         elif nthreads > 1:
-            worker_kwargs = {'fit_method': fit_method, **kwargs}
+            worker_kwargs = fwe_kwargs.copy()
+            worker_kwargs['fit_method'] = fit_method
             vol_params = _parallel_fit_driver(
                 data, 
                 mask, 
