@@ -565,17 +565,17 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Optimized: minimal check
         vox_gtab = gradient_table(new_bvals, bvecs=new_bvecs, big_delta=big_delta, small_delta=small_delta, b0_threshold=kwargs.get('b0_threshold', 50))
         
-        # Instantiate Model
-        # Use filtered kwargs (without metrics)
-        # Ensure min_signal is set to avoid S0=None issues in iterative fits
-        if 'min_signal' not in full_kwargs:
-             # Only add min_signal for models that accept it (DTI, DKI)
-             if 'Tensor' in model_class.__name__ or 'Kurtosis' in model_class.__name__:
-                  full_kwargs['min_signal'] = 1e-6
-        # Force return_S0_hat=True to ensure iterative fit initialization (tmp.model_S0) has value
-        if 'return_S0_hat' not in full_kwargs:
-             if 'Tensor' in model_class.__name__ or 'Kurtosis' in model_class.__name__:
-                  full_kwargs['return_S0_hat'] = True
+        # Instantiate model with compatibility guards for iterative DTI/DKI only.
+        model_name = model_class.__name__
+        supports_iterative_guards = model_name in {
+            'TensorModel',
+            'DiffusionKurtosisModel',
+            'MeanDiffusionKurtosisModel',
+        }
+        if supports_iterative_guards and 'min_signal' not in full_kwargs:
+             full_kwargs['min_signal'] = 1e-6
+        if supports_iterative_guards and 'return_S0_hat' not in full_kwargs:
+             full_kwargs['return_S0_hat'] = True
 
         model = model_class(vox_gtab, **full_kwargs)
         
