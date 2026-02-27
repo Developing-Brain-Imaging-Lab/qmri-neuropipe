@@ -165,8 +165,12 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
     out_reg = Path(out_reg_file)
     out_reg.parent.mkdir(parents=True, exist_ok=True)
 
+    fsl_mat = Path(fsl_mat_out) if fsl_mat_out else None
     if out_reg.exists():
-        return out_reg
+        # Reuse existing registration only if all requested outputs are present.
+        if not fsl_mat or fsl_mat.exists():
+            return out_reg
+        out_reg.unlink()
     
     # bbregister expects subject ID via --s
     # We assume target_file is the subject ID if it's passed here.
@@ -174,8 +178,7 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
     
     cmd = f"bbregister --s {subject_id} --mov {in_p} --reg {out_reg} --{contrast_type}"
     
-    if fsl_mat_out:
-        fsl_mat = Path(fsl_mat_out)
+    if fsl_mat:
         fsl_mat.parent.mkdir(parents=True, exist_ok=True)
         cmd += f" --fslmat {fsl_mat}"
         

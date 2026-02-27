@@ -34,6 +34,33 @@ class ReconAllStep(BaseProcessingStep):
         self.use_freesurfer = config.get("anat", {}).get("use_freesurfer", False) or \
                               config.get("anat", {}).get("preprocessing", {}).get("use_freesurfer", False)
 
+    @staticmethod
+    def _is_t2w_image(image: Any) -> bool:
+        if not image:
+            return False
+        entities = getattr(image, "entities", {}) or {}
+        suffix = str(entities.get("suffix", "")).lower()
+        if suffix == "t2w":
+            return True
+        img_path = getattr(image, "img", image)
+        try:
+            name = Path(img_path).name.lower()
+        except Exception:
+            return False
+        return "_t2w" in name
+
+    @staticmethod
+    def _select_recon_input(context: Optional[dict], input_image: Any) -> Any:
+        if not context:
+            return input_image
+        pre_t1 = context.get("preprocessed_t1w")
+        if pre_t1:
+            return pre_t1
+        t1w_files = context.get("t1w_files") or []
+        if t1w_files:
+            return t1w_files[0]
+        return input_image
+
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer
         if not self.enabled and not self.use_freesurfer:
@@ -41,6 +68,7 @@ class ReconAllStep(BaseProcessingStep):
              return first_arg
 
         context, input_image = self.unpack_input(first_arg)
+        recon_input = self._select_recon_input(context, input_image)
         
         # Subject ID logic
         sub = context.get('subject') if context else None
@@ -117,15 +145,19 @@ class ReconAllStep(BaseProcessingStep):
         fs_complete = all(f.exists() for f in critical_files)
         
         if not fs_complete:
-             if not input_image:
+             if not recon_input:
                  raise ValidationError("FreeSurfer output missing and no input image provided to run recon-all.")
+             if self._is_t2w_image(recon_input):
+                 raise ValidationError(
+                     "Recon-all input resolved to a T2w image. FreeSurfer recon-all requires T1w input."
+                 )
                  
              n_threads = kwargs.get("nthreads") or self.config.get("n_cpus") or 8
              
              if self.method == "clinical":
                  self.logger.info(f"Running FreeSurfer recon-all-clinical for {fs_sub_id}...")
                  freesurfer.recon_all_clinical(
-                    in_file=input_image,
+                    in_file=recon_input,
                     subject_id=fs_sub_id,
                     subjects_dir=fs_dir,
                     nthreads=n_threads
@@ -133,7 +165,7 @@ class ReconAllStep(BaseProcessingStep):
              else:
                  self.logger.info(f"Running FreeSurfer recon-all for {fs_sub_id}...")
                  freesurfer.recon_all(
-                    in_file=input_image,
+                    in_file=recon_input,
                     subject_id=fs_sub_id,
                     subjects_dir=fs_dir,
                     openmp=n_threads,

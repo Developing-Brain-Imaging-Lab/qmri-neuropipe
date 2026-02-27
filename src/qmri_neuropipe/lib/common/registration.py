@@ -343,6 +343,7 @@ class CoregistrationStep(BaseProcessingStep):
                     transform_type = 'flirt' 
                     
                     if self.method == 'freesurfer':
+                         transform_file = output_mat
                          subject_id = context.get('subject') if context else None
                          if not subject_id:
                                raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
@@ -397,6 +398,11 @@ class CoregistrationStep(BaseProcessingStep):
                              fsl_mat_out=transform_file,
                              subjects_dir=subjects_dir
                          )
+
+                         if not transform_file.exists():
+                              raise ProcessingError(
+                                   f"FreeSurfer bbregister did not produce FSL matrix transform: {transform_file}"
+                              )
                          
                     elif self.method == 'ants':
                          transform_file = output_dir / "coreg_dwi_to_anat_0GenericAffine.mat"
