@@ -68,6 +68,25 @@ The import enrichment step writes:
 
 See [dmri_native_ge_gnl_example.yaml](/Users/deaniii/Developer/code/repos/qmri-neuropipe/src/qmri_neuropipe/examples/configs/dmri_native_ge_gnl_example.yaml).
 
+## Import Command
+
+Example import invocation for a GE dataset:
+
+```bash
+qmri-neuropipe import \
+  --config /path/to/config.yaml \
+  --dicom-dir /path/to/source_dicoms/sub-01/ses-01 \
+  --output-dir /path/to/bids/dataset \
+  --subject 01 \
+  --session 01
+```
+
+How this works:
+
+1. `--dicom-dir` tells the import workflow which source DICOM directory to scan and convert.
+2. `dcm2bids` or `dcm2niix` converts that directory.
+3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
+
 ## Notes
 
 - `native_ge` currently requires `numba`.

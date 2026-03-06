@@ -197,6 +197,115 @@ def validate_required_arguments(config: PipelineConfig) -> None:
         )
 
 
+@app.command("import")
+def import_command(
+    dicom_dir: Path = typer.Option(
+        ...,
+        "--dicom-dir",
+        help="Path to the source DICOM directory to import",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+    ),
+    output_dir: Path = typer.Option(
+        ...,
+        "--output-dir",
+        help="Path to the target BIDS or NIfTI output directory",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+    ),
+    config_file: Optional[Path] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to YAML/JSON configuration file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    work_dir: Optional[Path] = typer.Option(
+        None,
+        "--work-dir",
+        help="Optional working directory",
+    ),
+    subject: Optional[str] = typer.Option(
+        None,
+        "--subject",
+        "-p",
+        help="Subject ID for import workflows that require it, such as dcm2bids",
+    ),
+    session: Optional[str] = typer.Option(
+        None,
+        "--session",
+        "-s",
+        help="Optional session ID for import workflows",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Print the resolved import configuration before running",
+    ),
+):
+    """
+    Import source DICOMs using the configured dcm2niix/dcm2bids workflow.
+    """
+    try:
+        cli_args = {
+            "output_dir": output_dir,
+            "work_dir": work_dir,
+        }
+        config = merge_cli_and_config(config_file, cli_args)
+        if config.bids_dir is None:
+            config.bids_dir = output_dir
+        if config.output_dir is None:
+            config.output_dir = output_dir
+
+        import_method = config.get("import.method", "dcm2bids")
+        if import_method == "dcm2bids" and not subject:
+            raise ConfigurationError("`--subject` is required when import.method is dcm2bids.")
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if config.work_dir:
+            config.work_dir.mkdir(parents=True, exist_ok=True)
+
+        if verbose or config.verbose:
+            console.print("\n[bold green]Import configuration[/bold green]\n")
+            _print_args(
+                config,
+                dicom_dir=dicom_dir,
+                import_method=import_method,
+                subject=subject,
+                session=session,
+            )
+
+        from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
+
+        workflow = ImportWorkflow(config=config)
+        context = {}
+        if subject:
+            context["subject"] = subject.removeprefix("sub-")
+        if session:
+            context["session"] = session.removeprefix("ses-")
+
+        workflow.build_pipeline(context)
+        workflow.run(
+            dicom_dir=dicom_dir,
+            output_dir=output_dir,
+            context=context,
+        )
+
+        console.print(f"\n[bold green]Import complete.[/bold green] Output written to: {output_dir}")
+    except ConfigurationError as e:
+        console.print(f"[bold red]Configuration error:[/bold red] {e}")
+        raise typer.Exit(code=2)
+    except Exception as e:
+        console.print(f"[bold red]Import failed:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def main(
     # Core paths (can be provided via CLI or config)
