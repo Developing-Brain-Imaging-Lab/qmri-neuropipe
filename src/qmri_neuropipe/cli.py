@@ -306,8 +306,9 @@ def import_command(
         raise typer.Exit(code=1)
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     # Core paths (can be provided via CLI or config)
     bids_dir: Optional[Path] = typer.Option(
         None, 
@@ -496,6 +497,8 @@ def main(
         # Dry run to check configuration:
         qmri-neuropipe --config config.yaml --dry-run --verbose
     """
+    if ctx.invoked_subcommand is not None:
+        return
     
     try:
         # Parse gpu_ids
