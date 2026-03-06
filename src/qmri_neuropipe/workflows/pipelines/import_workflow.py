@@ -42,10 +42,11 @@ class ImportWorkflow(BaseWorkflow):
         self.logger.info("Starting Import Workflow")
         context = dict(context)
         context["dicom_dir"] = Path(dicom_dir)
+        step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
         
         for step in self.steps:
             if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
-                step.run(dicom_dir, output_dir, **context)
+                step.run(dicom_dir, output_dir, **step_context)
             else:
                 result = step(context, output_dir=output_dir, **context)
                 if isinstance(result, dict):
