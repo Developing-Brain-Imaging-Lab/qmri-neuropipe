@@ -15,6 +15,7 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
 from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity
+from .spatial_transforms import write_transform_chain_to_sidecar
 
 
 class NonlinearRegistrationStep(BaseProcessingStep):
@@ -804,7 +805,35 @@ class CoregistrationStep(BaseProcessingStep):
                 context["current_mask"] = ImageFile(img=mask_out_path, entities=mask_entities)
 
         if context is not None:
+             spatial_transform = None
+             if is_dwi:
+                  transform_list = []
+                  ants_prefix = locals().get('prefix', [])
+                  if ants_prefix:
+                       transform_list = [str(t) for t in ants_prefix if Path(t).exists()]
+                  affine_path = None
+                  transform_file_local = locals().get('transform_file')
+                  if transform_file_local and Path(transform_file_local).exists():
+                       affine_path = Path(transform_file_local)
+                  elif output_mat.exists():
+                       affine_path = output_mat
+
+                  if transform_list or affine_path:
+                       spatial_transform = {
+                            "type": "linear",
+                            "registration_method": self.method,
+                            "apply_method": apply_method,
+                            "usable_for_gnl_mapping": True,
+                            "transforms": transform_list,
+                            "fsl_affine": str(affine_path) if affine_path else None,
+                            "moving_reference": str(moving_for_reg) if Path(moving_for_reg).exists() else None,
+                            "fixed_reference": str(target) if Path(target).exists() else None,
+                       }
+
              context["current_image"] = result
+             if spatial_transform is not None:
+                  context["spatial_transform"] = spatial_transform
+                  write_transform_chain_to_sidecar(getattr(result, "json", None), [spatial_transform])
              
              # Update structural files in context if resampled
              if resampled_target_context:

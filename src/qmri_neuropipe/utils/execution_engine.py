@@ -8,6 +8,7 @@ with progress tracking, error handling, and state management.
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Callable
 import time
+from ..lib.common.spatial_transforms import normalize_transform_chain, append_transform
 
 
 class ExecutionEngine:
@@ -69,6 +70,11 @@ class ExecutionEngine:
         
         current_dwis = context.get("dwi_files", [])
         current_masks = context.get("masks", [None] * len(current_dwis))
+        native_ref_map = context.setdefault("gnl_native_reference_map", {})
+        transform_map = context.setdefault("gnl_transform_map", {})
+        for dwi in current_dwis:
+            if getattr(dwi, "img", None):
+                native_ref_map.setdefault(dwi.img, dwi)
         
         # Ensure masks list matches length
         if len(current_masks) < len(current_dwis):
@@ -164,6 +170,17 @@ class ExecutionEngine:
             # Refresh topup groups if files changed
             from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
             context["topup_groups"] = find_reversed_phase_groups(current_dwis)
+            native_ref_map = context.setdefault("gnl_native_reference_map", {})
+            transform_map = context.setdefault("gnl_transform_map", {})
+            for old_dwi, new_dwi in zip(old_dwis, current_dwis):
+                if getattr(new_dwi, "img", None):
+                    native_ref_map[new_dwi.img] = native_ref_map.get(getattr(old_dwi, "img", None), old_dwi)
+                    prev_chain = transform_map.get(getattr(old_dwi, "img", None))
+                    new_transform = getattr(new_dwi, "spatial_transform", None)
+                    if new_transform is not None:
+                        transform_map[new_dwi.img] = append_transform(prev_chain, new_transform)
+                    elif getattr(old_dwi, "img", None) in transform_map:
+                        transform_map[new_dwi.img] = normalize_transform_chain(prev_chain)
         
         # Save intermediates if configured
         if self.config.get("save_intermediates", False):
@@ -207,6 +224,9 @@ class ExecutionEngine:
             img_ctx = dict(context)
             img_ctx['current_image'] = dwi
             img_ctx['current_mask'] = mask
+            native_ref = context.get("gnl_native_reference_map", {}).get(dwi.img, dwi)
+            img_ctx['native_dwi_for_gnl'] = native_ref
+            img_ctx['gnl_spatial_transform'] = normalize_transform_chain(context.get("gnl_transform_map", {}).get(dwi.img))
             
             if dwi.img in topup_map:
                 img_ctx["topup_base"] = topup_map[dwi.img]
@@ -262,6 +282,14 @@ class ExecutionEngine:
 
                 new_dwis.append(out_dwi)
                 new_masks.append(out_mask if out_mask is not None else mask)
+                if getattr(out_dwi, "img", None):
+                    context.setdefault("gnl_native_reference_map", {})[out_dwi.img] = native_ref
+                    prev_transform = context.setdefault("gnl_transform_map", {}).get(dwi.img)
+                    new_transform = result.get("spatial_transform") if isinstance(result, dict) else getattr(out_dwi, "spatial_transform", None)
+                    if new_transform is not None:
+                        context["gnl_transform_map"][out_dwi.img] = append_transform(prev_transform, new_transform)
+                    elif prev_transform is not None:
+                        context["gnl_transform_map"][out_dwi.img] = normalize_transform_chain(prev_transform)
                 
                 # Update QC metrics registry
                 self._update_qc_metrics(context, result, out_dwi)

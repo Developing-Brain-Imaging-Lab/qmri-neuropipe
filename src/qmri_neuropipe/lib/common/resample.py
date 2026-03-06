@@ -10,6 +10,7 @@ from ...core import BaseProcessingStep, ValidationError
 from ...core.types import ImageLike, DWIFile, ImageFile
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
+from .spatial_transforms import write_transform_chain_to_sidecar
 
 class ResampleStep(BaseProcessingStep):
     """
@@ -94,6 +95,14 @@ class ResampleStep(BaseProcessingStep):
         
         if context:
              context["current_image"] = result
+             spatial_transform = {
+                  "type": "resample_grid",
+                  "method": "mri_convert",
+                  "usable_for_gnl_mapping": False,
+                  "output_resolution": str(res),
+             }
+             context["spatial_transform"] = spatial_transform
+             write_transform_chain_to_sidecar(getattr(result, "json", None), [spatial_transform])
              
              # --- Mask Handling ---
              if context.get("current_mask"):

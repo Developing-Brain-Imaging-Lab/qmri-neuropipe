@@ -502,12 +502,17 @@ class ModelingWorkflow(BaseWorkflow):
                         gnl_map = None
                     else:
                         coeffs = Path(coeff_file)
+                        native_ref = context.get('gnl_native_reference_map', {}).get(dwi.img)
+                        spatial_transform = context.get('gnl_transform_map', {}).get(dwi.img)
+                        gnl_method = modeling_gnl_cfg.get('method') or preproc_gnl_cfg.get('method') or 'tortoise'
                         try:
                             gnl_map = create_gnl_map(
                                 input_image=dwi,
                                 output_path=output_map,
                                 grad_coeffs=coeffs,
-                                native_reference=None,
+                                native_reference=native_ref,
+                                method=gnl_method,
+                                spatial_transform=spatial_transform,
                                 nthreads=self.config.n_cpus,
                                 force=force_gnl,
                                 logger=self.logger

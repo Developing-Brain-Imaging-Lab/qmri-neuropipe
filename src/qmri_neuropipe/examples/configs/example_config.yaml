@@ -60,6 +60,21 @@ tracker:
 # tracker_file: /path/to/study_tracker.xlsx
 
 # ============================================================================
+# IMPORT / DICOM CONVERSION
+# ============================================================================
+# Optional import-time GE gradient nonlinearity metadata enrichment.
+# This reads representative GE DICOMs once and stores the derived isocenter
+# offset in each DWI JSON sidecar so later processing does not need the DICOMs.
+#
+# import:
+#   method: dcm2bids            # Options: dcm2bids, dcm2niix
+#   dcm2bids:
+#     config_file: /path/to/bids/code/dcm2bids_config.json
+#   gnl_metadata:
+#     enabled: true
+#     manufacturer: GE
+
+# ============================================================================
 # DMRI PIPELINE CONFIGURATION
 # ============================================================================
 dmri:
@@ -88,6 +103,16 @@ dmri:
     bias_correction:
       enabled: true
       method: ants           # Options: ants, fsl
+
+    # Gradient nonlinearity correction
+    # For the new GE-native workflow:
+    # - set method: native_ge
+    # - provide the GE coefficient file
+    # - enable import.gnl_metadata so sidecars contain the GE isocenter offset
+    grad_nonlin:
+      enabled: false
+      method: native_ge      # Options: native_ge, tortoise
+      coeff_file: /path/to/gw_coils_magnus.dat
       
     # Susceptibility distortion correction
     sdc:
@@ -96,6 +121,11 @@ dmri:
       
   # Modeling steps
   modeling:
+    grad_nonlin:
+      enabled: false
+      method: native_ge      # Options: native_ge, tortoise
+      coeff_file: /path/to/gw_coils_magnus.dat
+
     # Diffusion tensor imaging
     tensor:
       enabled: true

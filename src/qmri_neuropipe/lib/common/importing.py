@@ -5,6 +5,7 @@ import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...interfaces import dcm2niix, dcm2bids
+from .gnl_metadata import GEGnlMetadataEnrichmentStep
 
 class Dcm2NiixStep(BaseProcessingStep):
     """
@@ -82,3 +83,10 @@ class Dcm2BidsStep(BaseProcessingStep):
             if self.config.stop_on_error:
                 raise ProcessingError(f"dcm2bids failed: {e}")
             return bids_dir
+
+
+class ImportGnlMetadataStep(GEGnlMetadataEnrichmentStep):
+    """
+    Alias step for import workflow readability.
+    """
+    pass

@@ -10,6 +10,7 @@ from ...core import BaseProcessingStep, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
 from ...io.bids import build_bids_name, get_entities_from_path
+from ..common.spatial_transforms import write_transform_chain_to_sidecar
 
 class DMRIReorientStep(BaseProcessingStep):
     """
@@ -119,4 +120,13 @@ class DMRIReorientStep(BaseProcessingStep):
             json=out_path.with_suffix("").with_suffix(".json"),
             entities=entities
         )
+        spatial_transform = {
+            "type": "reorient_header",
+            "method": "mrtrix_mrconvert_stride",
+            "usable_for_gnl_mapping": False,
+            "stride": stride,
+            "bvecs_rotated": bool(in_bvec),
+        }
+        write_transform_chain_to_sidecar(result.json, [spatial_transform])
+        setattr(result, "spatial_transform", spatial_transform)
         return result

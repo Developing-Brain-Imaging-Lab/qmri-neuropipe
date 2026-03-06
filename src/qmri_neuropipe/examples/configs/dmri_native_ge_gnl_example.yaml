@@ -1,0 +1,88 @@
+# Example qMRI-neuropipe configuration for GE native gradient nonlinearity correction.
+#
+# This workflow has two phases:
+# 1. Import DICOMs and enrich DWI JSON sidecars with GE isocenter metadata.
+# 2. Run dMRI preprocessing/modeling with the native GE GNL backend.
+
+bids_dir: /path/to/bids/dataset
+output_dir: /path/to/output/derivatives
+work_dir: /path/to/output/work
+
+participant_label:
+  - sub-01
+
+n_cpus: 8
+memory_gb: 16.0
+skip_existing: true
+stop_on_error: false
+log_level: INFO
+verbose: true
+
+import:
+  method: dcm2bids
+  dcm2bids:
+    config_file: /path/to/bids/code/dcm2bids_config.json
+  gnl_metadata:
+    enabled: true
+    manufacturer: GE
+
+dmri:
+  preprocessing:
+    reorient:
+      enabled: true
+
+    distcorr:
+      method: topup
+      fallback: false
+
+    denoising:
+      enabled: true
+      method: mrtrix
+
+    degibbs:
+      enabled: true
+
+    eddy:
+      enabled: true
+      method: eddy
+      options:
+        repol: true
+        data_is_shelled: true
+
+    bias_correction:
+      enabled: true
+      method: ants
+
+    coregistration:
+      enabled: true
+      method: ants
+      reference_image: T1w
+      options:
+        output_resolution: anatomical
+        apply_method: native
+        transform_type: Rigid
+        interpolation: linear
+
+    grad_nonlin:
+      enabled: true
+      method: native_ge
+      coeff_file: /path/to/gw_coils_magnus.dat
+
+    brain_masking:
+      enabled: true
+      method: mrtrix
+
+  modeling:
+    grad_nonlin:
+      enabled: true
+      method: native_ge
+      coeff_file: /path/to/gw_coils_magnus.dat
+
+    tensor:
+      enabled: true
+      method: dipy
+      metrics:
+        - fa
+        - md
+        - rd
+        - ad

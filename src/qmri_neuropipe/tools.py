@@ -316,6 +316,7 @@ def create_gnl_map_cli(
     coeffs: Path = typer.Option(..., "--coeffs", "-c", help="Gradient nonlinearity coefficients file (.dat).", exists=True),
     output: Path = typer.Option(..., "--output", "-o", help="Output path for the .nii.gz tensor map."),
     initial_image: Optional[Path] = typer.Option(None, "--initial-image", help="Optional native space image (for resampled inputs).", exists=True),
+    method: str = typer.Option("tortoise", "--method", help="GNL backend: tortoise or native_ge."),
     bval: Optional[Path] = typer.Option(None, "--bval", help="Path to bval file (required if input is 4D).", exists=True),
     bvec: Optional[Path] = typer.Option(None, "--bvec", help="Path to bvec file (required if input is 4D).", exists=True),
     initial_bval: Optional[Path] = typer.Option(None, "--initial-bval", help="Path to bval file for initial image (if different).", exists=True),
@@ -332,18 +333,22 @@ def create_gnl_map_cli(
     console.print(f"  Input: {input}")
     console.print(f"  Coeffs: {coeffs}")
     console.print(f"  Output: {output}")
+    console.print(f"  Method: {method}")
     
     from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
     from qmri_neuropipe.core.types import ImageFile
+    from qmri_neuropipe.io.bids import _sidecar
     
     # Wrap paths in ImageFile for compatibility with the library function
-    input_obj = ImageFile(img=input, entities={})
+    input_json = _sidecar(input, ".json")
+    input_obj = ImageFile(img=input, entities={}, json=input_json if input_json.exists() else None)
     if bval: input_obj.bval = bval
     if bvec: input_obj.bvec = bvec
     
     native_obj = None
     if initial_image:
-        native_obj = ImageFile(img=initial_image, entities={})
+        native_json = _sidecar(initial_image, ".json")
+        native_obj = ImageFile(img=initial_image, entities={}, json=native_json if native_json.exists() else None)
         # Use specific initial grads if provided, otherwise fallback to main grads
         native_obj.bval = initial_bval if initial_bval else bval
         native_obj.bvec = initial_bvec if initial_bvec else bvec
@@ -354,6 +359,7 @@ def create_gnl_map_cli(
             output_path=output,
             grad_coeffs=coeffs,
             native_reference=native_obj,
+            method=method,
             nthreads=nthreads,
             force=force
         )

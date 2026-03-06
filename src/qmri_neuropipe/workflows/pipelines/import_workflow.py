@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Optional
 from qmri_neuropipe.core import BaseWorkflow
-from qmri_neuropipe.lib.common.importing import Dcm2NiixStep, Dcm2BidsStep
+from qmri_neuropipe.lib.common.importing import Dcm2NiixStep, Dcm2BidsStep, ImportGnlMetadataStep
 
 class ImportWorkflow(BaseWorkflow):
     """
@@ -30,14 +30,25 @@ class ImportWorkflow(BaseWorkflow):
                 logger=self.logger,
                 provenance=self.provenance
             ))
+
+        if import_cfg.get('gnl_metadata', {}).get('enabled', False):
+            self.add_step(ImportGnlMetadataStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance
+            ))
             
     def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> dict:
         self.logger.info("Starting Import Workflow")
+        context = dict(context)
+        context["dicom_dir"] = Path(dicom_dir)
         
         for step in self.steps:
-            if isinstance(step, Dcm2BidsStep):
+            if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
                 step.run(dicom_dir, output_dir, **context)
             else:
-                step.run(dicom_dir, output_dir, **context)
+                result = step(context, output_dir=output_dir, **context)
+                if isinstance(result, dict):
+                    context.update(result)
                 
         return context

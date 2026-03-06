@@ -10,12 +10,15 @@ from ...io.bids import build_bids_name
 from ...io.bids import build_bids_name
 from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
 from ...core.utils import check_nifti_integrity, extract_image_path
+from .grad_nonlin_native import create_native_ge_gnl_map
 
 def create_gnl_map(
     input_image: ImageLike,
     output_path: Path,
     grad_coeffs: Path,
     native_reference: Optional[ImageLike] = None,
+    method: str = "tortoise",
+    spatial_transform: Optional[dict] = None,
     nthreads: int = 1,
     force: bool = False,
     logger: Optional[logging.Logger] = None
@@ -52,7 +55,19 @@ def create_gnl_map(
     output_dir = output_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Calculating TORTOISE Gradient Nonlinearity Tensor Map...")
+    logger.info(f"Calculating Gradient Nonlinearity Tensor Map (method={method})...")
+
+    if method == "native_ge":
+        return create_native_ge_gnl_map(
+            input_image=input_image,
+            output_path=output_path,
+            grad_coeffs=grad_coeffs,
+            native_reference=native_reference,
+            spatial_transform=spatial_transform,
+            nthreads=nthreads,
+            force=force,
+            logger=logger,
+        )
     
     try:
         # Prepare 3D mean b0 images for initial and final spaces
@@ -147,6 +162,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         self.grad_coeffs = grad_coeffs
         self.is_resampled = is_resampled
+        self.method = (
+            self.config.get('dmri', {})
+            .get('preprocessing', {})
+            .get('grad_nonlin', {})
+            .get('method', 'tortoise')
+        )
         self.logger.info("Initialized TortoiseGradNonlinCorrectStep")
 
     def validate_inputs(self, first_arg, **kwargs) -> None:
@@ -170,10 +191,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
             context = dict(first_arg)
             input_img = self._extract_image(context)
             native_ref = context.get('native_dwi_for_gnl')
+            spatial_transform = context.get('gnl_spatial_transform')
         else:
             context = None
             input_img = first_arg
             native_ref = kwargs.get('native_reference')
+            spatial_transform = kwargs.get('spatial_transform')
 
         if self.is_resampled and not native_ref:
              self.logger.warning("GNL Step is configured for resampled data but 'native_dwi_for_gnl' not found in context. Using input as native.")
@@ -210,6 +233,8 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
             output_path=output_map,
             grad_coeffs=coeffs,
             native_reference=passing_native,
+            method=self.method,
+            spatial_transform=spatial_transform,
             nthreads=nthreads,
             force=force,
             logger=self.logger
@@ -218,6 +243,8 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         # Store map in context
         if is_context:
             context["gnl_map"] = result_map
+            if spatial_transform is not None:
+                context["spatial_transform"] = spatial_transform
             return context
         else:
             return result_map

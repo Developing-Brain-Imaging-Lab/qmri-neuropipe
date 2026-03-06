@@ -22,6 +22,7 @@ from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, DWIFile, ImageLike
 from ...interfaces import fsl
 from ...io.bids import build_bids_name
+from ..common.spatial_transforms import write_transform_chain_to_sidecar
 
 
 class EddyCorrectionStep(BaseProcessingStep):
@@ -422,6 +423,15 @@ class EddyCorrectionStep(BaseProcessingStep):
         # ---- Return shape depends on input shape ----
         if context is not None:
             context["current_image"] = result_img
+            spatial_transform = {
+                "type": "motion_correction",
+                "method": self.method,
+                "usable_for_gnl_mapping": False,
+                "notes": "Voxelwise motion/distortion correction applied; no explicit transform chain is currently serialized.",
+            }
+            context["spatial_transform"] = spatial_transform
+            write_transform_chain_to_sidecar(getattr(result_img, "json", None), [spatial_transform])
+            setattr(result_img, "spatial_transform", spatial_transform)
             # Ensure mask is updated in return context if we generated it
             if mask and "current_mask" not in context:
                 context["current_mask"] = ImageFile(img=Path(mask), entities=dict(result_img.entities, suffix="mask"))
