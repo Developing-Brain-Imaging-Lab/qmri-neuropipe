@@ -392,11 +392,20 @@ class CoregistrationStep(BaseProcessingStep):
                              else:
                                   self.logger.warning("No 'bids_dir' in config to reconstruct FreeSurfer paths.")
                          
+                         fs_contrast = options.get("contrast_type")
+                         if not fs_contrast:
+                             if target_modality == "T1w":
+                                 fs_contrast = "t1"
+                             elif target_modality == "T2w":
+                                 fs_contrast = "t2"
+                             else:
+                                 fs_contrast = "t1"
+
                          freesurfer.bbregister(
                              in_file=moving_for_reg,
                              target_file=subject_id,
                              out_reg_file=reg_lta,
-                             contrast_type='t2',
+                             contrast_type=fs_contrast,
                              fsl_mat_out=transform_file,
                              subjects_dir=subjects_dir
                          )
@@ -489,20 +498,23 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'sinc': mrtrix_interp = 'sinc'
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
+                    output_grid_ref = target
+                    if out_res_val in ['native', 'dwi']:
+                        output_grid_ref = in_path
+
                     mt_kwargs = {
                         'in_file': temp_mif_in,
                         'out_file': temp_mif_out,
                         'linear_transform': mrtrix_transform,
-                        'strides': target,
+                        'strides': output_grid_ref,
                         'interp': mrtrix_interp,
                         'nthreads': nthreads,
                         'force': True
                     }
                     
                     # Use target as template for regridding (ensures alignment and grid match)
-                    out_res_val = options.get('output_resolution', 'anatomical').lower()
                     if out_res_val in ['anatomical', 'native', 'dwi']:
-                        mt_kwargs['template'] = target
+                        mt_kwargs['template'] = output_grid_ref
 
                     mrtrix.mrtransform(**mt_kwargs)
                     
@@ -770,11 +782,13 @@ class CoregistrationStep(BaseProcessingStep):
                              mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=target, in_image=moving_for_reg, force=True)
                         
                         if mrtrix_transform.exists():
+                            mask_grid_ref = target if is_anatomical else output_img
                             mrtrix.mrtransform(
                                 in_file=mask_in_path,
                                 out_file=mask_out_path,
                                 linear_transform=mrtrix_transform,
-                                strides=target,
+                                template=mask_grid_ref,
+                                strides=mask_grid_ref,
                                 interp='nearest',
                                 nthreads=nthreads,
                                 force=True
@@ -835,8 +849,9 @@ class CoregistrationStep(BaseProcessingStep):
                   context["spatial_transform"] = spatial_transform
                   write_transform_chain_to_sidecar(getattr(result, "json", None), [spatial_transform])
              
-             # Update structural files in context if resampled
-             if resampled_target_context:
+             # Keep the original structural geometry in context. The resampled structural
+             # is only a temporary helper for registration in native/DWI output mode.
+             if resampled_target_context and out_res not in ['native', 'dwi']:
                   if target_modality == "T1w" and context.get("t1w_files"):
                        context["t1w_files"] = [ImageFile(img=resampled_target_context, entities=dict(context["t1w_files"][0].entities))]
                   elif target_modality == "T2w" and context.get("t2w_files"):
