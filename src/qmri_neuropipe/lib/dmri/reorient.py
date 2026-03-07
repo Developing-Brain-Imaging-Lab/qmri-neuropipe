@@ -10,6 +10,7 @@ from ...core import BaseProcessingStep, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
 from ...io.bids import build_bids_name, get_entities_from_path
+from ..common.json_metadata import copy_json_with_metadata
 from ..common.spatial_transforms import write_transform_chain_to_sidecar
 
 class DMRIReorientStep(BaseProcessingStep):
@@ -112,12 +113,15 @@ class DMRIReorientStep(BaseProcessingStep):
                  force=True # We checked above
              )
 
+        out_json = out_path.with_suffix("").with_suffix(".json")
+        copy_json_with_metadata(getattr(input_image, "json", None), out_json)
+
         # Create new DWIFile object
         result = DWIFile(
             img=out_path,
             bval=out_bval_path if out_bval_path.exists() else None,
             bvec=out_bvec_path if out_bvec_path.exists() else None,
-            json=out_path.with_suffix("").with_suffix(".json"),
+            json=out_json,
             entities=entities
         )
         spatial_transform = {

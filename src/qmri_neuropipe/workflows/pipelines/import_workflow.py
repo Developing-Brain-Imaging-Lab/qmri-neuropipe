@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional
 import tarfile
 from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.lib.common.importing import Dcm2NiixStep, Dcm2BidsStep, ImportGnlMetadataStep
 
 class ImportWorkflow(BaseWorkflow):
@@ -87,8 +88,27 @@ class ImportWorkflow(BaseWorkflow):
             if path.is_file()
         }
 
+    def _snapshot_import_outputs(self, output_dir: Path) -> dict[Path, float]:
+        if not Path(output_dir).exists():
+            return {}
+        patterns = ("*.nii", "*.nii.gz", "*.json", "*.bval", "*.bvec")
+        files: dict[Path, float] = {}
+        for pattern in patterns:
+            for path in Path(output_dir).rglob(pattern):
+                if path.is_file():
+                    files[path] = path.stat().st_mtime
+        return files
+
     def _new_or_updated_sidecars(self, before: dict[Path, float], output_dir: Path) -> list[Path]:
         after = self._snapshot_dwi_sidecars(output_dir)
+        changed: list[Path] = []
+        for path, mtime in after.items():
+            if path not in before or mtime > before[path]:
+                changed.append(path)
+        return sorted(changed)
+
+    def _new_or_updated_outputs(self, before: dict[Path, float], output_dir: Path) -> list[Path]:
+        after = self._snapshot_import_outputs(output_dir)
         changed: list[Path] = []
         for path, mtime in after.items():
             if path not in before or mtime > before[path]:
@@ -101,12 +121,27 @@ class ImportWorkflow(BaseWorkflow):
         context = dict(context)
         context["dicom_dir"] = resolved_dicom_dir
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
+        outputs_before = self._snapshot_import_outputs(output_dir)
         sidecars_before = self._snapshot_dwi_sidecars(output_dir)
         
         for step in self.steps:
             if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
                 step.run(resolved_dicom_dir, output_dir, **step_context)
-                context["imported_dwi_sidecars"] = [str(p) for p in self._new_or_updated_sidecars(sidecars_before, output_dir)]
+                imported_outputs = self._new_or_updated_outputs(outputs_before, output_dir)
+                imported_sidecars = self._new_or_updated_sidecars(sidecars_before, output_dir)
+                context["imported_output_files"] = [str(p) for p in imported_outputs]
+                context["imported_dwi_sidecars"] = [str(p) for p in imported_sidecars]
+                if not imported_outputs:
+                    msg = (
+                        "Import step completed without creating or updating any output files. "
+                        "This usually means the dcm2bids/dcm2niix mapping did not match the source series "
+                        "or outputs already exist unchanged."
+                    )
+                    if self.config.stop_on_error:
+                        raise ProcessingError(msg)
+                    self.logger.warning(msg)
+                else:
+                    self.logger.info(f"Import created/updated {len(imported_outputs)} file(s)")
             else:
                 result = step(context, output_dir=output_dir, **context)
                 if isinstance(result, dict):

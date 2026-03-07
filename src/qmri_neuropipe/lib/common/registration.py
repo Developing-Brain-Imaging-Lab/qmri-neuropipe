@@ -15,6 +15,7 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
 from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity
+from .json_metadata import copy_json_with_metadata
 from .spatial_transforms import write_transform_chain_to_sidecar
 
 
@@ -675,8 +676,7 @@ class CoregistrationStep(BaseProcessingStep):
                          base_name = base_name[:-len(ext)]
                          break
                  json_path = output_dir / (base_name + ".json")
-                 if not json_path.exists(): shutil.copy(input_image.json, json_path)
-                 final_json = json_path
+                 final_json = copy_json_with_metadata(input_image.json, json_path)
 
              result = DWIFile(img=output_img, bvec=final_bvec, bval=final_bval, entities=entities, json=final_json)
         else:

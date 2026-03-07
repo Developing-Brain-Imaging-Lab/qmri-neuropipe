@@ -34,11 +34,19 @@ def _load_json(path: Path) -> dict:
 
 def _get_gnl_metadata(image: ImageLike) -> dict:
     sidecar = getattr(image, "json", None)
+    img_path = getattr(image, "img", None)
+    LOGGER.info(f"Native GE GNL metadata source image: {img_path}")
+    LOGGER.info(f"Native GE GNL metadata source sidecar: {sidecar}")
     if not sidecar or not Path(sidecar).exists():
         raise ProcessingError("Native GE GNL requires a JSON sidecar with import-time metadata.")
     payload = _load_json(Path(sidecar))
     gnl = payload.get("GradientNonlinearityCorrection")
     if not isinstance(gnl, dict):
+        LOGGER.error(
+            "GradientNonlinearityCorrection block missing in sidecar: %s. Available top-level keys: %s",
+            sidecar,
+            sorted(payload.keys()),
+        )
         raise ProcessingError("Missing GradientNonlinearityCorrection block in sidecar.")
     offset = gnl.get("IsocenterOffsetScannerRASmm")
     if not isinstance(offset, list) or len(offset) != 3:
