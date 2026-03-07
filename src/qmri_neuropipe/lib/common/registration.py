@@ -167,6 +167,61 @@ class CoregistrationStep(BaseProcessingStep):
         if not target_path.exists():
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
 
+        fs_subjects_dir = None
+        fs_subject_id = None
+        fs_orig_mgz = None
+        if self.method == "freesurfer":
+            fs_subject_id = context.get("subject") if context else None
+            if not fs_subject_id:
+                raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
+
+            if context and context.get("freesurfer_dir"):
+                fs_rec_path = Path(context["freesurfer_dir"])
+                fs_subjects_dir = fs_rec_path.parent
+                fs_subject_id = fs_rec_path.name
+            else:
+                self.logger.warning(
+                    "Freesurfer directory not found in context. Attempting to reconstruct from BIDS config."
+                )
+                bids_dir = self.config.get("bids_dir")
+                if bids_dir:
+                    fs_subjects_dir = Path(bids_dir) / "derivatives" / "freesurfer"
+                    sub = context.get("subject") if context else None
+                    ses = context.get("session") if context else None
+                    if not sub and hasattr(input_image, "entities"):
+                        sub = input_image.entities.get("sub")
+                        if not ses:
+                            ses = input_image.entities.get("ses")
+                    if sub:
+                        candidate_id = f"sub-{sub}"
+                        if ses:
+                            candidate_id += f"_ses-{ses}"
+                        if (fs_subjects_dir / candidate_id).exists():
+                            fs_subject_id = candidate_id
+                            self.logger.info(
+                                f"Found FreeSurfer subject directory: {fs_subjects_dir / fs_subject_id}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"Constructed FreeSurfer path does not exist: {fs_subjects_dir / candidate_id}"
+                            )
+                    else:
+                        self.logger.warning(
+                            "Could not determine subject/session for FreeSurfer fallback."
+                        )
+                else:
+                    self.logger.warning(
+                        "No 'bids_dir' in config to reconstruct FreeSurfer paths."
+                    )
+
+            if fs_subjects_dir and fs_subject_id:
+                fs_orig_mgz = fs_subjects_dir / fs_subject_id / "mri" / "orig.mgz"
+                if not fs_orig_mgz.exists():
+                    self.logger.warning(
+                        f"FreeSurfer orig.mgz not found: {fs_orig_mgz}. Falling back to target image."
+                    )
+                    fs_orig_mgz = None
+
         output_dir = self.get_step_output_dir(output_dir)
         
         options = options or {}
@@ -231,8 +286,18 @@ class CoregistrationStep(BaseProcessingStep):
         resampled_target_context = None # To store for context update
         
         if out_res in ['dwi', 'native']:
-             self.logger.info(f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration...")
-             resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
+             if self.method == "freesurfer" and fs_orig_mgz is not None:
+                 self.logger.info(
+                     "Native resolution mode: Resampling FreeSurfer orig.mgz to diffusion grid prior to registration..."
+                 )
+                 resampled_target_path = output_dir / "freesurfer_orig_resampled_to_dwi.nii.gz"
+                 resample_source = fs_orig_mgz
+             else:
+                 self.logger.info(
+                     f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration..."
+                 )
+                 resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
+                 resample_source = target_path
              
              if not resampled_target_path.exists() or kwargs.get('force', False):
                  interp = options.get("interpolation", "linear").lower()
@@ -240,15 +305,15 @@ class CoregistrationStep(BaseProcessingStep):
                      ants_interp = interp
                      if interp == 'nearest': ants_interp = 'nearestNeighbor'
                      elif interp == 'cubic': ants_interp = 'bspline'
-                     ants.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator=ants_interp, nthreads=nthreads)
+                     ants.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator=ants_interp, nthreads=nthreads)
                  elif self.method == 'fsl':
                      fsl_interp = interp
                      if interp == 'linear': fsl_interp = 'trilinear'
                      elif interp == 'nearest': fsl_interp = 'nearestneighbour'
-                     fsl.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator=fsl_interp)
+                     fsl.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator=fsl_interp)
                  else:
                      # Fallback to ANTs
-                     ants.resample_to_image(target_path, moving_for_reg, resampled_target_path, interpolator='linear', nthreads=nthreads)
+                     ants.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator='linear', nthreads=nthreads)
              
              if resampled_target_path.exists():
                  self.logger.info(f"Using resampled structural as registration target: {resampled_target_path.name}")
@@ -346,52 +411,11 @@ class CoregistrationStep(BaseProcessingStep):
                     
                     if self.method == 'freesurfer':
                          transform_file = output_mat
-                         subject_id = context.get('subject') if context else None
-                         if not subject_id:
-                               raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
-                         
-                         # Define Output Files
-                         # reg_lta and output_mat already defined
+                         if not fs_subjects_dir or not fs_subject_id:
+                             raise ProcessingError(
+                                 "Unable to resolve FreeSurfer subject directory for bbregister."
+                             )
 
-                         # Determine SUBJECTS_DIR and Subject ID from context logic
-                         subjects_dir = None
-                         if context and 'freesurfer_dir' in context:
-                             # context['freesurfer_dir'] points to the specific subject folder (e.g. sub-01)
-                             fs_rec_path = Path(context['freesurfer_dir'])
-                             subjects_dir = fs_rec_path.parent
-                             # IMPORTANT: Use the folder name as the ID, as FS expects the ID to exist in SUBJECTS_DIR
-                             subject_id = fs_rec_path.name
-                         elif not context.get('freesurfer_dir'):
-                             # Fallback: Construct paths from BIDS structure
-                             self.logger.warning("Freesurfer directory not found in context. Attempting to reconstruct from BIDS config.")
-                             
-                             bids_dir = self.config.get('bids_dir')
-                             if bids_dir:
-                                 subjects_dir = Path(bids_dir) / 'derivatives' / 'freesurfer'
-                                 
-                                 # Reconstruct Subject ID (FS format: sub-XX_ses-YY)
-                                 # We need sub/ses from context or input_image entities
-                                 sub = context.get('subject') if context else None
-                                 ses = context.get('session') if context else None
-                                 
-                                 if not sub and hasattr(input_image, 'entities'):
-                                      sub = input_image.entities.get('sub')
-                                      if not ses: ses = input_image.entities.get('ses')
-                                 
-                                 if sub:
-                                     candidate_id = f"sub-{sub}"
-                                     if ses: candidate_id += f"_ses-{ses}"
-                                     
-                                     if (subjects_dir / candidate_id).exists():
-                                          subject_id = candidate_id
-                                          self.logger.info(f"Found FreeSurfer subject directory: {subjects_dir / subject_id}")
-                                     else:
-                                          self.logger.warning(f"Constructed FreeSurfer path does not exist: {subjects_dir / candidate_id}")
-                                 else:
-                                      self.logger.warning("Could not determine subject/session for FreeSurfer fallback.")
-                             else:
-                                  self.logger.warning("No 'bids_dir' in config to reconstruct FreeSurfer paths.")
-                         
                          fs_contrast = options.get("contrast_type")
                          if not fs_contrast:
                              if target_modality == "T1w":
@@ -403,11 +427,11 @@ class CoregistrationStep(BaseProcessingStep):
 
                          freesurfer.bbregister(
                              in_file=moving_for_reg,
-                             target_file=subject_id,
+                             target_file=fs_subject_id,
                              out_reg_file=reg_lta,
                              contrast_type=fs_contrast,
                              fsl_mat_out=transform_file,
-                             subjects_dir=subjects_dir
+                             subjects_dir=fs_subjects_dir
                          )
 
                          if not transform_file.exists():
