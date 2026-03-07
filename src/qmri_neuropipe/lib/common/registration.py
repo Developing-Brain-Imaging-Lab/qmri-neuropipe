@@ -499,7 +499,7 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
                     output_grid_ref = target
-                    if out_res_val in ['native', 'dwi']:
+                    if out_res in ['native', 'dwi']:
                         output_grid_ref = in_path
 
                     mt_kwargs = {
@@ -513,7 +513,7 @@ class CoregistrationStep(BaseProcessingStep):
                     }
                     
                     # Use target as template for regridding (ensures alignment and grid match)
-                    if out_res_val in ['anatomical', 'native', 'dwi']:
+                    if out_res in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['template'] = output_grid_ref
 
                     mrtrix.mrtransform(**mt_kwargs)
@@ -592,7 +592,20 @@ class CoregistrationStep(BaseProcessingStep):
                     
                     elif self.method == 'freesurfer':
                         output_dat = output_transform.with_suffix(".dat")
-                        freesurfer.bbregister(in_file=in_path, target_file=target, out_reg_file=output_dat, contrast_type="t2")
+                        fs_contrast = options.get("contrast_type")
+                        if not fs_contrast:
+                            if target_modality == "T1w":
+                                fs_contrast = "t1"
+                            elif target_modality == "T2w":
+                                fs_contrast = "t2"
+                            else:
+                                fs_contrast = "t1"
+                        freesurfer.bbregister(
+                            in_file=in_path,
+                            target_file=target,
+                            out_reg_file=output_dat,
+                            contrast_type=fs_contrast,
+                        )
                         import shutil
                         shutil.copy(in_path, output_img) 
                         self.logger.warning("Freesurfer bbregister only calculates transform. Image not resampled.")
