@@ -77,6 +77,23 @@ class ImportWorkflow(BaseWorkflow):
             stamp.write_text("ok\n")
 
         return extract_root
+
+    def _snapshot_dwi_sidecars(self, output_dir: Path) -> dict[Path, float]:
+        if not Path(output_dir).exists():
+            return {}
+        return {
+            path: path.stat().st_mtime
+            for path in Path(output_dir).rglob("*_dwi.json")
+            if path.is_file()
+        }
+
+    def _new_or_updated_sidecars(self, before: dict[Path, float], output_dir: Path) -> list[Path]:
+        after = self._snapshot_dwi_sidecars(output_dir)
+        changed: list[Path] = []
+        for path, mtime in after.items():
+            if path not in before or mtime > before[path]:
+                changed.append(path)
+        return sorted(changed)
             
     def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> dict:
         self.logger.info("Starting Import Workflow")
@@ -84,10 +101,12 @@ class ImportWorkflow(BaseWorkflow):
         context = dict(context)
         context["dicom_dir"] = resolved_dicom_dir
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
+        sidecars_before = self._snapshot_dwi_sidecars(output_dir)
         
         for step in self.steps:
             if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
                 step.run(resolved_dicom_dir, output_dir, **step_context)
+                context["imported_dwi_sidecars"] = [str(p) for p in self._new_or_updated_sidecars(sidecars_before, output_dir)]
             else:
                 result = step(context, output_dir=output_dir, **context)
                 if isinstance(result, dict):

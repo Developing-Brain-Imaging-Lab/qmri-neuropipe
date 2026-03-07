@@ -217,6 +217,12 @@ def enrich_dwi_sidecar_with_ge_gnl(json_path: Path, series_meta: GeDicomSeriesMe
 
 
 def _target_dwi_sidecars(search_root: Path, context: dict[str, Any]) -> list[Path]:
+    imported = context.get("imported_dwi_sidecars")
+    if imported:
+        sidecars = [Path(p) for p in imported if Path(p).exists()]
+        if sidecars:
+            return sorted(sidecars)
+
     subject = context.get("subject")
     session = context.get("session")
 
