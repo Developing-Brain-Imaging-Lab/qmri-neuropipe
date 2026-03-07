@@ -87,6 +87,13 @@ How this works:
 2. `dcm2bids` or `dcm2niix` converts that directory.
 3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
 
+Archive inputs are also supported:
+
+- pass a single `.tgz` or `.tar.gz` file directly to `--dicom-dir`, or
+- pass a directory containing one or more `.tgz`/`.tar.gz` archives
+
+The import workflow will extract those archives into the configured work directory before conversion and GE metadata enrichment.
+
 ## Notes
 
 - `native_ge` currently requires `numba`.

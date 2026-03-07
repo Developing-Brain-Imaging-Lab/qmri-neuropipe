@@ -202,9 +202,9 @@ def import_command(
     dicom_dir: Path = typer.Option(
         ...,
         "--dicom-dir",
-        help="Path to the source DICOM directory to import",
+        help="Path to the source DICOM directory or .tgz/.tar.gz archive to import",
         exists=True,
-        file_okay=False,
+        file_okay=True,
         dir_okay=True,
         readable=True,
     ),
