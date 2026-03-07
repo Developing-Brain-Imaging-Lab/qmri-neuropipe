@@ -170,6 +170,7 @@ class CoregistrationStep(BaseProcessingStep):
         fs_subjects_dir = None
         fs_subject_id = None
         fs_orig_mgz = None
+        fs_registration_target = None
         if self.method == "freesurfer":
             fs_subject_id = context.get("subject") if context else None
             if not fs_subject_id:
@@ -256,6 +257,12 @@ class CoregistrationStep(BaseProcessingStep):
         # Determine nthreads
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
 
+        if self.method == "freesurfer" and fs_orig_mgz is not None:
+            fs_registration_target = output_dir / "freesurfer_orig.nii.gz"
+            if not fs_registration_target.exists() or kwargs.get("force", False):
+                self.logger.info("Converting FreeSurfer orig.mgz to NIfTI for registration reference...")
+                freesurfer.mri_convert(fs_orig_mgz, fs_registration_target)
+
         # --- PRE-REGISTRATION: Extract Reference for Calculation/Application ---
         # We extract this even if should_run is False, as it may be needed for mask transform conversion
         moving_for_reg = in_path
@@ -285,19 +292,14 @@ class CoregistrationStep(BaseProcessingStep):
         out_res = options.get('output_resolution', 'anatomical').lower()
         resampled_target_context = None # To store for context update
         
-        if out_res in ['dwi', 'native']:
-             if self.method == "freesurfer" and fs_orig_mgz is not None:
-                 self.logger.info(
-                     "Native resolution mode: Resampling FreeSurfer orig.mgz to diffusion grid prior to registration..."
-                 )
-                 resampled_target_path = output_dir / "freesurfer_orig_resampled_to_dwi.nii.gz"
-                 resample_source = fs_orig_mgz
-             else:
-                 self.logger.info(
-                     f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration..."
-                 )
-                 resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
-                 resample_source = target_path
+        registration_target = fs_registration_target or target
+
+        if out_res in ['dwi', 'native'] and self.method != "freesurfer":
+             self.logger.info(
+                 f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration..."
+             )
+             resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
+             resample_source = target_path
              
              if not resampled_target_path.exists() or kwargs.get('force', False):
                  interp = options.get("interpolation", "linear").lower()
@@ -319,6 +321,7 @@ class CoregistrationStep(BaseProcessingStep):
                  self.logger.info(f"Using resampled structural as registration target: {resampled_target_path.name}")
                  target_path = resampled_target_path
                  target = resampled_target_path
+                 registration_target = resampled_target_path
                  resampled_target_context = resampled_target_path
 
         # Skip main coregistration if output exists and is valid
@@ -444,7 +447,7 @@ class CoregistrationStep(BaseProcessingStep):
                          out_prefix = output_dir / "coreg_dwi_to_anat_"
                          
                          ants.registration(
-                             fixed_file=target,
+                             fixed_file=registration_target,
                              moving_file=moving_for_reg,
                              out_prefix=out_prefix,
                              transform_type='Rigid',
@@ -459,7 +462,7 @@ class CoregistrationStep(BaseProcessingStep):
                            
                          # Convert ANTs -> FSL for consistency
                          fsl_mat = output_dir / "coreg_dwi_to_anat_fsl.mat"
-                         c3d.ants2fsl(target, moving_for_reg, transform_file, fsl_mat)
+                         c3d.ants2fsl(registration_target, moving_for_reg, transform_file, fsl_mat)
                          transform_file = fsl_mat
                          
                     else:
@@ -467,7 +470,7 @@ class CoregistrationStep(BaseProcessingStep):
                          temp_reg_out = output_dir / "temp_flirt_calc.nii.gz"
                          fsl.flirt(
                              in_file=moving_for_reg,
-                             ref_file=target,
+                             ref_file=registration_target,
                              out_file=temp_reg_out,
                              omat=transform_file,
                              dof=dof,
@@ -508,7 +511,7 @@ class CoregistrationStep(BaseProcessingStep):
                         in_transform=transform_file,
                         out_mrtrix_transform=mrtrix_transform,
                         operation="flirt_import",
-                        ref_image=target, 
+                        ref_image=registration_target,
                         in_image=moving_for_reg, 
                         force=True
                     )
@@ -522,8 +525,8 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'sinc': mrtrix_interp = 'sinc'
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
-                    output_grid_ref = target
-                    if out_res in ['native', 'dwi']:
+                    output_grid_ref = registration_target
+                    if self.method == "freesurfer" or out_res in ['native', 'dwi']:
                         output_grid_ref = in_path
 
                     mt_kwargs = {
@@ -537,7 +540,7 @@ class CoregistrationStep(BaseProcessingStep):
                     }
                     
                     # Use target as template for regridding (ensures alignment and grid match)
-                    if out_res in ['anatomical', 'native', 'dwi']:
+                    if self.method == "freesurfer" or out_res in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['template'] = output_grid_ref
 
                     mrtrix.mrtransform(**mt_kwargs)
@@ -564,7 +567,7 @@ class CoregistrationStep(BaseProcessingStep):
                     if self.method == 'ants':
                         transform_type = options.get("transform_type", "Rigid")
                         warped, prefix = ants.registration(
-                            fixed_file=target, 
+                            fixed_file=registration_target, 
                             moving_file=moving_for_reg, 
                             out_prefix=output_transform, 
                             transform_type=transform_type,
@@ -573,8 +576,8 @@ class CoregistrationStep(BaseProcessingStep):
                         )
     
                         if is_dwi:
-                             ants.apply_transforms(
-                                 fixed_file=target,
+                                 ants.apply_transforms(
+                                 fixed_file=registration_target,
                                  moving_file=in_path,
                                  out_file=output_img,
                                  transforms=prefix, 
@@ -596,7 +599,7 @@ class CoregistrationStep(BaseProcessingStep):
                         self.logger.info(f"DEBUG: Calling fsl.flirt with in={moving_for_reg}, ref={target}, out={output_img}, cost={cost}, dof={dof}")
                         fsl.flirt(
                             in_file=moving_for_reg, 
-                            ref_file=target, 
+                            ref_file=registration_target, 
                             out_file=output_img, 
                             omat=output_mat, 
                             dof=dof, 
@@ -608,7 +611,7 @@ class CoregistrationStep(BaseProcessingStep):
                             self.logger.info(f"Applying 4D transform to full DWI series using FSL (interp={options.get('interpolation', 'trilinear')})...")
                             fsl.apply_xfm_4d(
                                 in_file=in_path, 
-                                ref_file=target, 
+                                ref_file=registration_target, 
                                 out_file=output_img, 
                                 mat=output_mat,
                                 interp=options.get("interpolation", "trilinear")
@@ -816,10 +819,10 @@ class CoregistrationStep(BaseProcessingStep):
                     if apply_method == 'mrtrix':
                         if not mrtrix_transform.exists() and output_mat.exists():
                              self.logger.info("Converting existing FSL transform to MRTrix for mask application...")
-                             mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=target, in_image=moving_for_reg, force=True)
+                             mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=registration_target, in_image=moving_for_reg, force=True)
                         
                         if mrtrix_transform.exists():
-                            mask_grid_ref = target if is_anatomical else output_img
+                            mask_grid_ref = output_img if self.method == "freesurfer" or not is_anatomical else registration_target
                             mrtrix.mrtransform(
                                 in_file=mask_in_path,
                                 out_file=mask_out_path,
@@ -833,7 +836,7 @@ class CoregistrationStep(BaseProcessingStep):
                         else:
                              self.logger.warning(f"MRTrix transform not found. Falling back to FSL for mask.")
                              if output_mat.exists():
-                                 fsl.flirt(in_file=mask_in_path, ref_file=target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
+                                 fsl.flirt(in_file=mask_in_path, ref_file=registration_target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
                              
                     elif output_mat.exists():
                         # Default FSL application
