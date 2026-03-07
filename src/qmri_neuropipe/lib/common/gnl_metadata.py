@@ -216,6 +216,20 @@ def enrich_dwi_sidecar_with_ge_gnl(json_path: Path, series_meta: GeDicomSeriesMe
     return True
 
 
+def _target_dwi_sidecars(search_root: Path, context: dict[str, Any]) -> list[Path]:
+    subject = context.get("subject")
+    session = context.get("session")
+
+    if subject:
+        sub_dir = search_root / f"sub-{subject}"
+        if session:
+            sub_dir = sub_dir / f"ses-{session}"
+        if sub_dir.exists():
+            return sorted(sub_dir.rglob("*_dwi.json"))
+
+    return sorted(search_root.rglob("*_dwi.json"))
+
+
 class GEGnlMetadataEnrichmentStep(BaseProcessingStep):
     """
     Post-conversion sidecar enrichment for GE gradient nonlinearity metadata.
@@ -255,7 +269,7 @@ class GEGnlMetadataEnrichmentStep(BaseProcessingStep):
             self.logger.warning(f"GNL metadata enrichment skipped: output_dir not found: {search_root}")
             return context
 
-        dwi_sidecars = sorted(search_root.rglob("*_dwi.json"))
+        dwi_sidecars = _target_dwi_sidecars(search_root, context)
         if not dwi_sidecars:
             self.logger.info("No DWI sidecars found for GNL metadata enrichment")
             return context
