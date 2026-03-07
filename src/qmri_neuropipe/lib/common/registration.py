@@ -533,14 +533,16 @@ class CoregistrationStep(BaseProcessingStep):
                         'in_file': temp_mif_in,
                         'out_file': temp_mif_out,
                         'linear_transform': mrtrix_transform,
-                        'strides': output_grid_ref,
                         'interp': mrtrix_interp,
                         'nthreads': nthreads,
                         'force': True
                     }
                     
-                    # Use target as template for regridding (ensures alignment and grid match)
-                    if self.method == "freesurfer" or out_res in ['anatomical', 'native', 'dwi']:
+                    # For FreeSurfer, interpret the transform in FreeSurfer space but do not
+                    # regrid the DWI onto a new voxel lattice. Keep the native diffusion grid.
+                    if self.method != "freesurfer":
+                        mt_kwargs['strides'] = output_grid_ref
+                    if self.method != "freesurfer" and out_res in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['template'] = output_grid_ref
 
                     mrtrix.mrtransform(**mt_kwargs)
@@ -823,16 +825,18 @@ class CoregistrationStep(BaseProcessingStep):
                         
                         if mrtrix_transform.exists():
                             mask_grid_ref = output_img if self.method == "freesurfer" or not is_anatomical else registration_target
-                            mrtrix.mrtransform(
-                                in_file=mask_in_path,
-                                out_file=mask_out_path,
-                                linear_transform=mrtrix_transform,
-                                template=mask_grid_ref,
-                                strides=mask_grid_ref,
-                                interp='nearest',
-                                nthreads=nthreads,
-                                force=True
-                            )
+                            mask_kwargs = {
+                                "in_file": mask_in_path,
+                                "out_file": mask_out_path,
+                                "linear_transform": mrtrix_transform,
+                                "interp": "nearest",
+                                "nthreads": nthreads,
+                                "force": True,
+                            }
+                            if self.method != "freesurfer":
+                                mask_kwargs["template"] = mask_grid_ref
+                                mask_kwargs["strides"] = mask_grid_ref
+                            mrtrix.mrtransform(**mask_kwargs)
                         else:
                              self.logger.warning(f"MRTrix transform not found. Falling back to FSL for mask.")
                              if output_mat.exists():
