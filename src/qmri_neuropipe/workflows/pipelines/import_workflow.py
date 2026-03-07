@@ -45,6 +45,7 @@ class ImportWorkflow(BaseWorkflow):
         - a directory containing DICOM files
         - a single .tgz/.tar.gz archive
         - a directory containing one or more .tgz/.tar.gz archives
+        - a directory containing subdirectories that each contain archive files
         """
         dicom_dir = Path(dicom_dir)
         archive_suffixes = (".tgz", ".tar.gz", ".tar")
@@ -54,7 +55,7 @@ class ImportWorkflow(BaseWorkflow):
             source_key = dicom_dir.stem.replace(".tar", "")
         else:
             archives = sorted(
-                p for p in dicom_dir.iterdir()
+                p for p in dicom_dir.rglob("*")
                 if p.is_file() and any(str(p).endswith(sfx) for sfx in archive_suffixes)
             )
             source_key = dicom_dir.name
