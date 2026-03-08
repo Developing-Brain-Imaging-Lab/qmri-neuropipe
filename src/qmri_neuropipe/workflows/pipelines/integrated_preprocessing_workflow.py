@@ -18,7 +18,10 @@ from qmri_neuropipe.lib.dmri.eddy import EddyCorrectionStep
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
 from qmri_neuropipe.lib.dmri.topup import TopupStep
 from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
-from qmri_neuropipe.lib.dmri.grad_nonlin import TortoiseGradNonlinCorrectStep
+from qmri_neuropipe.lib.dmri.grad_nonlin import (
+    TortoiseGradNonlinCorrectStep,
+    AlignFinalGNLTensorStep
+)
 from qmri_neuropipe.lib.common.registration import CoregistrationStep
 from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
 from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
@@ -104,16 +107,17 @@ class PreprocessingWorkflow(BaseWorkflow):
         self._add_resample_step(dmri_cfg)
         self._add_gradient_check_step(dmri_cfg)
         self._add_manual_outlier_removal_step(dmri_cfg)
-        self._add_distortion_correction_steps(dmri_cfg, context)
         self._add_merge_step(dmri_cfg, context)
+        self._add_gradient_nonlinearity_step(dmri_cfg)
+        self._add_distortion_correction_steps(dmri_cfg, context)
         self._add_denoising_step(dmri_cfg)
         self._add_gibbs_step(dmri_cfg)
         self._add_motion_correction_step(dmri_cfg)
         self._add_automated_outlier_removal_step(dmri_cfg)
         self._add_bias_correction_step(dmri_cfg)
         self._add_coregistration_step(dmri_cfg, context)
-        self._add_gradient_nonlinearity_step(dmri_cfg, context)
         self._add_brain_masking_step(dmri_cfg)
+        self._add_final_gnl_alignment_step(dmri_cfg)
         
         self.logger.info(f"Pipeline built with {len(self.steps)} steps")
 
@@ -215,14 +219,32 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         do_merge = False
         if len(dwi_files) > 1:
-            if merge_cfg.get('enabled', False) or context.get('do_topup', False):
+            if merge_cfg.get('enabled', False) or self._should_run_topup(dmri_cfg, context):
                 do_merge = True
-             
+            
         if do_merge:
             self.logger.info("Adding MergeStep")
             self.add_step(MergeStep(
                 self.config, self.logger, self.provenance
             ))
+
+    def _should_run_topup(self, dmri_cfg: dict, context: dict) -> bool:
+        """Infer whether topup/synb0 will be executed from config and context."""
+        distcorr_cfg = dmri_cfg.get('distcorr', {})
+        dist_method = distcorr_cfg.get('method', 'none')
+        fallback = distcorr_cfg.get('fallback', False)
+        has_topup_groups = bool(context.get("topup_groups"))
+        has_t1w = bool(context.get("t1w_files"))
+
+        if dist_method == 'topup':
+            if has_topup_groups:
+                return True
+            if fallback and has_t1w:
+                return True
+            return False
+        if dist_method == 'synb0':
+            return has_t1w
+        return False
 
     def _add_denoising_step(self, dmri_cfg: dict):
         """Add denoising step if enabled."""
@@ -343,26 +365,17 @@ class PreprocessingWorkflow(BaseWorkflow):
                 provenance=self.provenance,
                 method=method
             ))
-            
-            # Track if coregistration resamples
-            coreg_opts = coreg_cfg.get("options", {})
-            out_res = coreg_opts.get(
-                "output_resolution",
-                coreg_cfg.get("output_resolution", "anatomical")
-            ).lower()
-            context['coreg_resampled'] = (out_res == "anatomical")
 
-    def _add_gradient_nonlinearity_step(self, dmri_cfg: dict, context: dict):
+    def _add_gradient_nonlinearity_step(self, dmri_cfg: dict):
         """Add gradient nonlinearity correction step if enabled."""
         gnl_cfg = dmri_cfg.get('grad_nonlin', {})
         if gnl_cfg.get('enabled', False):
-            coreg_resampled = context.get('coreg_resampled', False)
             self.logger.info("Adding TortoiseGradNonlinCorrectStep")
             self.add_step(TortoiseGradNonlinCorrectStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
-                is_resampled=coreg_resampled
+                is_resampled=False
             ))
 
     def _add_brain_masking_step(self, dmri_cfg: dict):
@@ -383,6 +396,17 @@ class PreprocessingWorkflow(BaseWorkflow):
                 apply_mask=mask_cfg.get('apply_mask', True),
                 mask_input=mask_cfg.get('mask_input', 'b0'),
                 use_gpu=mask_cfg.get('use_gpu')
+            ))
+
+    def _add_final_gnl_alignment_step(self, dmri_cfg: dict):
+        """Add final GNL alignment step so tensor is in final DWI space before modeling."""
+        gnl_cfg = dmri_cfg.get('grad_nonlin', {})
+        if gnl_cfg.get('enabled', False):
+            self.logger.info("Adding AlignFinalGNLTensorStep")
+            self.add_step(AlignFinalGNLTensorStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance
             ))
 
     def run(

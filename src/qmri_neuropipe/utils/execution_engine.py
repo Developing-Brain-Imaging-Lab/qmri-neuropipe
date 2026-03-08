@@ -175,6 +175,9 @@ class ExecutionEngine:
             for old_dwi, new_dwi in zip(old_dwis, current_dwis):
                 if getattr(new_dwi, "img", None):
                     native_ref_map[new_dwi.img] = native_ref_map.get(getattr(old_dwi, "img", None), old_dwi)
+                    context.setdefault("gnl_map_by_image", {})[new_dwi.img] = context.setdefault(
+                        "gnl_map_by_image", {}
+                    ).get(getattr(old_dwi, "img", None))
                     prev_chain = transform_map.get(getattr(old_dwi, "img", None))
                     new_transform = getattr(new_dwi, "spatial_transform", None)
                     if new_transform is not None:
@@ -227,6 +230,7 @@ class ExecutionEngine:
             native_ref = context.get("gnl_native_reference_map", {}).get(dwi.img, dwi)
             img_ctx['native_dwi_for_gnl'] = native_ref
             img_ctx['gnl_spatial_transform'] = normalize_transform_chain(context.get("gnl_transform_map", {}).get(dwi.img))
+            img_ctx['gnl_map'] = context.get("gnl_map_by_image", {}).get(dwi.img)
             
             if dwi.img in topup_map:
                 img_ctx["topup_base"] = topup_map[dwi.img]
@@ -290,6 +294,13 @@ class ExecutionEngine:
                         context["gnl_transform_map"][out_dwi.img] = append_transform(prev_transform, new_transform)
                     elif prev_transform is not None:
                         context["gnl_transform_map"][out_dwi.img] = normalize_transform_chain(prev_transform)
+
+                    if isinstance(result, dict) and "gnl_map" in result:
+                        context.setdefault("gnl_map_by_image", {})[out_dwi.img] = result["gnl_map"]
+                    else:
+                        context.setdefault("gnl_map_by_image", {})[out_dwi.img] = context.get(
+                            "gnl_map_by_image", {}
+                        ).get(dwi.img, context.get("gnl_map"))
                 
                 # Update QC metrics registry
                 self._update_qc_metrics(context, result, out_dwi)
