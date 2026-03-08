@@ -27,6 +27,7 @@ def write_sanitized_json_copy(src_json: Optional[Path], dst_json: Path) -> Optio
         return None
 
     src_payload = sanitize_metadata_payload(json.loads(Path(src_json).read_text()))
+    src_payload.pop("SpatialTransformChain", None)
     with Path(dst_json).open("w") as f:
         json.dump(src_payload, f, indent=2)
         f.write("\n")
