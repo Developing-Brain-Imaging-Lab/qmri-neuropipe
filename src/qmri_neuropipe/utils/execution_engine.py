@@ -310,8 +310,15 @@ class ExecutionEngine:
                     if "gnl_maps" not in context:
                         context["gnl_maps"] = []
                     gnl_path = result["gnl_map"]
+                    prior_map = context.get("gnl_map_by_image", {}).get(dwi.img)
+                    if prior_map is not None:
+                        context["gnl_maps"] = [
+                            existing for existing in context["gnl_maps"]
+                            if existing != prior_map
+                        ]
                     if gnl_path not in context["gnl_maps"]:
                         context["gnl_maps"].append(gnl_path)
+                    context["gnl_map"] = gnl_path
                 
                 # Report
                 if reporter:

@@ -9,8 +9,7 @@ from ...core.types import ImageLike, DWIFile, ImageFile
 from ...core.run import run_cmd
 from ...interfaces import tortoise
 from ...interfaces import ants, c3d
-from ...io.bids import build_bids_name
-from ...io.bids import build_bids_name
+from ...io.bids import build_bids_name, get_entities_from_path
 from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
 from ...core.utils import check_nifti_integrity, extract_image_path
 from .grad_nonlin_native import create_native_ge_gnl_map
@@ -346,14 +345,21 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
         final_ref = _as_3d_reference(final_dwi, "final")
         native_ref_for_reg = _as_3d_reference(native_ref_img, "native")
 
-        # Keep original filename and add explicit final-space suffix.
-        if gnl_map.name.endswith(".nii.gz"):
-            base = gnl_map.name[:-7]
-            suffix = ".nii.gz"
+        # Keep canonical destination name (`desc-gnl_tensor`) in the final DWI-space.
+        ents = {}
+        if hasattr(dwi_image, "entities") and dwi_image.entities:
+            ents = dict(dwi_image.entities)
         else:
-            base = gnl_map.stem
-            suffix = gnl_map.suffix
-        mapped_map = map_output_dir / f"{base}_final{suffix}"
+            ents = get_entities_from_path(final_dwi)
+            ents = {k: v for k, v in ents.items() if k in {
+                "sub", "ses", "task", "acq", "ce", "rec", "dir",
+                "echo", "flip", "inv", "run", "space", "model", "desc",
+                "chunk"
+            } and v is not None}
+
+        ents["desc"] = "gnl_tensor"
+        ents["suffix"] = "dwi"
+        mapped_map = map_output_dir / build_bids_name(ents)
 
         try:
             nthreads = kwargs.get("nthreads", self.config.n_cpus)

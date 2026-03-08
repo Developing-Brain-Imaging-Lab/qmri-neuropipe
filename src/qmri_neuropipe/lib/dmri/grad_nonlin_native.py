@@ -297,6 +297,8 @@ if nb is not None:
                     pt_ras1 = lps2ras_3[1, 0] * pt_lps0 + lps2ras_3[1, 1] * pt_lps1 + lps2ras_3[1, 2] * pt_lps2 - iso_scanner_ras[1]
                     pt_ras2 = lps2ras_3[2, 0] * pt_lps0 + lps2ras_3[2, 1] * pt_lps1 + lps2ras_3[2, 2] * pt_lps2 - iso_scanner_ras[2]
                     b = _pixel_bmatrix(np.array([pt_ras0, pt_ras1, pt_ras2], dtype=np.float64), r0, xkeys, xcoef, ykeys, ycoef, zkeys, zcoef, fact)
+                    # Ensure contiguous layout for Numba matmul optimization (avoid A/C-order warnings).
+                    b = b.copy()
                     b = lps2ras_3 @ b @ lps2ras_3
                     b = b.T
                     b = d_itk.T @ b @ d_itk
@@ -383,7 +385,7 @@ def create_native_ge_gnl_map(
     output_dir.mkdir(parents=True, exist_ok=True)
     native_b0 = output_dir / "native_gnl_b0_mean.nii.gz"
     final_b0 = output_dir / "final_gnl_b0_mean.nii.gz"
-    native_tensor = output_dir / "native_gnl_tensor.nii.gz"
+    native_tensor = output_dir / ".gnl_native_tensor_tmp.nii.gz"
 
     _extract_mean_b0(native_reference, native_b0, force=force)
     _extract_mean_b0(input_image, final_b0, force=force)
@@ -416,27 +418,31 @@ def create_native_ge_gnl_map(
     if _same_grid(native_b0, final_b0):
         if native_tensor != output_path:
             nib.save(nib.load(str(native_tensor)), str(output_path))
+        native_tensor.unlink(missing_ok=True)
         return output_path
 
     logger.info("Rigidly mapping native GE GNL tensor into processed space")
-    reg_prefix = output_dir / "native_to_final_gnl_"
-    _, transforms = ants.registration(
-        fixed_file=final_b0,
-        moving_file=native_b0,
-        out_prefix=reg_prefix,
-        transform_type="Rigid",
-        interpolator="linear",
-        nthreads=nthreads,
-    )
-    ants.apply_transforms(
-        fixed_file=final_b0,
-        moving_file=native_tensor,
-        out_file=output_path,
-        transforms=transforms,
-        interpolator="linear",
-        imagetype=3,
-        nthreads=nthreads,
-    )
+    try:
+        reg_prefix = output_dir / "native_to_final_gnl_"
+        _, transforms = ants.registration(
+            fixed_file=final_b0,
+            moving_file=native_b0,
+            out_prefix=reg_prefix,
+            transform_type="Rigid",
+            interpolator="linear",
+            nthreads=nthreads,
+        )
+        ants.apply_transforms(
+            fixed_file=final_b0,
+            moving_file=native_tensor,
+            out_file=output_path,
+            transforms=transforms,
+            interpolator="linear",
+            imagetype=3,
+            nthreads=nthreads,
+        )
+    finally:
+        native_tensor.unlink(missing_ok=True)
     # This fallback registration is rigid, so reorient the tensor basis as well.
     fallback_affine = output_dir / "native_to_final_gnl_fsl.mat"
     try:
