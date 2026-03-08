@@ -343,10 +343,12 @@ def _rotation_from_fsl_affine(affine_path: Path, moving_reference: Path, fixed_r
     world = fixed_aff @ mat @ np.linalg.inv(moving_aff)
     linear = world[:3, :3]
     u, _, vt = np.linalg.svd(linear)
+    # Keep the signed rotation that matches the provided transform convention.
+    # Forcing det>0 here can silently invert a reflected axis and appears as
+    # spurious flips in downstream tensor reorientation.
     rot = u @ vt
-    if np.linalg.det(rot) < 0:
-        u[:, -1] *= -1.0
-        rot = u @ vt
+    if np.isclose(np.linalg.det(rot), 0.0, atol=1e-8):
+        raise ProcessingError(f"Degenerate FSL rotation extracted from {affine_path}")
     return rot
 
 
