@@ -203,12 +203,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
             spatial_transform = kwargs.get('spatial_transform')
 
         if self.is_resampled and not native_ref:
-             self.logger.warning("GNL Step is configured for resampled data but 'native_dwi_for_gnl' not found in context. Using input as native.")
-             native_ref = input_img
+            self.logger.warning(
+                "GNL Step is configured for resampled data but 'native_dwi_for_gnl' not found in context. Using input as native."
+            )
+            native_ref = input_img
 
-        output_dir = Path(gnl_map).parent
-        if not output_dir:
-            output_dir = Path(output_dir) / "grad_nonlin"
+        output_dir = Path(output_dir) / "grad_nonlin"
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Output is a tensor map
