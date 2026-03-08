@@ -10,7 +10,7 @@ from ...core import BaseProcessingStep, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
 from ...io.bids import build_bids_name, get_entities_from_path
-from ..common.json_metadata import copy_json_with_metadata
+from ..common.json_metadata import copy_json_with_metadata, write_sanitized_json_copy
 from ..common.spatial_transforms import write_transform_chain_to_sidecar
 
 class DMRIReorientStep(BaseProcessingStep):
@@ -100,6 +100,11 @@ class DMRIReorientStep(BaseProcessingStep):
                  )
                  return result
         
+        sanitized_json_import = None
+        if getattr(input_image, "json", None):
+            sanitized_json_import = output_dir / f"{out_path.stem}.mrtrix_import.json"
+            write_sanitized_json_copy(input_image.json, sanitized_json_import)
+
         mrtrix.mrconvert(
                  in_file=input_image.img,
                  out_file=out_path,
@@ -107,11 +112,13 @@ class DMRIReorientStep(BaseProcessingStep):
                  in_bvec=in_bvec,
                  in_bval=in_bval,
                  export_grad_fsl=(out_bvec_path, out_bval_path) if in_bvec else None,
-                 json_import=input_image.json if getattr(input_image, 'json', None) else None,
+                 json_import=sanitized_json_import,
                  json_export=out_path.with_suffix("").with_suffix(".json"), # Export sidecar
                  nthreads=self.config.get("n_cpus", 1),
                  force=True # We checked above
              )
+        if sanitized_json_import:
+            sanitized_json_import.unlink(missing_ok=True)
 
         out_json = out_path.with_suffix("").with_suffix(".json")
         copy_json_with_metadata(getattr(input_image, "json", None), out_json)
