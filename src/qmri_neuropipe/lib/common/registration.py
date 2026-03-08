@@ -17,7 +17,6 @@ from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity
 from .json_metadata import copy_json_with_metadata
 from .spatial_transforms import write_transform_chain_to_sidecar
-from ...lib.dmri.grad_nonlin_native import _rotation_from_fsl_affine, _reorient_tensor_components
 
 
 class NonlinearRegistrationStep(BaseProcessingStep):
@@ -865,7 +864,6 @@ class CoregistrationStep(BaseProcessingStep):
 
         if context is not None:
              spatial_transform = None
-             mapped_gnl_map = None
              if is_dwi:
                   transform_list = []
                   ants_prefix = locals().get('prefix', [])
@@ -890,76 +888,12 @@ class CoregistrationStep(BaseProcessingStep):
                             "fixed_reference": str(target) if Path(target).exists() else None,
                        }
 
-                  # Propagate any existing GNL map into the coregistration output space.
-                  input_gnl_map = context.get("gnl_map")
-                  if not input_gnl_map:
-                      input_gnl_map = context.get("gnl_map_by_image", {}).get(in_path)
-                  if input_gnl_map and spatial_transform and spatial_transform.get("fsl_affine") and output_img.exists():
-                       gnl_in = Path(input_gnl_map)
-                       if gnl_in.exists():
-                           base_name = gnl_in.name
-                           if base_name.endswith(".nii.gz"):
-                               base = base_name[:-7]
-                               gnl_out = output_dir / f"{base}_coreg.nii.gz"
-                           else:
-                               gnl_out = output_dir / f"{gnl_in.stem}_coreg{gnl_in.suffix}"
-                           try:
-                               self.logger.info(f"Applying coregistration transform to GNL tensor: {gnl_in.name}")
-                               map_mrtrix_transform = output_dir / "transform_mrtrix_gnl.txt"
-                               if not map_mrtrix_transform.exists() and output_mat.exists():
-                                   mrtrix.transformconvert(
-                                       output_mat,
-                                       map_mrtrix_transform,
-                                       operation="flirt_import",
-                                       ref_image=registration_target,
-                                       in_image=moving_for_reg,
-                                       force=True
-                                   )
-                               if map_mrtrix_transform.exists():
-                                   mt_kwargs = {
-                                       "in_file": gnl_in,
-                                       "out_file": gnl_out,
-                                       "linear_transform": map_mrtrix_transform,
-                                       "interp": "linear",
-                                       "nthreads": nthreads,
-                                       "force": True,
-                                   }
-                                   # When output resolution differs, resample onto output image grid.
-                                   if self.method != "freesurfer":
-                                       mt_kwargs["template"] = output_img
-                                       mt_kwargs["strides"] = output_img
-                                   mrtrix.mrtransform(**mt_kwargs)
-
-                                   moving_reference = spatial_transform.get("moving_reference")
-                                   fixed_reference = spatial_transform.get("fixed_reference")
-                                   if moving_reference and fixed_reference:
-                                       try:
-                                           fsl_affine = Path(spatial_transform["fsl_affine"])
-                                           rotation = _rotation_from_fsl_affine(
-                                               fsl_affine,
-                                               Path(moving_reference),
-                                               Path(fixed_reference)
-                                           )
-                                           _reorient_tensor_components(gnl_out, rotation)
-                                       except Exception as rot_err:
-                                           self.logger.warning(
-                                               f"Could not reorient GNL tensor basis after coregistration for {gnl_out.name}: {rot_err}"
-                                           )
-
-                                   mapped_gnl_map = gnl_out
-                               else:
-                                   self.logger.warning("Could not generate MRTrix transform for GNL map propagation.")
-                           except Exception as map_err:
-                               self.logger.warning(f"Failed to propagate GNL map through coregistration: {map_err}")
-                       else:
-                           self.logger.warning(f"Coregistration expected GNL map but input was missing: {gnl_in}")
-
              context["current_image"] = result
-             if mapped_gnl_map is not None:
-                 context["gnl_map"] = mapped_gnl_map
              if spatial_transform is not None:
                   context["spatial_transform"] = spatial_transform
                   write_transform_chain_to_sidecar(getattr(result, "json", None), [spatial_transform])
+                  gnl_transforms = context.setdefault("gnl_transform_map", {})
+                  gnl_transforms[str(in_path)] = spatial_transform
              
              # Keep the original structural geometry in context. The resampled structural
              # is only a temporary helper for registration in native/DWI output mode.

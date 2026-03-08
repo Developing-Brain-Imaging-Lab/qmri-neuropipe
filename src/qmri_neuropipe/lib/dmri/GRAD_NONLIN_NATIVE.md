@@ -11,7 +11,6 @@ This backend adds a native GE gradient nonlinearity workflow that does not requi
    - extracts native and final mean b0 images
    - rigidly registers native b0 to final b0
    - applies that rigid transform to the native GNL tensor
-   - reorients tensor components using the rigid rotation
 
 This matches the current project policy: use a rigid native-to-final mapping because the GNL field varies smoothly.
 
@@ -58,7 +57,9 @@ The import enrichment step writes:
     "Source": "dicom_import",
     "IsocenterOffsetScannerRASmm": [x, y, z],
     "Derivation": {
-      "PDBKeys": ["SLOC1", "ELOC1", "FOVCNT1", "FOVCNT2"]
+      "PDBKeys": ["SLOC1", "ELOC1", "FOVCNT1", "FOVCNT2"],
+      "PDBCenterScannerRASRelativeToIsocenterMm": [x, y, z],
+      "NativeGeometryConvention": "make-L_ge_eval_frame"
     }
   }
 }
@@ -100,3 +101,4 @@ The import workflow will extract those archives into the configured work directo
 - The GE coefficient file must be supplied with `coeff_file`.
 - If native and final grids already match, no rigid mapping step is applied.
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
+- The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.

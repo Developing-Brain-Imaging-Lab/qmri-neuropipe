@@ -445,15 +445,4 @@ def create_native_ge_gnl_map(
         )
     finally:
         native_tensor.unlink(missing_ok=True)
-    # This fallback registration is rigid, so reorient the tensor basis as well.
-    fallback_affine = output_dir / "native_to_final_gnl_fsl.mat"
-    try:
-        from ...interfaces import c3d
-        ants_affine = next((Path(t) for t in transforms if str(t).endswith(".mat")), None)
-        if ants_affine and ants_affine.exists():
-            c3d.ants2fsl(final_b0, native_b0, ants_affine, fallback_affine)
-            rotation = _rotation_from_fsl_affine(fallback_affine, native_b0, final_b0)
-            _reorient_tensor_components(output_path, rotation)
-    except Exception as exc:
-        logger.warning(f"Fallback rigid GNL tensor reorientation failed: {exc}")
     return output_path

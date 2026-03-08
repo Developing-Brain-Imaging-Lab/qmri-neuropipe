@@ -8,12 +8,12 @@ from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageLike, DWIFile, ImageFile
 from ...core.run import run_cmd
 from ...interfaces import tortoise
-from ...interfaces import ants, c3d
+from ...interfaces import ants
 from ...io.bids import build_bids_name, get_entities_from_path
 from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
 from ...core.utils import check_nifti_integrity, extract_image_path
 from .grad_nonlin_native import create_native_ge_gnl_map
-from .grad_nonlin_native import _rotation_from_fsl_affine, _reorient_tensor_components, _same_grid
+from .grad_nonlin_native import _same_grid
 
 def create_gnl_map(
     input_image: ImageLike,
@@ -210,9 +210,12 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         output_dir = Path(output_dir) / "grad_nonlin"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Output is a tensor map
-        new_desc = "gnl_tensor" 
-        output_map = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
+        # During preprocessing we write an internal native-space tensor first and
+        # canonicalize to the final desc-gnl_tensor output in the last alignment step.
+        if is_context:
+            output_map = output_dir / f".{build_bids_name({**input_img.entities, 'desc': 'gnl_tensor_native_tmp'})}"
+        else:
+            output_map = output_dir / build_bids_name({**input_img.entities, "desc": "gnl_tensor"})
         
         # Determine Gradient Cofficients
         coeffs = self.grad_coeffs
@@ -248,8 +251,19 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         # Store map in context
         if is_context:
             context["gnl_map"] = result_map
+            gnl_map_by_image = context.setdefault("gnl_map_by_image", {})
+            gnl_map_by_image[str(input_img.img)] = result_map
+
+            source_map = context.setdefault("gnl_source_map", {})
+            source_map[str(result_map)] = str(input_img.img)
+
+            gnl_reference = context.setdefault("gnl_native_reference_map", {})
+            gnl_reference[str(result_map)] = str(input_img.img)
+
             if spatial_transform is not None:
                 context["spatial_transform"] = spatial_transform
+                gnl_transform_map = context.setdefault("gnl_transform_map", {})
+                gnl_transform_map[str(input_img.img)] = spatial_transform
             return context
         else:
             return result_map
@@ -293,6 +307,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
         final_dwi = Path(dwi_image.img)
         gnl_map = (
             context.get("gnl_map_by_image", {}).get(final_dwi)
+            or context.get("gnl_map_by_image", {}).get(str(final_dwi))
             or context.get("gnl_map")
         )
         if not gnl_map:
@@ -304,7 +319,11 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
             self.logger.warning(f"GNL map missing for final alignment: {gnl_map}")
             return context
 
-        native_ref = context.get("gnl_native_reference_map", {}).get(final_dwi, dwi_image)
+        native_ref = (
+            context.get("gnl_source_map", {}).get(str(gnl_map))
+            or context.get("gnl_native_reference_map", {}).get(str(gnl_map))
+            or dwi_image
+        )
         native_ref_img = Path(getattr(native_ref, "img", native_ref))
 
         if not native_ref_img.exists():
@@ -312,16 +331,6 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
                 f"Native GNL reference image missing for {final_dwi.name}; skipping alignment."
             )
             return context
-
-        try:
-            if _same_grid(gnl_map, final_dwi):
-                # Already in final voxel lattice. Keep as-is.
-                context["gnl_map"] = gnl_map
-                context.setdefault("gnl_map_by_image", {})[final_dwi] = gnl_map
-                return context
-        except Exception:
-            # If affine/shape inspection fails, continue with an explicit mapping.
-            self.logger.warning("Could not compare GNL and final DWI grids; forcing remap.")
 
         map_output_dir = Path(gnl_map).parent
         if str(map_output_dir) == ".":
@@ -362,6 +371,18 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
         mapped_map = map_output_dir / build_bids_name(ents)
 
         try:
+            if _same_grid(gnl_map, final_dwi):
+                if gnl_map != mapped_map:
+                    nib.save(nib.load(str(gnl_map)), str(mapped_map))
+                    if gnl_map.name.startswith("."):
+                        gnl_map.unlink(missing_ok=True)
+                context["gnl_map"] = mapped_map
+                context.setdefault("gnl_map_by_image", {})[str(final_dwi)] = mapped_map
+                return context
+        except Exception:
+            self.logger.warning("Could not compare GNL and final DWI grids; forcing remap.")
+
+        try:
             nthreads = kwargs.get("nthreads", self.config.n_cpus)
             reg_prefix = map_output_dir / "gnl_native_to_final_"
             _, transform_list = ants.registration(
@@ -390,26 +411,10 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
             context.setdefault("gnl_map_by_image", {})[final_dwi] = gnl_map
             return context
 
-        affine_file = next(
-            (Path(t) for t in transform_list if str(t).endswith(".mat")),
-            None
-        )
-        if affine_file and affine_file.exists():
-            fsl_affine = map_output_dir / (mapped_map.stem + "_fsl.mat")
-            try:
-                c3d.ants2fsl(final_dwi, native_ref_img, affine_file, fsl_affine)
-                rotation = _rotation_from_fsl_affine(fsl_affine, native_ref_img, final_dwi)
-                _reorient_tensor_components(mapped_map, rotation)
-            except Exception as map_err:
-                self.logger.warning(
-                    f"Could not reorient final-space GNL tensor basis: {map_err}"
-                )
-        else:
-            self.logger.warning(
-                f"No affine found from registration; skipping tensor reorientation for {mapped_map.name}"
-            )
+        if gnl_map.name.startswith(".") and gnl_map != mapped_map:
+            gnl_map.unlink(missing_ok=True)
 
         # Update context to guarantee modeling uses this final-space map.
         context["gnl_map"] = mapped_map
-        context.setdefault("gnl_map_by_image", {})[final_dwi] = mapped_map
+        context.setdefault("gnl_map_by_image", {})[str(final_dwi)] = mapped_map
         return context

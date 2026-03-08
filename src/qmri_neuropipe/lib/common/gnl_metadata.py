@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import nibabel as nib
+import numpy as np
 import pydicom
 from pydicom.errors import InvalidDicomError
 from pydicom.tag import Tag
@@ -27,7 +29,7 @@ class GeDicomSeriesMetadata:
     series_description: Optional[str]
     protocol_name: Optional[str]
     manufacturer: Optional[str]
-    isocenter_offset_scanner_ras_mm: list[float]
+    pdb_center_scanner_ras_rel_iso_mm: list[float]
     derivation_keys: list[str]
 
 
@@ -103,7 +105,7 @@ def extract_ge_series_metadata(dicom_path: Path) -> GeDicomSeriesMetadata:
         series_description=str(getattr(ds, "SeriesDescription", "") or "") or None,
         protocol_name=str(getattr(ds, "ProtocolName", "") or "") or None,
         manufacturer=manufacturer or None,
-        isocenter_offset_scanner_ras_mm=offset,
+        pdb_center_scanner_ras_rel_iso_mm=offset,
         derivation_keys=["SLOC1", "ELOC1", "FOVCNT1", "FOVCNT2"],
     )
 
@@ -141,6 +143,48 @@ def _save_json(path: Path, payload: dict[str, Any]) -> None:
     with path.open("w") as f:
         json.dump(payload, f, indent=2)
         f.write("\n")
+
+
+def _resolve_sidecar_nifti(json_path: Path) -> Optional[Path]:
+    base = str(json_path)
+    if not base.endswith(".json"):
+        return None
+    nii_gz = Path(base[:-5] + ".nii.gz")
+    if nii_gz.exists():
+        return nii_gz
+    nii = Path(base[:-5] + ".nii")
+    if nii.exists():
+        return nii
+    return None
+
+
+def _prep_itk_lps_geometry(img: nib.Nifti1Image) -> np.ndarray:
+    aff_ras = img.affine.astype(np.float64)
+    ras2lps_4 = np.diag([-1.0, -1.0, 1.0, 1.0])
+    aff_lps = ras2lps_4 @ aff_ras
+    a = aff_lps[:3, :3]
+    spacing = np.sqrt((a * a).sum(axis=0))
+    d_itk = a @ np.diag(1.0 / spacing)
+    shape = img.shape[:3]
+    indv = (np.array(shape, dtype=np.float64) - 1.0) / 2.0
+    new_origv = -(d_itk @ (spacing * indv))
+    aff_grad_lps = aff_lps.copy()
+    aff_grad_lps[2, 3] = new_origv[2]
+    return aff_grad_lps
+
+
+def _derive_isocenter_offset_scanner_ras_mm(
+    nifti_path: Path,
+    pdb_center_scanner_ras_rel_iso_mm: list[float],
+) -> list[float]:
+    img = nib.load(str(nifti_path))
+    aff_grad_lps = _prep_itk_lps_geometry(img)
+    shape = img.shape[:3]
+    cijk = (np.array(shape, dtype=np.float64) - 1.0) / 2.0
+    pt_lps_center = (aff_grad_lps @ np.array([cijk[0], cijk[1], cijk[2], 1.0]))[:3]
+    pt_ras_center = np.array([-pt_lps_center[0], -pt_lps_center[1], pt_lps_center[2]], dtype=np.float64)
+    offset = pt_ras_center - np.array(pdb_center_scanner_ras_rel_iso_mm, dtype=np.float64)
+    return [float(v) for v in offset]
 
 
 def _get_series_identifiers(sidecar: dict[str, Any]) -> dict[str, Any]:
@@ -191,15 +235,30 @@ def enrich_dwi_sidecar_with_ge_gnl(json_path: Path, series_meta: GeDicomSeriesMe
     logger = logger or LOGGER
     payload = _load_json(json_path)
     gnl_meta = payload.get("GradientNonlinearityCorrection", {})
+    nifti_path = _resolve_sidecar_nifti(json_path)
+    if nifti_path is None:
+        logger.warning(
+            "Could not resolve NIfTI for %s; falling back to raw PDB center values for GNL metadata.",
+            json_path.name,
+        )
+        isocenter_offset_scanner_ras_mm = series_meta.pdb_center_scanner_ras_rel_iso_mm
+    else:
+        isocenter_offset_scanner_ras_mm = _derive_isocenter_offset_scanner_ras_mm(
+            nifti_path,
+            series_meta.pdb_center_scanner_ras_rel_iso_mm,
+        )
 
     new_block = {
         "Manufacturer": series_meta.manufacturer or "GE",
         "Method": "native_ge",
         "Source": "dicom_import",
-        "IsocenterOffsetScannerRASmm": series_meta.isocenter_offset_scanner_ras_mm,
+        "IsocenterOffsetScannerRASmm": isocenter_offset_scanner_ras_mm,
         "Derivation": {
             "PDBKeys": series_meta.derivation_keys,
+            "PDBCenterScannerRASRelativeToIsocenterMm": series_meta.pdb_center_scanner_ras_rel_iso_mm,
             "RepresentativeDicom": str(series_meta.dicom_path),
+            "RepresentativeNifti": str(nifti_path) if nifti_path else None,
+            "NativeGeometryConvention": "make-L_ge_eval_frame",
             "SeriesInstanceUID": series_meta.series_instance_uid,
             "SeriesNumber": series_meta.series_number,
             "SeriesDescription": series_meta.series_description,
