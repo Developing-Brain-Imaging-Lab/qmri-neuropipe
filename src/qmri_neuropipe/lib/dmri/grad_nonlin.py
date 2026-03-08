@@ -232,9 +232,13 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
         force = kwargs.get('force', False)
         
-        # If not resampled, we don't pass native_ref to the command (as it implies identity)
-        # But create_gnl_map handles the logic. If we want exactly the same behavior as before:
-        passing_native = native_ref if self.is_resampled else None
+        # For the native GE backend we must preserve the original acquisition
+        # geometry whenever it is available, even if the current image has only
+        # been header-reoriented. Other backends keep the previous behavior.
+        if self.method == "native_ge":
+            passing_native = native_ref if native_ref is not None else input_img
+        else:
+            passing_native = native_ref if self.is_resampled else None
         
         result_map = create_gnl_map(
             input_image=input_img,
