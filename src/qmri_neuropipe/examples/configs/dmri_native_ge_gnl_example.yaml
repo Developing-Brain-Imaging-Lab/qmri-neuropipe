@@ -19,9 +19,24 @@ log_level: INFO
 verbose: true
 
 import:
+  auto_run: false
+  dicom_dir: /path/to/source_dicoms/sub-01/ses-01
+  subject: "01"
+  session: "01"
   method: dcm2bids
   dcm2bids:
     config_file: /path/to/bids/code/dcm2bids_config.json
+  gradient_overrides:
+    enabled: false
+    require_both: true
+    stop_on_mismatch: true
+    rules:
+      - match:
+          entities:
+            dir: AP
+            run: "01"
+        bval: /path/to/correct/AP_run01.bval
+        bvec: /path/to/correct/AP_run01.bvec
   gnl_metadata:
     enabled: true
     manufacturer: GE

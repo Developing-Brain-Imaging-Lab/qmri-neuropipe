@@ -159,6 +159,9 @@ def validate_required_arguments(config: PipelineConfig) -> None:
     Raises:
         ConfigurationError: If required arguments are missing
     """
+    import_dicom_dir = config.get("import.dicom_dir")
+    auto_import = bool(import_dicom_dir) and config.get("import.auto_run", True) is not False
+
     required_fields = {
         'bids_dir': 'Input BIDS dataset directory',
         'output_dir': 'Output directory for derivatives',
@@ -185,16 +188,86 @@ def validate_required_arguments(config: PipelineConfig) -> None:
         raise ConfigurationError(error_msg)
     
     # Validate paths exist
-    if not config.bids_dir.exists():
+    if not config.bids_dir.exists() and not auto_import:
         raise ConfigurationError(
             f"BIDS directory does not exist: {config.bids_dir}",
             details="Please check the path and ensure it's accessible."
         )
     
-    if not config.bids_dir.is_dir():
+    if config.bids_dir.exists() and not config.bids_dir.is_dir():
         raise ConfigurationError(
             f"BIDS directory path is not a directory: {config.bids_dir}"
         )
+
+
+def _resolve_auto_import_subject_session(config: PipelineConfig) -> tuple[Optional[str], Optional[str]]:
+    import_subject = config.get("import.subject")
+    import_session = config.get("import.session")
+
+    if import_subject:
+        import_subject = str(import_subject).removeprefix("sub-")
+    elif config.participant_label:
+        if len(config.participant_label) != 1:
+            raise ConfigurationError(
+                "Automatic import requires exactly one subject. Set `import.subject` explicitly or provide a single participant_label."
+            )
+        import_subject = str(config.participant_label[0]).removeprefix("sub-")
+
+    if import_session:
+        import_session = str(import_session).removeprefix("ses-")
+    elif config.session_label:
+        if len(config.session_label) != 1:
+            raise ConfigurationError(
+                "Automatic import requires at most one session. Set `import.session` explicitly or provide a single session_label."
+            )
+        import_session = str(config.session_label[0]).removeprefix("ses-")
+
+    return import_subject, import_session
+
+
+def maybe_run_auto_import(config: PipelineConfig, verbose: bool = False) -> None:
+    dicom_dir = config.get("import.dicom_dir")
+    auto_run = config.get("import.auto_run", True)
+    if not dicom_dir or auto_run is False:
+        return
+
+    dicom_dir = Path(dicom_dir)
+    if not dicom_dir.exists():
+        raise ConfigurationError(f"Automatic import source not found: {dicom_dir}")
+
+    import_method = config.get("import.method", "dcm2bids")
+    subject, session = _resolve_auto_import_subject_session(config)
+    if import_method == "dcm2bids" and not subject:
+        raise ConfigurationError(
+            "Automatic import with dcm2bids requires a subject. Set `import.subject` or provide a single participant_label."
+        )
+
+    if verbose or config.verbose:
+        console.print("\n[bold green]Automatic import[/bold green]\n")
+        _print_args(
+            config,
+            dicom_dir=dicom_dir,
+            import_method=import_method,
+            import_subject=subject,
+            import_session=session,
+            import_target=config.bids_dir,
+        )
+
+    from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
+
+    config.bids_dir.mkdir(parents=True, exist_ok=True)
+    if config.work_dir:
+        config.work_dir.mkdir(parents=True, exist_ok=True)
+
+    workflow = ImportWorkflow(config=config)
+    context = {}
+    if subject:
+        context["subject"] = subject
+    if session:
+        context["session"] = session
+
+    workflow.build_pipeline(context)
+    workflow.run(dicom_dir=dicom_dir, output_dir=config.bids_dir, context=context)
 
 
 @app.command("import")
@@ -601,6 +674,8 @@ def main(
         if config.work_dir is None:
             config.work_dir = config.output_dir / "work"
         config.work_dir.mkdir(parents=True, exist_ok=True)
+
+        maybe_run_auto_import(config, verbose=verbose)
         
         
         # --- Configure Environment for Threading (ANTs, OpenMP, etc.) ---

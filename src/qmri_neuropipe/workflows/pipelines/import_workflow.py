@@ -4,7 +4,12 @@ from typing import Optional
 import tarfile
 from qmri_neuropipe.core import BaseWorkflow
 from qmri_neuropipe.core import ProcessingError
-from qmri_neuropipe.lib.common.importing import Dcm2NiixStep, Dcm2BidsStep, ImportGnlMetadataStep
+from qmri_neuropipe.lib.common.importing import (
+    Dcm2NiixStep,
+    Dcm2BidsStep,
+    ImportGnlMetadataStep,
+    ImportGradientOverrideStep,
+)
 
 class ImportWorkflow(BaseWorkflow):
     """
@@ -28,6 +33,13 @@ class ImportWorkflow(BaseWorkflow):
             ))
         elif method == 'dcm2niix':
             self.add_step(Dcm2NiixStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance
+            ))
+
+        if import_cfg.get('gradient_overrides', {}).get('enabled', False):
+            self.add_step(ImportGradientOverrideStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance
@@ -123,6 +135,7 @@ class ImportWorkflow(BaseWorkflow):
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
         outputs_before = self._snapshot_import_outputs(output_dir)
         sidecars_before = self._snapshot_dwi_sidecars(output_dir)
+        had_existing_outputs = bool(outputs_before)
         
         for step in self.steps:
             if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
@@ -132,11 +145,19 @@ class ImportWorkflow(BaseWorkflow):
                 context["imported_output_files"] = [str(p) for p in imported_outputs]
                 context["imported_dwi_sidecars"] = [str(p) for p in imported_sidecars]
                 if not imported_outputs:
-                    msg = (
-                        "Import step completed without creating or updating any output files. "
-                        "This usually means the dcm2bids/dcm2niix mapping did not match the source series "
-                        "or outputs already exist unchanged."
-                    )
+                    import_method = self.config.get("import.method", "dcm2bids")
+                    if had_existing_outputs:
+                        msg = (
+                            "Import step completed without creating or updating any output files. "
+                            "This usually means the dcm2bids/dcm2niix mapping did not match the source series "
+                            "or outputs already exist unchanged."
+                        )
+                    else:
+                        msg = (
+                            "Import step completed without creating any NIfTI/BIDS output files under "
+                            f"{output_dir}. For {import_method}, this most likely means the conversion/config "
+                            "did not match any source series."
+                        )
                     if self.config.stop_on_error:
                         raise ProcessingError(msg)
                     self.logger.warning(msg)

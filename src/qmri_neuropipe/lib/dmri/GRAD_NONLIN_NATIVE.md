@@ -5,8 +5,9 @@ This backend adds a native GE gradient nonlinearity workflow that does not requi
 ## Summary
 
 1. During import, qmri-neuropipe converts DICOMs with `dcm2niix` or `dcm2bids`.
-2. A GE metadata enrichment step reads representative source DICOMs once and appends a `GradientNonlinearityCorrection` block to each DWI JSON sidecar.
-3. During dMRI processing, the `native_ge` backend:
+2. Optionally, an import-time gradient override step replaces incorrect DICOM-derived `.bval`/`.bvec` files with curated tables.
+3. A GE metadata enrichment step reads representative source DICOMs once and appends a `GradientNonlinearityCorrection` block to each DWI JSON sidecar.
+4. During dMRI processing, the `native_ge` backend:
    - computes the GNL tensor in the native/raw acquisition geometry
    - extracts native and final mean b0 images
    - rigidly registers native b0 to final b0
@@ -19,10 +20,30 @@ This matches the current project policy: use a rigid native-to-final mapping bec
 ### Import
 
 ```yaml
+pipeline: dmri
+bids_dir: /path/to/bids/dataset
+output_dir: /path/to/output/derivatives
+work_dir: /path/to/output/work
+
 import:
+  auto_run: true
+  dicom_dir: /path/to/source_dicoms/sub-01/ses-01
+  subject: "01"
+  session: "01"
   method: dcm2bids
   dcm2bids:
     config_file: /path/to/bids/code/dcm2bids_config.json
+  gradient_overrides:
+    enabled: true
+    require_both: true
+    stop_on_mismatch: true
+    rules:
+      - match:
+          entities:
+            dir: AP
+            run: "01"
+        bval: /path/to/correct/AP_run01.bval
+        bvec: /path/to/correct/AP_run01.bvec
   gnl_metadata:
     enabled: true
     manufacturer: GE
@@ -65,6 +86,25 @@ The import enrichment step writes:
 }
 ```
 
+If gradient overrides are enabled, the import step also writes:
+
+```json
+{
+  "GradientTableOverride": {
+    "Applied": true,
+    "Source": "import.gradient_overrides",
+    "MatchingRule": {
+      "entities": {
+        "dir": "AP",
+        "run": "01"
+      }
+    },
+    "ReplacementBval": "/path/to/correct/AP_run01.bval",
+    "ReplacementBvec": "/path/to/correct/AP_run01.bvec"
+  }
+}
+```
+
 ## Example
 
 See [dmri_native_ge_gnl_example.yaml](/Users/deaniii/Developer/code/repos/qmri-neuropipe/src/qmri_neuropipe/examples/configs/dmri_native_ge_gnl_example.yaml).
@@ -82,11 +122,32 @@ qmri-neuropipe import \
   --session 01
 ```
 
+## One-Command DICOM To Processing
+
+If your config contains `import.dicom_dir`, qmri-neuropipe can import first and then continue directly into the dMRI pipeline:
+
+```bash
+qmri-neuropipe --config /path/to/config.yaml --pipeline dmri
+```
+
+Behavior:
+
+1. If `import.auto_run` is omitted or `true`, qmri-neuropipe runs the import workflow first.
+2. Imported NIfTI/BIDS outputs are written to `bids_dir`.
+3. The normal preprocessing and modeling pipeline then runs against that BIDS dataset.
+
+Notes:
+
+- `bids_dir` is the import target BIDS dataset.
+- `output_dir` remains the derivatives / processing output directory.
+- For `dcm2bids`, automatic import requires exactly one subject; set `import.subject` and optionally `import.session` in the config, or provide a single `participant_label` / `session_label`.
+
 How this works:
 
 1. `--dicom-dir` tells the import workflow which source DICOM directory to scan and convert.
 2. `dcm2bids` or `dcm2niix` converts that directory.
 3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
+4. If `import.gradient_overrides.enabled: true`, qmri-neuropipe matches imported DWI sidecars against the configured rules and replaces the generated `.bval`/`.bvec` files before preprocessing.
 
 Archive inputs are also supported:
 
@@ -102,3 +163,4 @@ The import workflow will extract those archives into the configured work directo
 - If native and final grids already match, no rigid mapping step is applied.
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
 - The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.
+- Gradient overrides are best applied during import rather than by manual file edits afterward, because the sidecar provenance records which replacement tables were used.

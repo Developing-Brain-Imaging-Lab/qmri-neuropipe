@@ -296,11 +296,13 @@ class PipelineConfig:
             self.log_level = 'DEBUG'
 
         errors = []
+        import_dicom_dir = self.get("import.dicom_dir")
+        auto_import = bool(import_dicom_dir) and self.get("import.auto_run", True) is not False
         
         # Check required fields
         if self.bids_dir is None:
             errors.append("bids_dir is required")
-        elif not self.bids_dir.exists():
+        elif not self.bids_dir.exists() and not auto_import:
             errors.append(f"bids_dir does not exist: {self.bids_dir}")
         
         if self.output_dir is None:
