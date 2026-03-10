@@ -39,6 +39,20 @@ def _context_search_root(output_dir: Path, context: dict[str, Any]) -> Path:
     return root if root.exists() else Path(output_dir)
 
 
+def _import_metadata_override_cfg(config) -> dict[str, Any]:
+    import_cfg = (config.get("import", {}) or {})
+    direct_cfg = import_cfg.get("metadata_overrides")
+    if isinstance(direct_cfg, dict):
+        return direct_cfg
+
+    gradient_cfg = import_cfg.get("gradient_overrides") or {}
+    nested_cfg = gradient_cfg.get("metadata_overrides")
+    if isinstance(nested_cfg, dict):
+        return nested_cfg
+
+    return {}
+
+
 def _normalized_match_value(value: Any) -> Any:
     if isinstance(value, str):
         return value.strip().lower()
@@ -408,9 +422,16 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
 
     def run(self, first_arg, output_dir: Path, **kwargs):
         context = first_arg if isinstance(first_arg, dict) else {}
-        override_cfg = (self.config.get("import", {}) or {}).get("metadata_overrides", {})
+        override_cfg = _import_metadata_override_cfg(self.config)
         if not override_cfg.get("enabled", False):
             return context
+
+        gradient_cfg = (self.config.get("import", {}) or {}).get("gradient_overrides") or {}
+        if isinstance(gradient_cfg.get("metadata_overrides"), dict):
+            self.logger.warning(
+                "Detected `import.gradient_overrides.metadata_overrides` in config. "
+                "This nesting is deprecated; use `import.metadata_overrides` instead."
+            )
 
         rules = override_cfg.get("rules") or []
         if not rules:

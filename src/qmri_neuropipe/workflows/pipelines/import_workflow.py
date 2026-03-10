@@ -10,6 +10,7 @@ from qmri_neuropipe.lib.common.importing import (
     ImportGnlMetadataStep,
     ImportGradientOverrideStep,
     ImportMetadataOverrideStep,
+    _import_metadata_override_cfg,
 )
 
 class ImportWorkflow(BaseWorkflow):
@@ -39,7 +40,8 @@ class ImportWorkflow(BaseWorkflow):
                 provenance=self.provenance
             ))
 
-        if import_cfg.get('metadata_overrides', {}).get('enabled', False):
+        metadata_override_cfg = _import_metadata_override_cfg(self.config)
+        if metadata_override_cfg.get('enabled', False):
             self.add_step(ImportMetadataOverrideStep(
                 config=self.config,
                 logger=self.logger,
