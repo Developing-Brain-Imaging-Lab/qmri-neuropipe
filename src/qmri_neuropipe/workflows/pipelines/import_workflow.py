@@ -126,6 +126,26 @@ class ImportWorkflow(BaseWorkflow):
             if path not in before or mtime > before[path]:
                 changed.append(path)
         return sorted(changed)
+
+    def _existing_subject_outputs(self, output_dir: Path, context: dict) -> list[Path]:
+        root = Path(output_dir)
+        if not root.exists():
+            return []
+
+        subject = context.get("subject")
+        session = context.get("session")
+        if subject:
+            subj_root = root / f"sub-{subject}"
+            if session:
+                subj_root = subj_root / f"ses-{session}"
+            if subj_root.exists():
+                patterns = ("*.nii", "*.nii.gz", "*.json", "*.bval", "*.bvec")
+                found: list[Path] = []
+                for pattern in patterns:
+                    found.extend(p for p in subj_root.rglob(pattern) if p.is_file())
+                return sorted(set(found))
+
+        return sorted(self._snapshot_import_outputs(root).keys())
             
     def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> dict:
         self.logger.info("Starting Import Workflow")
@@ -146,6 +166,18 @@ class ImportWorkflow(BaseWorkflow):
                 context["imported_dwi_sidecars"] = [str(p) for p in imported_sidecars]
                 if not imported_outputs:
                     import_method = self.config.get("import.method", "dcm2bids")
+                    existing_target_outputs = self._existing_subject_outputs(output_dir, context)
+                    if existing_target_outputs:
+                        self.logger.info(
+                            "Import created no new files, but existing imported outputs were found for the requested target. "
+                            "Continuing with the existing BIDS data."
+                        )
+                        context["imported_output_files"] = [str(p) for p in existing_target_outputs]
+                        if not context.get("imported_dwi_sidecars"):
+                            context["imported_dwi_sidecars"] = [
+                                str(p) for p in existing_target_outputs if p.name.endswith("_dwi.json")
+                            ]
+                        continue
                     if had_existing_outputs:
                         msg = (
                             "Import step completed without creating or updating any output files. "
@@ -156,7 +188,9 @@ class ImportWorkflow(BaseWorkflow):
                         msg = (
                             "Import step completed without creating any NIfTI/BIDS output files under "
                             f"{output_dir}. For {import_method}, this most likely means the conversion/config "
-                            "did not match any source series."
+                            "did not match any source series. With dcm2bids, the next thing to check is whether "
+                            "the dcm2bids config descriptions actually match the source SeriesDescription / "
+                            "ProtocolName values."
                         )
                     if self.config.stop_on_error:
                         raise ProcessingError(msg)
