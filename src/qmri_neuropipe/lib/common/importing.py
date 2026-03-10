@@ -26,6 +26,19 @@ def _entity_source_path(json_path: Path) -> Path:
     return _sidecar_nifti_path(json_path) or json_path
 
 
+def _context_search_root(output_dir: Path, context: dict[str, Any]) -> Path:
+    root = Path(output_dir)
+    subject = context.get("subject")
+    session = context.get("session")
+
+    if subject:
+        root = root / f"sub-{subject}"
+        if session:
+            root = root / f"ses-{session}"
+
+    return root if root.exists() else Path(output_dir)
+
+
 def _normalized_match_value(value: Any) -> Any:
     if isinstance(value, str):
         return value.strip().lower()
@@ -207,9 +220,10 @@ class ImportGradientOverrideStep(BaseProcessingStep):
 
     def _target_dwi_sidecars(self, output_dir: Path, context: dict[str, Any]) -> list[Path]:
         imported = context.get("imported_dwi_sidecars") or []
-        if imported:
-            return [Path(p) for p in imported if Path(p).exists()]
-        return sorted(Path(output_dir).rglob("*_dwi.json"))
+        candidates = {Path(p) for p in imported if Path(p).exists()}
+        search_root = _context_search_root(output_dir, context)
+        candidates.update(path for path in search_root.rglob("*_dwi.json") if path.is_file())
+        return sorted(candidates)
 
     def _match_rule(self, json_path: Path, rule: dict[str, Any]) -> bool:
         return _match_import_rule(json_path, rule)
@@ -348,18 +362,17 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
 
     def _target_sidecars(self, output_dir: Path, context: dict[str, Any]) -> list[Path]:
         imported = context.get("imported_json_sidecars") or []
-        if imported:
-            return [
-                Path(p)
-                for p in imported
-                if Path(p).exists() and _is_relaxometry_sidecar(Path(p))
-            ]
+        candidates = {
+            Path(p)
+            for p in imported
+            if Path(p).exists() and _is_relaxometry_sidecar(Path(p))
+        }
 
-        candidates: list[Path] = []
-        for path in sorted(Path(output_dir).rglob("*.json")):
+        search_root = _context_search_root(output_dir, context)
+        for path in sorted(search_root.rglob("*.json")):
             if _sidecar_nifti_path(path) is not None and _is_relaxometry_sidecar(path):
-                candidates.append(path)
-        return candidates
+                candidates.add(path)
+        return sorted(candidates)
 
     def _resolve_rule(self, json_path: Path, rules: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
         return _resolve_import_rule(json_path, rules, label="metadata override")
