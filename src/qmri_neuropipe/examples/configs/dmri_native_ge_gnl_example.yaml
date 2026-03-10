@@ -37,6 +37,12 @@ import:
             run: "01"
         bval: /path/to/correct/AP_run01.bval
         bvec: /path/to/correct/AP_run01.bvec
+      - match:
+          json_fields:
+            PhaseEncodingDirection: i-
+            SeriesDescription: dw500_pe0_out
+        bval: /path/to/correct/pe0_out.bval
+        bvec: /path/to/correct/pe0_out.bvec
   gnl_metadata:
     enabled: true
     manufacturer: GE

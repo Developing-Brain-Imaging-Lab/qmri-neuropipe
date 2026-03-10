@@ -120,6 +120,7 @@ class ImportGradientOverrideStep(BaseProcessingStep):
         match_cfg = rule.get("match") or {}
         if not match_cfg:
             return False
+        payload = None
 
         bids_name = match_cfg.get("bids_name")
         if bids_name:
@@ -131,6 +132,14 @@ class ImportGradientOverrideStep(BaseProcessingStep):
             found = get_entities_from_path(json_path)
             for key, expected in entities_match.items():
                 if str(found.get(key)) != str(expected):
+                    return False
+            return True
+
+        json_fields = match_cfg.get("json_fields")
+        if isinstance(json_fields, dict):
+            payload = payload or json.loads(json_path.read_text())
+            for key, expected in json_fields.items():
+                if str(payload.get(key)) != str(expected):
                     return False
             return True
 

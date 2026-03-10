@@ -44,6 +44,12 @@ import:
             run: "01"
         bval: /path/to/correct/AP_run01.bval
         bvec: /path/to/correct/AP_run01.bvec
+      - match:
+          json_fields:
+            PhaseEncodingDirection: i-
+            SeriesDescription: dw500_pe0_out
+        bval: /path/to/correct/pe0_out.bval
+        bvec: /path/to/correct/pe0_out.bvec
   gnl_metadata:
     enabled: true
     manufacturer: GE
@@ -148,6 +154,7 @@ How this works:
 2. `dcm2bids` or `dcm2niix` converts that directory.
 3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
 4. If `import.gradient_overrides.enabled: true`, qmri-neuropipe matches imported DWI sidecars against the configured rules and replaces the generated `.bval`/`.bvec` files before preprocessing.
+   Matching can use either BIDS entities or JSON metadata fields such as `PhaseEncodingDirection` and `SeriesDescription`.
 
 Archive inputs are also supported:
 
@@ -164,3 +171,4 @@ The import workflow will extract those archives into the configured work directo
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
 - The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.
 - Gradient overrides are best applied during import rather than by manual file edits afterward, because the sidecar provenance records which replacement tables were used.
+- If `dcm2bids` emits `run-01`, `run-02`, etc. instead of `dir-AP`, `dir-PA`, match gradient overrides with `json_fields` or fix the `dcm2bids` config so it assigns distinct `dir` or `acq` entities.
