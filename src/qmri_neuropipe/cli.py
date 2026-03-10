@@ -117,11 +117,19 @@ def merge_cli_and_config(
     Raises:
         ConfigurationError: If config file is invalid or required fields missing
     """
+    normalized_cli_args = {}
+    for key, value in cli_args.items():
+        if value is None:
+            continue
+        if key in ['participant_label', 'session_label'] and isinstance(value, str):
+            value = [value]
+        normalized_cli_args[key] = value
+
     # Start with config file if provided
     if config_file:
         try:
             console.print(f"[blue]Loading configuration from:[/blue] {config_file}")
-            config = PipelineConfig.from_file(config_file)
+            config = PipelineConfig.from_file(config_file, overrides=normalized_cli_args)
         except FileNotFoundError:
             raise ConfigurationError(
                 f"Configuration file not found: {config_file}",
@@ -138,12 +146,8 @@ def merge_cli_and_config(
     
     # Override with CLI arguments (only if explicitly provided)
     # We only merge non-None values to distinguish between "not provided" and "provided as None"
-    for key, value in cli_args.items():
+    for key, value in normalized_cli_args.items():
         if value is not None:
-            # Handle list conversion for participant/session labels
-            if key in ['participant_label', 'session_label'] and isinstance(value, str):
-                value = [value]
-            
             config.set(key, value)
     
     return config
