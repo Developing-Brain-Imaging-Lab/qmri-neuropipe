@@ -40,7 +40,7 @@ def _ensure_acqp_index(in_dwi: DWIFile) -> tuple[Path | None, Path | None]:
     """
     Create acqp/index files if possible from BIDS metadata.
     """
-    return build_acqp_index(in_dwi.json, in_dwi.img)
+    return build_acqp_index(in_dwi.json, in_dwi.img, entities=getattr(in_dwi, "entities", None))
 
 
 def bet(in_file: ImageLike | Path, out_file: Path, frac: float = 0.5, mask: bool = True, robust: bool = True) -> tuple[Path, Optional[Path]]:

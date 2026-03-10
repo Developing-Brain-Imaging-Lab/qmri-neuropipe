@@ -10,6 +10,15 @@ from qmri_neuropipe.core.types import ImageFile, DWIFile
 from qmri_neuropipe.core.utils import get_nifti_stem
 from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
 
+_DIR_ENTITY_TO_PED = {
+    "RL": "i",
+    "LR": "i-",
+    "AP": "j",
+    "PA": "j-",
+    "SI": "k",
+    "IS": "k-",
+}
+
 # def load_dwi_from_bids(sub_dir: Path) -> Dict[Path, Path, Path, Path, Optional[Path], Optional[Path]]:
 #     """
 #     Very small helper: picks the first *_dwi.nii.gz and mates .bval/.bvec/.json.
@@ -83,22 +92,40 @@ def build_dwi_path(root, sub_id, session=None, entities=None):
 
     return Path(*parts) / fname
 
-def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | None, Path | None]:
+def infer_phase_encoding_direction(dwi: DWIFile | None = None, json_path: Path | None = None, entities: Optional[dict] = None):
+    """
+    Resolve PhaseEncodingDirection from BIDS JSON first, then common dir-* entity labels.
+    """
+    ped = _load_json_field(json_path or getattr(dwi, "json", None), "PhaseEncodingDirection")
+    if ped:
+        return ped
+
+    source_entities = entities or getattr(dwi, "entities", {}) or {}
+    dir_label = source_entities.get("dir")
+    if dir_label:
+        return _DIR_ENTITY_TO_PED.get(str(dir_label).strip().upper())
+
+    return None
+
+
+def build_acqp_index(json_path: Path | None, dwi_path: Path, entities: Optional[dict] = None) -> Tuple[Path | None, Path | None]:
     """
     Build minimal FSL acqp.txt and index.txt from BIDS JSON.
     This is a stub that writes a single PE dir/ro time line if JSON is present.
     Expand for multi-PE or TOPUP use.
     """
     if not json_path or not json_path.exists():
-        return None, None
+        if not entities:
+            return None, None
+        meta = {}
+    else:
+        try:
+            meta = json.loads(json_path.read_text())
+        except Exception:
+            return None, None
 
-    try:
-        meta = json.loads(json_path.read_text())
-    except Exception:
-        return None, None
-
-    pe = meta.get("PhaseEncodingDirection")
-    if pe is None:
+    ped = infer_phase_encoding_direction(json_path=json_path, entities=entities)
+    if ped is None:
         return None, None
 
     trt = meta.get("TotalReadoutTime", 0.05)  # seconds
@@ -118,7 +145,7 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path) -> Tuple[Path | Non
         "j-": "0 -1 0",
         "k":  "0 0 1",
         "k-": "0 0 -1",
-    }.get(pe, "0 1 0")
+    }.get(ped, "0 1 0")
 
     acqp.write_text(f"{line} {trt:.6f}\n", encoding="utf-8")
 
@@ -163,7 +190,7 @@ def find_reversed_phase_groups(dwi_files: list[DWIFile], group_by: tuple[str, ..
 
     for dwi in dwi_files:
         ents = dwi.entities
-        ped_raw = _load_json_field(dwi.json, "PhaseEncodingDirection")
+        ped_raw = infer_phase_encoding_direction(dwi)
         if not ped_raw:
             # Could not determine PE direction; ignore for grouping
             continue
@@ -191,6 +218,5 @@ def find_reversed_phase_groups(dwi_files: list[DWIFile], group_by: tuple[str, ..
             combined_groups.append(combined)
 
     return combined_groups
-
 
 
