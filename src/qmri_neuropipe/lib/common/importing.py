@@ -53,6 +53,26 @@ def _import_metadata_override_cfg(config) -> dict[str, Any]:
     return {}
 
 
+def _metadata_override_updates(rule: dict[str, Any], logger=None, json_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    updates = rule.get("metadata") or rule.get("updates")
+    if isinstance(updates, dict) and updates:
+        return updates
+
+    match_cfg = rule.get("match") or {}
+    nested_updates = match_cfg.get("metadata") or match_cfg.get("updates")
+    if isinstance(nested_updates, dict) and nested_updates:
+        if logger:
+            target = json_path.name if json_path else "metadata override rule"
+            logger.warning(
+                "Detected metadata override fields nested under `match` for %s. "
+                "This layout is deprecated; move `metadata` to the rule top level.",
+                target,
+            )
+        return nested_updates
+
+    return None
+
+
 def _normalized_match_value(value: Any) -> Any:
     if isinstance(value, str):
         return value.strip().lower()
@@ -454,7 +474,7 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
                 unmatched.append(json_path.name)
                 continue
 
-            updates = rule.get("metadata") or rule.get("updates")
+            updates = _metadata_override_updates(rule, logger=self.logger, json_path=json_path)
             if not isinstance(updates, dict) or not updates:
                 raise ProcessingError(f"Metadata override rule for {json_path.name} is missing a metadata block")
 
