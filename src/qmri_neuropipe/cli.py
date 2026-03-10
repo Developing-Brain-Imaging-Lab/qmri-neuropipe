@@ -383,6 +383,15 @@ def import_command(
 def main(
     ctx: typer.Context,
     # Core paths (can be provided via CLI or config)
+    dicom_dir: Optional[Path] = typer.Option(
+        None,
+        "--dicom-dir",
+        help="Optional DICOM source directory or archive for automatic import before processing",
+        exists=True,
+        file_okay=True,
+        dir_okay=True,
+        readable=True,
+    ),
     bids_dir: Optional[Path] = typer.Option(
         None, 
         "--bids-dir",
@@ -596,6 +605,8 @@ def main(
         # Note: pipeline and level are NOT part of PipelineConfig dataclass
         # They control which workflow runs, not how it runs
         cli_args = {
+            'import.dicom_dir': dicom_dir,
+            'import.auto_run': True if dicom_dir is not None else None,
             'bids_dir': bids_dir,
             'output_dir': output_dir,
             'work_dir': work_dir,
