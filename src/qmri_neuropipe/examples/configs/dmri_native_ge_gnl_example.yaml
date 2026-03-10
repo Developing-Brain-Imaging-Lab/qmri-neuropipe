@@ -41,6 +41,11 @@ import:
         metadata:
           FlipAngle: [10, 20, 30, 40]
           PhaseCycling: [0, 180, 0, 180]
+      - match:
+          entities:
+            acq: afi
+        metadata:
+          TRRatio: 5.0
   gradient_overrides:
     enabled: false
     require_both: true

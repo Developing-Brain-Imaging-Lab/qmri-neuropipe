@@ -7,7 +7,7 @@ This backend adds a native GE gradient nonlinearity workflow that does not requi
 1. During import, qmri-neuropipe converts DICOMs with `dcm2niix` or `dcm2bids`.
 2. Optionally, an import-time gradient override step replaces incorrect DICOM-derived `.bval`/`.bvec` files with curated tables.
 3. A GE metadata enrichment step reads representative source DICOMs once and appends a `GradientNonlinearityCorrection` block to each DWI JSON sidecar.
-4. Optionally, an import-time metadata override step updates image sidecars with curated fields such as variable `FlipAngle` arrays or SSFP `PhaseCycling` arrays.
+4. Optionally, an import-time metadata override step updates image sidecars with curated fields such as variable `FlipAngle` arrays, SSFP `PhaseCycling` arrays, or AFI `TRRatio`.
 5. During dMRI processing, the `native_ge` backend:
    - computes the GNL tensor in the native/raw acquisition geometry
    - extracts native and final mean b0 images
@@ -49,6 +49,11 @@ import:
         metadata:
           FlipAngle: [10, 20, 30, 40]
           PhaseCycling: [0, 180, 0, 180]
+      - match:
+          entities:
+            acq: afi
+        metadata:
+          TRRatio: 5.0
   gradient_overrides:
     enabled: true
     require_both: true
@@ -187,7 +192,7 @@ How this works:
 2. `dcm2bids` or `dcm2niix` converts that directory.
 3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
 4. If `import.metadata_overrides.enabled: true`, qmri-neuropipe matches imported image sidecars against the configured rules and updates the requested JSON fields before preprocessing.
-   This is useful for 4D SPGR/SSFP data where the imported sidecar needs curated `FlipAngle` or `PhaseCycling` arrays.
+   This is useful for 4D SPGR/SSFP data where the imported sidecar needs curated `FlipAngle` or `PhaseCycling` arrays, and for AFI/B1 sidecars that need scalar values such as `TRRatio`.
 5. If `import.gradient_overrides.enabled: true`, qmri-neuropipe matches imported DWI sidecars against the configured rules and replaces the generated `.bval`/`.bvec` files before preprocessing.
    Matching can use either BIDS entities or JSON metadata fields such as `PhaseEncodingDirection` and `SeriesDescription`.
 
@@ -206,5 +211,5 @@ The import workflow will extract those archives into the configured work directo
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
 - The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.
 - Gradient overrides are best applied during import rather than by manual file edits afterward, because the sidecar provenance records which replacement tables were used.
-- Metadata overrides are also best applied during import, especially for 4D SPGR/SSFP sidecars that need curated `FlipAngle` or `PhaseCycling` arrays; list-valued fields are validated against the imported image volume count.
+- Metadata overrides are also best applied during import, especially for 4D SPGR/SSFP sidecars that need curated `FlipAngle` or `PhaseCycling` arrays, or AFI sidecars that need scalar fields such as `TRRatio`; list-valued fields are validated against the imported image volume count.
 - If `dcm2bids` emits `run-01`, `run-02`, etc. instead of `dir-AP`, `dir-PA`, match gradient overrides with `json_fields` or fix the `dcm2bids` config so it assigns distinct `dir` or `acq` entities.

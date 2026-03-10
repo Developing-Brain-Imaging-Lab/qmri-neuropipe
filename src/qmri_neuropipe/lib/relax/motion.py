@@ -11,6 +11,7 @@ from ...core.run import run_cmd
 from ...io.bids import build_bids_name
 from ...interfaces import ants, fsl # Assuming ants interface exists or use direct
 from ...utils.relax_params import _extract_bids_param
+from ..common.json_metadata import copy_json_with_metadata
 
 class SPGRMotionCorrectionStep(BaseProcessingStep):
     """
@@ -95,6 +96,7 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             
             out_name = build_bids_name(ents)
             out_path = output_dir / out_name
+            out_json = out_path.with_suffix("").with_suffix(".json")
             
             # Check if exists and valid
             if out_path.exists() and not force:
@@ -104,7 +106,9 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                          self.logger.warning(f"Existing output {out_name} appears truncated. Re-running.")
                     else:
                          self.logger.info(f"Skipping Motion Correction (Exists): {out_name}")
-                         processed_outputs.append(ImageFile(img=out_path, entities=ents, json=img.json))
+                         copy_json_with_metadata(getattr(img, "json", None), out_json)
+                         result_json = out_json if out_json.exists() else getattr(img, "json", None)
+                         processed_outputs.append(ImageFile(img=out_path, entities=ents, json=result_json))
                          continue
                 except:
                     pass 
@@ -134,8 +138,11 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                 
             else:
                 self._register(img.img, ref_path, out_path)
+
+            copy_json_with_metadata(getattr(img, "json", None), out_json)
+            result_json = out_json if out_json.exists() else getattr(img, "json", None)
                 
-            processed_outputs.append(ImageFile(img=out_path, entities=ents, json=img.json))
+            processed_outputs.append(ImageFile(img=out_path, entities=ents, json=result_json))
             
         # Cleanup temp ref if it was created
         if ref_path.name == "temp_ref.nii.gz" and ref_path.exists():
@@ -167,5 +174,4 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
              for k in ['cost', 'bins', 'searchcost', 'interp']:
                  if k in self.options: flirt_kwargs[k] = self.options[k]
              flirt(**flirt_kwargs)
-
 

@@ -24,6 +24,7 @@ from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, DWIFile, ImageLike
 from ...interfaces import dipy, ants, mrtrix
 from ...io.bids import build_bids_name
+from .json_metadata import copy_json_with_metadata
 
 # Try to import optional dependencies
 try:
@@ -199,8 +200,10 @@ class GibbsUnringingStep(BaseProcessingStep):
         new_desc = f"{old_desc}Gibbs" if old_desc else "Gibbs"
         
         output_img = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
+        output_json = output_img.with_suffix("").with_suffix(".json")
                
         # Check if output exists and is valid
+        should_skip = False
         if output_img.exists() and not kwargs.get('force', False):
              # Check timestamps
              in_mtime = input_img.img.stat().st_mtime
@@ -210,18 +213,21 @@ class GibbsUnringingStep(BaseProcessingStep):
                  self.logger.info(f"Gibbs input ({input_img.img.name}) is newer than output. Re-running.")
              else:
                  self.logger.info(f"Skipping {self.method} gibbs unringing (Output exists and up-to-date: {output_img.name})")
-                 # Reconstruct result object
-             # Reconstruct result object
+                 should_skip = True
+
+        if should_skip:
+             copy_json_with_metadata(getattr(input_img, "json", None), output_json)
+             result_json = output_json if output_json.exists() else getattr(input_img, "json", None)
              if isinstance(input_img, DWIFile):
                  result_img = DWIFile(
                     entities=input_img.entities,
                     img=output_img,
-                    json=input_img.json,
+                    json=result_json,
                     bval=input_img.bval,
                     bvec=input_img.bvec
                  )
              else:
-                 result_img = ImageFile(entities=input_img.entities, img=output_img, json=input_img.json)
+                 result_img = ImageFile(entities=input_img.entities, img=output_img, json=result_json)
                  
              if context is not None:
                 context["current_image"] = result_img
@@ -260,17 +266,19 @@ class GibbsUnringingStep(BaseProcessingStep):
             )
                 
         self.logger.info(f"Gibbs corrected image saved to: {output_img}")
+        copy_json_with_metadata(getattr(input_img, "json", None), output_json)
+        result_json = output_json if output_json.exists() else getattr(input_img, "json", None)
         
         if isinstance(input_img, DWIFile):
             result_img = DWIFile(entities=input_img.entities,
                                  img=corrected,
-                                 json=input_img.json,
+                                 json=result_json,
                                  bval=input_img.bval,
                                  bvec=input_img.bvec)
         else:
             result_img = ImageFile(entities=input_img.entities,
                                    img=corrected,
-                                   json=input_img.json)
+                                   json=result_json)
         
         # ---- Return shape depends on input shape ----
         if context is not None:
@@ -388,4 +396,3 @@ __all__ = [
     'GibbsUnringingStep',
     'gibbs_unringing'
 ]
-

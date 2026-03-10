@@ -22,11 +22,25 @@ def sanitize_metadata_payload(payload: dict) -> dict:
     return sanitized
 
 
-def write_sanitized_json_copy(src_json: Optional[Path], dst_json: Path) -> Optional[Path]:
-    if not src_json or not Path(src_json).exists():
+def _load_metadata_payload(src_json: Optional[Path | dict]) -> Optional[dict]:
+    if not src_json:
         return None
 
-    src_payload = sanitize_metadata_payload(json.loads(Path(src_json).read_text()))
+    if isinstance(src_json, dict):
+        return sanitize_metadata_payload(src_json)
+
+    src_path = Path(src_json)
+    if not src_path.exists():
+        return None
+
+    return sanitize_metadata_payload(json.loads(src_path.read_text()))
+
+
+def write_sanitized_json_copy(src_json: Optional[Path | dict], dst_json: Path) -> Optional[Path]:
+    src_payload = _load_metadata_payload(src_json)
+    if src_payload is None:
+        return None
+
     src_payload.pop("SpatialTransformChain", None)
     with Path(dst_json).open("w") as f:
         json.dump(src_payload, f, indent=2)
@@ -34,12 +48,10 @@ def write_sanitized_json_copy(src_json: Optional[Path], dst_json: Path) -> Optio
     return dst_json
 
 
-def copy_json_with_metadata(src_json: Optional[Path], dst_json: Path) -> Optional[Path]:
-    if not src_json or not Path(src_json).exists():
+def copy_json_with_metadata(src_json: Optional[Path | dict], dst_json: Path) -> Optional[Path]:
+    src_payload = _load_metadata_payload(src_json)
+    if src_payload is None:
         return None
-
-    src_json = Path(src_json)
-    src_payload = sanitize_metadata_payload(json.loads(src_json.read_text()))
 
     if dst_json.exists():
         try:

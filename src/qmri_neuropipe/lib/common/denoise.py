@@ -26,6 +26,7 @@ from ...interfaces import dipy, ants, mrtrix, fsl
 from ...io.bids import build_bids_name
 from ...core.run import run_cmd
 from ...core.utils import get_nifti_stem
+from .json_metadata import copy_json_with_metadata
 
 
 class DenoisingStep(BaseProcessingStep):
@@ -200,6 +201,7 @@ class DenoisingStep(BaseProcessingStep):
         new_desc = f"{old_desc}denoised" if old_desc else "denoised"
         
         output_img_path = output_dir / build_bids_name({**input_img.entities, "desc": new_desc})
+        output_json_path = output_img_path.with_suffix("").with_suffix(".json")
         
         # Noise map usually shares basename
         noise_map_desc = f"{new_desc}NoiseMap"
@@ -219,17 +221,19 @@ class DenoisingStep(BaseProcessingStep):
                  should_skip = True
         
         if should_skip:
+             copy_json_with_metadata(getattr(input_img, "json", None), output_json_path)
+             result_json = output_json_path if output_json_path.exists() else getattr(input_img, "json", None)
              # Reconstruct result object
              if isinstance(input_img, DWIFile):
                  result_img = DWIFile(
                     entities=input_img.entities,
                     img=output_img_path,
-                    json=input_img.json,
+                    json=result_json,
                     bval=input_img.bval,
                     bvec=input_img.bvec
                  )
              else:
-                 result_img = ImageFile(entities=input_img.entities, img=output_img_path, json=input_img.json)
+                 result_img = ImageFile(entities=input_img.entities, img=output_img_path, json=result_json)
                  
              if context is not None:
                 context["current_image"] = result_img
@@ -409,6 +413,8 @@ class DenoisingStep(BaseProcessingStep):
 
         # Save denoised image log
         self.logger.info(f"Denoised image saved to: {output_img_path}")
+        copy_json_with_metadata(getattr(input_img, "json", None), output_json_path)
+        result_json = output_json_path if output_json_path.exists() else getattr(input_img, "json", None)
         
         # Also save noise map if MP-PCA
         if noise_map is not None:
@@ -420,13 +426,13 @@ class DenoisingStep(BaseProcessingStep):
         if isinstance(input_img, DWIFile):
             result_img = DWIFile(entities=input_img.entities,
                                  img=denoised,
-                                 json=input_img.json,
+                                 json=result_json,
                                  bval=input_img.bval,
                                  bvec=input_img.bvec)
         else:
             result_img = ImageFile(entities=input_img.entities,
                                    img=denoised,
-                                   json=input_img.json)
+                                   json=result_json)
         
         # ---- Return shape depends on input shape ----
         if context is not None:

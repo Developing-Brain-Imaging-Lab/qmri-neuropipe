@@ -26,6 +26,22 @@ def _entity_source_path(json_path: Path) -> Path:
     return _sidecar_nifti_path(json_path) or json_path
 
 
+def _normalized_match_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower()
+    if isinstance(value, Path):
+        return str(value).strip().lower()
+    if isinstance(value, list):
+        return [_normalized_match_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_normalized_match_value(item) for item in value)
+    return value
+
+
+def _values_match(found: Any, expected: Any) -> bool:
+    return _normalized_match_value(found) == _normalized_match_value(expected)
+
+
 def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
     match_cfg = rule.get("match") or {}
     if not match_cfg:
@@ -35,14 +51,14 @@ def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
 
     bids_name = match_cfg.get("bids_name")
     if bids_name:
-        if get_nifti_stem(entity_path) == bids_name or json_path.stem == bids_name:
+        if _values_match(get_nifti_stem(entity_path), bids_name) or _values_match(json_path.stem, bids_name):
             return True
 
     entities_match = match_cfg.get("entities")
     if isinstance(entities_match, dict):
         found = get_entities_from_path(entity_path)
         for key, expected in entities_match.items():
-            if str(found.get(key)) != str(expected):
+            if not _values_match(found.get(key), expected):
                 return False
         return True
 
@@ -50,7 +66,7 @@ def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
     if isinstance(json_fields, dict):
         payload = payload or _load_json_payload(json_path)
         for key, expected in json_fields.items():
-            if str(payload.get(key)) != str(expected):
+            if not _values_match(payload.get(key), expected):
                 return False
         return True
 
@@ -313,7 +329,7 @@ class ImportGradientOverrideStep(BaseProcessingStep):
 class ImportMetadataOverrideStep(BaseProcessingStep):
     """
     Update imported image sidecars with curated metadata such as variable FlipAngle
-    arrays or SSFP PhaseCycling arrays.
+    arrays, SSFP PhaseCycling arrays, or scalar AFI fields such as TRRatio.
     """
 
     _LENGTH_VALIDATED_FIELDS = {
