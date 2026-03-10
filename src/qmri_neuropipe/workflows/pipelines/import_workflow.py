@@ -9,6 +9,7 @@ from qmri_neuropipe.lib.common.importing import (
     Dcm2BidsStep,
     ImportGnlMetadataStep,
     ImportGradientOverrideStep,
+    ImportMetadataOverrideStep,
 )
 
 class ImportWorkflow(BaseWorkflow):
@@ -33,6 +34,13 @@ class ImportWorkflow(BaseWorkflow):
             ))
         elif method == 'dcm2niix':
             self.add_step(Dcm2NiixStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance
+            ))
+
+        if import_cfg.get('metadata_overrides', {}).get('enabled', False):
+            self.add_step(ImportMetadataOverrideStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance
@@ -100,6 +108,19 @@ class ImportWorkflow(BaseWorkflow):
             if path.is_file()
         }
 
+    def _snapshot_image_sidecars(self, output_dir: Path) -> dict[Path, float]:
+        if not Path(output_dir).exists():
+            return {}
+        sidecars: dict[Path, float] = {}
+        for path in Path(output_dir).rglob("*.json"):
+            if not path.is_file():
+                continue
+            nii_gz = path.with_suffix(".nii.gz")
+            nii = path.with_suffix(".nii")
+            if nii_gz.exists() or nii.exists():
+                sidecars[path] = path.stat().st_mtime
+        return sidecars
+
     def _snapshot_import_outputs(self, output_dir: Path) -> dict[Path, float]:
         if not Path(output_dir).exists():
             return {}
@@ -113,6 +134,14 @@ class ImportWorkflow(BaseWorkflow):
 
     def _new_or_updated_sidecars(self, before: dict[Path, float], output_dir: Path) -> list[Path]:
         after = self._snapshot_dwi_sidecars(output_dir)
+        changed: list[Path] = []
+        for path, mtime in after.items():
+            if path not in before or mtime > before[path]:
+                changed.append(path)
+        return sorted(changed)
+
+    def _new_or_updated_image_sidecars(self, before: dict[Path, float], output_dir: Path) -> list[Path]:
+        after = self._snapshot_image_sidecars(output_dir)
         changed: list[Path] = []
         for path, mtime in after.items():
             if path not in before or mtime > before[path]:
@@ -155,6 +184,7 @@ class ImportWorkflow(BaseWorkflow):
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
         outputs_before = self._snapshot_import_outputs(output_dir)
         sidecars_before = self._snapshot_dwi_sidecars(output_dir)
+        image_sidecars_before = self._snapshot_image_sidecars(output_dir)
         had_existing_outputs = bool(outputs_before)
         
         for step in self.steps:
@@ -162,8 +192,10 @@ class ImportWorkflow(BaseWorkflow):
                 step.run(resolved_dicom_dir, output_dir, **step_context)
                 imported_outputs = self._new_or_updated_outputs(outputs_before, output_dir)
                 imported_sidecars = self._new_or_updated_sidecars(sidecars_before, output_dir)
+                imported_image_sidecars = self._new_or_updated_image_sidecars(image_sidecars_before, output_dir)
                 context["imported_output_files"] = [str(p) for p in imported_outputs]
                 context["imported_dwi_sidecars"] = [str(p) for p in imported_sidecars]
+                context["imported_json_sidecars"] = [str(p) for p in imported_image_sidecars]
                 if not imported_outputs:
                     import_method = self.config.get("import.method", "dcm2bids")
                     existing_target_outputs = self._existing_subject_outputs(output_dir, context)
@@ -176,6 +208,12 @@ class ImportWorkflow(BaseWorkflow):
                         if not context.get("imported_dwi_sidecars"):
                             context["imported_dwi_sidecars"] = [
                                 str(p) for p in existing_target_outputs if p.name.endswith("_dwi.json")
+                            ]
+                        if not context.get("imported_json_sidecars"):
+                            context["imported_json_sidecars"] = [
+                                str(p)
+                                for p in existing_target_outputs
+                                if p.suffix == ".json" and (p.with_suffix(".nii.gz").exists() or p.with_suffix(".nii").exists())
                             ]
                         continue
                     if had_existing_outputs:

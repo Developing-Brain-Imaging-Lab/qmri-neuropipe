@@ -26,6 +26,21 @@ import:
   method: dcm2bids
   dcm2bids:
     config_file: /path/to/bids/code/dcm2bids_config.json
+  metadata_overrides:
+    enabled: false
+    stop_on_mismatch: true
+    rules:
+      - match:
+          entities:
+            acq: spgr
+        metadata:
+          FlipAngle: [4, 8, 12, 16]
+      - match:
+          entities:
+            acq: ssfp
+        metadata:
+          FlipAngle: [10, 20, 30, 40]
+          PhaseCycling: [0, 180, 0, 180]
   gradient_overrides:
     enabled: false
     require_both: true

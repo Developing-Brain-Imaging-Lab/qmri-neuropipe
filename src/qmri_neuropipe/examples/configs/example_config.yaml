@@ -70,6 +70,31 @@ tracker:
 #   method: dcm2bids            # Options: dcm2bids, dcm2niix
 #   dcm2bids:
 #     config_file: /path/to/bids/code/dcm2bids_config.json
+#   metadata_overrides:
+#     enabled: true
+#     stop_on_mismatch: true
+#     rules:
+#       - match:
+#           entities:
+#             acq: spgr
+#         metadata:
+#           FlipAngle: [4, 8, 12, 16]
+#       - match:
+#           entities:
+#             acq: ssfp
+#         metadata:
+#           FlipAngle: [10, 20, 30, 40]
+#           PhaseCycling: [0, 180, 0, 180]
+#   gradient_overrides:
+#     enabled: true
+#     require_both: true
+#     stop_on_mismatch: true
+#     rules:
+#       - match:
+#           json_fields:
+#             SeriesDescription: dw500_pe0_out
+#         bval: /path/to/correct/pe0_out.bval
+#         bvec: /path/to/correct/pe0_out.bvec
 #   gnl_metadata:
 #     enabled: true
 #     manufacturer: GE

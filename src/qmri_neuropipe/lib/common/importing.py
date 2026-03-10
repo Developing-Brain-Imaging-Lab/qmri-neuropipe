@@ -1,7 +1,6 @@
 
 from pathlib import Path
 from typing import Optional, Dict, Any
-import logging
 import json
 import shutil
 
@@ -13,6 +12,81 @@ from ...interfaces import dcm2niix, dcm2bids
 from .gnl_metadata import GEGnlMetadataEnrichmentStep
 from ...core.utils import get_nifti_stem
 from ...io.bids import get_entities_from_path
+
+
+def _load_json_payload(json_path: Path) -> dict[str, Any]:
+    with json_path.open() as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise ProcessingError(f"Expected JSON object in sidecar: {json_path}")
+    return payload
+
+
+def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
+    match_cfg = rule.get("match") or {}
+    if not match_cfg:
+        return False
+    payload = None
+
+    bids_name = match_cfg.get("bids_name")
+    if bids_name:
+        if get_nifti_stem(json_path.with_suffix(".nii.gz")) == bids_name or json_path.stem == bids_name:
+            return True
+
+    entities_match = match_cfg.get("entities")
+    if isinstance(entities_match, dict):
+        found = get_entities_from_path(json_path)
+        for key, expected in entities_match.items():
+            if str(found.get(key)) != str(expected):
+                return False
+        return True
+
+    json_fields = match_cfg.get("json_fields")
+    if isinstance(json_fields, dict):
+        payload = payload or _load_json_payload(json_path)
+        for key, expected in json_fields.items():
+            if str(payload.get(key)) != str(expected):
+                return False
+        return True
+
+    return False
+
+
+def _resolve_import_rule(
+    json_path: Path,
+    rules: list[dict[str, Any]],
+    label: str,
+) -> Optional[dict[str, Any]]:
+    matches = [rule for rule in rules if _match_import_rule(json_path, rule)]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ProcessingError(f"Multiple {label} rules matched {json_path.name}")
+    return matches[0]
+
+
+def _sidecar_nifti_path(json_path: Path) -> Optional[Path]:
+    nifti_path = json_path.with_suffix(".nii.gz")
+    if nifti_path.exists():
+        return nifti_path
+    alt = json_path.with_suffix(".nii")
+    if alt.exists():
+        return alt
+    return None
+
+
+def _is_relaxometry_sidecar(json_path: Path) -> bool:
+    entities = get_entities_from_path(json_path)
+    acq = str(entities.get("acq", "")).lower()
+    desc = str(entities.get("desc", "")).lower()
+    suffix = str(entities.get("suffix", "")).lower()
+    name = json_path.name.lower()
+    tokens = (acq, desc, suffix, name)
+    return any(
+        marker in token
+        for token in tokens
+        for marker in ("spgr", "ssfp", "irspgr", "vfa", "afi", "b1")
+    )
 
 class Dcm2NiixStep(BaseProcessingStep):
     """
@@ -117,41 +191,10 @@ class ImportGradientOverrideStep(BaseProcessingStep):
         return sorted(Path(output_dir).rglob("*_dwi.json"))
 
     def _match_rule(self, json_path: Path, rule: dict[str, Any]) -> bool:
-        match_cfg = rule.get("match") or {}
-        if not match_cfg:
-            return False
-        payload = None
-
-        bids_name = match_cfg.get("bids_name")
-        if bids_name:
-            if get_nifti_stem(json_path.with_suffix(".nii.gz")) == bids_name or json_path.stem == bids_name:
-                return True
-
-        entities_match = match_cfg.get("entities")
-        if isinstance(entities_match, dict):
-            found = get_entities_from_path(json_path)
-            for key, expected in entities_match.items():
-                if str(found.get(key)) != str(expected):
-                    return False
-            return True
-
-        json_fields = match_cfg.get("json_fields")
-        if isinstance(json_fields, dict):
-            payload = payload or json.loads(json_path.read_text())
-            for key, expected in json_fields.items():
-                if str(payload.get(key)) != str(expected):
-                    return False
-            return True
-
-        return False
+        return _match_import_rule(json_path, rule)
 
     def _resolve_rule(self, json_path: Path, rules: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        matches = [rule for rule in rules if self._match_rule(json_path, rule)]
-        if not matches:
-            return None
-        if len(matches) > 1:
-            raise ProcessingError(f"Multiple gradient override rules matched {json_path.name}")
-        return matches[0]
+        return _resolve_import_rule(json_path, rules, label="gradient override")
 
     def _load_bvals(self, path: Path) -> np.ndarray:
         vals = np.loadtxt(path, dtype=np.float64)
@@ -193,7 +236,7 @@ class ImportGradientOverrideStep(BaseProcessingStep):
             raise ProcessingError(f"Gradient override for {nifti_path.name} requires both bval and bvec")
 
     def _update_sidecar(self, json_path: Path, rule: dict[str, Any], bval_path: Optional[Path], bvec_path: Optional[Path]) -> None:
-        payload = json.loads(json_path.read_text())
+        payload = _load_json_payload(json_path)
         payload["GradientTableOverride"] = {
             "Applied": True,
             "Source": "import.gradient_overrides",
@@ -228,11 +271,8 @@ class ImportGradientOverrideStep(BaseProcessingStep):
                 unmatched.append(json_path.name)
                 continue
 
-            nifti_path = json_path.with_suffix(".nii.gz")
-            if not nifti_path.exists():
-                alt = json_path.with_suffix(".nii")
-                nifti_path = alt if alt.exists() else nifti_path
-            if not nifti_path.exists():
+            nifti_path = _sidecar_nifti_path(json_path)
+            if nifti_path is None:
                 raise ProcessingError(f"Could not locate NIfTI for gradient override sidecar: {json_path}")
 
             dst_bval = json_path.with_suffix(".bval")
@@ -262,4 +302,116 @@ class ImportGradientOverrideStep(BaseProcessingStep):
 
         self.logger.info(f"Applied gradient overrides to {updated} DWI sidecar(s)")
         context["gradient_override_sidecars_updated"] = updated
+        return context
+
+
+class ImportMetadataOverrideStep(BaseProcessingStep):
+    """
+    Update imported image sidecars with curated metadata such as variable FlipAngle
+    arrays or SSFP PhaseCycling arrays.
+    """
+
+    _LENGTH_VALIDATED_FIELDS = {
+        "FlipAngle",
+        "PhaseCycling",
+        "RepetitionTime",
+        "InversionTime",
+        "EchoTrainLength",
+    }
+
+    def validate_inputs(self, first_arg, **kwargs) -> None:
+        pass
+
+    def validate_outputs(self, result) -> None:
+        pass
+
+    def _target_sidecars(self, output_dir: Path, context: dict[str, Any]) -> list[Path]:
+        imported = context.get("imported_json_sidecars") or []
+        if imported:
+            return [
+                Path(p)
+                for p in imported
+                if Path(p).exists() and _is_relaxometry_sidecar(Path(p))
+            ]
+
+        candidates: list[Path] = []
+        for path in sorted(Path(output_dir).rglob("*.json")):
+            if _sidecar_nifti_path(path) is not None and _is_relaxometry_sidecar(path):
+                candidates.append(path)
+        return candidates
+
+    def _resolve_rule(self, json_path: Path, rules: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        return _resolve_import_rule(json_path, rules, label="metadata override")
+
+    def _nifti_nvols(self, nifti_path: Path) -> int:
+        shape = nib.load(str(nifti_path)).shape
+        return shape[3] if len(shape) >= 4 else 1
+
+    def _validate_updates(self, nifti_path: Path, updates: dict[str, Any]) -> None:
+        nvols = self._nifti_nvols(nifti_path)
+        for key, value in updates.items():
+            if key not in self._LENGTH_VALIDATED_FIELDS:
+                continue
+            if not isinstance(value, list):
+                continue
+            if len(value) != nvols:
+                raise ProcessingError(
+                    f"{key} length mismatch for {nifti_path.name}: expected {nvols}, found {len(value)}"
+                )
+
+    def _update_sidecar(self, json_path: Path, rule: dict[str, Any], updates: dict[str, Any]) -> None:
+        payload = _load_json_payload(json_path)
+        payload.update(updates)
+        payload["MetadataOverride"] = {
+            "Applied": True,
+            "Source": "import.metadata_overrides",
+            "MatchingRule": rule.get("match", {}),
+            "UpdatedFields": sorted(updates.keys()),
+        }
+        with json_path.open("w") as f:
+            json.dump(payload, f, indent=2)
+            f.write("\n")
+
+    def run(self, first_arg, output_dir: Path, **kwargs):
+        context = first_arg if isinstance(first_arg, dict) else {}
+        override_cfg = (self.config.get("import", {}) or {}).get("metadata_overrides", {})
+        if not override_cfg.get("enabled", False):
+            return context
+
+        rules = override_cfg.get("rules") or []
+        if not rules:
+            self.logger.warning("Metadata overrides enabled but no rules were configured")
+            return context
+
+        stop_on_mismatch = bool(override_cfg.get("stop_on_mismatch", True))
+        sidecars = self._target_sidecars(output_dir, context)
+        updated = 0
+        unmatched = []
+
+        for json_path in sidecars:
+            rule = self._resolve_rule(json_path, rules)
+            if rule is None:
+                unmatched.append(json_path.name)
+                continue
+
+            updates = rule.get("metadata") or rule.get("updates")
+            if not isinstance(updates, dict) or not updates:
+                raise ProcessingError(f"Metadata override rule for {json_path.name} is missing a metadata block")
+
+            nifti_path = _sidecar_nifti_path(json_path)
+            if nifti_path is None:
+                raise ProcessingError(f"Could not locate NIfTI for metadata override sidecar: {json_path}")
+
+            self._validate_updates(nifti_path, updates)
+            self._update_sidecar(json_path, rule, updates)
+            updated += 1
+
+        if unmatched:
+            msg = "No metadata override rule matched sidecars: " + ", ".join(unmatched)
+            if stop_on_mismatch:
+                raise ProcessingError(msg)
+            self.logger.warning(msg)
+
+        self.logger.info(f"Applied metadata overrides to {updated} image sidecar(s)")
+        context["metadata_override_sidecars_updated"] = updated
         return context

@@ -246,17 +246,6 @@ def maybe_run_auto_import(config: PipelineConfig, verbose: bool = False) -> None
             "Automatic import with dcm2bids requires a subject. Set `import.subject` or provide a single participant_label."
         )
 
-    if verbose or config.verbose:
-        console.print("\n[bold green]Automatic import[/bold green]\n")
-        _print_args(
-            config,
-            dicom_dir=dicom_dir,
-            import_method=import_method,
-            import_subject=subject,
-            import_session=session,
-            import_target=config.bids_dir,
-        )
-
     from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
 
     config.bids_dir.mkdir(parents=True, exist_ok=True)
@@ -728,15 +717,26 @@ def main(
 
         # Print configuration if verbose
         if config.verbose or verbose or dry_run:
+            extra_args = {
+                "pipeline": pipeline_name,
+                "level": analysis_level,
+                "dry_run": dry_run,
+                "skip_bids_validation": skip_bids_validation,
+                "omp_nthreads": omp_nthreads,
+            }
+            auto_import_dicom_dir = config.get("import.dicom_dir")
+            auto_import_enabled = bool(auto_import_dicom_dir) and config.get("import.auto_run", True) is not False
+            if auto_import_enabled:
+                import_subject, import_session = _resolve_auto_import_subject_session(config)
+                extra_args.update({
+                    "auto_import": True,
+                    "dicom_dir": auto_import_dicom_dir,
+                    "import_method": config.get("import.method", "dcm2bids"),
+                    "import_subject": import_subject,
+                    "import_session": import_session,
+                })
             console.print("\n[bold green]Configuration validated successfully![/bold green]\n")
-            _print_args(
-                config, 
-                pipeline=pipeline_name,
-                level=analysis_level,
-                dry_run=dry_run,
-                skip_bids_validation=skip_bids_validation,
-                omp_nthreads=omp_nthreads
-            )
+            _print_args(config, **extra_args)
         
         # Dry run - just validate and print config
         if dry_run:

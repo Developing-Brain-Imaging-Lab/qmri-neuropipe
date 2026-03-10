@@ -7,7 +7,8 @@ This backend adds a native GE gradient nonlinearity workflow that does not requi
 1. During import, qmri-neuropipe converts DICOMs with `dcm2niix` or `dcm2bids`.
 2. Optionally, an import-time gradient override step replaces incorrect DICOM-derived `.bval`/`.bvec` files with curated tables.
 3. A GE metadata enrichment step reads representative source DICOMs once and appends a `GradientNonlinearityCorrection` block to each DWI JSON sidecar.
-4. During dMRI processing, the `native_ge` backend:
+4. Optionally, an import-time metadata override step updates image sidecars with curated fields such as variable `FlipAngle` arrays or SSFP `PhaseCycling` arrays.
+5. During dMRI processing, the `native_ge` backend:
    - computes the GNL tensor in the native/raw acquisition geometry
    - extracts native and final mean b0 images
    - rigidly registers native b0 to final b0
@@ -33,6 +34,21 @@ import:
   method: dcm2bids
   dcm2bids:
     config_file: /path/to/bids/code/dcm2bids_config.json
+  metadata_overrides:
+    enabled: true
+    stop_on_mismatch: true
+    rules:
+      - match:
+          entities:
+            acq: spgr
+        metadata:
+          FlipAngle: [4, 8, 12, 16]
+      - match:
+          entities:
+            acq: ssfp
+        metadata:
+          FlipAngle: [10, 20, 30, 40]
+          PhaseCycling: [0, 180, 0, 180]
   gradient_overrides:
     enabled: true
     require_both: true
@@ -111,6 +127,23 @@ If gradient overrides are enabled, the import step also writes:
 }
 ```
 
+If metadata overrides are enabled, the import step also writes:
+
+```json
+{
+  "MetadataOverride": {
+    "Applied": true,
+    "Source": "import.metadata_overrides",
+    "MatchingRule": {
+      "entities": {
+        "acq": "ssfp"
+      }
+    },
+    "UpdatedFields": ["FlipAngle", "PhaseCycling"]
+  }
+}
+```
+
 ## Example
 
 See [dmri_native_ge_gnl_example.yaml](/Users/deaniii/Developer/code/repos/qmri-neuropipe/src/qmri_neuropipe/examples/configs/dmri_native_ge_gnl_example.yaml).
@@ -153,7 +186,9 @@ How this works:
 1. `--dicom-dir` tells the import workflow which source DICOM directory to scan and convert.
 2. `dcm2bids` or `dcm2niix` converts that directory.
 3. If `import.gnl_metadata.enabled: true`, qmri-neuropipe scans the same `--dicom-dir` for GE metadata and writes the derived isocenter offset into each matching DWI JSON sidecar.
-4. If `import.gradient_overrides.enabled: true`, qmri-neuropipe matches imported DWI sidecars against the configured rules and replaces the generated `.bval`/`.bvec` files before preprocessing.
+4. If `import.metadata_overrides.enabled: true`, qmri-neuropipe matches imported image sidecars against the configured rules and updates the requested JSON fields before preprocessing.
+   This is useful for 4D SPGR/SSFP data where the imported sidecar needs curated `FlipAngle` or `PhaseCycling` arrays.
+5. If `import.gradient_overrides.enabled: true`, qmri-neuropipe matches imported DWI sidecars against the configured rules and replaces the generated `.bval`/`.bvec` files before preprocessing.
    Matching can use either BIDS entities or JSON metadata fields such as `PhaseEncodingDirection` and `SeriesDescription`.
 
 Archive inputs are also supported:
@@ -171,4 +206,5 @@ The import workflow will extract those archives into the configured work directo
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
 - The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.
 - Gradient overrides are best applied during import rather than by manual file edits afterward, because the sidecar provenance records which replacement tables were used.
+- Metadata overrides are also best applied during import, especially for 4D SPGR/SSFP sidecars that need curated `FlipAngle` or `PhaseCycling` arrays; list-valued fields are validated against the imported image volume count.
 - If `dcm2bids` emits `run-01`, `run-02`, etc. instead of `dir-AP`, `dir-PA`, match gradient overrides with `json_fields` or fix the `dcm2bids` config so it assigns distinct `dir` or `acq` entities.
