@@ -22,20 +22,25 @@ def _load_json_payload(json_path: Path) -> dict[str, Any]:
     return payload
 
 
+def _entity_source_path(json_path: Path) -> Path:
+    return _sidecar_nifti_path(json_path) or json_path
+
+
 def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
     match_cfg = rule.get("match") or {}
     if not match_cfg:
         return False
     payload = None
+    entity_path = _entity_source_path(json_path)
 
     bids_name = match_cfg.get("bids_name")
     if bids_name:
-        if get_nifti_stem(json_path.with_suffix(".nii.gz")) == bids_name or json_path.stem == bids_name:
+        if get_nifti_stem(entity_path) == bids_name or json_path.stem == bids_name:
             return True
 
     entities_match = match_cfg.get("entities")
     if isinstance(entities_match, dict):
-        found = get_entities_from_path(json_path)
+        found = get_entities_from_path(entity_path)
         for key, expected in entities_match.items():
             if str(found.get(key)) != str(expected):
                 return False
@@ -76,7 +81,7 @@ def _sidecar_nifti_path(json_path: Path) -> Optional[Path]:
 
 
 def _is_relaxometry_sidecar(json_path: Path) -> bool:
-    entities = get_entities_from_path(json_path)
+    entities = get_entities_from_path(_entity_source_path(json_path))
     acq = str(entities.get("acq", "")).lower()
     desc = str(entities.get("desc", "")).lower()
     suffix = str(entities.get("suffix", "")).lower()
@@ -385,6 +390,11 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
 
         stop_on_mismatch = bool(override_cfg.get("stop_on_mismatch", True))
         sidecars = self._target_sidecars(output_dir, context)
+        if not sidecars:
+            self.logger.warning("Metadata overrides enabled, but no relaxometry image sidecars were found to update")
+            context["metadata_override_sidecars_updated"] = 0
+            return context
+
         updated = 0
         unmatched = []
 
