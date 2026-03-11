@@ -156,6 +156,7 @@ class ExecutionEngine:
         # Update context with current state
         context['dwi_files'] = current_dwis
         old_dwis = list(current_dwis)
+        old_topup_groups = context.get("topup_groups", [])
         
         # Run step
         force_run = self.config.get("dmri", {}).get("force_run", False)
@@ -167,9 +168,10 @@ class ExecutionEngine:
         # Check if files changed
         current_dwis = context.get("dwi_files", [])
         if current_dwis != old_dwis:
-            # Refresh topup groups if files changed
-            from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
-            context["topup_groups"] = find_reversed_phase_groups(current_dwis)
+            # Refresh topup groups if files changed, unless the step already rewrote them.
+            if context.get("topup_groups", []) == old_topup_groups:
+                from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
+                context["topup_groups"] = find_reversed_phase_groups(current_dwis)
             native_ref_map = context.setdefault("gnl_native_reference_map", {})
             transform_map = context.setdefault("gnl_transform_map", {})
             for old_dwi, new_dwi in zip(old_dwis, current_dwis):

@@ -107,6 +107,7 @@ class MergeStep(BaseProcessingStep):
             # Provide standard keys for downstream steps (Eddy)
             context["acqp"] = out_acqp
             context["index"] = out_index
+            self._propagate_topup_mapping(context, dwi_files, merged_dwi)
             
             return context
             
@@ -286,5 +287,54 @@ class MergeStep(BaseProcessingStep):
         
         context["acqp"] = out_acqp
         context["index"] = out_index
+        self._propagate_topup_mapping(context, dwi_files, merged_dwi)
+
+        # Preserve reverse-PE inputs for Topup even after replacing dwi_files with the merged output.
+        old_topup_groups = context.get("topup_groups", [])
+        if old_topup_groups:
+            merged_targets = [merged_dwi]
+            preserved_groups = []
+            for group_item in old_topup_groups:
+                if isinstance(group_item, dict):
+                    inputs = group_item.get("inputs", [])
+                    targets = list(group_item.get("targets", [])) + merged_targets
+                else:
+                    inputs = list(group_item)
+                    targets = merged_targets
+                if inputs:
+                    preserved_groups.append({
+                        "inputs": inputs,
+                        "targets": targets,
+                    })
+            if preserved_groups:
+                context["topup_groups"] = preserved_groups
         
         return context
+
+    def _propagate_topup_mapping(self, context: Dict[str, Any], source_dwis: List[DWIFile], merged_dwi: DWIFile) -> None:
+        topup_map = context.get("topup_map", {})
+        merged_base = None
+
+        for dwi in source_dwis:
+            key = getattr(dwi, "img", None)
+            if key in topup_map:
+                candidate = topup_map[key]
+            elif key is not None and str(key) in topup_map:
+                candidate = topup_map[str(key)]
+            else:
+                continue
+
+            if merged_base is None:
+                merged_base = candidate
+            elif merged_base != candidate:
+                merged_base = None
+                break
+
+        if merged_base is None:
+            merged_base = context.get("topup_base")
+
+        if merged_base:
+            topup_map[merged_dwi.img] = merged_base
+            topup_map[str(merged_dwi.img)] = merged_base
+            context["topup_map"] = topup_map
+            context["topup_base"] = merged_base
