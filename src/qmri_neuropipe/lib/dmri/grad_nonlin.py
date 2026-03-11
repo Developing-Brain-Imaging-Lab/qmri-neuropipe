@@ -15,6 +15,21 @@ from ...core.utils import check_nifti_integrity, extract_image_path
 from .grad_nonlin_native import create_native_ge_gnl_map
 from .grad_nonlin_native import _same_grid
 
+
+def _normalize_gnl_method(method: Optional[str]) -> str:
+    normalized = str(method or "tortoise").strip().lower().replace("-", "_")
+    aliases = {
+        "tortoise": "tortoise",
+        "native": "native_ge",
+        "native_ge": "native_ge",
+        "latest_native": "native_ge",
+    }
+    if normalized not in aliases:
+        raise ProcessingError(
+            f"Unknown GNL method '{method}'. Expected one of: tortoise, native_ge, native, latest_native."
+        )
+    return aliases[normalized]
+
 def create_gnl_map(
     input_image: ImageLike,
     output_path: Path,
@@ -43,6 +58,8 @@ def create_gnl_map(
     """
     if logger is None:
         logger = logging.getLogger("GNL")
+
+    method = _normalize_gnl_method(method)
 
     if output_path.exists() and not force:
         if check_nifti_integrity(output_path):
@@ -165,7 +182,7 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         self.grad_coeffs = grad_coeffs
         self.is_resampled = is_resampled
-        self.method = (
+        self.method = _normalize_gnl_method(
             self.config.get('dmri', {})
             .get('preprocessing', {})
             .get('grad_nonlin', {})

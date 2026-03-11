@@ -310,13 +310,14 @@ def run_relaxometry_cli(
         traceback.print_exc()
         raise typer.Exit(code=1)
 
+@app.command("create-gnl-tensor")
 @app.command("create-gnl-map")
 def create_gnl_map_cli(
     input: Path = typer.Option(..., "--input", "-i", help="Input NIfTI file (processed/final grid).", exists=True),
     coeffs: Path = typer.Option(..., "--coeffs", "-c", help="Gradient nonlinearity coefficients file (.dat).", exists=True),
     output: Path = typer.Option(..., "--output", "-o", help="Output path for the .nii.gz tensor map."),
     initial_image: Optional[Path] = typer.Option(None, "--initial-image", help="Optional native space image (for resampled inputs).", exists=True),
-    method: str = typer.Option("tortoise", "--method", help="GNL backend: tortoise or native_ge."),
+    method: str = typer.Option("tortoise", "--method", help="GNL backend: tortoise, native_ge, native, or latest_native."),
     bval: Optional[Path] = typer.Option(None, "--bval", help="Path to bval file (required if input is 4D).", exists=True),
     bvec: Optional[Path] = typer.Option(None, "--bvec", help="Path to bvec file (required if input is 4D).", exists=True),
     initial_bval: Optional[Path] = typer.Option(None, "--initial-bval", help="Path to bval file for initial image (if different).", exists=True),
@@ -325,7 +326,7 @@ def create_gnl_map_cli(
     force: bool = typer.Option(False, "--force", help="Force overwrite existing output."),
 ):
     """
-    Generate Gradient Nonlinearity (GNL) tensor map using TORTOISE.
+    Generate a Gradient Nonlinearity (GNL) tensor map using TORTOISE or the native GE implementation.
     """
     _setup_threading(nthreads)
     
