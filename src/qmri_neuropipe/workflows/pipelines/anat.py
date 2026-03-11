@@ -591,7 +591,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         processed_t2 = current_t2
 
         for step in self.steps:
-            if isinstance(step, (ReconAllStep, NonlinearRegistrationStep, BrainMaskingStep, CoregistrationStep, SegmentationStep)):
+            if isinstance(step, (ReconAllStep, NonlinearRegistrationStep, BrainMaskingStep, CoregistrationStep, SegmentationStep, FreeSurferStatsStep)):
                 continue
 
             step_name = step.__class__.__name__
@@ -1860,4 +1860,3 @@ def run_anatomical_workflow(config: PipelineConfig, subject: str, session: Optio
         reporter.add_anat_summary("Final Validation Errors", error_rows)
 
     return results
-
