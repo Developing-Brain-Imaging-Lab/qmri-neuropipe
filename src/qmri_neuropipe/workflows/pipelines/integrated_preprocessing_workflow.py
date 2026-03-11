@@ -26,6 +26,7 @@ from qmri_neuropipe.lib.common.registration import CoregistrationStep
 from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
 from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
 from qmri_neuropipe.lib.dmri.merge import MergeStep
+from qmri_neuropipe.lib.dmri.drbuddi import NativeDrbuddiStep
 from qmri_neuropipe.lib.common.mask import BrainMaskingStep
 from qmri_neuropipe.lib.common.resample import ResampleStep
 from qmri_neuropipe.lib.dmri.outliers import OutlierRemovalStep
@@ -72,6 +73,12 @@ class PreprocessingWorkflow(BaseWorkflow):
                 self.logger.info(f"Recovering Eddy results from {intermediate_store / 'eddy'}")
                 shutil.copytree(intermediate_store / "eddy", target_work, dirs_exist_ok=True)
 
+        if (intermediate_store / "nativedrbuddi").exists():
+            target_work = work_dir / "nativedrbuddi"
+            if not target_work.exists():
+                self.logger.info(f"Recovering Native DRBUDDI results from {intermediate_store / 'nativedrbuddi'}")
+                shutil.copytree(intermediate_store / "nativedrbuddi", target_work, dirs_exist_ok=True)
+
         if (intermediate_store / "masking").exists():
             target_work = work_dir / "masking"
             if not target_work.exists():
@@ -113,6 +120,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         self._add_denoising_step(dmri_cfg)
         self._add_gibbs_step(dmri_cfg)
         self._add_motion_correction_step(dmri_cfg)
+        self._add_post_eddy_distortion_refinement_step(dmri_cfg, context)
         self._add_automated_outlier_removal_step(dmri_cfg)
         self._add_bias_correction_step(dmri_cfg)
         self._add_coregistration_step(dmri_cfg, context)
@@ -188,7 +196,7 @@ class PreprocessingWorkflow(BaseWorkflow):
             else:
                 self.logger.warning("Synb0 requested but no T1w files found")
                 
-        elif dist_method == 'topup':
+        elif dist_method in {'topup', 'topup+drbuddi'}:
             if has_reverse_pe:
                 self.logger.info("Adding TopupStep (native reverse-PE)")
                 self.add_step(TopupStep(
@@ -206,11 +214,16 @@ class PreprocessingWorkflow(BaseWorkflow):
                 context['do_topup'] = True
             else:
                 self.logger.warning("Topup requested but no reverse-PE data")
+        elif dist_method == 'drbuddi':
+            context['do_drbuddi'] = True
                 
         elif dist_method == 'none':
             self.logger.info("Distortion correction disabled")
         else:
             self.logger.warning(f"Unknown distcorr method '{dist_method}'")
+
+        if dist_method == 'topup+drbuddi':
+            context['do_drbuddi'] = True
 
     def _add_merge_step(self, dmri_cfg: dict, context: dict):
         """Add merge step if multiple DWI files need to be combined."""
@@ -219,7 +232,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         do_merge = False
         if len(dwi_files) > 1:
-            if merge_cfg.get('enabled', False) or self._should_run_topup(dmri_cfg, context):
+            if merge_cfg.get('enabled', False) or self._should_merge_for_distcorr(dmri_cfg, context):
                 do_merge = True
             
         if do_merge:
@@ -228,20 +241,22 @@ class PreprocessingWorkflow(BaseWorkflow):
                 self.config, self.logger, self.provenance
             ))
 
-    def _should_run_topup(self, dmri_cfg: dict, context: dict) -> bool:
-        """Infer whether topup/synb0 will be executed from config and context."""
+    def _should_merge_for_distcorr(self, dmri_cfg: dict, context: dict) -> bool:
+        """Infer whether distortion correction requires a merged series downstream."""
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         dist_method = distcorr_cfg.get('method', 'none')
         fallback = distcorr_cfg.get('fallback', False)
         has_topup_groups = bool(context.get("topup_groups"))
         has_t1w = bool(context.get("t1w_files"))
 
-        if dist_method == 'topup':
+        if dist_method in {'topup', 'topup+drbuddi'}:
             if has_topup_groups:
                 return True
             if fallback and has_t1w:
                 return True
             return False
+        if dist_method == 'drbuddi':
+            return has_topup_groups
         if dist_method == 'synb0':
             return has_t1w
         return False
@@ -317,6 +332,37 @@ class PreprocessingWorkflow(BaseWorkflow):
             self.logger.info("Motion correction disabled")
         else:
             self.logger.warning(f"Unknown motion method '{motion_method}'")
+
+    def _add_post_eddy_distortion_refinement_step(self, dmri_cfg: dict, context: dict):
+        """Add native DRBUDDI-like refinement after Eddy when requested."""
+        distcorr_cfg = dmri_cfg.get('distcorr', {})
+        dist_method = distcorr_cfg.get('method', 'none')
+        if dist_method not in {'drbuddi', 'topup+drbuddi'}:
+            return
+
+        motion_cfg = dmri_cfg.get('motion_correction', {})
+        legacy_eddy_cfg = dmri_cfg.get('eddy', {})
+        motion_method = motion_cfg.get('method')
+        if not motion_method:
+            motion_method = 'eddy' if legacy_eddy_cfg.get('enabled', False) else 'none'
+
+        if motion_method != 'eddy':
+            self.logger.warning("Native DRBUDDI requested but Eddy is not enabled. Skipping native DRBUDDI step.")
+            context['do_drbuddi'] = False
+            return
+
+        drbuddi_cfg = distcorr_cfg.get('drbuddi', {})
+        self.logger.info("Adding NativeDrbuddiStep")
+        self.add_step(NativeDrbuddiStep(
+            self.config,
+            self.logger,
+            self.provenance,
+            transform_type=drbuddi_cfg.get('transform_type', 'SyNOnly'),
+            interpolator=drbuddi_cfg.get('interpolator', 'linear'),
+            registration_options=drbuddi_cfg.get('registration_options', {}),
+            symmetric_pairwise=drbuddi_cfg.get('symmetric_pairwise', True),
+            pe_axis_constraint=drbuddi_cfg.get('pe_axis_constraint', 1.0),
+        ))
 
     def _add_automated_outlier_removal_step(self, dmri_cfg: dict):
         """Add automated outlier removal step if enabled."""

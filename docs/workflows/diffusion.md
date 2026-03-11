@@ -37,11 +37,14 @@ qc:
 Corrects for susceptibility-induced distortions.
 *   **Topup**: Uses reverse-PE (AP/PA) data (FSL `topup`).
 *   **Synb0**: Synthesizes a distortion-free b0 from T1w (useful if no reverse-PE data exists).
-*   **Method Config**: `dmri.preprocessing.distcorr.method` (`synb0`, `topup`, `none`).
+*   **Native DRBUDDI**: ANTs-based reverse-PE refinement that runs after Eddy on the merged DWI.
+*   **Combined Topup + DRBUDDI**: Runs Topup before merge, then Eddy, then the native DRBUDDI refinement.
+*   **Method Config**: `dmri.preprocessing.distcorr.method` (`synb0`, `topup`, `drbuddi`, `topup+drbuddi`, `none`).
 
 **Available tools**
 *   `topup` (FSL)
 *   `synb0` (DIPY Synb0)
+*   `drbuddi` (native ANTs-based reverse-PE refinement)
 *   `none` (skip)
 
 **Config**
@@ -49,17 +52,36 @@ Corrects for susceptibility-induced distortions.
 dmri:
   preprocessing:
     distcorr:
-      method: topup   # topup | synb0 | none
+      method: topup+drbuddi   # topup | synb0 | drbuddi | topup+drbuddi | none
       fallback: true  # allow Synb0 fallback when Topup inputs missing
       config: /path/to/topup.cnf
+      drbuddi:
+        transform_type: SyNOnly
+        interpolator: linear
+        symmetric_pairwise: true
+        pe_axis_constraint: 1.0
+        registration_options: {}
 ```
 
 **Parameters**
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `dmri.preprocessing.distcorr.method` | str | `none` | `topup`, `synb0`, `none` |
+| `dmri.preprocessing.distcorr.method` | str | `none` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
 | `dmri.preprocessing.distcorr.fallback` | bool | false | Allow Synb0 fallback |
 | `dmri.preprocessing.distcorr.config` | path | none | Topup config file |
+| `dmri.preprocessing.distcorr.drbuddi.transform_type` | str | `SyNOnly` | Native DRBUDDI ANTs transform |
+| `dmri.preprocessing.distcorr.drbuddi.interpolator` | str | `linear` | Output resampling interpolator |
+| `dmri.preprocessing.distcorr.drbuddi.symmetric_pairwise` | bool | `true` | Use symmetric blip-up/blip-down half-warps |
+| `dmri.preprocessing.distcorr.drbuddi.pe_axis_constraint` | float | `1.0` | Constrain warp mostly to the PE axis |
+| `dmri.preprocessing.distcorr.drbuddi.registration_options` | dict | `{}` | Extra ANTs registration kwargs |
+
+### Distortion-Correction QC
+
+When report generation is enabled, the native `drbuddi` and `topup+drbuddi` modes now add:
+
+*   mean b0 before and after the post-Eddy refinement
+*   residual blip-up vs blip-down mean b0 maps before and after refinement
+*   a residual summary table per phase-encoding axis
 
 ### 3. Denoising
 MP-PCA denoising to improve SNR.

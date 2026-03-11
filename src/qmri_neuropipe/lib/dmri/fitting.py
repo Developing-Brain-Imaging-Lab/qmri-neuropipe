@@ -35,6 +35,46 @@ class DTIFittingStep(BaseProcessingStep):
 
     # Removed separate should_skip to ensure context is populated during skip logic in run()
 
+    def _resolve_requested_metrics(self, override_metrics: Optional[list[str]] = None) -> list[str]:
+        requested_metrics = override_metrics
+        if not requested_metrics:
+            if isinstance(self.config, dict):
+                requested_metrics = self.config.get('metrics', [])
+            elif hasattr(self.config, 'metrics'):
+                requested_metrics = self.config.metrics
+            else:
+                requested_metrics = []
+
+        if not requested_metrics:
+            requested_metrics = ["fa", "md", "ad", "rd", "color_fa"]
+
+        resolved = []
+        seen = set()
+        for metric in requested_metrics:
+            norm = str(metric).strip().lower()
+            if norm and norm not in seen:
+                resolved.append(norm)
+                seen.add(norm)
+
+        if "tensor" not in seen:
+            resolved.append("tensor")
+            seen.add("tensor")
+
+        if self.method in {"dipy", "mrtrix"} and "tensor_mrtrix" not in seen:
+            resolved.append("tensor_mrtrix")
+
+        return resolved
+
+    @staticmethod
+    def _metric_to_suffix(metric: str) -> str:
+        mapping = {
+            'color_fa': 'DECFA',
+            'tensor': 'tensor',
+            'tensor_fsl': 'tensorFSL',
+            'tensor_mrtrix': 'tensorMRTRIX',
+        }
+        return mapping.get(metric, metric.upper())
+
 
     def run(self, context: dict | object, output_dir: Path, mask=None, **kwargs) -> dict | object:
         # Resolve inputs
@@ -55,22 +95,7 @@ class DTIFittingStep(BaseProcessingStep):
         if 'suffix' in ents: del ents['suffix']
         
         # Resolve metrics early for smart skip
-        requested_metrics = kwargs.get('metrics')
-        if not requested_metrics:
-            if isinstance(self.config, dict):
-                requested_metrics = self.config.get('metrics', [])
-            elif hasattr(self.config, 'metrics'):
-                requested_metrics = self.config.metrics
-            else:
-                requested_metrics = [] # will trigger default set
-        
-        # Replicate defaults from interface if empty
-        if not requested_metrics:
-             requested_metrics = ["fa", "md", "ad", "rd", "color_fa"]
-             
-        # Ensure tensors are checked (legacy behavior always adds them in interface)
-        if "tensor" not in requested_metrics: requested_metrics.append("tensor")
-        if "tensor_mrtrix" not in requested_metrics: requested_metrics.append("tensor_mrtrix")
+        requested_metrics = self._resolve_requested_metrics(kwargs.get('metrics'))
 
         # Check for key output (FA)
         fa_path = model_out / build_bids_name(ents, suffix='FA')
@@ -85,11 +110,7 @@ class DTIFittingStep(BaseProcessingStep):
              all_found = True
              
              for m in requested_metrics:
-                 if m == 'tensor': suffix = 'tensor'
-                 elif m == 'tensor_fsl': suffix = 'tensorFSL'
-                 elif m == 'tensor_mrtrix': suffix = 'tensorMRTRIX'
-                 elif m == 'color_fa': suffix = 'DECFA'
-                 else: suffix = m.upper()
+                 suffix = self._metric_to_suffix(m)
                  
                  fpath = model_out / build_bids_name(ents, suffix=suffix)
                  
@@ -209,11 +230,7 @@ class DTIFittingStep(BaseProcessingStep):
             # Default metrics if none provided
             if 'metrics' not in dipy_kwargs:
                 dipy_kwargs['metrics'] = ["fa", "md", "ad", "rd", "color_fa", "evals", "evecs"]
-            
-            # Ensure "tensor" outputs are included (legacy behavior)
-            curr_metrics = dipy_kwargs['metrics']
-            if "tensor" not in curr_metrics: curr_metrics.append("tensor")
-            if "tensor_mrtrix" not in curr_metrics: curr_metrics.append("tensor_mrtrix")
+            dipy_kwargs['metrics'] = self._resolve_requested_metrics(dipy_kwargs['metrics'])
             
             if gnl_map:
                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY: {gnl_map}")
@@ -232,6 +249,7 @@ class DTIFittingStep(BaseProcessingStep):
             fsl_kwargs = {}
             if 'save_tensor' in self.kwargs:
                 fsl_kwargs['save_tensor'] = self.kwargs['save_tensor']
+            fsl_kwargs['metrics'] = requested_metrics
                 
             if gnl_map:
                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map: {gnl_map}")
@@ -243,8 +261,7 @@ class DTIFittingStep(BaseProcessingStep):
             from ...interfaces.mrtrix import fit_dti
             # mrtrix parameters
             mrtrix_kwargs = {}
-            if 'metrics' in self.kwargs:
-                mrtrix_kwargs['metrics'] = self.kwargs['metrics']
+            mrtrix_kwargs['metrics'] = self._resolve_requested_metrics(self.kwargs.get('metrics'))
             
             if gnl_map:
                 self.logger.warning("Gradient nonlinearity tensor map found but not currently supported by MRtrix backend (in this pipeline). GNL correction will be ignored.")
@@ -260,12 +277,7 @@ class DTIFittingStep(BaseProcessingStep):
         # Track Outputs for Normalization
         # Collect paths matching pattern in model_out, FILTERED by requested_metrics
         results = {}
-        req_norm = [m.strip().lower() for m in requested_metrics]
-        
-        # Ensure tensors are included in check list (legacy)
-        req_norm.append('tensor')
-        req_norm.append('tensormrtrix')
-        req_norm.append('tensorfsl')
+        req_norm = set(requested_metrics)
         
         for p in model_out.glob("*.nii.gz"):
              # Assuming BIDS: sub-XX_desc-XX_model-DTI_SUFFIX.nii.gz
@@ -274,7 +286,12 @@ class DTIFittingStep(BaseProcessingStep):
                  suffix = name_part.split('_')[-1]
                  
                  check_suffix = suffix.lower()
-                 if check_suffix == 'decfa': check_suffix = 'color_fa'
+                 if check_suffix == 'decfa':
+                     check_suffix = 'color_fa'
+                 elif check_suffix == 'tensorfsl':
+                     check_suffix = 'tensor_fsl'
+                 elif check_suffix == 'tensormrtrix':
+                     check_suffix = 'tensor_mrtrix'
                  
                  if check_suffix in req_norm:
                      results[suffix] = p

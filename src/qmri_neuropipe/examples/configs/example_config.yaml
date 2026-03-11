@@ -145,9 +145,18 @@ dmri:
       coeff_file: /path/to/gw_coils_magnus.dat
       
     # Susceptibility distortion correction
-    sdc:
-      enabled: true
-      method: topup          # Options: topup, syn
+    # Workflow code uses `distcorr`; `topup+drbuddi` runs Topup pre-merge and
+    # a native DRBUDDI-like reverse-PE refinement after Eddy.
+    distcorr:
+      method: topup          # Options: none, topup, synb0, drbuddi, topup+drbuddi
+      fallback: true
+      config: /apps/fsl-6.0.7.13/x86_64_al9/fsl/etc/flirtsch/b02b0_1.cnf
+      drbuddi:
+        transform_type: SyNOnly
+        interpolator: linear
+        symmetric_pairwise: true
+        pe_axis_constraint: 1.0
+        registration_options: {}
       
   # Modeling steps
   modeling:
@@ -164,6 +173,13 @@ dmri:
         - md                 # Mean diffusivity
         - rd                 # Radial diffusivity
         - ad                 # Axial diffusivity
+        - l1                 # Principal eigenvalue
+        - l2                 # Second eigenvalue
+        - l3                 # Third eigenvalue
+        - v1                 # Principal eigenvector
+        - v2                 # Second eigenvector
+        - v3                 # Third eigenvector
+        - tensor_mrtrix      # MRtrix-oriented tensor image for mrview
         
     # Constrained spherical deconvolution
     csd:

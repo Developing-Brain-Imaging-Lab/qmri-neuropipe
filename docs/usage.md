@@ -86,8 +86,11 @@ dmri:
       enabled: true
       method: "mrtrix"
     distcorr:
-      method: "topup"
+      method: "topup+drbuddi"
       fallback: true
+      drbuddi:
+        symmetric_pairwise: true
+        pe_axis_constraint: 1.0
     outliers:
       enabled: true
       method: "manual"
@@ -95,6 +98,10 @@ dmri:
     coregistration:
       enabled: true
       method: "ants"
+  modeling:
+    tensor:
+      enabled: true
+      metrics: ["fa", "md", "rd", "ad", "l1", "l2", "l3", "v1", "v2", "v3", "tensor_mrtrix"]
 
 anat:
   preprocessing:

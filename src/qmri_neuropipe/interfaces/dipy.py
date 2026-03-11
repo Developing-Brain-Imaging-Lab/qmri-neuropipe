@@ -30,6 +30,53 @@ def _load_timings(Delta_file: Optional[Path], delta_file: Optional[Path]) -> Tup
     return big_delta, small_delta
 
 
+def _affine_direction_basis(affine: np.ndarray) -> np.ndarray:
+    """Return direction cosines that map voxel axes into world axes."""
+    linear = np.asarray(affine, dtype=float)[:3, :3]
+    scales = np.linalg.norm(linear, axis=0)
+    scales[scales == 0] = 1.0
+    return linear / scales
+
+
+def _reorient_tensor_matrices_to_world(tensor_matrices: np.ndarray, affine: np.ndarray) -> np.ndarray:
+    """Map voxel-basis tensor matrices into the image world basis."""
+    basis = _affine_direction_basis(affine)
+    return np.einsum("ia,...ab,jb->...ij", basis, tensor_matrices, basis)
+
+
+def _reorient_eigenvectors_to_world(evecs: np.ndarray, affine: np.ndarray) -> np.ndarray:
+    """Map voxel-basis eigenvectors into the image world basis."""
+    basis = _affine_direction_basis(affine)
+    world = np.einsum("ij,...kj->...ki", basis, evecs)
+    norms = np.linalg.norm(world, axis=-1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return world / norms
+
+
+def _tensor_matrices_to_fsl_components(tensor_matrices: np.ndarray) -> np.ndarray:
+    """Serialize tensors as FSL-order components."""
+    out = np.empty(tensor_matrices.shape[:-2] + (6,), dtype=np.float32)
+    out[..., 0] = tensor_matrices[..., 0, 0]
+    out[..., 1] = tensor_matrices[..., 0, 1]
+    out[..., 2] = tensor_matrices[..., 0, 2]
+    out[..., 3] = tensor_matrices[..., 1, 1]
+    out[..., 4] = tensor_matrices[..., 1, 2]
+    out[..., 5] = tensor_matrices[..., 2, 2]
+    return out
+
+
+def _tensor_matrices_to_mrtrix_components(tensor_matrices: np.ndarray) -> np.ndarray:
+    """Serialize tensors as MRtrix-order components."""
+    out = np.empty(tensor_matrices.shape[:-2] + (6,), dtype=np.float32)
+    out[..., 0] = tensor_matrices[..., 0, 0]
+    out[..., 1] = tensor_matrices[..., 1, 1]
+    out[..., 2] = tensor_matrices[..., 2, 2]
+    out[..., 3] = tensor_matrices[..., 0, 1]
+    out[..., 4] = tensor_matrices[..., 0, 2]
+    out[..., 5] = tensor_matrices[..., 1, 2]
+    return out
+
+
 def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: Optional[int] = None, model: str = "ridge", nthreads: int = 1):
     """
         Run Patch2Self denoising.
@@ -951,6 +998,21 @@ def fit_dti(
         "FittingMethod": fit_method,
         "Metrics": metrics
     }
+
+    def _write_sidecar(path: Path, output_metric: str, extras: Optional[Dict[str, Any]] = None) -> None:
+        payload = dict(sidecar)
+        payload["OutputMetric"] = output_metric
+        if extras:
+            payload.update(extras)
+        sidecar_path = str(path).replace('.nii.gz', '.json')
+        with open(sidecar_path, 'w') as f:
+            json.dump(payload, f, indent=4)
+
+    tensor_matrices = np.asarray(dti_fit.quadratic_form, dtype=np.float32)
+    tensor_matrices_world = _reorient_tensor_matrices_to_world(tensor_matrices, img.affine).astype(np.float32)
+    evecs_world = _reorient_eigenvectors_to_world(np.asarray(dti_fit.evecs, dtype=np.float32), img.affine).astype(np.float32)
+    evals = np.asarray(dti_fit.evals, dtype=np.float32)
+    metrics_norm = {metric.strip().lower() for metric in metrics}
     
     for metric in metrics:
         m_norm = metric.strip().lower()
@@ -978,55 +1040,62 @@ def fit_dti(
             nib.save(nib.Nifti1Image(dti_fit.color_fa, img.affine), str(out_path))
             saved = True
         elif m_norm == 'evals':
-             nib.save(nib.Nifti1Image(dti_fit.evals, img.affine), str(out_path))
+             nib.save(nib.Nifti1Image(evals, img.affine), str(out_path))
              saved = True
         elif m_norm == 'evecs':
-             nib.save(nib.Nifti1Image(dti_fit.evecs, img.affine), str(out_path))
+             nib.save(nib.Nifti1Image(evecs_world, img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'l1':
+             nib.save(nib.Nifti1Image(evals[..., 0], img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'l2':
+             nib.save(nib.Nifti1Image(evals[..., 1], img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'l3':
+             nib.save(nib.Nifti1Image(evals[..., 2], img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'v1':
+             nib.save(nib.Nifti1Image(evecs_world[..., 0, :], img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'v2':
+             nib.save(nib.Nifti1Image(evecs_world[..., 1, :], img.affine), str(out_path))
+             saved = True
+        elif m_norm == 'v3':
+             nib.save(nib.Nifti1Image(evecs_world[..., 2, :], img.affine), str(out_path))
              saved = True
              
         if saved:
              output_files[m_norm] = out_path
+             _write_sidecar(
+                 out_path,
+                 metric_suffix,
+                 extras={"VectorConvention": "world"} if m_norm in {'evecs', 'v1', 'v2', 'v3'} else None,
+             )
         elif m_norm not in ['tensor', 'tensor_fsl', 'tensor_mrtrix']:
              # Tensors are handled separately below, don't warn for them
              print(f"Warning: Unknown or unhandled DTI metric requested: {metric}")
-        
-        # Save sidecar
-        import json
-        sidecar_path = str(out_path).replace('.nii.gz', '.json')
-        with open(sidecar_path, 'w') as f:
-             json.dump(sidecar, f, indent=4)
             
     # Handle explicit tensor outputs if requested
-    # DIPY model_params (lower_triangular): [Dxx, Dxy, Dyy, Dxz, Dyz, Dzz]
-    tensor_vals = dipy_dti.lower_triangular(dti_fit.quadratic_form)
-    
-    if "tensor" in metrics or "tensor_fsl" in metrics:
-        # FSL Format: Upper Triangular [Dxx, Dxy, Dxz, Dyy, Dyz, Dzz]
-        # DIPY: [0, 1, 2, 3, 4, 5] -> Dxx, Dxy, Dyy, Dxz, Dyz, Dzz
-        # Map: 0->0(Dxx), 1->1(Dxy), 3->2(Dxz), 2->3(Dyy), 4->4(Dyz), 5->5(Dzz)
-        # Indices: [0, 1, 3, 2, 4, 5]
-        
-        fsl_order = [0, 1, 3, 2, 4, 5]
-        tensor_fsl = tensor_vals[..., fsl_order]
-        
-        out_name = build_bids_name({**ent_base, 'suffix': 'tensor'}) # Standard BIDS suffix often 'tensor'
-        if "tensor_fsl" in metrics:
-             out_name = build_bids_name({**ent_base, 'suffix': 'tensorFSL'})
+    tensor_fsl = _tensor_matrices_to_fsl_components(tensor_matrices)
+    tensor_mrtrix = _tensor_matrices_to_mrtrix_components(tensor_matrices_world)
 
-        out_path = out_dir / out_name
+    if "tensor" in metrics_norm:
+        out_path = out_dir / build_bids_name({**ent_base, 'suffix': 'tensor'})
         nib.save(nib.Nifti1Image(tensor_fsl, img.affine), str(out_path))
         output_files['tensor'] = out_path
+        _write_sidecar(out_path, "tensor", extras={"TensorConvention": "FSL", "TensorBasis": "voxel"})
 
-    if "tensor_mrtrix" in metrics:
-        # MRtrix Format: [Dxx, Dyy, Dzz, Dxy, Dxz, Dyz]
-        # Indices: [0, 2, 5, 1, 3, 4]
-        mrtrix_order = [0, 2, 5, 1, 3, 4]
-        tensor_mrtrix = tensor_vals[..., mrtrix_order]
-        
-        out_name = build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
-        out_path = out_dir / out_name
+    if "tensor_fsl" in metrics_norm:
+        out_path = out_dir / build_bids_name({**ent_base, 'suffix': 'tensorFSL'})
+        nib.save(nib.Nifti1Image(tensor_fsl, img.affine), str(out_path))
+        output_files['tensor_fsl'] = out_path
+        _write_sidecar(out_path, "tensorFSL", extras={"TensorConvention": "FSL", "TensorBasis": "voxel"})
+
+    if "tensor_mrtrix" in metrics_norm:
+        out_path = out_dir / build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
         nib.save(nib.Nifti1Image(tensor_mrtrix, img.affine), str(out_path))
         output_files['tensor_mrtrix'] = out_path
+        _write_sidecar(out_path, "tensorMRTRIX", extras={"TensorConvention": "MRtrix", "TensorBasis": "world"})
 
     return output_files
 

@@ -189,6 +189,16 @@ def fit_dti(
     if 'desc' in ent_base: del ent_base['desc']
     ent_base['model'] = 'DTI'
     
+    metrics_norm = [metric.strip().lower() for metric in metrics]
+
+    def _write_sidecar(path: Path, output_metric: str, extras: Optional[dict] = None) -> None:
+        payload = dict(sidecar)
+        payload["OutputMetric"] = output_metric
+        if extras:
+            payload.update(extras)
+        with open(str(path).replace('.nii.gz', '.json'), 'w') as f:
+            json.dump(payload, f, indent=4)
+
     # 1. dwi2tensor
     # Output tensor file
     tensor_out_name = build_bids_name({**ent_base, 'suffix': 'tensor'})
@@ -212,42 +222,86 @@ def fit_dti(
         "InputData": in_path.name,
         "FittingMethod": "dwi2tensor (iterative reweighted linear least squares)"
     }
-    with open(str(dt_out).replace('.nii.gz', '.json'), 'w') as f:
-         json.dump(sidecar, f, indent=4)
+    _write_sidecar(dt_out, "tensor", extras={"TensorConvention": "MRtrix", "TensorBasis": "world"})
     
     # 2. tensor2metric
-    cmd_metric = f"tensor2metric {dt_out} -quiet -force"
+    base_cmd = f"tensor2metric {dt_out} -quiet -force"
     if mask_file:
-        cmd_metric += f" -mask {mask_file}"
-        
+        base_cmd += f" -mask {mask_file}"
+
+    cmd_metric = base_cmd
+    run_main_metric_cmd = False
+    deferred_metric_cmds: list[tuple[str, str]] = []
     output_files = {}
-    if 'tensor' in metrics:
+    if 'tensor' in metrics_norm:
          output_files['tensor'] = dt_out
 
-    for m in metrics:
+    def _metric_suffix(metric_name: str) -> str:
+        mapping = {
+            'md': 'MD',
+            'adc': 'MD',
+            'color_fa': 'DECFA',
+            'l1': 'L1',
+            'l2': 'L2',
+            'l3': 'L3',
+            'v1': 'V1',
+            'v2': 'V2',
+            'v3': 'V3',
+        }
+        return mapping.get(metric_name, metric_name.upper())
+
+    for m in metrics_norm:
         if m == 'tensor': continue
         
         # Map metric name to BIDS suffix and MRtrix flag
         flag = f"-{m}"
-        suffix = m.upper()
+        suffix = _metric_suffix(m)
         if m == 'md': 
             flag = '-adc'
-            suffix = 'MD'
         if m == 'adc': 
             flag = '-adc'
-            suffix = 'MD'
+        if m == 'color_fa':
+            flag = '-vector'
+        if m in {'l1', 'l2', 'l3'}:
+            flag = '-value'
+        if m in {'v1', 'v2', 'v3'}:
+            flag = '-vector'
+        if m == 'evals':
+            flag = '-value'
+        if m == 'evecs':
+            flag = '-vector'
             
         out_name = build_bids_name({**ent_base, 'suffix': suffix})
         out_path = out_dir / out_name
-        
-        cmd_metric += f" {flag} {out_path}"
+
+        if m == 'color_fa':
+            cmd_metric += f" {flag} {out_path} -modulate FA"
+            run_main_metric_cmd = True
+        elif m in {'l1', 'l2', 'l3'}:
+            deferred_metric_cmds.append((f"{base_cmd} {flag} {out_path} -num {int(m[-1])}", m))
+        elif m in {'v1', 'v2', 'v3'}:
+            deferred_metric_cmds.append((f"{base_cmd} {flag} {out_path} -num {int(m[-1])} -modulate none", m))
+        elif m == 'evals':
+            deferred_metric_cmds.append((f"{base_cmd} {flag} {out_path} -num 1,2,3", m))
+        elif m == 'evecs':
+            deferred_metric_cmds.append((f"{base_cmd} {flag} {out_path} -num 1,2,3 -modulate none", m))
+        else:
+            cmd_metric += f" {flag} {out_path}"
+            run_main_metric_cmd = True
         output_files[m] = out_path
+        extras = {"VectorConvention": "world"} if m in {'color_fa', 'v1', 'v2', 'v3', 'evecs'} else None
+        _write_sidecar(out_path, suffix, extras=extras)
         
-        # Save sidecar
-        with open(str(out_path).replace('.nii.gz', '.json'), 'w') as f:
-             json.dump(sidecar, f, indent=4)
-        
-    run_cmd(cmd_metric, label="tensor2metric")
+    if run_main_metric_cmd:
+        run_cmd(cmd_metric, label="tensor2metric")
+    for metric_cmd, metric_name in deferred_metric_cmds:
+        run_cmd(metric_cmd, label=f"tensor2metric_{metric_name}")
+
+    if 'tensor_mrtrix' in metrics_norm:
+        tensor_mrtrix_out = out_dir / build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
+        shutil.copyfile(dt_out, tensor_mrtrix_out)
+        _write_sidecar(tensor_mrtrix_out, "tensorMRTRIX", extras={"TensorConvention": "MRtrix", "TensorBasis": "world"})
+        output_files['tensor_mrtrix'] = tensor_mrtrix_out
     
     return output_files
 

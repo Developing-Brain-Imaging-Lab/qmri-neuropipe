@@ -243,6 +243,7 @@ dmri:
 **Tools**
 - `topup` (FSL)
 - `synb0` (DIPY Synb0)
+- `drbuddi` (native ANTs-based reverse-PE refinement)
 - `none` (skip)
 
 **Config**
@@ -250,17 +251,28 @@ dmri:
 dmri:
   preprocessing:
     distcorr:
-      method: topup
+      method: topup+drbuddi
       fallback: true
       config: /path/to/topup.cnf
+      drbuddi:
+        transform_type: SyNOnly
+        interpolator: linear
+        symmetric_pairwise: true
+        pe_axis_constraint: 1.0
+        registration_options: {}
 ```
 
 **Parameters**
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `method` | str | `none` | `topup`, `synb0`, `none` |
+| `method` | str | `none` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
 | `fallback` | bool | false | Allow Synb0 fallback |
 | `config` | path | none | Topup config file |
+| `drbuddi.transform_type` | str | `SyNOnly` | Native DRBUDDI ANTs transform |
+| `drbuddi.interpolator` | str | `linear` | Output resampling interpolator |
+| `drbuddi.symmetric_pairwise` | bool | `true` | Use symmetric blip-up/blip-down half-warps |
+| `drbuddi.pe_axis_constraint` | float | `1.0` | Constrain warp mostly to the PE axis |
+| `drbuddi.registration_options` | dict | `{}` | Extra ANTs registration kwargs |
 
 ## Eddy Current Correction
 

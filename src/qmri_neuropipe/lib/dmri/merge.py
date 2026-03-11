@@ -16,6 +16,7 @@ from ...core import BaseProcessingStep, ProcessingError, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import fsl
 from ...io.bids import build_bids_name, _load_json_field
+from ...io.dmri.bids import infer_phase_encoding_direction
 
 class MergeStep(BaseProcessingStep):
     """
@@ -103,6 +104,7 @@ class MergeStep(BaseProcessingStep):
             context["dwi_files"] = [merged_dwi] # Replace list with single file
             context["merged_index"] = out_index
             context["merged_acqp"] = out_acqp
+            context["merge_source_info"] = self._build_merge_source_info(dwi_files)
             
             # Provide standard keys for downstream steps (Eddy)
             context["acqp"] = out_acqp
@@ -281,6 +283,7 @@ class MergeStep(BaseProcessingStep):
         context["dwi_files"] = [merged_dwi]
         context["merged_index"] = out_index
         context["merged_acqp"] = out_acqp
+        context["merge_source_info"] = self._build_merge_source_info(dwi_files)
         # We need to tell topup/eddy to use this acqp?
         # EddyStep should check context["merged_acqp"] and context["merged_index"]
         # And pass them to eddy.
@@ -310,6 +313,34 @@ class MergeStep(BaseProcessingStep):
                 context["topup_groups"] = preserved_groups
         
         return context
+
+    def _build_merge_source_info(self, dwi_files: List[DWIFile]) -> list[dict[str, Any]]:
+        source_info: list[dict[str, Any]] = []
+        start = 0
+
+        for dwi in dwi_files:
+            if not dwi.bval or not Path(dwi.bval).exists():
+                raise ProcessingError(f"MergeStep requires bval files for source bookkeeping: {dwi.img}")
+            bvals = np.loadtxt(dwi.bval)
+            bvals = np.atleast_1d(bvals)
+            n_vols = int(bvals.size)
+            stop = start + n_vols
+            source_info.append(
+                {
+                    "img": str(dwi.img),
+                    "json": str(dwi.json) if dwi.json else None,
+                    "bval": str(dwi.bval) if dwi.bval else None,
+                    "bvec": str(dwi.bvec) if dwi.bvec else None,
+                    "entities": dict(getattr(dwi, "entities", {}) or {}),
+                    "start": start,
+                    "stop": stop,
+                    "n_vols": n_vols,
+                    "phase_encoding_direction": infer_phase_encoding_direction(dwi),
+                }
+            )
+            start = stop
+
+        return source_info
 
     def _propagate_topup_mapping(self, context: Dict[str, Any], source_dwis: List[DWIFile], merged_dwi: DWIFile) -> None:
         topup_map = context.get("topup_map", {})

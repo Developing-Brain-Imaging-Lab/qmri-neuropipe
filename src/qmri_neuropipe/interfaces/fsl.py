@@ -754,7 +754,8 @@ def fit_dti(
     bval_file: Optional[Path] = None,
     bvec_file: Optional[Path] = None,
     save_tensor: bool = False,
-    grad_nonlin: Optional[Path] = None
+    grad_nonlin: Optional[Path] = None,
+    metrics: Optional[list[str]] = None,
 ) -> Dict[str, Path]:
     """
     Fit DTI using FSL dtifit.
@@ -816,15 +817,75 @@ def fit_dti(
         
     run_cmd(" ".join(cmd), label="dtifit")
     
-    # Map outputs
+    metrics_norm = {metric.strip().lower() for metric in (metrics or ['fa', 'md', 'ad', 'rd', 'color_fa', 'tensor'])}
+
+    def _write_sidecar(path: Path, output_metric: str, extras: Optional[dict] = None) -> None:
+        payload = {
+            "ModelName": "Diffusion Tensor Imaging",
+            "FittingSoftware": "FSL dtifit",
+            "InputData": in_path.name,
+            "OutputMetric": output_metric,
+        }
+        if extras:
+            payload.update(extras)
+        with open(str(path).replace('.nii.gz', '.json'), 'w') as f:
+            json.dump(payload, f, indent=4)
+
     prefix_str = str(prefix_path)
-    output_files = {}
-    output_files['fa'] = Path(f"{prefix_str}_FA.nii.gz")
-    output_files['md'] = Path(f"{prefix_str}_MD.nii.gz")
-    output_files['ad'] = Path(f"{prefix_str}_L1.nii.gz") # L1 is AD
-    
-    # Note: RD is not directly output by dtifit (L2, L3 are separate)
-    
+    output_files: Dict[str, Path] = {}
+    produced: Dict[str, Path] = {
+        'fa': Path(f"{prefix_str}_FA.nii.gz"),
+        'md': Path(f"{prefix_str}_MD.nii.gz"),
+        'l1': Path(f"{prefix_str}_L1.nii.gz"),
+        'l2': Path(f"{prefix_str}_L2.nii.gz"),
+        'l3': Path(f"{prefix_str}_L3.nii.gz"),
+        'v1': Path(f"{prefix_str}_V1.nii.gz"),
+        'v2': Path(f"{prefix_str}_V2.nii.gz"),
+        'v3': Path(f"{prefix_str}_V3.nii.gz"),
+        'tensor': Path(f"{prefix_str}_tensor.nii.gz"),
+    }
+
+    for metric_name, path in produced.items():
+        if path.exists():
+            extras = None
+            if metric_name in {'v1', 'v2', 'v3'}:
+                extras = {"VectorConvention": "voxel"}
+            elif metric_name == 'tensor':
+                extras = {"TensorConvention": "FSL", "TensorBasis": "voxel"}
+            _write_sidecar(path, metric_name.upper() if len(metric_name) <= 3 else metric_name, extras=extras)
+
+    if 'rd' in metrics_norm and produced['l2'].exists() and produced['l3'].exists():
+        l2_img = nib.load(str(produced['l2']))
+        l3_img = nib.load(str(produced['l3']))
+        rd_path = out_dir / build_bids_name({**ent_base, 'suffix': 'RD'})
+        rd_data = 0.5 * (l2_img.get_fdata(dtype=np.float32) + l3_img.get_fdata(dtype=np.float32))
+        nib.save(nib.Nifti1Image(rd_data.astype(np.float32), l2_img.affine, l2_img.header), str(rd_path))
+        produced['rd'] = rd_path
+        _write_sidecar(rd_path, "RD")
+
+    if 'color_fa' in metrics_norm and produced['fa'].exists() and produced['v1'].exists():
+        fa_img = nib.load(str(produced['fa']))
+        v1_img = nib.load(str(produced['v1']))
+        fa_data = fa_img.get_fdata(dtype=np.float32)
+        v1_data = v1_img.get_fdata(dtype=np.float32)
+        decfa_path = out_dir / build_bids_name({**ent_base, 'suffix': 'DECFA'})
+        decfa = np.abs(v1_data) * fa_data[..., np.newaxis]
+        nib.save(nib.Nifti1Image(decfa.astype(np.float32), fa_img.affine, fa_img.header), str(decfa_path))
+        produced['color_fa'] = decfa_path
+        _write_sidecar(decfa_path, "DECFA", extras={"VectorConvention": "voxel"})
+
+    if 'tensor_fsl' in metrics_norm and produced['tensor'].exists():
+        tensor_fsl = out_dir / build_bids_name({**ent_base, 'suffix': 'tensorFSL'})
+        shutil.copyfile(produced['tensor'], tensor_fsl)
+        produced['tensor_fsl'] = tensor_fsl
+        _write_sidecar(tensor_fsl, "tensorFSL", extras={"TensorConvention": "FSL", "TensorBasis": "voxel"})
+
+    metric_aliases = {'ad': 'l1'}
+    for metric_name in metrics_norm:
+        source_name = metric_aliases.get(metric_name, metric_name)
+        if source_name in produced and produced[source_name].exists():
+            output_files[metric_name] = produced[source_name]
+
     return output_files
 
 

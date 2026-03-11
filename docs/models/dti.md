@@ -27,7 +27,7 @@ dmri:
       method: "dipy" # Options: "dipy", "fsl", "mrtrix"
       parameters:
         sub_method: "WLLS" # For dipy: WLLS (default), OLS, NLLS, RESTORE
-        metrics: ["fa", "md", "ad", "rd", "color_fa"]
+        metrics: ["fa", "md", "ad", "rd", "l1", "l2", "l3", "v1", "v2", "v3", "tensor_mrtrix"]
 ```
 
 ### Options
@@ -38,7 +38,7 @@ dmri:
 | `fit_method` | (DIPY only) Solver algorithm: `WLLS`, `OLS`, `NLLS`, `RESTORE`, `IRLS`. | `"WLLS"` |
 | `weights_method` | (DIPY IRLS only) Robust method: `gm`, `cauchy`, `wls_m_est`. | `"wls_m_est"` |
 | `weights_cutoff` | (DIPY IRLS only) Z-score threshold for outlier rejection. | `None` |
-| `metrics` | List of metrics to compute: `fa`, `md`, `ad`, `rd`, `color_fa`. | `["fa", "md", "ad", "rd"]` |
+| `metrics` | List of metrics to compute: `fa`, `md`, `ad`, `rd`, `color_fa`, `l1`, `l2`, `l3`, `v1`, `v2`, `v3`, `tensor`, `tensor_fsl`, `tensor_mrtrix`, `evals`, `evecs`. | `["fa", "md", "ad", "rd"]` |
 | `save_tensor` | (FSL only) Whether to save the full tensor file. | `false` |
 
 ## Outputs
@@ -50,3 +50,13 @@ All outputs are saved in the `dwi` directory, following BIDS naming conventions.
 - **AD (Axial Diffusivity):** `sub-<id>_ses-<id>_model-DTI_AD.nii.gz`
 - **RD (Radial Diffusivity):** `sub-<id>_ses-<id>_model-DTI_RD.nii.gz`
 - **Color FA:** `sub-<id>_ses-<id>_model-DTI_DECFA.nii.gz` (Direction Encoded Color Map)
+- **Eigenvalues:** `sub-<id>_ses-<id>_model-DTI_L1.nii.gz`, `L2`, `L3`
+- **Eigenvectors:** `sub-<id>_ses-<id>_model-DTI_V1.nii.gz`, `V2`, `V3`
+- **Tensor (FSL/image basis):** `sub-<id>_ses-<id>_model-DTI_tensor.nii.gz`
+- **Tensor (MRtrix/world basis):** `sub-<id>_ses-<id>_model-DTI_tensorMRTRIX.nii.gz`
+
+## Notes
+
+- `tensorMRTRIX` is the preferred tensor output for `mrview`.
+- The DIPY backend now reorients `tensorMRTRIX` and `V1/V2/V3` into the image world basis instead of only reordering tensor components. This avoids left-right or axis-swap artifacts in `mrview` on non-canonical images.
+- The FSL backend now exposes `L1/L2/L3`, `V1/V2/V3`, and derives `RD` and `DECFA` when requested.

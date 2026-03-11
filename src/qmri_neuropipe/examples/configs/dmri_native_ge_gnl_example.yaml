@@ -73,8 +73,14 @@ dmri:
       enabled: true
 
     distcorr:
-      method: topup
+      method: topup+drbuddi
       fallback: false
+      drbuddi:
+        transform_type: SyNOnly
+        interpolator: linear
+        symmetric_pairwise: true
+        pe_axis_constraint: 1.0
+        registration_options: {}
 
     denoising:
       enabled: true
@@ -127,3 +133,10 @@ dmri:
         - md
         - rd
         - ad
+        - l1
+        - l2
+        - l3
+        - v1
+        - v2
+        - v3
+        - tensor_mrtrix

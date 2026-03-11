@@ -51,6 +51,7 @@ def report_preprocessing_step(
     from qmri_neuropipe.lib.dmri.eddy import EddyCorrectionStep
     from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
     from qmri_neuropipe.lib.dmri.topup import TopupStep
+    from qmri_neuropipe.lib.dmri.drbuddi import NativeDrbuddiStep
     from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
     from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
     from qmri_neuropipe.lib.common.registration import CoregistrationStep
@@ -66,6 +67,7 @@ def report_preprocessing_step(
     
     figures_list = []
     details = {}
+    tables = []
     
     # Handle different step types
     if isinstance(step, DMRIReorientStep):
@@ -107,6 +109,74 @@ def report_preprocessing_step(
         
     elif isinstance(step, TopupStep):
         details = {"Method": "Topup (FSL)"}
+
+    elif isinstance(step, NativeDrbuddiStep):
+        details = {
+            "Method": "Native DRBUDDI",
+            "Transform": step.transform_type,
+            "Interpolator": step.interpolator,
+            "Symmetric Pairwise": str(step.symmetric_pairwise),
+            "PE Axis Constraint": f"{step.pe_axis_constraint:.2f}",
+        }
+
+        if curr_img_obj:
+            drbuddi_dir = curr_img_obj.img.parent
+            before_mean = drbuddi_dir / "drbuddi_before_meanb0.nii.gz"
+            after_mean = drbuddi_dir / "drbuddi_after_meanb0.nii.gz"
+            if before_mean.exists():
+                fig_out = figures_dir / f"drbuddi_before_{stem}.png"
+                create_ortho_view(before_mean, fig_out, title="Native DRBUDDI Mean b0 Before")
+                figures_list.append({
+                    "path": str(fig_out),
+                    "title": "Native DRBUDDI Before",
+                    "caption": "Mean b0 before native reverse-PE refinement",
+                })
+            if after_mean.exists():
+                fig_out = figures_dir / f"drbuddi_after_{stem}.png"
+                create_ortho_view(after_mean, fig_out, title="Native DRBUDDI Mean b0 After")
+                figures_list.append({
+                    "path": str(fig_out),
+                    "title": "Native DRBUDDI After",
+                    "caption": "Mean b0 after native reverse-PE refinement",
+                })
+
+        qc_rows = []
+        for group in current_arg.get("drbuddi_qc", []) if isinstance(current_arg, dict) else []:
+            axis = str(group.get("axis", "")).upper()
+            qc_rows.append({
+                "Axis": axis,
+                "Pos Series": str(group.get("positive_series", "")),
+                "Neg Series": str(group.get("negative_series", "")),
+                "Mean Residual Before": f"{group.get('residual_before_mean', 0.0):.4f}",
+                "Mean Residual After": f"{group.get('residual_after_mean', 0.0):.4f}",
+                "Improvement %": f"{group.get('improvement_percent', 0.0):.2f}",
+            })
+
+            residual_before_path = group.get("residual_before_path")
+            if residual_before_path and Path(residual_before_path).exists():
+                fig_out = figures_dir / f"drbuddi_residual_before_axis-{axis}_{stem}.png"
+                create_ortho_view(Path(residual_before_path), fig_out, title=f"Residual Before ({axis})")
+                figures_list.append({
+                    "path": str(fig_out),
+                    "title": f"Residual Before {axis}",
+                    "caption": "Absolute blip-up vs blip-down mean b0 difference before refinement",
+                })
+
+            residual_after_path = group.get("residual_after_path")
+            if residual_after_path and Path(residual_after_path).exists():
+                fig_out = figures_dir / f"drbuddi_residual_after_axis-{axis}_{stem}.png"
+                create_ortho_view(Path(residual_after_path), fig_out, title=f"Residual After ({axis})")
+                figures_list.append({
+                    "path": str(fig_out),
+                    "title": f"Residual After {axis}",
+                    "caption": "Absolute blip-up vs blip-down mean b0 difference after refinement",
+                })
+
+        if qc_rows:
+            tables.append({
+                "title": "Native DRBUDDI Residual Summary",
+                "data": qc_rows,
+            })
         
     elif isinstance(step, BiasCorrectionStep):
         details = {"Method": step.method, "Stem": stem}
@@ -177,7 +247,7 @@ def report_preprocessing_step(
         details = {"Status": "Completed"}
 
     # Add the step to report
-    reporter.add_dmri_step(step_name, details, figures=figures_list)
+    reporter.add_dmri_step(step_name, details, figures=figures_list, tables=tables)
     
     # Check for metrics to report
     if isinstance(current_arg, dict) and ('qc_metrics' in current_arg or 'outlier_stats' in current_arg):
