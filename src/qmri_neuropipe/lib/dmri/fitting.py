@@ -49,6 +49,17 @@ def _resolve_context_gnl_map(context: dict | object, dwi: object | None = None) 
     return None
 
 
+def _warn_unsupported_gnl(logger, context: dict | object, dwi: object | None, model_name: str) -> None:
+    """Warn when a GNL tensor is available but the selected model/backend cannot use it."""
+    gnl_map = _resolve_context_gnl_map(context, dwi)
+    if gnl_map:
+        logger.warning(
+            f"Gradient nonlinearity tensor map found for {model_name}, "
+            "but this model/backend does not currently support GNL-aware fitting. "
+            "The GNL tensor will be ignored."
+        )
+
+
 class DTIFittingStep(BaseProcessingStep):
     def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
@@ -584,6 +595,7 @@ class NODDIFittingStep(BaseProcessingStep):
 
         outputs = {}
         outputs = {}
+        _warn_unsupported_gnl(self.logger, context, dwi, "NODDI")
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
              
@@ -743,6 +755,7 @@ class SANDIFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
+        _warn_unsupported_gnl(self.logger, context, dwi, "SANDI")
         if self.method == 'amico':
              from ...interfaces.amico import fit_sandi
              fit_sandi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
@@ -802,6 +815,7 @@ class MicrogliaFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
+        _warn_unsupported_gnl(self.logger, context, dwi, "Microglia")
         if self.method == 'dmipy':
              from ...interfaces.dmipy_microglia import fit_microglia
              
@@ -938,6 +952,8 @@ class NEXIFittingStep(BaseProcessingStep):
             mask_path = mask.img
         else:
             mask_path = mask
+
+        _warn_unsupported_gnl(self.logger, context, dwi, "NEXI")
 
         if self.method != 'nexi':
             raise ValueError(f"Unknown NEXI method: {self.method}")
@@ -1158,6 +1174,7 @@ class CSDFittingStep(BaseProcessingStep):
         
         # IMPORTS
         from ...interfaces.mrtrix import dwi2response, dwi2fod
+        _warn_unsupported_gnl(self.logger, context, dwi, "CSD")
         
         # Prepare mask
         if mask and hasattr(mask, 'img'):
