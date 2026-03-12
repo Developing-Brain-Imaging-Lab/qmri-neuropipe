@@ -521,10 +521,19 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
             elif m == 'qiv': res.append(fit.qiv())
             elif m == 'msd': res.append(fit.msd())
             elif m == 'ng': res.append(fit.ng())
+            elif m == 'peaks':
+                res.append(_mapmri_peaks_from_fit(
+                    fit,
+                    n_peaks=fit_kwargs.get('peak_npeaks', 3),
+                    relative_peak_threshold=fit_kwargs.get('peak_relative_threshold', 0.5),
+                    min_separation_angle=fit_kwargs.get('peak_min_separation_angle', 25.0),
+                ))
             elif m == 'ng_par': res.append(fit.ng_parallel())
             elif m == 'ng_perp': res.append(fit.ng_perpendicular())
             # Add more if needed
         # Stack results: (N, n_metrics)
+        if len(res) == 1:
+            return np.asarray(res[0])
         return np.stack(res, axis=-1)
     
     if hasattr(fit, 'mapmri_params'):
@@ -534,6 +543,77 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     if hasattr(fit, 'mapmri_coeff'):
         return fit.mapmri_coeff
     return fit.model_params
+
+
+_MAPMRI_METRIC_ALIASES = {
+    'rtop': 'rtop',
+    'rtap': 'rtap',
+    'rtpp': 'rtpp',
+    'qiv': 'qiv',
+    'msd': 'msd',
+    'ng': 'ng',
+    'peak': 'peaks',
+    'peaks': 'peaks',
+    'ng_par': 'ng_par',
+    'ng_parallel': 'ng_par',
+    'parng': 'ng_par',
+    'ng_perp': 'ng_perp',
+    'ng_perpendicular': 'ng_perp',
+    'perng': 'ng_perp',
+}
+
+
+def _normalize_mapmri_metrics(metrics):
+    normalized = []
+    seen = set()
+    for metric in metrics:
+        canonical = _MAPMRI_METRIC_ALIASES.get(str(metric).strip().lower())
+        if canonical and canonical not in seen:
+            normalized.append(canonical)
+            seen.add(canonical)
+    return normalized
+
+
+def _mapmri_metric_suffix(metric: str) -> str:
+    canonical = _MAPMRI_METRIC_ALIASES.get(str(metric).strip().lower(), str(metric).strip().lower())
+    if canonical == 'peaks':
+        return 'PEAKS'
+    if canonical == 'ng_par':
+        return 'NG_PAR'
+    if canonical == 'ng_perp':
+        return 'NG_PERP'
+    return canonical.upper()
+
+
+def _mapmri_peaks_from_fit(
+    fit,
+    *,
+    n_peaks: int = 3,
+    relative_peak_threshold: float = 0.5,
+    min_separation_angle: float = 25.0,
+):
+    import numpy as np
+    from dipy.data import default_sphere
+    from dipy.direction import peak_directions
+
+    odf = np.asarray(fit.odf(default_sphere), dtype=np.float32)
+    odf_flat = odf.reshape((-1, odf.shape[-1]))
+    peaks = np.zeros((odf_flat.shape[0], n_peaks * 3), dtype=np.float32)
+
+    for idx, voxel_odf in enumerate(odf_flat):
+        directions, _, _ = peak_directions(
+            voxel_odf,
+            default_sphere,
+            relative_peak_threshold=relative_peak_threshold,
+            min_separation_angle=min_separation_angle,
+            is_symmetric=True,
+        )
+        if directions is None or len(directions) == 0:
+            continue
+        directions = np.asarray(directions[:n_peaks], dtype=np.float32)
+        peaks[idx, : directions.shape[0] * 3] = directions.reshape(-1)
+
+    return peaks.reshape(odf.shape[:-1] + (n_peaks * 3,))
 
 def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.fwdti as fwdti
@@ -646,6 +726,12 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
                  elif m == 'qiv' and hasattr(fit, 'qiv'): val = fit.qiv()
                  elif m == 'msd' and hasattr(fit, 'msd'): val = fit.msd()
                  elif m == 'ng' and hasattr(fit, 'ng'): val = fit.ng()
+                 elif m == 'peaks': val = _mapmri_peaks_from_fit(
+                     fit,
+                     n_peaks=full_kwargs.get('peak_npeaks', 3),
+                     relative_peak_threshold=full_kwargs.get('peak_relative_threshold', 0.5),
+                     min_separation_angle=full_kwargs.get('peak_min_separation_angle', 25.0),
+                 )[0]
                  elif m == 'ng_par' and hasattr(fit, 'ng_parallel'): val = fit.ng_parallel()
                  elif m == 'ng_perp' and hasattr(fit, 'ng_perpendicular'): val = fit.ng_perpendicular()
                  elif hasattr(fit, m): val = getattr(fit, m) # generic property?
@@ -656,7 +742,10 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
                      val = np.array(val).item()
                  
                  m_res.append(val)
-            res_params.append(m_res)
+            if len(m_res) == 1 and np.asarray(m_res[0]).ndim > 0:
+                res_params.append(np.asarray(m_res[0]))
+            else:
+                res_params.append(m_res)
         else:
             # Collect parameters
             # Most models stick params in model_params
@@ -1320,6 +1409,7 @@ def fit_mapmri(
     """
     Fit MAP-MRI model.
     """
+    import numpy as np
     from dipy.core.gradients import gradient_table
     from dipy.io.gradients import read_bvals_bvecs
     import dipy.reconst.mapmri as mapmri
@@ -1328,6 +1418,11 @@ def fit_mapmri(
     in_path = extract_image_path(in_file)
     img = nib.load(str(in_path))
     data = img.get_fdata()
+    metrics = _normalize_mapmri_metrics(metrics)
+    if not metrics:
+        metrics = ["rtop", "rtap", "rtpp", "qiv", "msd", "ng"]
+    scalar_metrics = [metric for metric in metrics if metric != 'peaks']
+    peaks_requested = 'peaks' in metrics
     
     if bval_file is None or bvec_file is None:
         if isinstance(in_file, DWIFile):
@@ -1362,6 +1457,9 @@ def fit_mapmri(
     map_kwargs.setdefault('laplacian_regularization', laplacian)
     map_kwargs.setdefault('positivity_constraint', positivity)
     map_kwargs.setdefault('global_constraints', global_constraints)
+    peak_npeaks = int(map_kwargs.pop('peak_npeaks', 3))
+    peak_relative_threshold = float(map_kwargs.pop('peak_relative_threshold', 0.5))
+    peak_min_separation_angle = float(map_kwargs.pop('peak_min_separation_angle', 25.0))
     
     # Extract GNL path and remove from kwargs passed to Model
     if 'grad_nonlin' in map_kwargs:
@@ -1373,48 +1471,83 @@ def fit_mapmri(
     else:
         grad_nonlin = None
 
-    # We will pass 'metrics' to the workers so they compute them locally.
-    # This avoids the issue of reconstructing MapmriFit which requires hidden internal state (mu, R, lopt).
-    map_kwargs['metrics'] = metrics
+    final_data = None
+    mapfit = None
+    peak_data = None
+    map_model_kwargs = dict(map_kwargs)
 
     try:
-        final_data = None
-        
-        if grad_nonlin:
-             print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
-             
-             final_data = _execute_gnl_fit(
-                data=data,
-                mask=mask,
-                gnl_map_path=grad_nonlin,
-                bvals=bvals,
-                bvecs=bvecs,
-                model_class=mapmri.MapmriModel,
-                model_kwargs=map_kwargs, # map_kwargs has 'metrics'
-                nthreads=nthreads,
-                big_delta=big_delta,
-                small_delta=small_delta
-             )
-             # final_data is metrics (N, n_metrics)
-             
-        elif nthreads > 1:
-             # Parallel
-             final_data = _parallel_fit_driver(
-                data,
-                mask,
-                gtab,
-                _mapmri_worker,
-                nthreads,
-                worker_kwargs=map_kwargs # map_kwargs has 'metrics'
-             )
-             # final_data is metrics (N, n_metrics) [actually vol_params (X, Y, Z, n_metrics)]
-             
-        else:
-             # Serial
-             mk = {k:v for k,v in map_kwargs.items() if k != 'metrics'}
-             map_model = mapmri.MapmriModel(gtab, **mk)
-             mapfit = map_model.fit(data, mask=mask)
-             final_data = None # Indicator for serial object
+        if scalar_metrics:
+            scalar_kwargs = dict(map_model_kwargs)
+            scalar_kwargs['metrics'] = scalar_metrics
+
+            if grad_nonlin:
+                 print(f"  - applying Gradient Nonlinearity Correction (voxel-wise)...")
+                 
+                 final_data = _execute_gnl_fit(
+                    data=data,
+                    mask=mask,
+                    gnl_map_path=grad_nonlin,
+                    bvals=bvals,
+                    bvecs=bvecs,
+                    model_class=mapmri.MapmriModel,
+                    model_kwargs=scalar_kwargs,
+                    nthreads=nthreads,
+                    big_delta=big_delta,
+                    small_delta=small_delta
+                 )
+            elif nthreads > 1:
+                 final_data = _parallel_fit_driver(
+                    data,
+                    mask,
+                    gtab,
+                    _mapmri_worker,
+                    nthreads,
+                    worker_kwargs=scalar_kwargs
+                 )
+            else:
+                 map_model = mapmri.MapmriModel(gtab, **map_model_kwargs)
+                 mapfit = map_model.fit(data, mask=mask)
+
+        if peaks_requested:
+            peak_kwargs = dict(map_model_kwargs)
+            peak_kwargs['metrics'] = ['peaks']
+            peak_kwargs['peak_npeaks'] = peak_npeaks
+            peak_kwargs['peak_relative_threshold'] = peak_relative_threshold
+            peak_kwargs['peak_min_separation_angle'] = peak_min_separation_angle
+
+            if grad_nonlin:
+                peak_data = _execute_gnl_fit(
+                    data=data,
+                    mask=mask,
+                    gnl_map_path=grad_nonlin,
+                    bvals=bvals,
+                    bvecs=bvecs,
+                    model_class=mapmri.MapmriModel,
+                    model_kwargs=peak_kwargs,
+                    nthreads=nthreads,
+                    big_delta=big_delta,
+                    small_delta=small_delta
+                )
+            elif nthreads > 1:
+                peak_data = _parallel_fit_driver(
+                    data,
+                    mask,
+                    gtab,
+                    _mapmri_worker,
+                    nthreads,
+                    worker_kwargs=peak_kwargs
+                )
+            else:
+                if mapfit is None:
+                    map_model = mapmri.MapmriModel(gtab, **map_model_kwargs)
+                    mapfit = map_model.fit(data, mask=mask)
+                peak_data = _mapmri_peaks_from_fit(
+                    mapfit,
+                    n_peaks=peak_npeaks,
+                    relative_peak_threshold=peak_relative_threshold,
+                    min_separation_angle=peak_min_separation_angle,
+                )
 
     except Exception as e:
         import traceback
@@ -1434,15 +1567,18 @@ def fit_mapmri(
         "FittingParameters": {
              "laplacian": laplacian,
              "positivity": positivity,
-             "global_constraints": global_constraints
+             "global_constraints": global_constraints,
+             "peak_npeaks": peak_npeaks,
+             "peak_relative_threshold": peak_relative_threshold,
+             "peak_min_separation_angle": peak_min_separation_angle,
         },
         "Metrics": metrics
     }
     
     # Handling Outputs
-    for i, metric in enumerate(metrics):
-        metric_lower = metric.lower()
-        metric_suffix = metric.upper()
+    for i, metric in enumerate(scalar_metrics):
+        metric_lower = _MAPMRI_METRIC_ALIASES.get(metric.lower(), metric.lower())
+        metric_suffix = _mapmri_metric_suffix(metric_lower)
         out_name = build_bids_name({**ent_base, 'suffix': metric_suffix})
         out_path = out_dir / out_name
         
@@ -1467,12 +1603,29 @@ def fit_mapmri(
         
         if val is not None:
              nib.save(nib.Nifti1Image(val, img.affine), str(out_path))
-             output_files[metric] = out_path
+             output_files[metric_lower] = out_path
              
              sidecar_path = str(out_path).replace('.nii.gz', '.json')
              with open(sidecar_path, 'w') as f:
                   json.dump(sidecar, f, indent=4)
- 
+
+    if peaks_requested and peak_data is not None:
+         peak_suffix = _mapmri_metric_suffix('peaks')
+         peak_name = build_bids_name({**ent_base, 'suffix': peak_suffix})
+         peak_path = out_dir / peak_name
+         nib.save(nib.Nifti1Image(np.asarray(peak_data, dtype=np.float32), img.affine), str(peak_path))
+         output_files['peaks'] = peak_path
+
+         peak_sidecar = dict(sidecar)
+         peak_sidecar["OutputMetric"] = "peaks"
+         peak_sidecar["PeakComponents"] = [
+             "peak1_x", "peak1_y", "peak1_z",
+             "peak2_x", "peak2_y", "peak2_z",
+             "peak3_x", "peak3_y", "peak3_z",
+         ][:peak_npeaks * 3]
+         with open(str(peak_path).replace('.nii.gz', '.json'), 'w') as f:
+              json.dump(peak_sidecar, f, indent=4)
+
     return output_files
 
 

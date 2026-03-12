@@ -60,6 +60,46 @@ def _warn_unsupported_gnl(logger, context: dict | object, dwi: object | None, mo
         )
 
 
+_MAPMRI_METRIC_ALIASES = {
+    "rtop": "rtop",
+    "rtap": "rtap",
+    "rtpp": "rtpp",
+    "qiv": "qiv",
+    "msd": "msd",
+    "ng": "ng",
+    "peak": "peaks",
+    "peaks": "peaks",
+    "ng_par": "ng_par",
+    "ng_parallel": "ng_par",
+    "parng": "ng_par",
+    "ng_perp": "ng_perp",
+    "ng_perpendicular": "ng_perp",
+    "perng": "ng_perp",
+}
+
+
+def _normalize_mapmri_metrics(metrics: list[str] | None) -> list[str]:
+    normalized = []
+    seen = set()
+    for metric in metrics or []:
+        canonical = _MAPMRI_METRIC_ALIASES.get(str(metric).strip().lower())
+        if canonical and canonical not in seen:
+            normalized.append(canonical)
+            seen.add(canonical)
+    return normalized
+
+
+def _mapmri_metric_suffix(metric: str) -> str:
+    canonical = _MAPMRI_METRIC_ALIASES.get(str(metric).strip().lower(), str(metric).strip().lower())
+    if canonical == "peaks":
+        return "PEAKS"
+    if canonical == "ng_par":
+        return "NG_PAR"
+    if canonical == "ng_perp":
+        return "NG_PERP"
+    return canonical.upper()
+
+
 class DTIFittingStep(BaseProcessingStep):
     def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
@@ -1040,22 +1080,33 @@ class MAPMRIFittingStep(BaseProcessingStep):
         if 'desc' in ents: del ents['desc']
         if 'suffix' in ents: del ents['suffix']
         
-        rtop_path = model_out / build_bids_name(ents, suffix='rtop')
-        
+        requested_metrics = kwargs.get('metrics')
+        if not requested_metrics:
+            requested_metrics = self.kwargs.get('metrics')
+        if not requested_metrics:
+            if isinstance(self.config, dict):
+                requested_metrics = self.config.get('metrics')
+            elif hasattr(self.config, 'metrics'):
+                requested_metrics = getattr(self.config, 'metrics')
+        requested_metrics = _normalize_mapmri_metrics(requested_metrics)
+        if not requested_metrics:
+            requested_metrics = ["rtop", "rtap", "rtpp", "qiv", "msd", "ng"]
+
         should_run = True
         existing_results = {}
         all_found = True
         
-        # Approximate required MAPMRI metrics
-        required_metrics = ['rtop', 'rtap', 'rtpp', 'msd', 'qiv', 'ng', 'ng_perp', 'ng_parallel']
-        for m in required_metrics:
-             fpath = model_out / build_bids_name(ents, suffix=m)
+        for m in requested_metrics:
+             suffix = _mapmri_metric_suffix(m)
+             fpath = model_out / build_bids_name(ents, suffix=suffix)
              if self.check_output_validity(fpath):
-                 existing_results[m] = fpath
+                 existing_results[suffix] = fpath
              else:
-                 found = [p for p in model_out.glob(f"*_{m}.nii.gz") if self.check_output_validity(p)]
-                 if found: existing_results[m] = found[0]
-                 else: all_found = False
+                 found = [p for p in model_out.glob(f"*_{suffix}.nii.gz") if self.check_output_validity(p)]
+                 if found:
+                     existing_results[suffix] = found[0]
+                 else:
+                     all_found = False
                  
         if all_found and not force:
              self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found all required MAPMRI outputs)")
@@ -1090,6 +1141,8 @@ class MAPMRIFittingStep(BaseProcessingStep):
              for k in opts:
                   if k not in map_kwargs and hasattr(self.config, k):
                        map_kwargs[k] = getattr(self.config, k)
+
+             map_kwargs['metrics'] = requested_metrics
              
              # Check for GNL map
              gnl_map = _resolve_context_gnl_map(context, dwi)

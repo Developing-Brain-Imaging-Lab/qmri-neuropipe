@@ -20,7 +20,10 @@ dmri:
         laplacian_weighting: 0.2
         positivity_constraint: true
         cvxpy_solver: "SCS" # Options: SCS (default), ECOS, CVXOPT
-        metrics: ["rtop", "ng", "msd"]
+        metrics: ["rtop", "ng", "parng", "perng", "peaks"]
+        peak_npeaks: 3
+        peak_relative_threshold: 0.5
+        peak_min_separation_angle: 25
 ```
 
 ### Options
@@ -32,7 +35,10 @@ dmri:
 | `positivity_constraint` | Enforce positive probability density. | `false` |
 | `global_constraints` | Use global optimization (slower). | `false` |
 | `cvxpy_solver` | Optimization solver used by cvxpy (e.g., `"SCS"`, `"ECOS"`, `"CVXOPT"`). | `None` |
-| `metrics` | List of metrics: `rtop`, `rtap`, `rtpp`, `msd`, `qiv`, `ng`, `ng_par`, `ng_perp`. | `["rtop", "rtap", "rtpp", "qiv", "msd"]` |
+| `metrics` | List of metrics: `rtop`, `rtap`, `rtpp`, `msd`, `qiv`, `ng`, `ng_par`, `ng_perp`, `peaks`. Aliases `parng` / `ng_parallel` and `perng` / `ng_perpendicular` are also accepted. | `["rtop", "rtap", "rtpp", "qiv", "msd"]` |
+| `peak_npeaks` | Number of peak directions to save in the `PEAKS` volume. | `3` |
+| `peak_relative_threshold` | Relative ODF threshold used for peak finding. | `0.5` |
+| `peak_min_separation_angle` | Minimum angular separation between accepted peaks, in degrees. | `25` |
 
 ## Outputs
 
@@ -44,3 +50,8 @@ dmri:
 - **NG (Non-Gaussivity):** `*_model-MAPMRI_NG.nii.gz`
 - **NG Parallel:** `*_model-MAPMRI_NG_PAR.nii.gz`
 - **NG Perpendicular:** `*_model-MAPMRI_NG_PERP.nii.gz`
+- **Peaks:** `*_model-MAPMRI_PEAKS.nii.gz` (4D, default 9 components: `peak1_xyz`, `peak2_xyz`, `peak3_xyz`)
+
+Accepted aliases are normalized to the canonical output names above:
+- `parng`, `ng_parallel` -> `NG_PAR`
+- `perng`, `ng_perpendicular` -> `NG_PERP`
