@@ -526,7 +526,7 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
                     output_grid_ref = registration_target
-                    if self.method == "freesurfer" or out_res in ['native', 'dwi']:
+                    if out_res in ['native', 'dwi']:
                         output_grid_ref = in_path
 
                     mt_kwargs = {
@@ -538,11 +538,10 @@ class CoregistrationStep(BaseProcessingStep):
                         'force': True
                     }
                     
-                    # For FreeSurfer, interpret the transform in FreeSurfer space but do not
-                    # regrid the DWI onto a new voxel lattice. Keep the native diffusion grid.
-                    if self.method != "freesurfer":
+                    # Honor the requested output grid for all MRtrix application modes,
+                    # including FreeSurfer-derived transforms.
+                    if out_res in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['strides'] = output_grid_ref
-                    if self.method != "freesurfer" and out_res in ['anatomical', 'native', 'dwi']:
                         mt_kwargs['template'] = output_grid_ref
 
                     mrtrix.mrtransform(**mt_kwargs)
