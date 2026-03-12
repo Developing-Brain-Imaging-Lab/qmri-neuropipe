@@ -36,11 +36,16 @@ def _format_extra_opts(extra_opts: Optional[Dict[str, Any]], prefix: str = "--")
                  opts.append(f"{prefix}{key} {val}")
     return opts
 
-def _ensure_acqp_index(in_dwi: DWIFile) -> tuple[Path | None, Path | None]:
+def _ensure_acqp_index(in_dwi: DWIFile, support_dir: Optional[Path] = None) -> tuple[Path | None, Path | None]:
     """
     Create acqp/index files if possible from BIDS metadata.
     """
-    return build_acqp_index(in_dwi.json, in_dwi.img, entities=getattr(in_dwi, "entities", None))
+    return build_acqp_index(
+        in_dwi.json,
+        in_dwi.img,
+        entities=getattr(in_dwi, "entities", None),
+        support_dir=support_dir,
+    )
 
 
 def bet(in_file: ImageLike | Path, out_file: Path, frac: float = 0.5, mask: bool = True, robust: bool = True) -> tuple[Path, Optional[Path]]:
@@ -273,7 +278,10 @@ def topup(
     acqp_lines: list[str] = []
 
     for dwi in in_dwis:
-        acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(dwi)
+        acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(
+            dwi,
+            support_dir=out_base.parent / "topup_support",
+        )
         if not acqp_path or not index_path:
             continue
 
@@ -516,7 +524,10 @@ def eddy(
         if _which("fslmaths"):
              maths(mask, mask, args="-dilM -dilM -dilM -bin")
 
-    acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(in_file)
+    acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(
+        in_file,
+        support_dir=out_p.parent / "eddy_support",
+    )
     if not acqp_path or not index_path:
         raise RuntimeError("acqparams/index files are required for eddy.")
 

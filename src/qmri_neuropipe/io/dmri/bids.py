@@ -4,6 +4,7 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Dict, Iterable
 import json
+import tempfile
 import nibabel as nib
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
@@ -108,7 +109,12 @@ def infer_phase_encoding_direction(dwi: DWIFile | None = None, json_path: Path |
     return None
 
 
-def build_acqp_index(json_path: Path | None, dwi_path: Path, entities: Optional[dict] = None) -> Tuple[Path | None, Path | None]:
+def build_acqp_index(
+    json_path: Path | None,
+    dwi_path: Path,
+    entities: Optional[dict] = None,
+    support_dir: Path | None = None,
+) -> Tuple[Path | None, Path | None]:
     """
     Build minimal FSL acqp.txt and index.txt from BIDS JSON.
     This is a stub that writes a single PE dir/ro time line if JSON is present.
@@ -130,7 +136,7 @@ def build_acqp_index(json_path: Path | None, dwi_path: Path, entities: Optional[
 
     trt = meta.get("TotalReadoutTime", 0.05)  # seconds
 
-    acqp_dir = dwi_path.parent / "eddy"
+    acqp_dir = Path(support_dir) if support_dir else Path(tempfile.gettempdir()) / "qmri-neuropipe" / "eddy_support"
     acqp_dir.mkdir(parents=True, exist_ok=True)
     stem = get_nifti_stem(dwi_path)
     acqp = acqp_dir / f"{stem}_acqp.txt"
@@ -218,5 +224,4 @@ def find_reversed_phase_groups(dwi_files: list[DWIFile], group_by: tuple[str, ..
             combined_groups.append(combined)
 
     return combined_groups
-
 

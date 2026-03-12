@@ -84,7 +84,11 @@ class EddyQuadStep(BaseProcessingStep):
         
         if not acqp or not index:
              # Try building
-             acqp, index = build_acqp_index(current_img.json, current_img.img)
+             acqp, index = build_acqp_index(
+                 current_img.json,
+                 current_img.img,
+                 support_dir=output_dir / "qc" / "eddy_support",
+             )
              if not acqp or not index:
                  self.logger.warning("Missing acqp/index for QC.")
                  return context
