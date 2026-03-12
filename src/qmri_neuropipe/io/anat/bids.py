@@ -3,9 +3,85 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Tuple, Dict, Iterable
 import json
+import logging
 
 from qmri_neuropipe.core.types import ImageFile
 from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
+
+
+def _normalized_selector_value(value):
+    if isinstance(value, str):
+        return value.strip().lower()
+    if isinstance(value, Path):
+        return str(value).strip().lower()
+    if isinstance(value, list):
+        return [_normalized_selector_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_normalized_selector_value(item) for item in value)
+    return value
+
+
+def _selector_values_match(found, expected) -> bool:
+    return _normalized_selector_value(found) == _normalized_selector_value(expected)
+
+
+def _load_sidecar_payload(path: Optional[Path]) -> dict:
+    if not path or not Path(path).exists():
+        return {}
+    with Path(path).open() as f:
+        payload = json.load(f)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _anat_match(image: ImageFile, selector: dict) -> bool:
+    if not isinstance(selector, dict) or not selector:
+        return True
+
+    bids_name = selector.get("bids_name")
+    if bids_name and not _selector_values_match(image.img.stem.replace(".nii", ""), bids_name):
+        return False
+
+    entities = selector.get("entities")
+    if isinstance(entities, dict):
+        for key, expected in entities.items():
+            if not _selector_values_match(image.entities.get(key), expected):
+                return False
+
+    json_fields = selector.get("json_fields")
+    if isinstance(json_fields, dict):
+        payload = _load_sidecar_payload(image.json)
+        for key, expected in json_fields.items():
+            if not _selector_values_match(payload.get(key), expected):
+                return False
+
+    return True
+
+
+def select_anatomical_candidates(
+    candidates: list[ImageFile],
+    selector: Optional[dict],
+    modality: str,
+    logger: Optional[logging.Logger] = None,
+) -> list[ImageFile]:
+    if not selector:
+        return candidates
+
+    matches = [candidate for candidate in candidates if _anat_match(candidate, selector)]
+    if len(matches) == 1:
+        if logger:
+            logger.info("Selected %s using configured anatomical selector: %s", modality, matches[0].img.name)
+        return matches
+
+    if not matches:
+        raise RuntimeError(
+            f"Anatomical selector for {modality} did not match any files. "
+            f"Selector={selector} Candidates={[c.img.name for c in candidates]}"
+        )
+
+    raise RuntimeError(
+        f"Anatomical selector for {modality} matched multiple files. "
+        f"Selector={selector} Matches={[c.img.name for c in matches]}"
+    )
 
 
 def bids_find_t1w(root) -> list[ImageFile]:

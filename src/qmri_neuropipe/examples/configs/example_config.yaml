@@ -244,6 +244,15 @@ dmri:
 # ANATOMICAL PIPELINE CONFIGURATION (if needed)
 # ============================================================================
 # anat:
+#   input:
+#     # Optional anatomical selectors when multiple acquisitions exist.
+#     # If provided, exactly one image must match.
+#     t1w_match:
+#       entities:
+#         acq: memprage
+#     t2w_match:
+#       entities:
+#         acq: space
 #   preprocessing:
 #     brain_extraction:
 #       enabled: true

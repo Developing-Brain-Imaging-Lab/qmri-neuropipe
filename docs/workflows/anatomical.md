@@ -6,6 +6,52 @@ The **Anatomical Pipeline** (`--pipeline anat`) standardizes T1w (and optionally
 
 The pipeline processes T1w and T2w images independently and then coregisters them.
 
+## Input Selection
+
+If multiple anatomical acquisitions exist in the BIDS `anat/` folder, the pipeline
+can select a specific `T1w` or `T2w` using `anat.input.t1w_match` and
+`anat.input.t2w_match`.
+
+This is useful for datasets with multiple `acq-*`, `run-*`, `rec-*`, or similar
+entity variants.
+
+**Config**
+```yaml
+anat:
+  input:
+    t1w_match:
+      entities:
+        acq: memprage
+        run: "2"
+    t2w_match:
+      entities:
+        acq: space
+```
+
+**Alternative**
+```yaml
+anat:
+  input:
+    t1w_match:
+      json_fields:
+        ProtocolName: MPRAGE_0p8mm
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `anat.input.t1w_match.entities` | dict | none | Match BIDS entities such as `acq`, `run`, `rec`, `ce`, `dir` |
+| `anat.input.t1w_match.json_fields` | dict | none | Match JSON sidecar fields |
+| `anat.input.t1w_match.bids_name` | str | none | Match full BIDS file stem |
+| `anat.input.t2w_match.entities` | dict | none | Same behavior for T2w |
+| `anat.input.t2w_match.json_fields` | dict | none | Same behavior for T2w |
+| `anat.input.t2w_match.bids_name` | str | none | Same behavior for T2w |
+
+Matching is strict:
+*   exactly one match is required when a selector is provided
+*   zero matches raise an error
+*   multiple matches raise an error
+
 **Main Class**: `qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow`
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.

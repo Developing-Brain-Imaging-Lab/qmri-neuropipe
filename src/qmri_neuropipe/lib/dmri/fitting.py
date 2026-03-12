@@ -22,6 +22,33 @@ from ...interfaces import dipy, fsl, mrtrix, amico, dmipy
 from ...io.bids import build_bids_name
 
 
+def _resolve_context_gnl_map(context: dict | object, dwi: object | None = None) -> Optional[Path]:
+    """Resolve the best GNL tensor for the current DWI, preferring image-specific mappings."""
+    if not isinstance(context, dict):
+        return None
+
+    candidates: list[object] = []
+    gnl_map_by_image = context.get("gnl_map_by_image", {}) or {}
+
+    for image_obj in (dwi, context.get("current_image")):
+        image_path = getattr(image_obj, "img", None)
+        if image_path is None:
+            continue
+        candidates.append(gnl_map_by_image.get(image_path))
+        candidates.append(gnl_map_by_image.get(str(image_path)))
+
+    candidates.append(context.get("gnl_map"))
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate_path = Path(candidate)
+        if candidate_path.exists():
+            return candidate_path
+
+    return None
+
+
 class DTIFittingStep(BaseProcessingStep):
     def __init__(self, config, logger, provenance, method='dipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
@@ -201,10 +228,11 @@ class DTIFittingStep(BaseProcessingStep):
              mask_path = mask
 
         # Check for Gradient Nonlinearity Map in context
-        gnl_map = context.get('gnl_map')
-        if gnl_map and not gnl_map.exists():
-            self.logger.warning(f"GNL map path found in context but file missing: {gnl_map}")
-            gnl_map = None
+        gnl_map = _resolve_context_gnl_map(context, dwi)
+        if not gnl_map and isinstance(context, dict):
+            stale_gnl = context.get('gnl_map')
+            if stale_gnl:
+                self.logger.warning(f"GNL map path found in context but file missing: {stale_gnl}")
 
         if self.method == 'dipy':
             from ...interfaces.dipy import fit_dti
@@ -458,13 +486,10 @@ class DKIFittingStep(BaseProcessingStep):
                        fit_kwargs[k] = getattr(self.config, k)
 
              # Check for GNL Map
-             gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+             gnl_map = _resolve_context_gnl_map(context, dwi)
              if gnl_map:
-                if not gnl_map.exists():
-                     self.logger.warning(f"GNL map path missing: {gnl_map}")
-                else:
-                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY DKI: {gnl_map}")
-                     fit_kwargs['grad_nonlin'] = gnl_map
+                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY DKI: {gnl_map}")
+                 fit_kwargs['grad_nonlin'] = gnl_map
             
              if hasattr(dwi, 'Delta') and dwi.Delta: fit_kwargs['Delta_file'] = dwi.Delta
              if hasattr(dwi, 'delta') and dwi.delta: fit_kwargs['delta_file'] = dwi.delta
@@ -1051,13 +1076,10 @@ class MAPMRIFittingStep(BaseProcessingStep):
                        map_kwargs[k] = getattr(self.config, k)
              
              # Check for GNL map
-             gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+             gnl_map = _resolve_context_gnl_map(context, dwi)
              if gnl_map:
-                if not gnl_map.exists():
-                     self.logger.warning(f"GNL map path missing: {gnl_map}")
-                else:
-                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY MAPMRI: {gnl_map}")
-                     map_kwargs['grad_nonlin'] = gnl_map
+                 self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY MAPMRI: {gnl_map}")
+                 map_kwargs['grad_nonlin'] = gnl_map
             
              if hasattr(dwi, 'Delta') and dwi.Delta: map_kwargs['Delta_file'] = dwi.Delta
              if hasattr(dwi, 'delta') and dwi.delta: map_kwargs['delta_file'] = dwi.delta
@@ -1284,13 +1306,10 @@ class FWDTIFittingStep(BaseProcessingStep):
             step_kwargs = self.kwargs.copy()
             
             # Check GNL
-            gnl_map = context.get('gnl_map') if isinstance(context, dict) else None
+            gnl_map = _resolve_context_gnl_map(context, dwi)
             if gnl_map:
-                if not gnl_map.exists():
-                     self.logger.warning(f"GNL map path missing: {gnl_map}")
-                else:
-                     self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY FWE-DTI: {gnl_map}")
-                     step_kwargs['grad_nonlin'] = gnl_map
+                self.logger.info(f"Using Gradient Nonlinearity Tensor Map for DIPY FWE-DTI: {gnl_map}")
+                step_kwargs['grad_nonlin'] = gnl_map
             
             # Standardized threading resolution
             nthreads = kwargs.get('nthreads') or getattr(self, 'nthreads', None) or self.config.get('n_cpus', 1)

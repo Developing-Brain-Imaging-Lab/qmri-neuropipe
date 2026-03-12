@@ -6,6 +6,10 @@
 
 The pipeline expects a valid BIDS dataset.
 
+If multiple anatomical acquisitions exist, they may all be present in `anat/`.
+You can choose a specific `T1w` or `T2w` in the config using
+`anat.input.t1w_match` / `anat.input.t2w_match`.
+
 ### Required Structure
 ```text
 /path/to/bids/

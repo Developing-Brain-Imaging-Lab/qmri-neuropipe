@@ -22,7 +22,7 @@ from qmri_neuropipe.core.types import ImageFile, DWIFile
 
 # BIDS I/O
 from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
-from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w
+from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from qmri_neuropipe.io.dmri.bids import bids_find_dwi, find_reversed_phase_groups
 
 # External interfaces
@@ -189,16 +189,19 @@ class DMRIPipeline(BasePipeline):
         # Check for custom inputs
         anat_section = self.config.get('anat') or {}
         anat_cfg = anat_section.get('input') or self.config.get('anat_input') or {}
+        selector_key = f"{modality.lower()}_match"
         
         path_key = f"{modality.lower()}_path"
         pattern_key = f"{modality.lower()}_search_pattern"
         
         custom_path = anat_cfg.get(path_key)
         custom_pattern = anat_cfg.get(pattern_key)
+        selector = anat_cfg.get(selector_key)
         
         # Use custom paths if provided
         if custom_path or custom_pattern:
-            return self._find_custom_files(subject, session, modality, custom_path, custom_pattern)
+            files = self._find_custom_files(subject, session, modality, custom_path, custom_pattern)
+            return select_anatomical_candidates(files, selector, modality, logger=self.logger)
         
         # Standard BIDS search
         search_dir = self.config.bids_dir / f"sub-{subject}"
@@ -207,10 +210,13 @@ class DMRIPipeline(BasePipeline):
         search_dir = search_dir / "anat"
         
         if modality == 'T1w':
-            return bids_find_t1w(search_dir)
+            files = bids_find_t1w(search_dir)
         elif modality == 'T2w':
-            return bids_find_t2w(search_dir)
-        return []
+            files = bids_find_t2w(search_dir)
+        else:
+            files = []
+
+        return select_anatomical_candidates(files, selector, modality, logger=self.logger)
 
     def _find_custom_files(self, subject: str, session: Optional[str], modality: str, 
                           custom_path: Optional[str], custom_pattern: Optional[str]) -> list[ImageFile]:

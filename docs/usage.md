@@ -104,6 +104,16 @@ dmri:
       metrics: ["fa", "md", "rd", "ad", "l1", "l2", "l3", "v1", "v2", "v3", "tensor_mrtrix"]
 
 anat:
+  input:
+    # Optional selectors when multiple T1w/T2w acquisitions exist.
+    # If specified, exactly one file must match.
+    t1w_match:
+      entities:
+        acq: memprage
+        run: "2"
+    t2w_match:
+      entities:
+        acq: space
   preprocessing:
     denoising:
       enabled: true
@@ -111,6 +121,40 @@ anat:
       enabled: true
       method: "ants"
 ```
+
+### Selecting Anatomical Inputs
+
+If a subject has multiple `T1w` or `T2w` images in the BIDS `anat/` folder, you can
+choose which one to use with `anat.input.t1w_match` and `anat.input.t2w_match`.
+
+Example using BIDS entities:
+
+```yaml
+anat:
+  input:
+    t1w_match:
+      entities:
+        acq: memprage
+        run: "2"
+    t2w_match:
+      entities:
+        acq: space
+```
+
+Example using JSON sidecar fields:
+
+```yaml
+anat:
+  input:
+    t1w_match:
+      json_fields:
+        ProtocolName: MPRAGE_0p8mm
+```
+
+Matching is strict:
+*   one match: the file is used
+*   zero matches: the run fails
+*   multiple matches: the run fails
 
 ## Command Line Arguments
 

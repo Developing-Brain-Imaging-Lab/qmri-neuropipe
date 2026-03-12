@@ -190,6 +190,47 @@ anat:
 | `options.cost` | str | `normmi` | FSL |
 | `options.transform_type` | str | `Rigid` | ANTs |
 
+## Anatomical Input Selection
+
+Use these selectors when multiple anatomical acquisitions exist and you want to
+choose a specific `T1w` or `T2w` scan without hard-coding a full path.
+
+**Config**
+```yaml
+anat:
+  input:
+    t1w_match:
+      entities:
+        acq: memprage
+        run: "2"
+    t2w_match:
+      entities:
+        acq: space
+```
+
+**Alternative**
+```yaml
+anat:
+  input:
+    t1w_match:
+      json_fields:
+        ProtocolName: MPRAGE_0p8mm
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `anat.input.t1w_match.entities` | dict | none | Match BIDS entities such as `acq`, `run`, `rec`, `ce`, `dir` |
+| `anat.input.t1w_match.json_fields` | dict | none | Match sidecar JSON fields |
+| `anat.input.t1w_match.bids_name` | str | none | Match full BIDS file stem |
+| `anat.input.t2w_match.entities` | dict | none | Same behavior for T2w |
+| `anat.input.t2w_match.json_fields` | dict | none | Same behavior for T2w |
+| `anat.input.t2w_match.bids_name` | str | none | Same behavior for T2w |
+
+**Notes**
+*   If no selector is provided, the pipeline keeps the existing behavior and uses the discovered anatomical inputs as-is.
+*   If a selector is provided, exactly one match is required.
+
 ## Normalization (dMRI)
 
 **Tools**

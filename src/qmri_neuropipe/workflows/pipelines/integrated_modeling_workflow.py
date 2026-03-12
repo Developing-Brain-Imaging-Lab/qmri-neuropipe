@@ -466,11 +466,14 @@ class ModelingWorkflow(BaseWorkflow):
                             f"GNL map configured but not found: {candidate}"
                         )
 
-                if not gnl_map:
-                    existing_gnl = context.get('gnl_map')
-                    if (existing_gnl and isinstance(existing_gnl, Path)
-                            and existing_gnl.exists() and not force_gnl):
-                        gnl_map = existing_gnl
+                image_specific_gnl = (
+                    context.get('gnl_map_by_image', {}).get(dwi.img)
+                    or context.get('gnl_map_by_image', {}).get(str(dwi.img))
+                )
+                if not gnl_map and image_specific_gnl and not force_gnl:
+                    image_specific_gnl = Path(image_specific_gnl)
+                    if image_specific_gnl.exists():
+                        gnl_map = image_specific_gnl
 
                 # Prefer preprocessed output location for caching and reuse.
                 ents = dwi.entities.copy()
@@ -491,6 +494,13 @@ class ModelingWorkflow(BaseWorkflow):
 
                 if not gnl_map and output_map.exists() and not force_gnl:
                     gnl_map = output_map
+
+                if not gnl_map:
+                    existing_gnl = context.get('gnl_map')
+                    if existing_gnl and not force_gnl:
+                        existing_gnl = Path(existing_gnl)
+                        if existing_gnl.exists():
+                            gnl_map = existing_gnl
 
                 if not gnl_map:
                     coeff_file = modeling_gnl_cfg.get('coeff_file') or preproc_gnl_cfg.get('coeff_file')
@@ -525,6 +535,7 @@ class ModelingWorkflow(BaseWorkflow):
 
                 if gnl_map and gnl_map.exists():
                     context['gnl_map'] = gnl_map
+                    context.setdefault('gnl_map_by_image', {})[dwi.img] = gnl_map
                     gnl_maps = context.setdefault('gnl_maps', [])
                     if gnl_map not in gnl_maps:
                         gnl_maps.append(gnl_map)

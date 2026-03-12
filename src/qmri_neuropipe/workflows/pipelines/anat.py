@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from ...core import BasePipeline, BaseWorkflow, PipelineConfig
 from ...core.types import ImageFile
-from ...io.anat.bids import bids_find_t1w, bids_find_t2w
+from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from ...io.bids import build_bids_name
 
 # Steps
@@ -1704,6 +1704,13 @@ class AnatPipeline(BasePipeline):
         """Initialize workflows."""
         self.preprocessing = AnatPreprocessingWorkflow(self.config, self.logger, self.provenance)
 
+    def _apply_anat_selectors(self, t1w: list[ImageFile], t2w: list[ImageFile]) -> tuple[list[ImageFile], list[ImageFile]]:
+        anat_section = self.config.get('anat') or {}
+        anat_input_cfg = anat_section.get('input') or self.config.get('anat_input') or {}
+        t1w = select_anatomical_candidates(t1w, anat_input_cfg.get("t1w_match"), "T1w", logger=self.logger)
+        t2w = select_anatomical_candidates(t2w, anat_input_cfg.get("t2w_match"), "T2w", logger=self.logger)
+        return t1w, t2w
+
     def _get_work_dir(self, subject: str, session: Optional[str] = None) -> Path:
         """Get working directory for subject/session."""
         work_root = Path(self.config.get('work_dir'))
@@ -1762,6 +1769,7 @@ class AnatPipeline(BasePipeline):
 
         t1w = bids_find_t1w(anat_dir)
         t2w = bids_find_t2w(anat_dir)
+        t1w, t2w = self._apply_anat_selectors(t1w, t2w)
 
         if not t1w and not t2w:
             self.logger.warning(f"No T1w or T2w found for sub-{subject}. Skipping.")
@@ -1838,6 +1846,7 @@ def run_anatomical_workflow(config: PipelineConfig, subject: str, session: Optio
 
     t1w = bids_find_t1w(anat_dir)
     t2w = bids_find_t2w(anat_dir)
+    t1w, t2w = pipeline._apply_anat_selectors(t1w, t2w)
     if not t1w and not t2w:
         raise RuntimeError(f"No T1w or T2w images found for subject {subject}, session {session}")
 
