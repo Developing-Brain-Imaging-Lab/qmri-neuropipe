@@ -11,6 +11,7 @@ def dcm2bids(
     output_dir: Path,
     session_id: Optional[str] = None,
     clobber: bool = False,
+    force_dcm2bids: bool = False,
     force_dccm: bool = False,
     extra_args: str = ""
 ) -> Path:
@@ -24,6 +25,7 @@ def dcm2bids(
         output_dir: Path to the BIDS project directory.
         session_id: Optional session ID.
         clobber: Overwrite existing files.
+        force_dcm2bids: Overwrite previous temporary dcm2bids output if it exists.
         force_dccm: Use dccm instead of dcm2niix (rare).
         extra_args: Additional command line arguments.
         
@@ -46,6 +48,9 @@ def dcm2bids(
         
     if clobber:
         cmd.append("--clobber")
+
+    if force_dcm2bids:
+        cmd.append("--force_dcm2bids")
         
     if force_dccm:
         cmd.append("--forceDccm")

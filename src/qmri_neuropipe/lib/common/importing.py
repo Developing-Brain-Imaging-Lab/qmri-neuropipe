@@ -208,6 +208,20 @@ class Dcm2BidsStep(BaseProcessingStep):
     """
     Step to convert DICOMs to BIDS structure using dcm2bids.
     """
+    @staticmethod
+    def _subject_output_root(bids_dir: Path, subject: str, session: Optional[str]) -> Path:
+        root = Path(bids_dir) / f"sub-{str(subject).removeprefix('sub-')}"
+        if session:
+            root = root / f"ses-{str(session).removeprefix('ses-')}"
+        return root
+
+    @staticmethod
+    def _tmp_dcm2bids_root(bids_dir: Path, subject: str, session: Optional[str]) -> Path:
+        name = f"sub-{str(subject).removeprefix('sub-')}"
+        if session:
+            name += f"_ses-{str(session).removeprefix('ses-')}"
+        return Path(bids_dir) / "tmp_dcm2bids" / name
+
     def run(self, dicom_dir: Path, bids_dir: Path, **kwargs) -> Path:
         self.logger.info(f"Running dcm2bids on {dicom_dir}...")
         
@@ -233,6 +247,18 @@ class Dcm2BidsStep(BaseProcessingStep):
         if not config_file.exists():
             raise ValidationError(f"dcm2bids config file not found: {config_file}")
 
+        subject_root = self._subject_output_root(bids_dir, sub, ses)
+        tmp_root = self._tmp_dcm2bids_root(bids_dir, sub, ses)
+        force_dcm2bids = bool(import_cfg.get("force_dcm2bids", False) or kwargs.get("force_dcm2bids", False))
+        if tmp_root.exists() and not subject_root.exists():
+            self.logger.warning(
+                "Detected stale dcm2bids temporary output at %s without a corresponding BIDS target at %s. "
+                "Forcing dcm2bids to rerun.",
+                tmp_root,
+                subject_root,
+            )
+            force_dcm2bids = True
+
         try:
             dcm2bids.dcm2bids(
                 dicom_dir=dicom_dir,
@@ -240,7 +266,10 @@ class Dcm2BidsStep(BaseProcessingStep):
                 config_file=config_file,
                 output_dir=bids_dir,
                 session_id=ses,
-                clobber=kwargs.get("clobber", False)
+                clobber=bool(import_cfg.get("clobber", False) or kwargs.get("clobber", False)),
+                force_dcm2bids=force_dcm2bids,
+                force_dccm=bool(import_cfg.get("force_dccm", False) or kwargs.get("force_dccm", False)),
+                extra_args=str(import_cfg.get("extra_args", "") or kwargs.get("extra_args", "")),
             )
             return bids_dir
         except Exception as e:
