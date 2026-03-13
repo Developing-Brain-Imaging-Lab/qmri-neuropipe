@@ -238,6 +238,28 @@ class ImportWorkflow(BaseWorkflow):
                 changed.append(path)
         return sorted(changed)
 
+    @staticmethod
+    def _matches_context_target(path: Path, output_dir: Path, context: dict) -> bool:
+        subject = context.get("subject")
+        session = context.get("session")
+        if not subject:
+            return True
+
+        try:
+            rel_parts = path.relative_to(Path(output_dir)).parts
+        except ValueError:
+            rel_parts = path.parts
+
+        subject_token = f"sub-{str(subject).removeprefix('sub-')}"
+        if subject_token not in rel_parts:
+            return False
+
+        if session:
+            session_token = f"ses-{str(session).removeprefix('ses-')}"
+            return session_token in rel_parts
+
+        return True
+
     def _existing_subject_outputs(self, output_dir: Path, context: dict) -> list[Path]:
         root = Path(output_dir)
         if not root.exists():
@@ -259,6 +281,7 @@ class ImportWorkflow(BaseWorkflow):
                         if p.is_file() and self._is_primary_bids_output(p, root)
                     )
                 return sorted(set(found))
+            return []
 
         return sorted(self._snapshot_import_outputs(root).keys())
             
@@ -276,9 +299,21 @@ class ImportWorkflow(BaseWorkflow):
         for step in self.steps:
             if isinstance(step, (Dcm2BidsStep, Dcm2NiixStep)):
                 step.run(resolved_dicom_dir, output_dir, **step_context)
-                imported_outputs = self._new_or_updated_outputs(outputs_before, output_dir)
-                imported_sidecars = self._new_or_updated_sidecars(sidecars_before, output_dir)
-                imported_image_sidecars = self._new_or_updated_image_sidecars(image_sidecars_before, output_dir)
+                imported_outputs = [
+                    p
+                    for p in self._new_or_updated_outputs(outputs_before, output_dir)
+                    if self._matches_context_target(p, output_dir, context)
+                ]
+                imported_sidecars = [
+                    p
+                    for p in self._new_or_updated_sidecars(sidecars_before, output_dir)
+                    if self._matches_context_target(p, output_dir, context)
+                ]
+                imported_image_sidecars = [
+                    p
+                    for p in self._new_or_updated_image_sidecars(image_sidecars_before, output_dir)
+                    if self._matches_context_target(p, output_dir, context)
+                ]
                 context["imported_output_files"] = [str(p) for p in imported_outputs]
                 context["imported_dwi_sidecars"] = [str(p) for p in imported_sidecars]
                 context["imported_json_sidecars"] = [str(p) for p in imported_image_sidecars]
