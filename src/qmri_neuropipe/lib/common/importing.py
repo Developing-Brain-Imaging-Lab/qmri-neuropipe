@@ -35,11 +35,18 @@ def _context_search_root(output_dir: Path, context: dict[str, Any]) -> Path:
         root = root / f"sub-{subject}"
         if session:
             root = root / f"ses-{session}"
+        return root
 
     return root if root.exists() else Path(output_dir)
 
 
+def _is_hidden_artifact(path: Path) -> bool:
+    return any(part.startswith(".") for part in path.parts)
+
+
 def _is_primary_bids_output(path: Path, output_dir: Path) -> bool:
+    if _is_hidden_artifact(path):
+        return False
     root = Path(output_dir)
     try:
         rel_parts = path.relative_to(root).parts

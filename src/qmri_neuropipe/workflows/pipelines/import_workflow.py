@@ -166,7 +166,13 @@ class ImportWorkflow(BaseWorkflow):
         return target_root
 
     @staticmethod
+    def _is_hidden_artifact(path: Path) -> bool:
+        return any(part.startswith(".") for part in path.parts)
+
+    @staticmethod
     def _is_primary_bids_output(path: Path, root: Path) -> bool:
+        if ImportWorkflow._is_hidden_artifact(path):
+            return False
         try:
             rel_parts = path.relative_to(root).parts
         except ValueError:
@@ -247,7 +253,11 @@ class ImportWorkflow(BaseWorkflow):
                 patterns = ("*.nii", "*.nii.gz", "*.json", "*.bval", "*.bvec")
                 found: list[Path] = []
                 for pattern in patterns:
-                    found.extend(p for p in subj_root.rglob(pattern) if p.is_file())
+                    found.extend(
+                        p
+                        for p in subj_root.rglob(pattern)
+                        if p.is_file() and self._is_primary_bids_output(p, root)
+                    )
                 return sorted(set(found))
 
         return sorted(self._snapshot_import_outputs(root).keys())
