@@ -165,13 +165,21 @@ class ImportWorkflow(BaseWorkflow):
 
         return target_root
 
+    @staticmethod
+    def _is_primary_bids_output(path: Path, root: Path) -> bool:
+        try:
+            rel_parts = path.relative_to(root).parts
+        except ValueError:
+            rel_parts = path.parts
+        return "derivatives" not in rel_parts
+
     def _snapshot_dwi_sidecars(self, output_dir: Path) -> dict[Path, float]:
         if not Path(output_dir).exists():
             return {}
         return {
             path: path.stat().st_mtime
             for path in Path(output_dir).rglob("*_dwi.json")
-            if path.is_file()
+            if path.is_file() and self._is_primary_bids_output(path, Path(output_dir))
         }
 
     def _snapshot_image_sidecars(self, output_dir: Path) -> dict[Path, float]:
@@ -180,6 +188,8 @@ class ImportWorkflow(BaseWorkflow):
         sidecars: dict[Path, float] = {}
         for path in Path(output_dir).rglob("*.json"):
             if not path.is_file():
+                continue
+            if not self._is_primary_bids_output(path, Path(output_dir)):
                 continue
             nii_gz = path.with_suffix(".nii.gz")
             nii = path.with_suffix(".nii")
@@ -194,7 +204,7 @@ class ImportWorkflow(BaseWorkflow):
         files: dict[Path, float] = {}
         for pattern in patterns:
             for path in Path(output_dir).rglob(pattern):
-                if path.is_file():
+                if path.is_file() and self._is_primary_bids_output(path, Path(output_dir)):
                     files[path] = path.stat().st_mtime
         return files
 

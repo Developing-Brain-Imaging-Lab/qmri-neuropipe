@@ -39,6 +39,15 @@ def _context_search_root(output_dir: Path, context: dict[str, Any]) -> Path:
     return root if root.exists() else Path(output_dir)
 
 
+def _is_primary_bids_output(path: Path, output_dir: Path) -> bool:
+    root = Path(output_dir)
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        rel_parts = path.parts
+    return "derivatives" not in rel_parts
+
+
 def _import_metadata_override_cfg(config) -> dict[str, Any]:
     import_cfg = (config.get("import", {}) or {})
     direct_cfg = import_cfg.get("metadata_overrides")
@@ -254,9 +263,17 @@ class ImportGradientOverrideStep(BaseProcessingStep):
 
     def _target_dwi_sidecars(self, output_dir: Path, context: dict[str, Any]) -> list[Path]:
         imported = context.get("imported_dwi_sidecars") or []
-        candidates = {Path(p) for p in imported if Path(p).exists()}
+        candidates = {
+            Path(p)
+            for p in imported
+            if Path(p).exists() and _is_primary_bids_output(Path(p), output_dir)
+        }
         search_root = _context_search_root(output_dir, context)
-        candidates.update(path for path in search_root.rglob("*_dwi.json") if path.is_file())
+        candidates.update(
+            path
+            for path in search_root.rglob("*_dwi.json")
+            if path.is_file() and _is_primary_bids_output(path, output_dir)
+        )
         return sorted(candidates)
 
     def _match_rule(self, json_path: Path, rule: dict[str, Any]) -> bool:
@@ -399,11 +416,17 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
         candidates = {
             Path(p)
             for p in imported
-            if Path(p).exists() and _is_relaxometry_sidecar(Path(p))
+            if (
+                Path(p).exists()
+                and _is_primary_bids_output(Path(p), output_dir)
+                and _is_relaxometry_sidecar(Path(p))
+            )
         }
 
         search_root = _context_search_root(output_dir, context)
         for path in sorted(search_root.rglob("*.json")):
+            if not _is_primary_bids_output(path, output_dir):
+                continue
             if _sidecar_nifti_path(path) is not None and _is_relaxometry_sidecar(path):
                 candidates.add(path)
         return sorted(candidates)
