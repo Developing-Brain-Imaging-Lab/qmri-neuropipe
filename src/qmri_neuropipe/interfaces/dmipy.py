@@ -4,8 +4,9 @@ from pathlib import Path
 import os
 import multiprocessing
 import argparse
+import contextlib
 from threadpoolctl import threadpool_limits
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, Any
 import nibabel as nib
 import numpy as np
 import warnings
@@ -15,6 +16,98 @@ from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
+
+
+def _reshape_gnl_tensor(vox_gnl):
+    vox_gnl = np.asarray(vox_gnl)
+    if vox_gnl.size == 9:
+        return vox_gnl.reshape(3, 3)
+    if vox_gnl.shape == (3, 3):
+        return vox_gnl
+    return vox_gnl.reshape(3, 3)
+
+
+def _rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
+    rot_mat = _reshape_gnl_tensor(vox_gnl)
+    rot_bvecs = np.dot(bvecs, rot_mat.T)
+    norms = np.linalg.norm(rot_bvecs, axis=1)
+    new_bvals = bvals * (norms ** 2)
+    safe_norms = norms.copy()
+    safe_norms[safe_norms == 0] = 1.0
+    new_bvecs = rot_bvecs / safe_norms[:, None]
+    return new_bvals, new_bvecs
+
+
+def _build_dmipy_scheme(bvals, bvecs, delta=None, Delta=None):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from dmipy.core import acquisition_scheme
+    kwargs = {"bvalues": bvals, "gradient_directions": bvecs}
+    if delta is not None and Delta is not None:
+        kwargs["delta"] = delta
+        kwargs["Delta"] = Delta
+    return acquisition_scheme.acquisition_scheme_from_bvalues(**kwargs)
+
+
+def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = None):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from dmipy.signal_models import cylinder_models, gaussian_models
+        from dmipy.distributions import distribute_models
+        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+
+    parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
+    iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
+    distribution = model_config.get('distribution', 'Watson')
+    model_type = model_config.get('model_type', 'standard')
+
+    ball = gaussian_models.G1Ball()
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+
+    if distribution.lower() == "bingham":
+        dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
+    else:
+        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+
+    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
+    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+
+    if model_type == 'smt':
+        noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
+    else:
+        noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
+
+    noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
+    for param_key, param_val in (fixed_params or {}).items():
+        if param_val is not None:
+            noddi.set_fixed_parameter(param_key, param_val)
+    return noddi
+
+
+def _build_sandi_model(model_config):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy.distributions import distribute_models
+        from dmipy.core.modeling_framework import MultiCompartmentModel
+
+    parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
+    iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
+
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
+    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+
+    soma = sphere_models.S2SphereStejskalTannerApproximation()
+    ball = gaussian_models.G1Ball()
+    ball.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
+
+    return MultiCompartmentModel(models=[dispersed_bundle, soma, ball])
 
 def _fit_chunk(args):
     """
@@ -107,6 +200,117 @@ def _fit_chunk(args):
         print(f"[Worker {chunk_id}] Crash/Error: {e}")
         raise e
 
+
+def _fit_chunk_gnl(args):
+    chunk_id, data_chunk, bvals, bvecs, model_config, chunk_fixed_params, solver, solver_kwargs, gnl_chunk = args
+
+    print(f"[Worker {chunk_id}] Started GNL-aware chunk with {len(data_chunk)} voxels.")
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+    results = []
+    try:
+        for vox_idx in range(data_chunk.shape[0]):
+            voxel_fixed = {}
+            for param_key, param_vals in (chunk_fixed_params or {}).items():
+                if param_vals is not None:
+                    voxel_fixed[param_key] = np.asarray([param_vals[vox_idx]])
+
+            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            scheme = _build_dmipy_scheme(new_bvals, new_bvecs)
+            model = _build_noddi_model(model_config, fixed_params=voxel_fixed)
+
+            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    fit_obj = model.fit(
+                        scheme,
+                        data_chunk[vox_idx][None, :],
+                        number_of_processors=1,
+                        solver=solver,
+                        **solver_kwargs
+                    )
+
+            results.append(fit_obj.fitted_parameters)
+
+        merged = {}
+        for key in results[0].keys():
+            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+
+        print(f"[Worker {chunk_id}] Finished GNL-aware chunk.")
+        return merged
+
+    except Exception as e:
+        print(f"[Worker {chunk_id}] GNL crash/error: {e}")
+        raise e
+
+
+def _fit_sandi_chunk(args):
+    chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
+    print(f"[Worker {chunk_id}] Started SANDI chunk with {len(data_chunk)} voxels.")
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+    try:
+        sandi = _build_sandi_model(model_config)
+        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                fit_obj = sandi.fit(
+                    scheme,
+                    data_chunk,
+                    number_of_processors=1,
+                    solver=solver,
+                    **solver_kwargs
+                )
+        print(f"[Worker {chunk_id}] Finished SANDI chunk.")
+        return fit_obj.fitted_parameters
+    except Exception as e:
+        print(f"[Worker {chunk_id}] SANDI crash/error: {e}")
+        raise e
+
+
+def _fit_sandi_chunk_gnl(args):
+    chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
+    print(f"[Worker {chunk_id}] Started GNL-aware SANDI chunk with {len(data_chunk)} voxels.")
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+    results = []
+    try:
+        for vox_idx in range(data_chunk.shape[0]):
+            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
+            sandi = _build_sandi_model(model_config)
+
+            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    fit_obj = sandi.fit(
+                        scheme,
+                        data_chunk[vox_idx][None, :],
+                        number_of_processors=1,
+                        solver=solver,
+                        **solver_kwargs
+                    )
+            results.append(fit_obj.fitted_parameters)
+
+        merged = {}
+        for key in results[0].keys():
+            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+
+        print(f"[Worker {chunk_id}] Finished GNL-aware SANDI chunk.")
+        return merged
+    except Exception as e:
+        print(f"[Worker {chunk_id}] GNL-aware SANDI crash/error: {e}")
+        raise e
+
 def fit_noddi(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -123,6 +327,7 @@ def fit_noddi(
     # New options
     model_type: str = "standard", # 'standard' or 'smt'
     fiso_file: Optional[Path] = None,
+    grad_nonlin: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -216,6 +421,17 @@ def fit_noddi(
         mask_data = mask_img.get_fdata().astype(bool)
     else:
         mask_data = None
+
+    gnl_data_flat = None
+    if grad_nonlin:
+        gnl_img = nib.load(str(grad_nonlin))
+        gnl_data = gnl_img.get_fdata()
+        if gnl_data.shape[:3] != data.shape[:3]:
+            raise ValueError(f"GNL map shape {gnl_data.shape} does not match DWI shape {data.shape}")
+        if mask_data is not None:
+            gnl_data_flat = gnl_data[mask_data]
+        else:
+            gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
         
     # --- Load External FISO if provided ---
     fiso_data_flat = None
@@ -273,6 +489,9 @@ def fit_noddi(
     fiso_chunks = [None]*n_chunks
     if fiso_data_flat is not None:
         fiso_chunks = np.array_split(fiso_data_flat, n_chunks)
+    gnl_chunks = [None] * n_chunks
+    if gnl_data_flat is not None:
+        gnl_chunks = np.array_split(gnl_data_flat, n_chunks)
     
     # --- Define Parameter Mapping (Dynamic) ---
     # We need to know parameter names WITHOUT instantiating the full model on all data yet.
@@ -358,9 +577,14 @@ def fit_noddi(
         if fiso_chunks[i] is not None:
              c_fixed['partial_volume_1'] = fiso_chunks[i]
 
-        chunk_args.append(
-            (i, chunks[i], gtab, model_config, c_fixed, keys_to_keep, solver, solver_kwargs)
-        )
+        if gnl_chunks[i] is not None:
+            chunk_args.append(
+                (i, chunks[i], bvals * 1e6, bvecs, model_config, c_fixed, solver, solver_kwargs, gnl_chunks[i])
+            )
+        else:
+            chunk_args.append(
+                (i, chunks[i], gtab, model_config, c_fixed, keys_to_keep, solver, solver_kwargs)
+            )
 
     # 4. Run Pool
     print(f"Fitting NODDI (Type: {model_type}, FISO constraint: {fiso_file is not None})...")
@@ -382,7 +606,8 @@ def fit_noddi(
         # CRITICAL FIX: Use pool.imap (ordered) instead of imap_unordered.
         # imap yields results in the same order as chunk_args.
         # Since we use np.array_split to create chunks in order, we MUST reassemble them in order.
-        iterator = pool.imap(_fit_chunk, chunk_args)
+        worker = _fit_chunk_gnl if gnl_data_flat is not None else _fit_chunk
+        iterator = pool.imap(worker, chunk_args)
         
         # Collect results with progress
         import time
@@ -497,4 +722,159 @@ def fit_noddi(
     save_map('vf_intra', vf_intra)  # Volume Fraction Intra
     save_map('vf_extra', vf_extra) # Volume Fraction Extra
     
+    return outputs
+
+
+def fit_sandi(
+    in_file: Union[Path, ImageLike],
+    out_dir: Path,
+    bval_file: Optional[Path] = None,
+    bvec_file: Optional[Path] = None,
+    delta_file: Optional[Path] = None,
+    Delta_file: Optional[Path] = None,
+    mask_file: Optional[Path] = None,
+    nthreads: int = 1,
+    parallel_diffusivity: float = 1.7e-9,
+    iso_diffusivity: float = 3.0e-9,
+    solver: str = "brute2fine",
+    solver_kwargs: Optional[Dict] = None,
+    grad_nonlin: Optional[Path] = None,
+    **kwargs
+) -> Dict[str, Path]:
+    """Fit a native dmipy SANDI model."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from dmipy.core import acquisition_scheme
+    except ImportError:
+        raise ProcessingError("Dmipy required but not installed.")
+
+    in_path = extract_image_path(in_file)
+    out_dir = ensure_dir(out_dir)
+
+    if bval_file is None or bvec_file is None:
+        if isinstance(in_file, DWIFile):
+            bval_file = bval_file or in_file.bval
+            bvec_file = bvec_file or in_file.bvec
+            delta_file = delta_file or in_file.delta
+            Delta_file = Delta_file or in_file.Delta
+
+    if not bval_file or not bvec_file:
+        raise ValueError("Gradient files (bval/bvec) are required for SANDI.")
+
+    if solver_kwargs is None:
+        solver_kwargs = {}
+
+    img = nib.load(str(in_path))
+    data = img.get_fdata()
+    affine = img.affine
+
+    bvals_si = np.loadtxt(bval_file) * 1e6
+    bvecs = np.loadtxt(bvec_file).T
+
+    delta_arr = np.loadtxt(delta_file) if delta_file and Path(delta_file).exists() else None
+    Delta_arr = np.loadtxt(Delta_file) if Delta_file and Path(Delta_file).exists() else None
+
+    if delta_arr is not None and Delta_arr is not None:
+        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
+            bvalues=bvals_si,
+            gradient_directions=bvecs,
+            delta=delta_arr,
+            Delta=Delta_arr,
+        )
+    else:
+        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals_si, bvecs)
+
+    if mask_file and mask_file.exists():
+        mask_data = nib.load(str(mask_file)).get_fdata().astype(bool)
+        valid_voxels = data[mask_data]
+    else:
+        mask_data = None
+        valid_voxels = data.reshape(-1, data.shape[-1])
+
+    gnl_data_flat = None
+    if grad_nonlin:
+        gnl_img = nib.load(str(grad_nonlin))
+        gnl_data = gnl_img.get_fdata()
+        if gnl_data.shape[:3] != data.shape[:3]:
+            raise ValueError(f"GNL map shape {gnl_data.shape} does not match DWI shape {data.shape}")
+        if mask_data is not None:
+            gnl_data_flat = gnl_data[mask_data]
+        else:
+            gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
+
+    n_chunks = nthreads
+    chunks = np.array_split(valid_voxels, n_chunks)
+    gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
+
+    model_config = {
+        'parallel_diffusivity': parallel_diffusivity,
+        'iso_diffusivity': iso_diffusivity,
+    }
+
+    chunk_args = []
+    for i in range(n_chunks):
+        if chunks[i].shape[0] == 0:
+            continue
+        if gnl_chunks[i] is not None:
+            chunk_args.append((i, chunks[i], bvals_si, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunks[i]))
+        else:
+            chunk_args.append((i, chunks[i], gtab, model_config, solver, solver_kwargs))
+
+    print(f"Fitting native dmipy SANDI ({valid_voxels.shape[0]} voxels)...")
+    try:
+        ctx = multiprocessing.get_context('spawn')
+    except ValueError:
+        ctx = multiprocessing.get_context('fork')
+
+    worker = _fit_sandi_chunk_gnl if gnl_data_flat is not None else _fit_sandi_chunk
+    results = []
+    pool = ctx.Pool(processes=nthreads)
+    try:
+        for res in pool.imap(worker, chunk_args):
+            results.append(res)
+    finally:
+        pool.close()
+        pool.join()
+
+    if not results:
+        raise ProcessingError("SANDI fitting produced no results.")
+
+    merged_params = {}
+    for key in results[0].keys():
+        merged_params[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+
+    vol_shape = data.shape[:-1]
+    full_maps = {}
+    for key, values in merged_params.items():
+        if values.ndim == 1:
+            out_arr = np.zeros(vol_shape, dtype=values.dtype)
+        else:
+            out_arr = np.zeros(vol_shape + (values.shape[1],), dtype=values.dtype)
+        if mask_data is not None:
+            out_arr[mask_data] = values
+        else:
+            out_arr = values.reshape(out_arr.shape)
+        full_maps[key] = out_arr
+
+    fsoma = full_maps.get('partial_volume_1')
+    fneurite = full_maps.get('partial_volume_0')
+    fextra = full_maps.get('partial_volume_2')
+    diameter = full_maps.get('S2SphereStejskalTannerApproximation_1_diameter')
+    rsoma = 0.5 * diameter if diameter is not None else None
+
+    outputs = {}
+
+    def save_map(name, array):
+        if array is None:
+            return
+        out_p = out_dir / f"{name}.nii.gz"
+        nib.save(nib.Nifti1Image(array.astype(np.float32), affine), out_p)
+        outputs[name] = out_p
+
+    save_map('fsoma', fsoma)
+    save_map('fneurite', fneurite)
+    save_map('fextra', fextra)
+    save_map('Rsoma', rsoma)
+
     return outputs

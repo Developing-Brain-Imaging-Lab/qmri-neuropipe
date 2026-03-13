@@ -11,6 +11,7 @@ from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.utils import ensure_dir, extract_image_path
 from qmri_neuropipe.core.types import ImageLike, DWIFile
 from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
+from qmri_neuropipe.interfaces.dmipy import _rotate_gradients_for_gnl, _build_dmipy_scheme
 
 def _fit_microglia_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
@@ -79,6 +80,64 @@ def _fit_microglia_chunk(args):
         print(f"[Worker {chunk_id}] Crash/Error: {e}")
         raise e
 
+
+def _fit_microglia_chunk_gnl(args):
+    chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
+    print(f"[Worker {chunk_id}] Started GNL-aware Microglia chunk with {len(data_chunk)} voxels.")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy.distributions import distribute_models
+        from dmipy.core.modeling_framework import MultiCompartmentModel
+
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+    try:
+        results = []
+        for vox_idx in range(data_chunk.shape[0]):
+            stick = cylinder_models.C1Stick()
+            zeppelin = gaussian_models.G2Zeppelin()
+            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+            dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
+            dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+            dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', float(model_config.get('parallel_diffusivity', 1.7e-9)))
+
+            small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+            large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+            small_sphere.set_fixed_parameter('S2SphereStejskalTannerApproximation_1_diameter', float(model_config.get('small_diameter', 4e-6)))
+            large_sphere.set_fixed_parameter('S2SphereStejskalTannerApproximation_1_diameter', float(model_config.get('large_diameter', 8e-6)))
+
+            ball = gaussian_models.G1Ball()
+            ball.set_fixed_parameter('G1Ball_1_lambda_iso', float(model_config.get('iso_diffusivity', 3.0e-9)))
+
+            model = MultiCompartmentModel(models=[dispersed_bundle, small_sphere, large_sphere, ball])
+            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
+
+            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    fit_obj = model.fit(
+                        scheme,
+                        data_chunk[vox_idx][None, :],
+                        number_of_processors=1,
+                        solver=solver,
+                        **solver_kwargs
+                    )
+            results.append(fit_obj.fitted_parameters)
+
+        merged = {}
+        for key in results[0].keys():
+            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+        print(f"[Worker {chunk_id}] Finished GNL-aware Microglia chunk.")
+        return merged
+    except Exception as e:
+        print(f"[Worker {chunk_id}] GNL-aware Microglia crash/error: {e}")
+        raise e
+
 def fit_microglia(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -94,6 +153,7 @@ def fit_microglia(
     large_diameter: float = 8e-6,
     solver: str = "brute2fine",
     solver_kwargs: Optional[Dict] = None,
+    grad_nonlin: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """
@@ -167,10 +227,22 @@ def fit_microglia(
     else:
         mask_data = None
         valid_voxels = data.reshape(-1, data.shape[-1])
+
+    gnl_data_flat = None
+    if grad_nonlin:
+        gnl_img = nib.load(str(grad_nonlin))
+        gnl_data = gnl_img.get_fdata()
+        if gnl_data.shape[:3] != data.shape[:3]:
+            raise ValueError(f"GNL map shape {gnl_data.shape} does not match DWI shape {data.shape}")
+        if mask_data is not None:
+            gnl_data_flat = gnl_data[mask_data]
+        else:
+            gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
         
     n_voxels = valid_voxels.shape[0]
     n_chunks = nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
+    gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
     
     model_config = {
         'parallel_diffusivity': parallel_diffusivity,
@@ -182,9 +254,14 @@ def fit_microglia(
     chunk_args = []
     for i in range(n_chunks):
         if chunks[i].shape[0] == 0: continue
-        chunk_args.append(
-            (i, chunks[i], gtab, model_config, solver, solver_kwargs)
-        )
+        if gnl_chunks[i] is not None:
+            chunk_args.append(
+                (i, chunks[i], bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunks[i])
+            )
+        else:
+            chunk_args.append(
+                (i, chunks[i], gtab, model_config, solver, solver_kwargs)
+            )
 
     print(f"Fitting Microglia Model ({n_voxels} voxels)...")
     
@@ -197,7 +274,8 @@ def fit_microglia(
     pool = ctx.Pool(processes=nthreads)
     results = []
     try:
-        iterator = pool.imap(_fit_microglia_chunk, chunk_args)
+        worker = _fit_microglia_chunk_gnl if gnl_data_flat is not None else _fit_microglia_chunk
+        iterator = pool.imap(worker, chunk_args)
         import time
         start_t = time.time()
         for i, res in enumerate(iterator):

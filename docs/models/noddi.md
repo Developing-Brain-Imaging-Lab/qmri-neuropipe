@@ -7,7 +7,7 @@ NODDI is a multi-compartment model that distinguishes between three signal envir
 
 ## Backends
 
-- **dmipy**: (Default) Flexible, Python-based fitting using the `Dmipy` library. Supports SMT-NODDI and parallel processing.
+- **dmipy**: (Default) Flexible, Python-based fitting using the `Dmipy` library. Supports SMT-NODDI, parallel processing, and native voxel-wise GNL-aware fitting.
 - **amico**: Accelerated Microstructure Imaging via Convex Optimization. Extremely fast but requires `amico` python package and setup.
 
 ## Configuration

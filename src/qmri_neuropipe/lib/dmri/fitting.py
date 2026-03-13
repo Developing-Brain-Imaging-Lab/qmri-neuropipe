@@ -635,7 +635,7 @@ class NODDIFittingStep(BaseProcessingStep):
 
         outputs = {}
         outputs = {}
-        _warn_unsupported_gnl(self.logger, context, dwi, "NODDI")
+        gnl_map = _resolve_context_gnl_map(context, dwi)
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
              
@@ -664,6 +664,7 @@ class NODDIFittingStep(BaseProcessingStep):
                  model_out, 
                  mask_file=mask_path, 
                  nthreads=self.nthreads,
+                 grad_nonlin=gnl_map,
                  distribution=distribution,
                  parallel_diffusivity=parallel_diff,
                  iso_diffusivity=iso_diff,
@@ -672,6 +673,7 @@ class NODDIFittingStep(BaseProcessingStep):
                  **noddi_kwargs
              )
         elif self.method == 'amico':
+             _warn_unsupported_gnl(self.logger, context, dwi, "NODDI")
              from ...interfaces.amico import fit_noddi
              outputs = fit_noddi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
@@ -737,7 +739,7 @@ class NODDIFittingStep(BaseProcessingStep):
 
 
 class SANDIFittingStep(BaseProcessingStep):
-    def __init__(self, config, logger, provenance, method='amico', nthreads=1, **kwargs):
+    def __init__(self, config, logger, provenance, method='dmipy', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
         self.method = method
         self.nthreads = nthreads
@@ -795,8 +797,24 @@ class SANDIFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
-        _warn_unsupported_gnl(self.logger, context, dwi, "SANDI")
-        if self.method == 'amico':
+        gnl_map = _resolve_context_gnl_map(context, dwi)
+        if self.method == 'dmipy':
+             from ...interfaces.dmipy import fit_sandi
+             fit_kwargs = self.kwargs.copy()
+             d_par = kwargs.get('parallel_diffusivity') or self.config.get('parallel_diffusivity', 1.7e-9)
+             d_iso = kwargs.get('iso_diffusivity') or self.config.get('iso_diffusivity', 3.0e-9)
+             fit_sandi(
+                 dwi,
+                 model_out,
+                 mask_file=mask_path,
+                 nthreads=self.nthreads,
+                 grad_nonlin=gnl_map,
+                 parallel_diffusivity=d_par,
+                 iso_diffusivity=d_iso,
+                 **fit_kwargs,
+             )
+        elif self.method == 'amico':
+             _warn_unsupported_gnl(self.logger, context, dwi, "SANDI")
              from ...interfaces.amico import fit_sandi
              fit_sandi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
         else:
@@ -855,7 +873,7 @@ class MicrogliaFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
-        _warn_unsupported_gnl(self.logger, context, dwi, "Microglia")
+        gnl_map = _resolve_context_gnl_map(context, dwi)
         if self.method == 'dmipy':
              from ...interfaces.dmipy_microglia import fit_microglia
              
@@ -873,6 +891,7 @@ class MicrogliaFittingStep(BaseProcessingStep):
                  model_out, 
                  mask_file=mask_path, 
                  nthreads=self.nthreads, 
+                 grad_nonlin=gnl_map,
                  parallel_diffusivity=d_par,
                  iso_diffusivity=d_iso,
                  small_diameter=d_small,

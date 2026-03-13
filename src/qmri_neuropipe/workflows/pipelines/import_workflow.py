@@ -62,7 +62,52 @@ class ImportWorkflow(BaseWorkflow):
                 provenance=self.provenance
             ))
 
-    def _resolve_import_source(self, dicom_dir: Path) -> Path:
+    @staticmethod
+    def _archive_source_key(path: Path) -> str:
+        name = path.name
+        for suffix in (".tar.gz", ".tgz", ".tar"):
+            if name.endswith(suffix):
+                return name[: -len(suffix)]
+        return path.stem
+
+    @staticmethod
+    def _target_tokens(context: dict) -> list[str]:
+        tokens: list[str] = []
+        subject = context.get("subject")
+        session = context.get("session")
+        if subject:
+            subj = str(subject).removeprefix("sub-")
+            tokens.extend([subj.lower(), f"sub-{subj.lower()}"])
+        if session:
+            ses = str(session).removeprefix("ses-")
+            tokens.extend([ses.lower(), f"ses-{ses.lower()}"])
+        return tokens
+
+    def _select_extracted_target(self, extract_targets: list[Path], context: dict, extract_root: Path) -> Path:
+        if len(extract_targets) == 1:
+            return extract_targets[0]
+
+        tokens = self._target_tokens(context)
+        if tokens:
+            matches = []
+            for target in extract_targets:
+                haystack = str(target).lower()
+                if all(token in haystack for token in tokens):
+                    matches.append(target)
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                raise ProcessingError(
+                    f"Multiple extracted archive folders matched subject/session tokens {tokens}: {matches}"
+                )
+
+        raise ProcessingError(
+            f"Multiple import archives were extracted under {extract_root}, but no unique subject/session-specific "
+            "archive folder could be selected. Specify a subject/session-specific import source or use archive names/"
+            "parent folders that include the target subject/session."
+        )
+
+    def _resolve_import_source(self, dicom_dir: Path, context: Optional[dict] = None) -> Path:
         """
         Resolve an import source directory from either:
         - a directory containing DICOM files
@@ -71,11 +116,12 @@ class ImportWorkflow(BaseWorkflow):
         - a directory containing subdirectories that each contain archive files
         """
         dicom_dir = Path(dicom_dir)
+        context = context or {}
         archive_suffixes = (".tgz", ".tar.gz", ".tar")
 
         if dicom_dir.is_file():
             archives = [dicom_dir]
-            source_key = dicom_dir.stem.replace(".tar", "")
+            source_key = self._archive_source_key(dicom_dir)
         else:
             archives = sorted(
                 p for p in dicom_dir.rglob("*")
@@ -89,17 +135,28 @@ class ImportWorkflow(BaseWorkflow):
         work_root = self.config.work_dir or (self.config.output_dir / "work")
         extract_root = work_root / "import_archives" / source_key
         extract_root.mkdir(parents=True, exist_ok=True)
+        extract_targets: list[Path] = []
 
         for archive in archives:
-            stamp = extract_root / f".{archive.name}.done"
+            archive_key = self._archive_source_key(archive)
+            rel_parent = Path()
+            if not dicom_dir.is_file():
+                try:
+                    rel_parent = archive.parent.relative_to(dicom_dir)
+                except ValueError:
+                    rel_parent = Path()
+            archive_extract_dir = extract_root / rel_parent / archive_key
+            archive_extract_dir.mkdir(parents=True, exist_ok=True)
+            extract_targets.append(archive_extract_dir)
+            stamp = archive_extract_dir / ".extract.done"
             if stamp.exists():
                 continue
             self.logger.info(f"Extracting import archive: {archive}")
             with tarfile.open(archive, "r:*") as tf:
-                tf.extractall(extract_root)
+                tf.extractall(archive_extract_dir)
             stamp.write_text("ok\n")
 
-        return extract_root
+        return self._select_extracted_target(extract_targets, context, extract_root)
 
     def _snapshot_dwi_sidecars(self, output_dir: Path) -> dict[Path, float]:
         if not Path(output_dir).exists():
@@ -180,7 +237,7 @@ class ImportWorkflow(BaseWorkflow):
             
     def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> dict:
         self.logger.info("Starting Import Workflow")
-        resolved_dicom_dir = self._resolve_import_source(Path(dicom_dir))
+        resolved_dicom_dir = self._resolve_import_source(Path(dicom_dir), context)
         context = dict(context)
         context["dicom_dir"] = resolved_dicom_dir
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
