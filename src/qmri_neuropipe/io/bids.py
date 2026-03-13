@@ -27,7 +27,21 @@ def _load_json_field(json_path: Path | None, field: str):
     except Exception:
         return None
 
+def _normalize_bids_labels(labels: List[str] | None, prefix: str) -> List[str] | None:
+    if labels is None:
+        return None
+    normalized: List[str] = []
+    for label in labels:
+        value = str(label).strip()
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+        if value:
+            normalized.append(value)
+    return normalized
+
 def select_participants_sessions(bids_dir: Path, participants: List[str]|None, sessions: List[str]|None, skip_validation: bool=False) -> List[Tuple[str, str|None]]:
+    participants = _normalize_bids_labels(participants, "sub-")
+    sessions = _normalize_bids_labels(sessions, "ses-")
     out=[]
     for p in sorted(Path(bids_dir).glob("sub-*")):
         if not p.is_dir(): continue

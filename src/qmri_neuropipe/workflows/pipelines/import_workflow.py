@@ -83,28 +83,26 @@ class ImportWorkflow(BaseWorkflow):
             tokens.extend([ses.lower(), f"ses-{ses.lower()}"])
         return tokens
 
-    def _select_extracted_target(self, extract_targets: list[Path], context: dict, extract_root: Path) -> Path:
-        if len(extract_targets) == 1:
-            return extract_targets[0]
+    @staticmethod
+    def _path_matches_any_token(path: Path, tokens: list[str]) -> bool:
+        haystack = str(path).lower()
+        return any(token in haystack for token in tokens)
 
+    def _archives_for_context(self, archives: list[Path], dicom_dir: Path, context: dict) -> list[Path]:
         tokens = self._target_tokens(context)
-        if tokens:
-            matches = []
-            for target in extract_targets:
-                haystack = str(target).lower()
-                if all(token in haystack for token in tokens):
-                    matches.append(target)
-            if len(matches) == 1:
-                return matches[0]
-            if len(matches) > 1:
-                raise ProcessingError(
-                    f"Multiple extracted archive folders matched subject/session tokens {tokens}: {matches}"
-                )
+        if not tokens:
+            return archives
+
+        matches = [archive for archive in archives if self._path_matches_any_token(archive, tokens)]
+        if matches:
+            return matches
+
+        if self._path_matches_any_token(dicom_dir, tokens):
+            return archives
 
         raise ProcessingError(
-            f"Multiple import archives were extracted under {extract_root}, but no unique subject/session-specific "
-            "archive folder could be selected. Specify a subject/session-specific import source or use archive names/"
-            "parent folders that include the target subject/session."
+            f"Import source {dicom_dir} contains multiple archives, but none could be associated with "
+            f"the requested subject/session tokens {tokens}."
         )
 
     def _resolve_import_source(self, dicom_dir: Path, context: Optional[dict] = None) -> Path:
@@ -135,7 +133,17 @@ class ImportWorkflow(BaseWorkflow):
         work_root = self.config.work_dir or (self.config.output_dir / "work")
         extract_root = work_root / "import_archives" / source_key
         extract_root.mkdir(parents=True, exist_ok=True)
-        extract_targets: list[Path] = []
+        subject = context.get("subject")
+        session = context.get("session")
+        if subject:
+            target_root = extract_root / f"sub-{str(subject).removeprefix('sub-')}"
+            if session:
+                target_root = target_root / f"ses-{str(session).removeprefix('ses-')}"
+        else:
+            target_root = extract_root
+        target_root.mkdir(parents=True, exist_ok=True)
+
+        archives = self._archives_for_context(archives, dicom_dir, context)
 
         for archive in archives:
             archive_key = self._archive_source_key(archive)
@@ -145,9 +153,8 @@ class ImportWorkflow(BaseWorkflow):
                     rel_parent = archive.parent.relative_to(dicom_dir)
                 except ValueError:
                     rel_parent = Path()
-            archive_extract_dir = extract_root / rel_parent / archive_key
+            archive_extract_dir = target_root / rel_parent / archive_key
             archive_extract_dir.mkdir(parents=True, exist_ok=True)
-            extract_targets.append(archive_extract_dir)
             stamp = archive_extract_dir / ".extract.done"
             if stamp.exists():
                 continue
@@ -156,7 +163,7 @@ class ImportWorkflow(BaseWorkflow):
                 tf.extractall(archive_extract_dir)
             stamp.write_text("ok\n")
 
-        return self._select_extracted_target(extract_targets, context, extract_root)
+        return target_root
 
     def _snapshot_dwi_sidecars(self, output_dir: Path) -> dict[Path, float]:
         if not Path(output_dir).exists():

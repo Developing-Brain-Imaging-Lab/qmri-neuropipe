@@ -763,6 +763,29 @@ def main(
              console.print(f"[yellow]Skipped {len(data) - len(tasks)} invalid tasks with no valid subject ID.[/yellow]")
         console.print(f"Total tasks to process: {len(tasks)}")
 
+        if not tasks and (config.participant_label or config.session_label):
+            requested_parts = []
+            if config.participant_label:
+                requested_parts.append(f"participant_label={config.participant_label}")
+            if config.session_label:
+                requested_parts.append(f"session_label={config.session_label}")
+
+            import_dicom_dir = config.get("import.dicom_dir")
+            import_note = ""
+            if config.get("import.auto_run", True) and not import_dicom_dir:
+                import_note = (
+                    " Auto-import is enabled in the config, but `import.dicom_dir` is not set, "
+                    "so no DICOM import was run before subject discovery."
+                )
+
+            raise ConfigurationError(
+                "No matching subject/session pairs were found in the BIDS dataset.",
+                details=(
+                    f"Requested {', '.join(requested_parts)} under {config.bids_dir}."
+                    f"{import_note}"
+                ),
+            )
+
         # If parallel execution requested
         # If parallel execution requested
         if jobs > 1 and not submit:
