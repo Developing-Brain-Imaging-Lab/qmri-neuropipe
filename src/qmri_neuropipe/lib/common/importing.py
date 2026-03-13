@@ -312,7 +312,8 @@ class ImportGradientOverrideStep(BaseProcessingStep):
         bvec_path: Optional[Path],
         require_both: bool,
     ) -> None:
-        nvols = nib.load(str(nifti_path)).shape[3]
+        shape = nib.load(str(nifti_path)).shape
+        nvols = shape[3] if len(shape) >= 4 else 1
         if bval_path:
             bvals = self._load_bvals(bval_path)
             if bvals.size != nvols:
