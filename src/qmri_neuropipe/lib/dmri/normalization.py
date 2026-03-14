@@ -1,5 +1,12 @@
 from pathlib import Path
+from typing import Any
+import json
 import logging
+import os
+import shutil
+
+import nibabel as nib
+
 from ...core import BaseProcessingStep, ProcessingError
 from ...core.utils import ensure_dir
 
@@ -44,6 +51,396 @@ class NormalizationStep(BaseProcessingStep):
         self.include_all_metrics = kwargs.get('include_all_metrics', True)
         self.kwargs = kwargs
 
+    @staticmethod
+    def _resolve_ants_interpolator(interpolator: str) -> str:
+        interp = str(interpolator or "linear")
+        mapping = {
+            "nearest": "nearestNeighbor",
+            "nearestneighbor": "nearestNeighbor",
+            "label": "genericLabel",
+            "genericlabel": "genericLabel",
+            "multilabel": "multiLabel",
+            "cubic": "bspline",
+        }
+        return mapping.get(interp.lower(), interp)
+
+    @staticmethod
+    def _is_4d_image(path: Path) -> bool:
+        shape = nib.load(str(path)).shape
+        return len(shape) >= 4 and shape[3] > 1
+
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(k): NormalizationStep._json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [NormalizationStep._json_safe(v) for v in value]
+        return value
+
+    @staticmethod
+    def _clean_transform_entities(ref_path: Path, space_name: str) -> dict[str, Any]:
+        from ...io.bids import get_entities_from_path
+
+        ents = get_entities_from_path(ref_path)
+        for key in ['acq', 'dir', 'run', 'echo', 'part', 'model', 'desc', 'space']:
+            ents.pop(key, None)
+        ents['space'] = space_name
+        ents['suffix'] = 'xfm'
+        return ents
+
+    def _robust_manifest_path(self, ref_path: Path, norm_out: Path) -> Path:
+        from ...io.bids import build_bids_name
+
+        ents = self._clean_transform_entities(ref_path, self.space_name)
+        ents['desc'] = 'robustiterative'
+        return norm_out / build_bids_name(ents, extension='.json')
+
+    def _predicted_normalized_outputs(self, metrics_to_norm: dict[str, dict[str, Path]], norm_out: Path) -> list[tuple[str, str, Path]]:
+        from ...io.bids import build_bids_name, get_entities_from_path
+
+        predicted_outputs = []
+        for model_name, metrics in metrics_to_norm.items():
+            for name, path in metrics.items():
+                ents = get_entities_from_path(path)
+                ents['space'] = self.space_name
+                if 'model' not in ents or not ents['model']:
+                    ents['model'] = model_name
+                predicted_outputs.append((model_name, name, norm_out / build_bids_name(ents)))
+        return predicted_outputs
+
+    def _populate_existing_normalized_results(
+        self,
+        context: dict,
+        predicted_outputs: list[tuple[str, str, Path]],
+        manifest_path: Path | None = None,
+    ) -> dict:
+        normalized_results = {}
+        normalized_results_by_model = {}
+        for model_name, name, existing_path in predicted_outputs:
+            normalized_results_by_model.setdefault(model_name, {})[name] = existing_path
+            prefixed_key = f"{model_name}_{name}"
+            normalized_results[prefixed_key] = existing_path
+            if name not in normalized_results:
+                normalized_results[name] = existing_path
+        context['normalized_results'] = normalized_results
+        context['normalized_results_by_model'] = normalized_results_by_model
+        if manifest_path:
+            context['normalization_transform_manifest'] = manifest_path
+        return context
+
+    def _run_ants_registration_bundle(
+        self,
+        moving_file: Path,
+        fixed_file: Path,
+        out_prefix: Path,
+        transform_type: str,
+        interpolator: str,
+        nthreads: int,
+        registration_kwargs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
+        import ants
+
+        registration_kwargs = dict(registration_kwargs or {})
+        registration_kwargs.pop("interpolator", None)
+
+        fixed_img = ants.image_read(str(fixed_file))
+        if fixed_img.dimension == 4:
+            fixed_img = ants.slice_image(fixed_img, axis=3, idx=0)
+
+        moving_raw = ants.image_read(str(moving_file))
+        moving_img, _ = self._ensure_3d(moving_raw, is_driving=True)
+
+        reg = ants.registration(
+            fixed=fixed_img,
+            moving=moving_img,
+            type_of_transform=transform_type,
+            outprefix=str(out_prefix),
+            **registration_kwargs,
+        )
+
+        warped_out = out_prefix.with_suffix("").parent / f"{out_prefix.name}Warped.nii.gz"
+        ants.image_write(reg['warpedmovout'], str(warped_out))
+
+        return {
+            "warped": warped_out,
+            "forward": [Path(p) for p in reg['fwdtransforms']],
+            "inverse": [Path(p) for p in reg.get('invtransforms', [])],
+            "transform_type": transform_type,
+            "registration_kwargs": registration_kwargs,
+        }
+
+    def _apply_ants_transform_chain(
+        self,
+        moving_file: Path,
+        fixed_file: Path,
+        transforms: list[Path],
+        out_file: Path,
+        interpolator: str,
+        nthreads: int,
+    ) -> Path:
+        from ...interfaces import ants as ants_iface
+
+        apply_kwargs = {}
+        if self._is_4d_image(moving_file):
+            apply_kwargs["imagetype"] = 3
+
+        ants_iface.apply_transforms(
+            fixed_file=fixed_file,
+            moving_file=moving_file,
+            out_file=out_file,
+            transforms=transforms,
+            interpolator=self._resolve_ants_interpolator(interpolator),
+            nthreads=nthreads,
+            **apply_kwargs,
+        )
+        return out_file
+
+    def _apply_robust_transform_manifest_to_image(
+        self,
+        moving_file: Path,
+        out_file: Path,
+        manifest: dict[str, Any],
+        interpolator: str,
+        nthreads: int,
+    ) -> Path:
+        return apply_robust_transform_manifest(
+            manifest=manifest,
+            moving_file=moving_file,
+            out_file=out_file,
+            interpolator=interpolator,
+            nthreads=nthreads,
+        )
+
+    def _run_robust_iterative_normalization(
+        self,
+        context: dict,
+        metrics_to_norm: dict[str, dict[str, Path]],
+        ref_path: Path,
+        norm_out: Path,
+        nthreads: int,
+    ) -> dict:
+        from ...interfaces import ants as ants_iface
+        from ...interfaces.freesurfer import lta_to_itk, mri_synthmorph_register, mri_warp_convert_to_itk
+
+        skip = self.config.get('skip_existing', False)
+        predicted_outputs = self._predicted_normalized_outputs(metrics_to_norm, norm_out)
+        manifest_path = self._robust_manifest_path(ref_path, norm_out)
+
+        if skip and predicted_outputs and manifest_path.exists() and all(path.exists() for _, _, path in predicted_outputs):
+            in_mtime = ref_path.stat().st_mtime
+            out_mtime = predicted_outputs[0][2].stat().st_mtime
+            if in_mtime <= out_mtime:
+                self.logger.info("Skipping robust iterative normalization (all outputs and transform manifest exist).")
+                return self._populate_existing_normalized_results(context, predicted_outputs, manifest_path=manifest_path)
+
+        robust_cfg = dict(self.kwargs.get('robust_iterative') or {})
+        iterations = int(robust_cfg.get('iterations', 2))
+        if iterations < 1:
+            raise ProcessingError("robust_iterative.iterations must be >= 1")
+
+        synth_cfg = dict(robust_cfg.get('synthmorph') or {})
+        ants_cfg = dict(robust_cfg.get('ants') or {})
+        synth_enabled = synth_cfg.get('enabled', True)
+        ants_enabled = ants_cfg.get('enabled', True)
+        if not synth_enabled and not ants_enabled:
+            raise ProcessingError("robust_iterative requires at least one of synthmorph or ants to be enabled")
+
+        work_dir = norm_out / "robust_iterative"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        template = Path(self.template)
+        current_ref = Path(ref_path)
+        iterations_manifest: list[dict[str, Any]] = []
+        final_driving = None
+        cli_forward_chain: list[str] = []
+        cli_inverse_chain: list[str] = []
+
+        transform_ents = self._clean_transform_entities(ref_path, self.space_name)
+
+        self.logger.info(
+            "Running robust iterative normalization with %d iteration(s): SynthMorph=%s, ANTs=%s",
+            iterations,
+            synth_enabled,
+            ants_enabled,
+        )
+
+        for iteration in range(1, iterations + 1):
+            iteration_record: dict[str, Any] = {"index": iteration}
+
+            if synth_enabled:
+                from ...io.bids import build_bids_name, get_entities_from_path
+
+                synth_model = str(synth_cfg.get('model', 'joint'))
+                synth_ext = str(synth_cfg.get('transform_ext') or ('.lta' if synth_model in {'affine', 'rigid'} else '.mgz'))
+                synth_tx = work_dir / build_bids_name(
+                    {**transform_ents, "desc": f"iter{iteration}synthmorph"},
+                    extension=synth_ext,
+                )
+                synth_inv_tx = work_dir / build_bids_name(
+                    {**transform_ents, "desc": f"iter{iteration}synthmorphInverse"},
+                    extension=synth_ext,
+                )
+                synth_ents = get_entities_from_path(ref_path)
+                synth_ents['space'] = self.space_name
+                synth_ents['desc'] = f"iter{iteration}synthmorph"
+                synth_warped = work_dir / build_bids_name(synth_ents)
+
+                mri_synthmorph_register(
+                    moving=current_ref,
+                    target=template,
+                    transform_out=synth_tx,
+                    output_image=synth_warped,
+                    inverse_transform_out=synth_inv_tx,
+                    model=synth_model,
+                    extra_args=str(synth_cfg.get('register_args', '') or ''),
+                    overwrite=True,
+                )
+
+                if synth_ext == '.lta':
+                    synth_itk = work_dir / build_bids_name(
+                        {**transform_ents, "desc": f"iter{iteration}synthmorphItk"},
+                        extension='.txt',
+                    )
+                    synth_inv_itk = work_dir / build_bids_name(
+                        {**transform_ents, "desc": f"iter{iteration}synthmorphInverseItk"},
+                        extension='.txt',
+                    )
+                    lta_to_itk(synth_tx, synth_itk, src=current_ref, trg=template)
+                    lta_to_itk(synth_inv_tx, synth_inv_itk, src=template, trg=current_ref)
+                else:
+                    synth_itk = work_dir / build_bids_name(
+                        {**transform_ents, "desc": f"iter{iteration}synthmorphItk"},
+                        extension='.nii.gz',
+                    )
+                    synth_inv_itk = work_dir / build_bids_name(
+                        {**transform_ents, "desc": f"iter{iteration}synthmorphInverseItk"},
+                        extension='.nii.gz',
+                    )
+                    mri_warp_convert_to_itk(synth_tx, synth_itk, src_geom=current_ref)
+                    mri_warp_convert_to_itk(synth_inv_tx, synth_inv_itk, src_geom=template)
+
+                current_ref = synth_warped
+                iteration_record["synthmorph"] = {
+                    "transform": str(synth_tx),
+                    "inverse_transform": str(synth_inv_tx),
+                    "itk_transform": str(synth_itk),
+                    "itk_inverse_transform": str(synth_inv_itk),
+                    "warped": str(synth_warped),
+                    "model": synth_model,
+                    "register_args": str(synth_cfg.get('register_args', '') or ''),
+                    "apply_args": str(synth_cfg.get('apply_args', '') or ''),
+                }
+
+            if ants_enabled:
+                ants_prefix = work_dir / f"{manifest_path.stem}_iter{iteration}_ants_"
+                ants_bundle = self._run_ants_registration_bundle(
+                    moving_file=current_ref,
+                    fixed_file=template,
+                    out_prefix=ants_prefix,
+                    transform_type=str(ants_cfg.get('transform_type', self.kwargs.get('transform_type', 'SyN'))),
+                    interpolator=str(ants_cfg.get('apply_interpolator', 'linear')),
+                    nthreads=nthreads,
+                    registration_kwargs=dict(ants_cfg.get('registration_kwargs') or {}),
+                )
+                current_ref = ants_bundle["warped"]
+                iteration_record["ants"] = {
+                    "warped": str(ants_bundle["warped"]),
+                    "forward": [str(p) for p in ants_bundle["forward"]],
+                    "inverse": [str(p) for p in ants_bundle["inverse"]],
+                    "transform_type": ants_bundle["transform_type"],
+                    "registration_kwargs": self._json_safe(ants_bundle["registration_kwargs"]),
+                    "apply_interpolator": str(ants_cfg.get('apply_interpolator', 'linear')),
+                }
+
+            step_cli_forward = []
+            if iteration_record.get("ants", {}).get("forward"):
+                step_cli_forward.extend(iteration_record["ants"]["forward"])
+            if iteration_record.get("synthmorph", {}).get("itk_transform"):
+                step_cli_forward.append(iteration_record["synthmorph"]["itk_transform"])
+            if step_cli_forward:
+                cli_forward_chain = step_cli_forward + cli_forward_chain
+
+            step_cli_inverse = []
+            if iteration_record.get("synthmorph", {}).get("itk_inverse_transform"):
+                step_cli_inverse.append(iteration_record["synthmorph"]["itk_inverse_transform"])
+            if iteration_record.get("ants", {}).get("inverse"):
+                step_cli_inverse.extend(iteration_record["ants"]["inverse"])
+            if step_cli_inverse:
+                cli_inverse_chain.extend(step_cli_inverse)
+
+            iterations_manifest.append(iteration_record)
+            final_driving = current_ref
+
+        if final_driving is None:
+            raise ProcessingError("Robust iterative normalization did not produce a final driving image")
+
+        normalized_results = {}
+        normalized_results_by_model = {}
+
+        collapsed_field = work_dir / build_bids_name(
+            {**transform_ents, "desc": "robustiterativeCollapsedWarp"},
+            extension='.nii.gz',
+        )
+        composite_h5 = work_dir / build_bids_name(
+            {**transform_ents, "desc": "robustiterativeComposite"},
+            extension='.h5',
+        )
+
+        if cli_forward_chain:
+            ants_iface.collapse_transforms(
+                reference_file=template,
+                transforms=[Path(p) for p in cli_forward_chain],
+                out_file=collapsed_field,
+                collapse='displacement',
+                nthreads=nthreads,
+            )
+            ants_iface.collapse_transforms(
+                reference_file=template,
+                transforms=[Path(p) for p in cli_forward_chain],
+                out_file=composite_h5,
+                collapse='composite',
+                nthreads=nthreads,
+            )
+
+        manifest = {
+            "tool": "robust_iterative",
+            "template": str(template),
+            "space_name": self.space_name,
+            "driving_metric": self.driving_metric,
+            "iterations": iterations_manifest,
+            "forward_chain_cli_order": cli_forward_chain,
+            "inverse_chain_cli_order": cli_inverse_chain,
+            "collapsed_forward_displacement": str(collapsed_field) if collapsed_field.exists() else None,
+            "collapsed_forward_composite": str(composite_h5) if composite_h5.exists() else None,
+        }
+        manifest_path.write_text(json.dumps(self._json_safe(manifest), indent=2) + "\n")
+
+        for model_name, metric_name, out_path in predicted_outputs:
+            src_path = metrics_to_norm[model_name][metric_name]
+            if skip and out_path.exists():
+                normalized_path = out_path
+            else:
+                normalized_path = self._apply_robust_transform_manifest_to_image(
+                    moving_file=Path(src_path),
+                    out_file=out_path,
+                    manifest=manifest,
+                    interpolator=str((robust_cfg.get('apply') or {}).get('default_scalar_interpolator', 'linear')),
+                    nthreads=nthreads,
+                )
+
+            normalized_results_by_model.setdefault(model_name, {})[metric_name] = normalized_path
+            prefixed_key = f"{model_name}_{metric_name}"
+            normalized_results[prefixed_key] = normalized_path
+            if metric_name not in normalized_results:
+                normalized_results[metric_name] = normalized_path
+
+        context['normalized_results'] = normalized_results
+        context['normalized_results_by_model'] = normalized_results_by_model
+        context['normalization_transform_manifest'] = manifest_path
+        return context
     def run(self, context: dict | object, output_dir: Path, **kwargs) -> dict | object:
         # Context is likely the main dictionary from ModelingWorkflow
         if not isinstance(context, dict):
@@ -63,7 +460,6 @@ class NormalizationStep(BaseProcessingStep):
 
         # Fetch nthreads
         nthreads = kwargs.get('nthreads', self.config.get('n_cpus', 1))
-        import os
         os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
         
         # Build full metric list (including any extra outputs not tracked in context)
@@ -167,24 +563,15 @@ class NormalizationStep(BaseProcessingStep):
         
         # Check for existing outputs (Skip Logic)
         skip = self.config.get('skip_existing', False)
-        # Predict outputs
+        # Predict outputs.
         from ...io.bids import build_bids_name, get_entities_from_path
-        
-        # We need to predict filenames.
-        # This is slightly expensive, but safer.
+
         all_exist = True
-        predicted_outputs = []
-        
-        for model_name, metrics in metrics_to_norm.items():
-            for name, path in metrics.items():
-                ents = get_entities_from_path(path)
-                ents['space'] = self.space_name
-                if 'model' not in ents or not ents['model']:
-                    ents['model'] = model_name
-                out_path = norm_out / build_bids_name(ents)
-                predicted_outputs.append((model_name, name, out_path))
-                if not out_path.exists():
-                    all_exist = False
+        predicted_outputs = self._predicted_normalized_outputs(metrics_to_norm, norm_out)
+
+        for _, _, out_path in predicted_outputs:
+            if not out_path.exists():
+                all_exist = False
                     
         # Also check transforms if saving (ANTs only)
         if self.save_transforms and self.tool == 'ants':
@@ -217,6 +604,9 @@ class NormalizationStep(BaseProcessingStep):
              tx_path = norm_out / build_bids_name(d_ents, extension=ext)
              if not tx_path.exists():
                  all_exist = False
+        elif self.tool == 'robust_iterative':
+             if not self._robust_manifest_path(ref_path, norm_out).exists():
+                 all_exist = False
         elif self.save_transforms and self.tool not in ['ants', 'synthmorph']:
              self.logger.warning(f"Save transforms not supported for tool '{self.tool}'.")
                  
@@ -232,18 +622,20 @@ class NormalizationStep(BaseProcessingStep):
              else:
                   self.logger.info("Skipping Normalization (All outputs exist and are up-to-date).")
                   # Populate context
-             normalized_results = {}
-             normalized_results_by_model = {}
-             for model_name, name, existing_path in predicted_outputs:
-                 normalized_results_by_model.setdefault(model_name, {})[name] = existing_path
-                 prefixed_key = f"{model_name}_{name}"
-                 normalized_results[prefixed_key] = existing_path
-                 if name not in normalized_results:
-                     normalized_results[name] = existing_path
-             
-             context['normalized_results'] = normalized_results
-             context['normalized_results_by_model'] = normalized_results_by_model
-             return context
+             return self._populate_existing_normalized_results(
+                 context,
+                 predicted_outputs,
+                 manifest_path=self._robust_manifest_path(ref_path, norm_out) if self.tool == 'robust_iterative' else None,
+             )
+
+        if self.tool == 'robust_iterative':
+            return self._run_robust_iterative_normalization(
+                context=context,
+                metrics_to_norm=metrics_to_norm,
+                ref_path=Path(ref_path),
+                norm_out=norm_out,
+                nthreads=nthreads,
+            )
         
         # 2. Registration
         tx_forward = []
@@ -438,3 +830,78 @@ class NormalizationStep(BaseProcessingStep):
         context['normalized_results'] = normalized_results
         context['normalized_results_by_model'] = normalized_results_by_model
         return context
+
+
+def apply_robust_transform_manifest(
+    manifest: dict[str, Any] | Path,
+    moving_file: Path,
+    out_file: Path,
+    interpolator: str = "linear",
+    nthreads: int = 1,
+) -> Path:
+    from ...interfaces import ants as ants_iface
+    from ...interfaces.freesurfer import mri_synthmorph_apply
+
+    if not isinstance(manifest, dict):
+        manifest = json.loads(Path(manifest).read_text())
+
+    template = Path(manifest["template"])
+    out_file = Path(out_file)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    collapsed_forward = manifest.get("collapsed_forward_displacement") or manifest.get("collapsed_forward_composite")
+    if collapsed_forward and Path(collapsed_forward).exists():
+        from ...interfaces import ants as ants_iface
+
+        apply_kwargs = {}
+        if NormalizationStep._is_4d_image(Path(moving_file)):
+            apply_kwargs["imagetype"] = 3
+        ants_iface.apply_transforms(
+            fixed_file=template,
+            moving_file=moving_file,
+            out_file=out_file,
+            transforms=[Path(collapsed_forward)],
+            interpolator=NormalizationStep._resolve_ants_interpolator(interpolator),
+            nthreads=nthreads,
+            **apply_kwargs,
+        )
+        return out_file
+
+    current_path = Path(moving_file)
+    temp_dir = out_file.parent / ".robust_iterative_apply"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, iteration in enumerate(manifest.get("iterations", []), start=1):
+        synth = iteration.get("synthmorph")
+        if synth and synth.get("transform"):
+            synth_out = temp_dir / f"{out_file.stem}_iter{idx}_synth.nii.gz"
+            mri_synthmorph_apply(
+                moving=current_path,
+                target=template,
+                transform_in=Path(synth["transform"]),
+                out_file=synth_out,
+                extra_args=str(synth.get("apply_args", "") or ""),
+                overwrite=True,
+            )
+            current_path = synth_out
+
+        ants_step = iteration.get("ants")
+        if ants_step and ants_step.get("forward"):
+            ants_out = out_file if idx == len(manifest.get("iterations", [])) else temp_dir / f"{out_file.stem}_iter{idx}_ants.nii.gz"
+            apply_kwargs = {}
+            if NormalizationStep._is_4d_image(current_path):
+                apply_kwargs["imagetype"] = 3
+            ants_iface.apply_transforms(
+                fixed_file=template,
+                moving_file=current_path,
+                out_file=ants_out,
+                transforms=[Path(p) for p in ants_step["forward"]],
+                interpolator=NormalizationStep._resolve_ants_interpolator(interpolator),
+                nthreads=nthreads,
+                **apply_kwargs,
+            )
+            current_path = ants_out
+
+    if current_path != out_file:
+        shutil.copyfile(current_path, out_file)
+    return out_file

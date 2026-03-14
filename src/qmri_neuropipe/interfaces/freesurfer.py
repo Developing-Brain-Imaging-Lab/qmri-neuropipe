@@ -80,6 +80,7 @@ def mri_synthmorph_register(
     target: ImageLike | Path,
     transform_out: Path,
     output_image: Optional[Path] = None,
+    inverse_transform_out: Optional[Path] = None,
     model: Optional[str] = None,
     extra_args: str = "",
     overwrite: bool = False
@@ -91,7 +92,8 @@ def mri_synthmorph_register(
         moving: moving image
         target: target/template image
         transform_out: path to save transform (-t)
-        output_image: optional warped moving image (-O)
+        output_image: optional warped moving image in fixed space (-o)
+        inverse_transform_out: optional inverse transform in fixed-to-moving direction (-T)
         model: synthmorph model to use (e.g. joint, deform, affine, rigid)
         extra_args: additional CLI args to pass to mri_synthmorph register
         overwrite: replace outputs if they already exist
@@ -106,10 +108,11 @@ def mri_synthmorph_register(
             if output_image is None or Path(output_image).exists():
                 return tx_p
 
-    out_arg = f"-O {output_image}" if output_image else ""
+    out_arg = f"-o {output_image}" if output_image else ""
+    inv_arg = f"-T {inverse_transform_out}" if inverse_transform_out else ""
     model_arg = f"-m {model}" if model else ""
     extra = extra_args or ""
-    cmd = f"mri_synthmorph register -t {tx_p} {model_arg} {out_arg} {extra} {mov_p} {targ_p}".strip()
+    cmd = f"mri_synthmorph register -t {tx_p} {inv_arg} {model_arg} {out_arg} {extra} {mov_p} {targ_p}".strip()
     run_cmd(cmd, label="mri_synthmorph_register")
     return tx_p
 
@@ -146,6 +149,61 @@ def mri_synthmorph_apply(
     extra = extra_args or ""
     cmd = f"mri_synthmorph apply {transform_in} {mov_p} {out_p} {extra}".strip()
     run_cmd(cmd, label="mri_synthmorph_apply")
+    return out_p
+
+
+def mri_warp_convert_to_itk(
+    in_transform: Path,
+    out_file: Path,
+    src_geom: Optional[ImageLike | Path] = None,
+    lta1: Optional[Path] = None,
+    lta1_inv: bool = False,
+    lta2: Optional[Path] = None,
+    lta2_inv: bool = False,
+):
+    tx_p = Path(in_transform)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        return out_p
+
+    suffixes = "".join(tx_p.suffixes).lower()
+    if suffixes.endswith(".m3z"):
+        in_arg = f"--inm3z {tx_p}"
+    elif suffixes.endswith(".mgz"):
+        in_arg = f"--inmgzwarp {tx_p}"
+    elif suffixes.endswith(".nii.gz") or suffixes.endswith(".nii"):
+        in_arg = f"--inlps {tx_p}"
+    else:
+        raise ValueError(f"Unsupported warp format for mri_warp_convert: {tx_p}")
+
+    extra = []
+    if src_geom:
+        extra.append(f"--insrcgeom {extract_image_path(src_geom)}")
+    if lta1:
+        extra.append(f"{'--lta1-inv' if lta1_inv else '--lta1'} {Path(lta1)}")
+    if lta2:
+        extra.append(f"{'--lta2-inv' if lta2_inv else '--lta2'} {Path(lta2)}")
+
+    cmd = f"mri_warp_convert {in_arg} --outitk {out_p} {' '.join(extra)}".strip()
+    run_cmd(cmd, label="mri_warp_convert")
+    return out_p
+
+
+def lta_to_itk(in_lta: Path, out_file: Path, src: ImageLike | Path, trg: ImageLike | Path, invert: bool = False):
+    in_p = Path(in_lta)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        return out_p
+
+    invert_arg = "--invert" if invert else ""
+    src_p = extract_image_path(src)
+    trg_p = extract_image_path(trg)
+    cmd = f"lta_convert --inlta {in_p} --outitk {out_p} --src {src_p} --trg {trg_p} {invert_arg}".strip()
+    run_cmd(cmd, label="lta_convert")
     return out_p
 
 

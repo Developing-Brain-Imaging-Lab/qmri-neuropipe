@@ -59,10 +59,9 @@ class RelaxometryWorkflow(BaseWorkflow):
 
     def __init__(self, config: PipelineConfig, logger: logging.Logger, provenance: dict,
                  relax_config: Optional[RelaxometryConfig] = None):
-        super().__init__(config, logger, provenance)
         self.relax_config = relax_config or RelaxometryConfig()
+        super().__init__(config, logger, provenance)
         self.modality = "Relaxometry"
-        self._initialize_steps()
 
     def _initialize_steps(self):
         preproc_cfg = self.relax_config.preprocessing
@@ -671,4 +670,3 @@ def run_relaxometry_workflow(
     workflow = RelaxometryWorkflow(config, logger, provenance, relax_config=relax_config)
     context = kwargs.pop("context", {})
     return workflow.run(output_dir, subject, session, context=context, reporter=reporter, **kwargs)
-

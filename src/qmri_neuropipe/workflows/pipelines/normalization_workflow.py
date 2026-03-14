@@ -43,6 +43,7 @@ class NormalizationWorkflow(BaseWorkflow):
             synthmorph_transform_ext=cfg.get("synthmorph_transform_ext", ".lta"),
             synthmorph_register_args=cfg.get("synthmorph_register_args", ""),
             synthmorph_apply_args=cfg.get("synthmorph_apply_args", ""),
+            robust_iterative=cfg.get("robust_iterative", {}),
         )
         self.add_step(step)
 

@@ -139,6 +139,40 @@ def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path
     ants.image_write(warped_img, str(out))
     return out
 
+
+def collapse_transforms(
+    reference_file: ImageLike | Path,
+    transforms: list[Path],
+    out_file: Path,
+    collapse: str = "displacement",
+    invert_transforms: list[bool] | None = None,
+    nthreads: int = 1,
+    dimensionality: int = 3,
+):
+    """
+    Collapse a transform chain into a single displacement field or composite transform.
+    """
+    ref_p = extract_image_path(reference_file)
+    out_p = ensure_dir(out_file)
+
+    if invert_transforms and len(invert_transforms) != len(transforms):
+        raise ValueError("invert_transforms must match transforms length")
+
+    out_arg = f"DisplacementField[{out_p}]" if collapse == "displacement" else f"CompositeTransform[{out_p}]"
+    tx_args = []
+    for idx, transform in enumerate(transforms):
+        if invert_transforms and invert_transforms[idx]:
+            tx_args.append(f"-t [{transform},1]")
+        else:
+            tx_args.append(f"-t {transform}")
+
+    cmd = (
+        f"antsApplyTransforms -d {dimensionality} -r {ref_p} -o {out_arg} "
+        + " ".join(tx_args)
+    )
+    run_cmd(cmd, label="antsCollapseTransforms", n_threads=nthreads)
+    return out_p
+
 def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, out_prefix: Path, transform_type: str = "Rigid", interpolator: str = "linear", nthreads: int = 1, **kwargs):
     """
     Run ANTs registration.
