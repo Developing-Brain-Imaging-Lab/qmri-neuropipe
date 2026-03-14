@@ -272,6 +272,7 @@ anat:
       method: ants
     recon_all:
       enabled: false
+      subjects_dir: null   # default: <bids_dir>/derivatives/freesurfer
     normalization:
       enabled: false
 ```

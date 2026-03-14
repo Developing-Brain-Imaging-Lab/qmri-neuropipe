@@ -753,6 +753,26 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         errors = context.setdefault('errors', [])
 
+        def _prepare_t2w_for_freesurfer_coreg() -> ImageFile:
+            use_fs = self.anat_config.preprocessing.use_freesurfer
+            if not use_fs:
+                return context["preprocessed_t2w"]
+
+            mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
+            if not mask_step:
+                self.logger.warning(
+                    "FreeSurfer anatomical coregistration requested, but no BrainMaskingStep is configured. "
+                    "Proceeding with the unmasked T2w image."
+                )
+                return context["preprocessed_t2w"]
+
+            self.logger.info(
+                "FreeSurfer coregistration uses a skull-stripped T1w target. "
+                "Generating a skull-stripped T2w moving image before T2w -> T1w registration."
+            )
+            masked_t2w, _ = mask_step(context["preprocessed_t2w"], output_dir=output_dir, return_mask=True)
+            return masked_t2w
+
         try:
             coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method=coreg_cfg_run.get("method", "fsl"))
             coreg_step.modality = "Anatomical"
@@ -787,7 +807,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             else:
                 self.logger.info("Coregistration: Reference=T1w. Registering T2w -> T1w.")
-                res_t2 = coreg_step(context["preprocessed_t2w"], output_dir=output_dir, target=context["preprocessed_t1w"].img, options=coreg_options)
+                moving_t2 = _prepare_t2w_for_freesurfer_coreg()
+                res_t2 = coreg_step(moving_t2, output_dir=output_dir, target=context["preprocessed_t1w"].img, options=coreg_options)
                 if isinstance(res_t2, dict):
                     res_t2 = res_t2.get("current_image")
                 context["preprocessed_t2w_coreg"] = res_t2

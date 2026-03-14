@@ -282,12 +282,14 @@ anat:
   preprocessing:
     recon_all:
       enabled: true
+      subjects_dir: /path/to/freesurfer_subjects
 ```
 
 **Parameters**
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `anat.preprocessing.recon_all.enabled` | bool | false | Enable step |
+| `anat.preprocessing.recon_all.subjects_dir` | path | `<bids_dir>/derivatives/freesurfer` | Optional external FreeSurfer `SUBJECTS_DIR` to reuse or write recon-all outputs |
 
 ### 9. SuperSynth (Optional)
 

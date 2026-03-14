@@ -28,6 +28,7 @@ class ReconAllStep(BaseProcessingStep):
         base_args = self.recon_config.get("args", "-all")
         extra_args = self.recon_config.get("extra_args", "")
         self.args = f"{base_args} {extra_args}".strip()
+        self.subjects_dir = self.recon_config.get("subjects_dir")
         
         # Check global use_freesurfer flag (or nested in generic options)
         # Checking: anat.use_freesurfer OR anat.preprocessing.use_freesurfer
@@ -86,7 +87,7 @@ class ReconAllStep(BaseProcessingStep):
              fs_sub_id += f"_ses-{ses}"
 
         # FS Directory
-        fs_dir = self.config.bids_dir / "derivatives" / "freesurfer"
+        fs_dir = Path(self.subjects_dir) if self.subjects_dir else (self.config.bids_dir / "derivatives" / "freesurfer")
         subj_dir = fs_dir / fs_sub_id
         
         # === FAST PATH: Check if we can skip everything ===
