@@ -335,49 +335,92 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         Returns a dictionary of fitted map ImageFiles keyed by map name.
         """
+        from ...interfaces.fsl import merge as fslmerge
+
         results = {}
         modeling_cfg = self.relax_config.modeling
 
         # Ensure output directory exists
         fit_out_dir.mkdir(parents=True, exist_ok=True)
 
+        input_dir = fit_out_dir / "inputs"
+        input_dir.mkdir(parents=True, exist_ok=True)
+
+        def _stack_inputs(images: List[ImageFile], stem: str) -> Optional[Path]:
+            if not images:
+                return None
+            if len(images) == 1:
+                return images[0].img
+            merged_path = input_dir / f"{base_prefix}_{stem}.nii.gz"
+            return fslmerge(images, merged_path, dimension="t")
+
+        spgr_stack = _stack_inputs(spgr_moco, "desc-spgrStack_VFA")
+        ssfp_stack = _stack_inputs(ssfp_moco, "desc-ssfpStack_VFA")
+        irspgr_stack = _stack_inputs(ir_final, "desc-irspgrStack_VFA")
+        b1_path = b1_map.img if isinstance(b1_map, ImageFile) else b1_map
+
+        if spgr_stack is None:
+            raise ValueError("DESPOT fitting requires at least one SPGR image.")
+
         # DESPOT1 fitting
         if modeling_cfg.despot1.get("enabled", False):
             self.logger.info("Starting DESPOT1 fitting.")
             use_hifi = modeling_cfg.despot1.get("use_hifi", True)
             if use_hifi:
+                if irspgr_stack is None:
+                    raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
                 despot1_results = fit_despot1_hifi(
-                    spgr_moco, mask=mask_file, output_dir=fit_out_dir, prefix=base_prefix, params_file=params_json
+                    spgr_file=spgr_stack,
+                    irspgr_file=irspgr_stack,
+                    params_file=params_json,
+                    out_dir=fit_out_dir,
+                    mask_file=mask_file,
+                    out_base=f"{base_prefix}_despot1_hifi",
                 )
             else:
                 despot1_results = fit_despot1(
-                    spgr_moco, mask=mask_file, output_dir=fit_out_dir, prefix=base_prefix, params_file=params_json
+                    spgr_file=spgr_stack,
+                    params_file=params_json,
+                    out_dir=fit_out_dir,
+                    b1_file=b1_path,
+                    mask_file=mask_file,
+                    out_base=f"{base_prefix}_despot1",
                 )
             results.update(despot1_results)
 
         # DESPOT2 fitting
         if modeling_cfg.despot2.get("enabled", False):
             self.logger.info("Starting DESPOT2 fitting.")
+            if ssfp_stack is None:
+                raise ValueError("DESPOT2 requested, but no SSFP image was found.")
+            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not t1_path:
+                raise ValueError("DESPOT2 requires a DESPOT1 T1 map, but none was produced.")
+            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not despot_b1_path:
+                despot_b1_path = b1_path
+            if not despot_b1_path:
+                raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
             mcdespot_enabled = modeling_cfg.despot2.get("mcdespot", False)
             if mcdespot_enabled:
                 despot2_results = fit_despot2_fm(
-                    spgr_moco,
-                    ssfp_moco,
-                    mask=mask_file,
-                    output_dir=fit_out_dir,
-                    prefix=base_prefix,
+                    ssfp_file=ssfp_stack,
+                    t1_file=t1_path,
+                    b1_file=despot_b1_path,
                     params_file=params_json,
-                    b1_map=b1_map,
+                    out_dir=fit_out_dir,
+                    mask_file=mask_file,
+                    out_base=f"{base_prefix}_despot2_fm",
                 )
             else:
                 despot2_results = fit_despot2(
-                    spgr_moco,
-                    ssfp_moco,
-                    mask=mask_file,
-                    output_dir=fit_out_dir,
-                    prefix=base_prefix,
+                    ssfp_file=ssfp_stack,
+                    t1_file=t1_path,
+                    b1_file=despot_b1_path,
                     params_file=params_json,
-                    b1_map=b1_map,
+                    out_dir=fit_out_dir,
+                    mask_file=mask_file,
+                    out_base=f"{base_prefix}_despot2",
                 )
             results.update(despot2_results)
 

@@ -98,11 +98,13 @@ The pipeline supports both DESPOT1 (T1 mapping) and DESPOT2 (T2 mapping), includ
 
 - **DESPOT1 (T1 Mapping)**:
     - **Inputs**: SPGR images (multiple flip angles).
+    - **Acquisition Params JSON**: Includes `FlipAngle`, `RepetitionTime`, and `EchoTime` from the SPGR sidecars.
     - **HIFI Option**: If an IR-SPGR (Inversion Recovery) image is present, **DESPOT1-HIFI** is used to simultaneously estimate T1 and B1 (or correct B1).
     - **Outputs**: `T1map`, `M0map`, `B1map` (if HIFI).
     
 - **DESPOT2 (T2/MWF Mapping)**:
     - **Inputs**: SSFP images (multiple flip angles, usually 0 and 180 phase cycling).
+    - **Acquisition Params JSON**: Includes `FlipAngle`, `RepetitionTime`, `EchoTime`, and `PhaseCycling` from the SSFP sidecars.
     - **Dependencies**: Requires the T1 map from the DESPOT1 step.
     - **Standard DESPOT2**: Estimates single-component T1 and T2.
     - **mcDESPOT (Multicomponent)**: Estimates Fast and Slow water components to derive **Myelin Water Fraction (MWF)**.
@@ -154,6 +156,8 @@ relaxometry:
 *   `afi` (AFI-derived B1)
 *   `external` (provided B1 map)
 *   `hifi` (DESPOT1-HIFI)
+
+The generated `desc-AcqParams.json` file also carries `EchoTime` for SPGR, SSFP, and IR-SPGR inputs when that field is present in the BIDS sidecars.
 
 **B1 Config**
 ```yaml
