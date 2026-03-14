@@ -37,6 +37,17 @@ def _resolve_context_gnl_map(context: dict | object, dwi: object | None = None) 
         candidates.append(gnl_map_by_image.get(image_path))
         candidates.append(gnl_map_by_image.get(str(image_path)))
 
+        image_path = Path(image_path)
+        image_entities = (getattr(image_obj, "entities", {}) or {}).copy()
+        if image_entities:
+            image_entities["desc"] = "gnl_tensor"
+            image_entities["suffix"] = "dwi"
+            candidates.append(image_path.parent / build_bids_name(image_entities))
+
+        sibling_candidates = sorted(image_path.parent.glob("*desc-gnl_tensor*_dwi.nii.gz"))
+        if len(sibling_candidates) == 1:
+            candidates.append(sibling_candidates[0])
+
     candidates.append(context.get("gnl_map"))
 
     for candidate in candidates:

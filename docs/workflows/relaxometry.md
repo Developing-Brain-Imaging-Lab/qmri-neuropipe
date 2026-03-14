@@ -4,6 +4,17 @@ The Relaxometry Workflow is designed to process Variable Flip Angle (VFA) data, 
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
 
+## Step Method Summary
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Reorient | `relaxometry.preprocessing.reorient` | `fsl` (`fslreorient2std`) |
+| Denoising | `relaxometry.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `relaxometry.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Motion correction | `relaxometry.preprocessing.motion_correction` | `ants`, `fsl` |
+| B1 mapping | `relaxometry.preprocessing.b1` | `afi`, `external`, `hifi` |
+| Brain masking | `relaxometry.masking` or `relaxometry.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+
 ## Workflow Steps
 
 ### 1. Preprocessing

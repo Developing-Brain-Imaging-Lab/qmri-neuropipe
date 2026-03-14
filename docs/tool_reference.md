@@ -2,6 +2,52 @@
 
 This page lists the implemented tools for each workflow step and the matching configuration keys.
 
+## Workflow Method Summary
+
+### Anatomical
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Resample | `anat.preprocessing.resample` | `freesurfer` (`mri_convert`) |
+| Reorient | `anat.preprocessing.reorient` | `fsl` (`fslreorient2std`) |
+| Denoising | `anat.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `anat.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Bias correction | `anat.preprocessing.bias_correction` | `ants`, `mrtrix` |
+| Sharpening | `anat.preprocessing.sharpen` | `ants` |
+| Coregistration | `anat.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
+| Brain masking | `anat.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+| Recon-all | `anat.preprocessing.recon_all` | `standard`, `clinical` |
+| Normalization | `anat.preprocessing.normalization` | `ants` |
+
+### Diffusion
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Reorient | `dmri.preprocessing.reorient` | `mrtrix` (`mrconvert` stride standardization with b-vector rotation) |
+| Resample | `dmri.preprocessing.resample` | `freesurfer` (`mri_convert`) |
+| Gradient check | `dmri.preprocessing.grad_check` | `mrtrix` (`dwigradcheck`) |
+| Distortion correction | `dmri.preprocessing.distcorr` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
+| Denoising | `dmri.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `dmri.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Eddy correction | `dmri.preprocessing.eddy` | `eddy`, `eddy-correct`, `two-pass` |
+| Outlier removal | `dmri.preprocessing.outliers` | `manual`, `eddy_qc`, `threshold` |
+| Gradient nonlinearity | `dmri.preprocessing.grad_nonlin` | `native_ge`, `tortoise` |
+| Bias correction | `dmri.preprocessing.bias_correction` | `ants`, `mrtrix` |
+| Coregistration | `dmri.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
+| Brain masking | `dmri.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+| Normalization | `dmri.normalization` | `ants`, `synthmorph`, `robust_iterative` |
+
+### Relaxometry
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Reorient | `relaxometry.preprocessing.reorient` | `fsl` (`fslreorient2std`) |
+| Denoising | `relaxometry.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `relaxometry.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Motion correction | `relaxometry.preprocessing.motion_correction` | `ants`, `fsl` |
+| B1 mapping | `relaxometry.preprocessing.b1` | `afi`, `external`, `hifi` |
+| Brain masking | `relaxometry.masking` or `relaxometry.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+
 ## QC
 
 **Tools**
@@ -236,6 +282,7 @@ anat:
 **Tools**
 - `ants`
 - `synthmorph` (FreeSurfer mri_synthmorph)
+- `robust_iterative` (iterative SynthMorph + ANTs)
 
 **Config**
 ```yaml
@@ -261,10 +308,16 @@ dmri:
 | `template` | path | required | Template image |
 | `driving_metric` | str | `FA` | Metric used for registration |
 | `space_name` | str | `Standard` | BIDS `space-` label |
-| `tool` | str | `ants` | `ants`, `synthmorph` |
+| `tool` | str | `ants` | `ants`, `synthmorph`, `robust_iterative` |
 | `transform_type` | str | `SyN` | ANTs only |
 | `save_transforms` | bool | true | ANTs only |
 | `include_all_metrics` | bool | true | Normalize all model outputs found |
+| `robust_iterative.iterations` | int | 2 | Number of iterative SynthMorph + ANTs rounds |
+| `robust_iterative.synthmorph.enabled` | bool | true | Enable SynthMorph stage inside each round |
+| `robust_iterative.synthmorph.model` | str | `joint` | `joint`, `deform`, `affine`, `rigid` |
+| `robust_iterative.ants.enabled` | bool | true | Enable ANTs refinement inside each round |
+| `robust_iterative.ants.transform_type` | str | `SyN` | ANTs transform for refinement |
+| `robust_iterative.apply.default_scalar_interpolator` | str | `linear` | Interpolator used when applying saved robust manifests |
 | `synthmorph_transform_ext` | str | `.lta` | Output extension for `-t` transform |
 | `synthmorph_model` | str | none | Model passed to `mri_synthmorph register -m` (e.g., `joint`, `deform`, `affine`, `rigid`) |
 | `synthmorph_register_args` | str | none | Extra args for `mri_synthmorph register` |
@@ -368,6 +421,7 @@ dmri:
 ## Gradient Nonlinearity Correction
 
 **Tools**
+- `native_ge`
 - `tortoise`
 
 **Config**
@@ -383,6 +437,7 @@ dmri:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `enabled` | bool | false | Enable step |
+| `method` | str | `tortoise` | `native_ge`, `tortoise` |
 | `coeff_file` | path | required | Gradient coefficients `.dat` |
 
 ## Motion Correction (Relaxometry)

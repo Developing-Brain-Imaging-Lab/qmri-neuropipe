@@ -196,6 +196,18 @@ For full per-step defaults and options, see `docs/tool_reference.md`. Below is a
 | Gradient nonlinearity | `dmri.preprocessing.grad_nonlin` |
 | Brain masking | `dmri.preprocessing.brain_masking` |
 
+Common methods:
+- `distcorr`: `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none`
+- `denoising`: `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian`
+- `degibbs`: `mrtrix`, `dipy`
+- `eddy`: `eddy`, `eddy-correct`, `two-pass`
+- `outliers`: `manual`, `eddy_qc`, `threshold`
+- `bias_correction`: `ants`, `mrtrix`
+- `coregistration`: `ants`, `fsl`, `freesurfer`
+- `grad_nonlin`: `native_ge`, `tortoise`
+- `brain_masking`: `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet`
+- `normalization.tool`: `ants`, `synthmorph`, `robust_iterative`
+
 **Example**
 ```yaml
 dmri:
@@ -243,6 +255,16 @@ dmri:
 | Recon-all | `anat.preprocessing.recon_all` |
 | Normalization | `anat.preprocessing.normalization` |
 
+Common methods:
+- `denoising`: `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian`
+- `degibbs`: `mrtrix`, `dipy`
+- `bias_correction`: `ants`, `mrtrix`
+- `sharpen`: `ants`
+- `coregistration`: `ants`, `fsl`, `freesurfer`
+- `brain_masking`: `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet`
+- `recon_all.method`: `standard`, `clinical`
+- `normalization`: `ants`
+
 **Example**
 ```yaml
 anat:
@@ -286,6 +308,14 @@ anat:
 | Motion correction | `relaxometry.preprocessing.motion_correction` |
 | B1 mapping | `relaxometry.preprocessing.b1` |
 | Brain masking | `relaxometry.masking` |
+
+Common methods:
+- `reorient`: `fsl`
+- `denoising`: `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian`
+- `degibbs`: `mrtrix`, `dipy`
+- `motion_correction`: `ants`, `fsl`
+- `b1`: `afi`, `external`, `hifi`
+- `masking`: `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet`
 
 **Example**
 ```yaml

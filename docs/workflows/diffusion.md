@@ -6,6 +6,24 @@ The **Diffusion Pipeline** (`--pipeline dmri`) processes Diffusion Weighted Imag
 
 The pipeline handles single-shell and multi-shell data and supports advanced distortion correction strategies using reverse phase-encoding (PE) data.
 
+## Step Method Summary
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Reorient | `dmri.preprocessing.reorient` | `mrtrix` (`mrconvert` stride standardization with b-vector rotation) |
+| Resample | `dmri.preprocessing.resample` | `freesurfer` (`mri_convert`) |
+| Gradient check | `dmri.preprocessing.grad_check` | `mrtrix` (`dwigradcheck`) |
+| Distortion correction | `dmri.preprocessing.distcorr` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
+| Denoising | `dmri.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `dmri.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Eddy correction | `dmri.preprocessing.eddy` | `eddy`, `eddy-correct`, `two-pass` |
+| Outlier removal | `dmri.preprocessing.outliers` | `manual`, `eddy_qc`, `threshold` |
+| Gradient nonlinearity | `dmri.preprocessing.grad_nonlin` | `native_ge`, `tortoise` |
+| Bias correction | `dmri.preprocessing.bias_correction` | `ants`, `mrtrix` |
+| Coregistration | `dmri.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
+| Brain masking | `dmri.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+| Normalization | `dmri.normalization` | `ants`, `synthmorph`, `robust_iterative` |
+
 **Main Class**: `qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline`
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
@@ -266,10 +284,11 @@ dmri:
 | `dmri.preprocessing.coregistration.options.transform_type` | str | `Rigid` | ANTs |
 
 ### 9. Gradient Nonlinearity Correction (Optional)
-Corrects for scanner gradient nonlinearities using `Tortoise` or similar tools (requires specific gradient coefficients).
+Corrects for scanner gradient nonlinearities using either the native GE implementation or TORTOISE (requires gradient coefficients).
 
 **Available tools**
-*   `tortoise` (gradient nonlinearity correction)
+*   `native_ge` (native GE gradient nonlinearity tensor generation / alignment)
+*   `tortoise` (TORTOISE gradient nonlinearity correction)
 
 **Config**
 ```yaml
@@ -284,6 +303,7 @@ dmri:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `dmri.preprocessing.grad_nonlin.enabled` | bool | false | Enable step |
+| `dmri.preprocessing.grad_nonlin.method` | str | `tortoise` | `native_ge`, `tortoise` |
 | `dmri.preprocessing.grad_nonlin.coeff_file` | path | required | Gradient coefficients `.dat` |
 
 ### 10. Brain Masking

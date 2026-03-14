@@ -6,6 +6,21 @@ The **Anatomical Pipeline** (`--pipeline anat`) standardizes T1w (and optionally
 
 The pipeline processes T1w and T2w images independently and then coregisters them.
 
+## Step Method Summary
+
+| Step | Config Key | Methods / Backends |
+| --- | --- | --- |
+| Resample | `anat.preprocessing.resample` | `freesurfer` (`mri_convert`) |
+| Reorient | `anat.preprocessing.reorient` | `fsl` (`fslreorient2std`) |
+| Denoising | `anat.preprocessing.denoising` | `mrtrix`, `ants`, `mppca`, `patch2self`, `nlmeans`, `wavelets`, `gaussian` |
+| Gibbs unringing | `anat.preprocessing.degibbs` | `mrtrix`, `dipy` |
+| Bias correction | `anat.preprocessing.bias_correction` | `ants`, `mrtrix` |
+| Sharpening | `anat.preprocessing.sharpen` | `ants` |
+| Coregistration | `anat.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
+| Brain masking | `anat.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
+| Recon-all | `anat.preprocessing.recon_all` | `standard`, `clinical` |
+| Normalization | `anat.preprocessing.normalization` | `ants` |
+
 ## Input Selection
 
 If multiple anatomical acquisitions exist in the BIDS `anat/` folder, the pipeline
@@ -289,6 +304,7 @@ anat:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `anat.preprocessing.recon_all.enabled` | bool | false | Enable step |
+| `anat.preprocessing.recon_all.method` | str | `standard` | `standard`, `clinical` |
 | `anat.preprocessing.recon_all.subjects_dir` | path | `<bids_dir>/derivatives/freesurfer` | Optional external FreeSurfer `SUBJECTS_DIR` to reuse or write recon-all outputs |
 
 ### 9. SuperSynth (Optional)
