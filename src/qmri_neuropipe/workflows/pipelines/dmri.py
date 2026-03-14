@@ -15,6 +15,8 @@ Module Structure:
 from pathlib import Path
 from typing import Optional
 import shutil
+import nibabel as nib
+import numpy as np
 
 # Core framework
 from qmri_neuropipe.core import BasePipeline, PipelineConfig
@@ -395,7 +397,10 @@ class DMRIPipeline(BasePipeline):
 
         preprocessed_dwis = []
         preprocessed_masks = []
+        gnl_map_by_image = {}
+        gnl_maps = []
         missing = 0
+        stale_gnl = False
 
         for dwi in dwi_files:
             ents = (dwi.entities or {}).copy()
@@ -422,6 +427,16 @@ class DMRIPipeline(BasePipeline):
             preprocessed_dwis.append(
                 DWIFile(img=target_img, bval=bval, bvec=bvec, json=jsn, entities=ents)
             )
+
+            gnl_path = self._find_saved_gnl_tensor(target_img, ents)
+            if gnl_path:
+                if self._gnl_matches_image_grid(gnl_path, target_img):
+                    gnl_map_by_image[target_img] = gnl_path
+                    gnl_map_by_image[str(target_img)] = gnl_path
+                    if gnl_path not in gnl_maps:
+                        gnl_maps.append(gnl_path)
+                else:
+                    stale_gnl = True
 
             mask_path = io_manager._find_mask_for_image(target_img, [output_dir])
             if mask_path:
@@ -453,6 +468,16 @@ class DMRIPipeline(BasePipeline):
                     DWIFile(img=candidate, bval=bval, bvec=bvec, json=jsn, entities=ents)
                 )
 
+                gnl_path = self._find_saved_gnl_tensor(candidate, ents)
+                if gnl_path:
+                    if self._gnl_matches_image_grid(gnl_path, candidate):
+                        gnl_map_by_image[candidate] = gnl_path
+                        gnl_map_by_image[str(candidate)] = gnl_path
+                        if gnl_path not in gnl_maps:
+                            gnl_maps.append(gnl_path)
+                    else:
+                        stale_gnl = True
+
                 mask_path = io_manager._find_mask_for_image(candidate, [output_dir])
                 if mask_path:
                     mask_ents = ents.copy()
@@ -464,11 +489,53 @@ class DMRIPipeline(BasePipeline):
         if not preprocessed_dwis:
             return None
 
-        return {
+        if stale_gnl:
+            self.logger.warning(
+                "Cached preprocessed DWI outputs were found, but one or more saved GNL tensors "
+                "do not match the cached DWI grid. Re-running preprocessing to refresh the "
+                "final-space GNL tensor export."
+            )
+            return None
+
+        cached = {
             "preprocessed_dwis": preprocessed_dwis,
             "preprocessed_masks": preprocessed_masks,
             "current_image": preprocessed_dwis[0]
         }
+        if gnl_map_by_image:
+            current_gnl = (
+                gnl_map_by_image.get(preprocessed_dwis[0].img)
+                or gnl_map_by_image.get(str(preprocessed_dwis[0].img))
+            )
+            cached["gnl_map_by_image"] = gnl_map_by_image
+            cached["gnl_maps"] = gnl_maps
+            cached["gnl_map"] = current_gnl or gnl_maps[0]
+        return cached
+
+    def _find_saved_gnl_tensor(self, dwi_img: Path, entities: Optional[dict] = None) -> Optional[Path]:
+        """Find the canonical saved GNL tensor that corresponds to a cached preprocessed DWI."""
+        image_entities = (entities or {}).copy()
+        if image_entities:
+            image_entities["desc"] = "gnl_tensor"
+            image_entities["suffix"] = "dwi"
+            candidate = dwi_img.parent / build_bids_name(image_entities)
+            if candidate.exists():
+                return candidate
+
+        siblings = sorted(dwi_img.parent.glob("*desc-gnl_tensor*_dwi.nii.gz"))
+        if len(siblings) == 1:
+            return siblings[0]
+        return None
+
+    def _gnl_matches_image_grid(self, gnl_img: Path, dwi_img: Path) -> bool:
+        """Check whether a saved GNL tensor is on the same grid as the cached DWI."""
+        try:
+            gnl = nib.load(str(gnl_img))
+            dwi = nib.load(str(dwi_img))
+            return gnl.shape[:3] == dwi.shape[:3] and np.allclose(gnl.affine, dwi.affine, atol=1e-4)
+        except Exception as exc:
+            self.logger.warning(f"Could not validate cached GNL tensor grid for {gnl_img.name}: {exc}")
+            return False
 
 
 # Example usage

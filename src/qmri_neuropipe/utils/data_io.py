@@ -413,37 +413,65 @@ class DataIOManager:
         skip_existing: bool
     ):
         """Save gradient nonlinearity maps."""
-        gnl_maps = context.get("gnl_maps", [])
-        
-        # Fallback for old single-map context
-        if not gnl_maps and context.get("gnl_map"):
-            gnl_maps = [context.get("gnl_map")]
-        
-        for gnl_map in gnl_maps:
+        from qmri_neuropipe.io.bids import get_entities_from_path
+
+        ordered_sources = []
+        seen_sources = set()
+
+        for dwi in context.get("preprocessed_dwis", []) or []:
+            img_path = getattr(dwi, "img", None)
+            if img_path is None:
+                continue
+            gnl_map = (
+                context.get("gnl_map_by_image", {}).get(img_path)
+                or context.get("gnl_map_by_image", {}).get(str(img_path))
+            )
+            gnl_path = Path(gnl_map) if gnl_map else None
+            if gnl_path and gnl_path not in seen_sources:
+                ordered_sources.append(gnl_path)
+                seen_sources.add(gnl_path)
+
+        for gnl_map in context.get("gnl_maps", []) or []:
+            gnl_path = Path(gnl_map) if gnl_map else None
+            if gnl_path and gnl_path not in seen_sources:
+                ordered_sources.append(gnl_path)
+                seen_sources.add(gnl_path)
+
+        gnl_map = context.get("gnl_map")
+        gnl_path = Path(gnl_map) if gnl_map else None
+        if gnl_path and gnl_path not in seen_sources:
+            ordered_sources.append(gnl_path)
+
+        selected_targets = {}
+        for gnl_map in ordered_sources:
             if not isinstance(gnl_map, Path) or not gnl_map.exists():
                 continue
-            
-            # Parse entities from filename
-            from qmri_neuropipe.io.bids import get_entities_from_path
+
             g_ents = get_entities_from_path(gnl_map)
-            
             sub_g = g_ents.get("sub") or context.get("subject", "unknown")
             ses_g = g_ents.get("ses")
-            
-            # Determine target directory
+
             t_dir = base_out / f"sub-{sub_g}"
             if ses_g:
                 t_dir /= f"ses-{ses_g}"
             t_dir /= "dwi"
             t_dir.mkdir(parents=True, exist_ok=True)
-            
+
             target_gnl = t_dir / gnl_map.name
-            
-            if skip_existing and target_gnl.exists():
+            selected_targets.setdefault(target_gnl, gnl_map)
+
+        for target_gnl, gnl_map in selected_targets.items():
+            overwrite_canonical = "desc-gnl_tensor" in target_gnl.name
+
+            if skip_existing and target_gnl.exists() and not overwrite_canonical:
                 self.logger.debug(f"Skipping existing GNL map: {target_gnl}")
                 continue
-            
-            self.logger.info(f"Saving GNL Tensor Map: {target_gnl}")
+
+            if target_gnl.exists() and target_gnl.resolve() == gnl_map.resolve():
+                continue
+
+            action = "Updating" if target_gnl.exists() else "Saving"
+            self.logger.info(f"{action} GNL Tensor Map: {target_gnl}")
             shutil.copy(gnl_map, target_gnl)
     
     def recover_intermediates(
