@@ -224,12 +224,16 @@ def recon_all(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, op
     in_p = extract_image_path(in_file)
     sd_path = Path(subjects_dir)
     sd_path.mkdir(parents=True, exist_ok=True)
+    subj_dir = sd_path / subject_id
 
-    if (sd_path / subject_id / "mri" / "aseg.mgz").exists():
-        return sd_path / subject_id
+    if (subj_dir / "mri" / "aseg.mgz").exists():
+        return subj_dir
 
     omp_arg = f"-openmp {openmp}" if openmp else ""
-    cmd = f"recon-all -i {in_p} -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
+    if subj_dir.exists():
+        cmd = f"recon-all -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
+    else:
+        cmd = f"recon-all -i {in_p} -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
     run_cmd(cmd, label="recon-all")
 
 
