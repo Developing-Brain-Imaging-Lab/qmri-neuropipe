@@ -105,17 +105,124 @@ def _values_match(found: Any, expected: Any) -> bool:
     return _normalized_match_value(found) == _normalized_match_value(expected)
 
 
+def _candidate_values_match(found: Any, expected: Any) -> bool:
+    if isinstance(found, (list, tuple, set)):
+        return any(_candidate_values_match(item, expected) for item in found)
+    if isinstance(expected, (list, tuple, set)):
+        return any(_candidate_values_match(found, item) for item in expected)
+    return _values_match(found, expected)
+
+
+def _infer_bids_modality(json_path: Path) -> list[str]:
+    entity_path = _entity_source_path(json_path)
+    entities = get_entities_from_path(entity_path)
+    suffix = entities.get("suffix")
+    candidates = []
+    if suffix:
+        candidates.append(str(suffix).lower())
+
+    for part in entity_path.parts:
+        lowered = str(part).lower()
+        if lowered in {"anat", "dwi", "fmap", "func", "perf"}:
+            candidates.append(lowered)
+
+    # Preserve order while deduplicating.
+    return list(dict.fromkeys(candidates))
+
+
+def _extract_image_resolution_mm(json_path: Path) -> Optional[tuple[float, float, float]]:
+    nifti_path = _sidecar_nifti_path(json_path)
+    if nifti_path and nifti_path.exists():
+        zooms = nib.load(str(nifti_path)).header.get_zooms()[:3]
+        if len(zooms) == 3:
+            return tuple(float(z) for z in zooms)
+
+    payload = _load_json_payload(json_path)
+    pixel_spacing = payload.get("PixelSpacing")
+    slice_thickness = payload.get("SliceThickness")
+    if isinstance(pixel_spacing, list) and len(pixel_spacing) >= 2 and slice_thickness is not None:
+        try:
+            return (
+                float(pixel_spacing[0]),
+                float(pixel_spacing[1]),
+                float(slice_thickness),
+            )
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _normalize_resolution_spec(
+    spec: Any,
+    default_tolerance: float = 0.05,
+) -> Optional[tuple[tuple[float, float, float], float]]:
+    tolerance = default_tolerance
+    value = spec
+    if isinstance(spec, dict):
+        value = spec.get("voxel_size", spec.get("resolution", spec.get("value")))
+        tolerance = float(spec.get("tolerance", default_tolerance))
+
+    if isinstance(value, (int, float)):
+        voxel_size = (float(value), float(value), float(value))
+    elif isinstance(value, (list, tuple)):
+        if len(value) == 1:
+            scalar = float(value[0])
+            voxel_size = (scalar, scalar, scalar)
+        elif len(value) == 3:
+            voxel_size = tuple(float(v) for v in value)
+        else:
+            raise ProcessingError(
+                "Import rule `match.resolution` must be a scalar, a 3-value list, or a dict with `voxel_size`."
+            )
+    else:
+        return None
+
+    return voxel_size, tolerance
+
+
+def _resolution_matches(json_path: Path, expected: Any, tolerance: float = 0.05) -> bool:
+    found = _extract_image_resolution_mm(json_path)
+    if found is None:
+        return False
+
+    normalized = _normalize_resolution_spec(expected, default_tolerance=tolerance)
+    if normalized is None:
+        return False
+
+    target, tol = normalized
+    return all(abs(found[idx] - target[idx]) <= tol for idx in range(3))
+
+
 def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
     match_cfg = rule.get("match") or {}
     if not match_cfg:
         return False
     payload = None
     entity_path = _entity_source_path(json_path)
+    matched_any = False
 
     bids_name = match_cfg.get("bids_name")
     if bids_name:
-        if _values_match(get_nifti_stem(entity_path), bids_name) or _values_match(json_path.stem, bids_name):
-            return True
+        if not (
+            _values_match(get_nifti_stem(entity_path), bids_name)
+            or _values_match(json_path.stem, bids_name)
+        ):
+            return False
+        matched_any = True
+
+    modality = match_cfg.get("modality")
+    if modality:
+        found_modalities = _infer_bids_modality(json_path)
+        if not _candidate_values_match(found_modalities, modality):
+            return False
+        matched_any = True
+
+    resolution = match_cfg.get("resolution")
+    if resolution is not None:
+        resolution_tolerance = float(match_cfg.get("resolution_tolerance", 0.05))
+        if not _resolution_matches(json_path, resolution, tolerance=resolution_tolerance):
+            return False
+        matched_any = True
 
     entities_match = match_cfg.get("entities")
     if isinstance(entities_match, dict):
@@ -123,7 +230,7 @@ def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
         for key, expected in entities_match.items():
             if not _values_match(found.get(key), expected):
                 return False
-        return True
+        matched_any = True
 
     json_fields = match_cfg.get("json_fields")
     if isinstance(json_fields, dict):
@@ -131,9 +238,9 @@ def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
         for key, expected in json_fields.items():
             if not _values_match(payload.get(key), expected):
                 return False
-        return True
+        matched_any = True
 
-    return False
+    return matched_any
 
 
 def _resolve_import_rule(

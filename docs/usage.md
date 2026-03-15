@@ -50,6 +50,35 @@ import:
 
 You can also run conversion directly via the library interfaces if needed for custom scripts.
 
+### Import Override Matching
+
+Import override rules for `import.gradient_overrides` and `import.metadata_overrides` can
+match on more than BIDS entities. The `match` block now supports:
+
+- `bids_name`
+- `entities`
+- `json_fields`
+- `modality`: e.g. `dwi`, `anat`, `T1w`, `T2w`
+- `resolution`: scalar isotropic voxel size or a 3-value list in mm
+- `resolution_tolerance`: optional tolerance in mm, default `0.05`
+
+Example:
+
+```yaml
+import:
+  metadata_overrides:
+    enabled: true
+    rules:
+      - match:
+          modality: T1w
+          resolution: [1.0, 1.0, 1.0]
+          resolution_tolerance: 0.1
+          entities:
+            acq: MPRAGE
+        metadata:
+          SomeField: SomeValue
+```
+
 ## Select Subjects
 
 Process specific subjects or sessions:
