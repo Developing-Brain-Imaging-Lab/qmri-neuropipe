@@ -160,6 +160,8 @@ relaxometry:
       use_hifi: false # Set true to require IR-SPGR / run DESPOT1-HIFI
     despot2:
       enabled: true
+    despot2fm:
+      enabled: false
     mcdespot:
       enabled: true # Enable Myelin Water Fraction mapping
       cuda: false   # Use qmri_fit_mcdespot_cuda
@@ -191,6 +193,8 @@ relaxometry:
 
 All outputs follow BIDS-like naming conventions:
 - **B1 Map**: `sub-XX[_ses-YY]_TB1map.nii.gz`
-- **T1 Map**: `sub-XX[_ses-YY]_despot1_hifi_T1map.nii.gz`
-- **MWF Map**: `sub-XX[_ses-YY]_mcdespot_MWFmap.nii.gz`
+- **T1 Map**: `sub-XX[_ses-YY]_model-DESPOT1HIFI_T1.nii.gz` or `sub-XX[_ses-YY]_model-DESPOT1_T1.nii.gz`
+- **T2 Map**: `sub-XX[_ses-YY]_model-DESPOT2_T2.nii.gz`
+- **DESPOT2FM Map**: `sub-XX[_ses-YY]_model-DESPOT2FM_MWF.nii.gz`
+- **MWF Map**: `sub-XX[_ses-YY]_model-mcDESPOT_MWF.nii.gz`
 - **Brain Mask**: `sub-XX[_ses-YY]_desc-brain-mask.nii.gz`

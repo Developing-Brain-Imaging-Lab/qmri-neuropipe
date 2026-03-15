@@ -191,7 +191,8 @@ def fit_despot2_fm(
     out_base: str = "despot2_fm",
     algo: str = "src", # SRC is specific to despot2_fm?
     nthreads: int = 1,
-    verbose: bool = False
+    verbose: bool = False,
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for qmri_fit_despot2fm (mcDESPOT / 2-Component).
@@ -219,6 +220,7 @@ def fit_despot2_fm(
 
     if verbose:
         cmd_parts.append("--verbose")
+    _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="despot2fm_fit")
     

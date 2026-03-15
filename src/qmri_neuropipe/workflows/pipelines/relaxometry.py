@@ -19,7 +19,7 @@ from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.stats import ROIStatsStep
 from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
-from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_mcdespot
+from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
 from ...utils.relax_params import generate_acq_params
 
 
@@ -37,6 +37,7 @@ class RelaxometryPreprocConfig:
 class RelaxometryModelingConfig:
     despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": False})
     despot2: Dict = field(default_factory=lambda: {"enabled": False})
+    despot2fm: Dict = field(default_factory=lambda: {"enabled": False})
     mcdespot: Dict = field(default_factory=lambda: {"enabled": False, "cuda": False})
 
 
@@ -332,7 +333,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         base_prefix: str,
     ) -> Dict[str, ImageFile]:
         """
-        Run model fitting for DESPOT1, DESPOT1 HIFI, DESPOT2, mcDESPOT if enabled.
+        Run model fitting for DESPOT1, DESPOT1 HIFI, DESPOT2, DESPOT2FM, mcDESPOT if enabled.
 
         Returns a dictionary of fitted map ImageFiles keyed by map name.
         """
@@ -406,7 +407,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                     params_file=params_json,
                     out_dir=fit_out_dir,
                     mask_file=mask_file,
-                    out_base=f"{base_prefix}_despot1_hifi",
+                    out_base=f"{base_prefix}_model-DESPOT1HIFI",
                     algo=despot1_algo,
                     nthreads=despot1_nthreads,
                     verbose=despot1_verbose,
@@ -419,7 +420,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                     out_dir=fit_out_dir,
                     b1_file=b1_path,
                     mask_file=mask_file,
-                    out_base=f"{base_prefix}_despot1",
+                    out_base=f"{base_prefix}_model-DESPOT1",
                     algo=despot1_algo,
                     nthreads=despot1_nthreads,
                     verbose=despot1_verbose,
@@ -448,13 +449,41 @@ class RelaxometryWorkflow(BaseWorkflow):
                 params_file=params_json,
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
-                out_base=f"{base_prefix}_despot2",
+                out_base=f"{base_prefix}_model-DESPOT2",
                 algo=despot2_cfg.get("algo", "lsq"),
                 nthreads=_model_nthreads(despot2_cfg),
                 verbose=bool(despot2_cfg.get("verbose", False)),
                 extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
             )
             results.update(despot2_results)
+
+        if modeling_cfg.despot2fm.get("enabled", False):
+            self.logger.info("Starting DESPOT2FM fitting.")
+            despot2fm_cfg = dict(modeling_cfg.despot2fm or {})
+            if ssfp_stack is None:
+                raise ValueError("DESPOT2FM requested, but no SSFP image was found.")
+            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not t1_path:
+                raise ValueError("DESPOT2FM requires a DESPOT1 T1 map, but none was produced.")
+            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not despot_b1_path:
+                despot_b1_path = b1_path
+            if not despot_b1_path:
+                raise ValueError("DESPOT2FM requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
+            despot2fm_results = fit_despot2_fm(
+                ssfp_file=ssfp_stack,
+                t1_file=t1_path,
+                b1_file=despot_b1_path,
+                params_file=params_json,
+                out_dir=fit_out_dir,
+                mask_file=mask_file,
+                out_base=f"{base_prefix}_model-DESPOT2FM",
+                algo=despot2fm_cfg.get("algo", "src"),
+                nthreads=_model_nthreads(despot2fm_cfg),
+                verbose=bool(despot2fm_cfg.get("verbose", False)),
+                extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
+            )
+            results.update(despot2fm_results)
 
         mcdespot_cfg = _mcdespot_cfg()
         if mcdespot_cfg.get("enabled", False):
@@ -476,7 +505,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 params_file=params_json,
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
-                out_base=f"{base_prefix}_mcdespot",
+                out_base=f"{base_prefix}_model-mcDESPOT",
                 algo=mcdespot_cfg.get("algo", "src"),
                 nthreads=_model_nthreads(mcdespot_cfg),
                 verbose=bool(mcdespot_cfg.get("verbose", False)),
