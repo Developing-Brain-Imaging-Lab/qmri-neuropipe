@@ -555,7 +555,7 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
     def validate_outputs(self, result) -> None:
         pass
 
-    def _target_sidecars(self, output_dir: Path, context: dict[str, Any]) -> list[Path]:
+    def _target_sidecars(self, output_dir: Path, context: dict[str, Any], rules: list[dict[str, Any]]) -> list[Path]:
         imported = context.get("imported_json_sidecars") or []
         candidates = {
             Path(p)
@@ -563,7 +563,7 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
             if (
                 Path(p).exists()
                 and _is_primary_bids_output(Path(p), output_dir)
-                and _is_relaxometry_sidecar(Path(p))
+                and _sidecar_nifti_path(Path(p)) is not None
             )
         }
 
@@ -571,9 +571,13 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
         for path in sorted(search_root.rglob("*.json")):
             if not _is_primary_bids_output(path, output_dir):
                 continue
-            if _sidecar_nifti_path(path) is not None and _is_relaxometry_sidecar(path):
+            if _sidecar_nifti_path(path) is not None:
                 candidates.add(path)
-        return sorted(candidates)
+
+        return sorted(
+            path for path in candidates
+            if self._resolve_rule(path, rules) is not None
+        )
 
     def _resolve_rule(self, json_path: Path, rules: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
         return _resolve_import_rule(json_path, rules, label="metadata override")
@@ -594,7 +598,66 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
                     f"{key} length mismatch for {nifti_path.name}: expected {nvols}, found {len(value)}"
                 )
 
-    def _update_sidecar(self, json_path: Path, rule: dict[str, Any], updates: dict[str, Any]) -> None:
+    def _extract_resample_resolution(
+        self,
+        rule: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> tuple[dict[str, Any], Optional[tuple[float, float, float]]]:
+        updates = dict(updates or {})
+        resample_spec = (
+            rule.get("resample_resolution")
+            or rule.get("resample")
+            or updates.pop("resample_resolution", None)
+            or updates.pop("resample", None)
+            or updates.pop("Resolution", None)
+            or updates.pop("resolution", None)
+            or updates.pop("VoxelSize", None)
+            or updates.pop("voxel_size", None)
+        )
+        if resample_spec is None:
+            return updates, None
+
+        normalized = _normalize_resolution_spec(resample_spec)
+        if normalized is None:
+            raise ProcessingError("Invalid metadata override resample resolution specification")
+        return updates, normalized[0]
+
+    def _resample_image(
+        self,
+        nifti_path: Path,
+        json_path: Path,
+        target_resolution: tuple[float, float, float],
+    ) -> bool:
+        found_resolution = _extract_image_resolution_mm(json_path)
+        if found_resolution is not None and all(
+            abs(found_resolution[idx] - target_resolution[idx]) <= 1e-4
+            for idx in range(3)
+        ):
+            return False
+
+        modalities = _infer_bids_modality(json_path)
+        if _candidate_values_match(modalities, "dwi"):
+            raise ProcessingError(
+                f"Import-time resampling is not supported for DWI sidecars ({json_path.name}). "
+                "Use the diffusion preprocessing resample step instead."
+            )
+
+        from ...core.run import run_cmd
+
+        suffix = "".join(nifti_path.suffixes)
+        tmp_path = nifti_path.parent / f".{get_nifti_stem(nifti_path)}_resample_tmp{suffix}"
+        res_args = " ".join(str(v) for v in target_resolution)
+        run_cmd(f"mri_convert {nifti_path} {tmp_path} -vs {res_args}", label="import_resample")
+        shutil.move(tmp_path, nifti_path)
+        return True
+
+    def _update_sidecar(
+        self,
+        json_path: Path,
+        rule: dict[str, Any],
+        updates: dict[str, Any],
+        resampled_resolution: Optional[tuple[float, float, float]] = None,
+    ) -> None:
         payload = _load_json_payload(json_path)
         payload.update(updates)
         payload["MetadataOverride"] = {
@@ -603,6 +666,8 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
             "MatchingRule": rule.get("match", {}),
             "UpdatedFields": sorted(updates.keys()),
         }
+        if resampled_resolution is not None:
+            payload["MetadataOverride"]["ResampledToResolutionMm"] = list(resampled_resolution)
         with json_path.open("w") as f:
             json.dump(payload, f, indent=2)
             f.write("\n")
@@ -625,42 +690,45 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
             self.logger.warning("Metadata overrides enabled but no rules were configured")
             return context
 
-        stop_on_mismatch = bool(override_cfg.get("stop_on_mismatch", True))
-        sidecars = self._target_sidecars(output_dir, context)
+        sidecars = self._target_sidecars(output_dir, context, rules)
         if not sidecars:
             self.logger.info(
-                "Metadata overrides enabled, but no relaxometry image sidecars were found for this import. "
+                "Metadata overrides enabled, but no imported image sidecars matched the configured rules. "
                 "Skipping metadata override step."
             )
             context["metadata_override_sidecars_updated"] = 0
             return context
 
         updated = 0
-        unmatched = []
 
         for json_path in sidecars:
             rule = self._resolve_rule(json_path, rules)
             if rule is None:
-                unmatched.append(json_path.name)
                 continue
 
-            updates = _metadata_override_updates(rule, logger=self.logger, json_path=json_path)
-            if not isinstance(updates, dict) or not updates:
-                raise ProcessingError(f"Metadata override rule for {json_path.name} is missing a metadata block")
+            raw_updates = _metadata_override_updates(rule, logger=self.logger, json_path=json_path) or {}
+            updates, resample_resolution = self._extract_resample_resolution(rule, raw_updates)
+            if not updates and resample_resolution is None:
+                raise ProcessingError(
+                    f"Metadata override rule for {json_path.name} is missing a metadata block or resample request"
+                )
 
             nifti_path = _sidecar_nifti_path(json_path)
             if nifti_path is None:
                 raise ProcessingError(f"Could not locate NIfTI for metadata override sidecar: {json_path}")
 
-            self._validate_updates(nifti_path, updates)
-            self._update_sidecar(json_path, rule, updates)
+            if updates:
+                self._validate_updates(nifti_path, updates)
+            resampled = False
+            if resample_resolution is not None:
+                resampled = self._resample_image(nifti_path, json_path, resample_resolution)
+            self._update_sidecar(
+                json_path,
+                rule,
+                updates,
+                resampled_resolution=resample_resolution if resampled else None,
+            )
             updated += 1
-
-        if unmatched:
-            msg = "No metadata override rule matched sidecars: " + ", ".join(unmatched)
-            if stop_on_mismatch:
-                raise ProcessingError(msg)
-            self.logger.warning(msg)
 
         self.logger.info(f"Applied metadata overrides to {updated} image sidecar(s)")
         context["metadata_override_sidecars_updated"] = updated

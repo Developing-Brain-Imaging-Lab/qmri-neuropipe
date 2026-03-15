@@ -79,6 +79,20 @@ import:
           SomeField: SomeValue
 ```
 
+For metadata overrides, you can also request an import-time anatomical resample by
+adding `resample_resolution` to the rule. This rewrites the imported NIfTI in place
+at the requested voxel size and records the action in the JSON sidecar.
+
+```yaml
+import:
+  metadata_overrides:
+    enabled: true
+    rules:
+      - match:
+          modality: T1w
+        resample_resolution: [0.8, 0.8, 0.8]
+```
+
 ## Select Subjects
 
 Process specific subjects or sessions:
