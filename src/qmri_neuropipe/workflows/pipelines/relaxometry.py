@@ -19,7 +19,7 @@ from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.stats import ROIStatsStep
 from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
-from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm
+from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_mcdespot
 from ...utils.relax_params import generate_acq_params
 
 
@@ -37,7 +37,7 @@ class RelaxometryPreprocConfig:
 class RelaxometryModelingConfig:
     despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": True})
     despot2: Dict = field(default_factory=lambda: {"enabled": False})
-    mcdespot: Dict = field(default_factory=lambda: {"enabled": False})
+    mcdespot: Dict = field(default_factory=lambda: {"enabled": False, "cuda": False})
 
 
 @dataclass
@@ -438,7 +438,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 despot_b1_path = b1_path
             if not despot_b1_path:
                 raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-            mcdespot_results = fit_despot2_fm(
+            mcdespot_results = fit_mcdespot(
                 ssfp_file=ssfp_stack,
                 t1_file=t1_path,
                 b1_file=despot_b1_path,
@@ -446,6 +446,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
                 out_base=f"{base_prefix}_mcdespot",
+                cuda=bool(mcdespot_cfg.get("cuda", False)),
             )
             results.update(mcdespot_results)
 

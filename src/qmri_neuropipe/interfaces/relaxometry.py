@@ -211,3 +211,61 @@ def fit_despot2_fm(
         "tau": out_d / f"{out_base}_Tau.nii.gz" # Residence time / Exchange
     }
     return outputs
+
+
+def fit_mcdespot(
+    ssfp_file: ImageLike | Path,
+    t1_file: ImageLike | Path,
+    b1_file: ImageLike | Path,
+    params_file: Path,
+    out_dir: Path,
+    f0_file: Optional[ImageLike | Path] = None,
+    mask_file: Optional[ImageLike | Path] = None,
+    out_base: str = "mcdespot",
+    algo: str = "src",
+    threads: int = 1,
+    verbose: bool = False,
+    cuda: bool = False,
+) -> Dict[str, Path]:
+    """
+    Wrapper for qmri_fit_mcdespot.
+
+    This currently assumes the CLI contract matches the existing DESPOT2-FM style
+    interface: SSFP stack plus T1, B1, params, optional F0 and mask, along with
+    standard output base and threading flags.
+    """
+    binary = _get_binary("qmri_fit_mcdespot_cuda" if cuda else "qmri_fit_mcdespot")
+    out_d = ensure_dir(out_dir)
+
+    cmd_parts = [
+        binary,
+        f"--ssfp={extract_image_path(ssfp_file)}",
+        f"--t1={extract_image_path(t1_file)}",
+        f"--b1={extract_image_path(b1_file)}",
+        f"--params={params_file}",
+        f"--out_dir={out_d}",
+        f"--out_base={out_base}",
+        f"--algo={algo}",
+        f"--nthreads={threads}"
+    ]
+
+    if f0_file:
+        cmd_parts.append(f"--f0={extract_image_path(f0_file)}")
+
+    if mask_file:
+        cmd_parts.append(f"--mask={extract_image_path(mask_file)}")
+
+    if verbose:
+        cmd_parts.append("--verbose")
+
+    run_cmd(" ".join(cmd_parts), label="mcdespot_fit")
+
+    outputs = {
+        "mwf": out_d / f"{out_base}_MWF.nii.gz",
+        "t1_fast": out_d / f"{out_base}_T1_fast.nii.gz",
+        "t1_slow": out_d / f"{out_base}_T1_slow.nii.gz",
+        "t2_fast": out_d / f"{out_base}_T2_fast.nii.gz",
+        "t2_slow": out_d / f"{out_base}_T2_slow.nii.gz",
+        "tau": out_d / f"{out_base}_Tau.nii.gz"
+    }
+    return outputs

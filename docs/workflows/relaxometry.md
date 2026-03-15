@@ -162,6 +162,7 @@ relaxometry:
       enabled: true
     mcdespot:
       enabled: true # Enable Myelin Water Fraction mapping
+      cuda: false   # Use qmri_fit_mcdespot_cuda
 ```
 
 **B1 Mapping Tools**
