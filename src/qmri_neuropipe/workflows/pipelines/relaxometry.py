@@ -35,7 +35,7 @@ class RelaxometryPreprocConfig:
 
 @dataclass
 class RelaxometryModelingConfig:
-    despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": True})
+    despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": False})
     despot2: Dict = field(default_factory=lambda: {"enabled": False})
     mcdespot: Dict = field(default_factory=lambda: {"enabled": False, "cuda": False})
 
@@ -342,6 +342,19 @@ class RelaxometryWorkflow(BaseWorkflow):
         modeling_cfg = self.relax_config.modeling
         despot1_results: Dict[str, Path] = {}
 
+        def _model_cli_options(cfg: Dict, exclude: set[str]) -> Dict:
+            return {k: v for k, v in (cfg or {}).items() if k not in exclude}
+
+        def _model_nthreads(cfg: Dict) -> int:
+            if "nthreads" in (cfg or {}):
+                return int(cfg["nthreads"])
+            if "threads" in (cfg or {}):
+                self.logger.warning(
+                    "Relaxometry model option `threads` is deprecated. Use `nthreads` instead."
+                )
+                return int(cfg["threads"])
+            return int(self.config.get("n_cpus", 1))
+
         def _mcdespot_cfg() -> Dict:
             mcdespot_cfg = dict(getattr(modeling_cfg, "mcdespot", {}) or {})
             legacy_enabled = bool(getattr(modeling_cfg, "despot2", {}).get("mcdespot", False))
@@ -378,7 +391,12 @@ class RelaxometryWorkflow(BaseWorkflow):
         # DESPOT1 fitting
         if modeling_cfg.despot1.get("enabled", False):
             self.logger.info("Starting DESPOT1 fitting.")
-            use_hifi = modeling_cfg.despot1.get("use_hifi", True)
+            despot1_cfg = dict(modeling_cfg.despot1 or {})
+            use_hifi = despot1_cfg.get("use_hifi", False)
+            despot1_algo = despot1_cfg.get("algo", "lsq")
+            despot1_nthreads = _model_nthreads(despot1_cfg)
+            despot1_verbose = bool(despot1_cfg.get("verbose", False))
+            despot1_extra = _model_cli_options(despot1_cfg, {"enabled", "use_hifi", "algo", "nthreads", "threads", "verbose"})
             if use_hifi:
                 if irspgr_stack is None:
                     raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
@@ -389,6 +407,10 @@ class RelaxometryWorkflow(BaseWorkflow):
                     out_dir=fit_out_dir,
                     mask_file=mask_file,
                     out_base=f"{base_prefix}_despot1_hifi",
+                    algo=despot1_algo,
+                    nthreads=despot1_nthreads,
+                    verbose=despot1_verbose,
+                    extra_options=despot1_extra,
                 )
             else:
                 despot1_results = fit_despot1(
@@ -398,12 +420,17 @@ class RelaxometryWorkflow(BaseWorkflow):
                     b1_file=b1_path,
                     mask_file=mask_file,
                     out_base=f"{base_prefix}_despot1",
+                    algo=despot1_algo,
+                    nthreads=despot1_nthreads,
+                    verbose=despot1_verbose,
+                    extra_options=despot1_extra,
                 )
             results.update(despot1_results)
 
         # DESPOT2 fitting
         if modeling_cfg.despot2.get("enabled", False):
             self.logger.info("Starting DESPOT2 fitting.")
+            despot2_cfg = dict(modeling_cfg.despot2 or {})
             if ssfp_stack is None:
                 raise ValueError("DESPOT2 requested, but no SSFP image was found.")
             t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
@@ -422,6 +449,10 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
                 out_base=f"{base_prefix}_despot2",
+                algo=despot2_cfg.get("algo", "lsq"),
+                nthreads=_model_nthreads(despot2_cfg),
+                verbose=bool(despot2_cfg.get("verbose", False)),
+                extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
             )
             results.update(despot2_results)
 
@@ -446,7 +477,11 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
                 out_base=f"{base_prefix}_mcdespot",
+                algo=mcdespot_cfg.get("algo", "src"),
+                nthreads=_model_nthreads(mcdespot_cfg),
+                verbose=bool(mcdespot_cfg.get("verbose", False)),
                 cuda=bool(mcdespot_cfg.get("cuda", False)),
+                extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
             )
             results.update(mcdespot_results)
 

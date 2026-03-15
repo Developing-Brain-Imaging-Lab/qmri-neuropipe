@@ -14,6 +14,20 @@ def _get_binary(name: str) -> str:
         raise RuntimeError(f"Binary '{name}' not found in PATH. Please ensure it is installed.")
     return path
 
+
+def _append_cli_options(cmd_parts: list[str], options: Optional[Dict[str, Any]] = None) -> None:
+    if not options:
+        return
+    for key, value in options.items():
+        if value is None:
+            continue
+        flag = f"--{key}"
+        if isinstance(value, bool):
+            if value:
+                cmd_parts.append(flag)
+            continue
+        cmd_parts.append(f"{flag}={value}")
+
 def fit_despot1(
     spgr_file: ImageLike | Path,
     params_file: Path,
@@ -24,8 +38,9 @@ def fit_despot1(
     out_base: str = "despot1",
     algo: str = "lsq",
     log_json: Optional[Path] = None,
-    threads: int = 1,
-    verbose: bool = False
+    nthreads: int = 1,
+    verbose: bool = False,
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for qmri_fit_despot1.
@@ -41,7 +56,7 @@ def fit_despot1(
         f"--out_dir={out_d}",
         f"--out_base={out_base}",
         f"--algo={algo}",
-        f"--nthreads={threads}"
+        f"--nthreads={nthreads}"
     ]
     
     if irspgr_file:
@@ -58,6 +73,7 @@ def fit_despot1(
         
     if verbose:
         cmd_parts.append("--verbose")
+    _append_cli_options(cmd_parts, extra_options)
         
     run_cmd(" ".join(cmd_parts), label="despot1_fit")
     
@@ -76,8 +92,9 @@ def fit_despot1_hifi(
     mask_file: Optional[ImageLike | Path] = None,
     out_base: str = "despot1_hifi",
     algo: str = "lsq",
-    threads: int = 1,
-    verbose: bool = False
+    nthreads: int = 1,
+    verbose: bool = False,
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for qmri_fit_despot1_hifi.
@@ -93,7 +110,7 @@ def fit_despot1_hifi(
         f"--out_dir={out_d}",
         f"--out_base={out_base}",
         f"--algo={algo}",
-        f"--nthreads={threads}"
+        f"--nthreads={nthreads}"
     ]
     
     if mask_file:
@@ -101,6 +118,7 @@ def fit_despot1_hifi(
     
     if verbose:
         cmd_parts.append("--verbose")
+    _append_cli_options(cmd_parts, extra_options)
         
     run_cmd(" ".join(cmd_parts), label="despot1_hifi_fit")
     
@@ -121,8 +139,9 @@ def fit_despot2(
     mask_file: Optional[ImageLike | Path] = None,
     out_base: str = "despot2",
     algo: str = "lsq",
-    threads: int = 1,
-    verbose: bool = False
+    nthreads: int = 1,
+    verbose: bool = False,
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for qmri_fit_despot2.
@@ -139,7 +158,7 @@ def fit_despot2(
         f"--out_dir={out_d}",
         f"--out_base={out_base}",
         f"--algo={algo}",
-        f"--nthreads={threads}"
+        f"--nthreads={nthreads}"
     ]
     
     if f0_file:
@@ -150,6 +169,7 @@ def fit_despot2(
 
     if verbose:
         cmd_parts.append("--verbose")
+    _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="despot2_fit")
     
@@ -170,7 +190,7 @@ def fit_despot2_fm(
     mask_file: Optional[ImageLike | Path] = None,
     out_base: str = "despot2_fm",
     algo: str = "src", # SRC is specific to despot2_fm?
-    threads: int = 1,
+    nthreads: int = 1,
     verbose: bool = False
 ) -> Dict[str, Path]:
     """
@@ -188,7 +208,7 @@ def fit_despot2_fm(
         f"--out_dir={out_d}",
         f"--out_base={out_base}",
         f"--algo={algo}",
-        f"--nthreads={threads}"
+        f"--nthreads={nthreads}"
     ]
     
     if f0_file:
@@ -223,9 +243,10 @@ def fit_mcdespot(
     mask_file: Optional[ImageLike | Path] = None,
     out_base: str = "mcdespot",
     algo: str = "src",
-    threads: int = 1,
+    nthreads: int = 1,
     verbose: bool = False,
     cuda: bool = False,
+    extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for qmri_fit_mcdespot.
@@ -246,7 +267,7 @@ def fit_mcdespot(
         f"--out_dir={out_d}",
         f"--out_base={out_base}",
         f"--algo={algo}",
-        f"--nthreads={threads}"
+        f"--nthreads={nthreads}"
     ]
 
     if f0_file:
@@ -257,6 +278,7 @@ def fit_mcdespot(
 
     if verbose:
         cmd_parts.append("--verbose")
+    _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="mcdespot_fit")
 

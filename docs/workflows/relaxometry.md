@@ -157,7 +157,7 @@ relaxometry:
   modeling:
     despot1:
       enabled: true
-      use_hifi: true # Requires IR-SPGR
+      use_hifi: false # Set true to require IR-SPGR / run DESPOT1-HIFI
     despot2:
       enabled: true
     mcdespot:
