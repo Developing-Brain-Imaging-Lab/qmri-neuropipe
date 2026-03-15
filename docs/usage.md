@@ -81,7 +81,8 @@ import:
 
 For metadata overrides, you can also request an import-time anatomical resample by
 adding `resample_resolution` to the rule. This rewrites the imported NIfTI in place
-at the requested voxel size and records the action in the JSON sidecar.
+at the requested voxel size and records the action in the JSON sidecar. The aliases
+`resolution` and `voxel_size` are also accepted at the rule top level.
 
 ```yaml
 import:

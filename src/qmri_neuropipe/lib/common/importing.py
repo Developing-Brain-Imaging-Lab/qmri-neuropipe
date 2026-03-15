@@ -69,12 +69,25 @@ def _import_metadata_override_cfg(config) -> dict[str, Any]:
     return {}
 
 
+def _rule_match_cfg(rule: dict[str, Any]) -> dict[str, Any]:
+    match_cfg = rule.get("match")
+    if not isinstance(match_cfg, dict):
+        match_cfg = {}
+    else:
+        match_cfg = dict(match_cfg)
+
+    for key in ("bids_name", "entities", "json_fields", "modality", "resolution", "resolution_tolerance"):
+        if key not in match_cfg and key in rule:
+            match_cfg[key] = rule.get(key)
+    return match_cfg
+
+
 def _metadata_override_updates(rule: dict[str, Any], logger=None, json_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
     updates = rule.get("metadata") or rule.get("updates")
     if isinstance(updates, dict) and updates:
         return updates
 
-    match_cfg = rule.get("match") or {}
+    match_cfg = _rule_match_cfg(rule)
     nested_updates = match_cfg.get("metadata") or match_cfg.get("updates")
     if isinstance(nested_updates, dict) and nested_updates:
         if logger:
@@ -194,7 +207,7 @@ def _resolution_matches(json_path: Path, expected: Any, tolerance: float = 0.05)
 
 
 def _match_import_rule(json_path: Path, rule: dict[str, Any]) -> bool:
-    match_cfg = rule.get("match") or {}
+    match_cfg = _rule_match_cfg(rule)
     if not match_cfg:
         return False
     payload = None
@@ -607,6 +620,14 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
         resample_spec = (
             rule.get("resample_resolution")
             or rule.get("resample")
+            or rule.get("resolution")
+            or rule.get("Resolution")
+            or rule.get("voxel_size")
+            or rule.get("VoxelSize")
+            or _rule_match_cfg(rule).get("resample_resolution")
+            or _rule_match_cfg(rule).get("resample")
+            or _rule_match_cfg(rule).get("voxel_size")
+            or _rule_match_cfg(rule).get("VoxelSize")
             or updates.pop("resample_resolution", None)
             or updates.pop("resample", None)
             or updates.pop("Resolution", None)
