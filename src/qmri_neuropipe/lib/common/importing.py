@@ -628,7 +628,10 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
         stop_on_mismatch = bool(override_cfg.get("stop_on_mismatch", True))
         sidecars = self._target_sidecars(output_dir, context)
         if not sidecars:
-            self.logger.warning("Metadata overrides enabled, but no relaxometry image sidecars were found to update")
+            self.logger.info(
+                "Metadata overrides enabled, but no relaxometry image sidecars were found for this import. "
+                "Skipping metadata override step."
+            )
             context["metadata_override_sidecars_updated"] = 0
             return context
 
