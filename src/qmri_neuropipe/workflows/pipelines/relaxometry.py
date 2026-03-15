@@ -52,6 +52,7 @@ class RelaxometryConfig:
     modeling: RelaxometryModelingConfig = field(default_factory=RelaxometryModelingConfig)
     qc: RelaxometryQCConfig = field(default_factory=RelaxometryQCConfig)
     masking: Dict = field(default_factory=dict)
+    analysis: Dict = field(default_factory=lambda: {"enabled": False})
 
 
 class RelaxometryWorkflow(BaseWorkflow):
@@ -67,6 +68,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
     def _initialize_steps(self):
         preproc_cfg = self.relax_config.preprocessing
+        analysis_cfg = self.relax_config.analysis or {}
 
         # 0. Reorientation
         if preproc_cfg.reorient.get("enabled", False):
@@ -110,9 +112,9 @@ class RelaxometryWorkflow(BaseWorkflow):
         )
 
         # 5. Post-Processing: Atlas Registration & Stats
-        # These are used optionally in run(), but we can initialize them here
-        self.add_step(AtlasRegistrationStep(self.config, self.logger, self.provenance))
-        self.add_step(StatsExtractionStep(self.config, self.logger, self.provenance))
+        if analysis_cfg.get("enabled", False):
+            self.add_step(AtlasRegistrationStep(self.config, self.logger, self.provenance))
+            self.add_step(StatsExtractionStep(self.config, self.logger, self.provenance))
 
     def _parse_inputs(self, context: dict):
         relax_files: List[ImageFile] = context.get("relax_files", [])
@@ -371,148 +373,156 @@ class RelaxometryWorkflow(BaseWorkflow):
         fit_out_dir.mkdir(parents=True, exist_ok=True)
 
         input_dir = fit_out_dir / "inputs"
-        input_dir.mkdir(parents=True, exist_ok=True)
+        created_temp_inputs = False
 
         def _stack_inputs(images: List[ImageFile], stem: str) -> Optional[Path]:
+            nonlocal created_temp_inputs
             if not images:
                 return None
             if len(images) == 1:
                 return images[0].img
+            if not created_temp_inputs:
+                input_dir.mkdir(parents=True, exist_ok=True)
+                created_temp_inputs = True
             merged_path = input_dir / f"{base_prefix}_{stem}.nii.gz"
             return fslmerge(images, merged_path, dimension="t")
 
-        spgr_stack = _stack_inputs(spgr_moco, "desc-spgrStack_VFA")
-        ssfp_stack = _stack_inputs(ssfp_moco, "desc-ssfpStack_VFA")
-        irspgr_stack = _stack_inputs(ir_final, "desc-irspgrStack_VFA")
-        b1_path = b1_map.img if isinstance(b1_map, ImageFile) else b1_map
+        try:
+            spgr_stack = _stack_inputs(spgr_moco, "desc-spgrStack_VFA")
+            ssfp_stack = _stack_inputs(ssfp_moco, "desc-ssfpStack_VFA")
+            irspgr_stack = _stack_inputs(ir_final, "desc-irspgrStack_VFA")
+            b1_path = b1_map.img if isinstance(b1_map, ImageFile) else b1_map
 
-        if spgr_stack is None:
-            raise ValueError("DESPOT fitting requires at least one SPGR image.")
+            if spgr_stack is None:
+                raise ValueError("DESPOT fitting requires at least one SPGR image.")
 
-        # DESPOT1 fitting
-        if modeling_cfg.despot1.get("enabled", False):
-            self.logger.info("Starting DESPOT1 fitting.")
-            despot1_cfg = dict(modeling_cfg.despot1 or {})
-            use_hifi = despot1_cfg.get("use_hifi", False)
-            despot1_algo = despot1_cfg.get("algo", "lsq")
-            despot1_nthreads = _model_nthreads(despot1_cfg)
-            despot1_verbose = bool(despot1_cfg.get("verbose", False))
-            despot1_extra = _model_cli_options(despot1_cfg, {"enabled", "use_hifi", "algo", "nthreads", "threads", "verbose"})
-            if use_hifi:
-                if irspgr_stack is None:
-                    raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
-                despot1_results = fit_despot1_hifi(
-                    spgr_file=spgr_stack,
-                    irspgr_file=irspgr_stack,
+            # DESPOT1 fitting
+            if modeling_cfg.despot1.get("enabled", False):
+                self.logger.info("Starting DESPOT1 fitting.")
+                despot1_cfg = dict(modeling_cfg.despot1 or {})
+                use_hifi = despot1_cfg.get("use_hifi", False)
+                despot1_algo = despot1_cfg.get("algo", "lsq")
+                despot1_nthreads = _model_nthreads(despot1_cfg)
+                despot1_verbose = bool(despot1_cfg.get("verbose", False))
+                despot1_extra = _model_cli_options(despot1_cfg, {"enabled", "use_hifi", "algo", "nthreads", "threads", "verbose"})
+                if use_hifi:
+                    if irspgr_stack is None:
+                        raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
+                    despot1_results = fit_despot1_hifi(
+                        spgr_file=spgr_stack,
+                        irspgr_file=irspgr_stack,
+                        params_file=params_json,
+                        out_dir=fit_out_dir,
+                        mask_file=mask_file,
+                        out_base=f"{base_prefix}_model-DESPOT1HIFI",
+                        algo=despot1_algo,
+                        nthreads=despot1_nthreads,
+                        verbose=despot1_verbose,
+                        extra_options=despot1_extra,
+                    )
+                else:
+                    despot1_results = fit_despot1(
+                        spgr_file=spgr_stack,
+                        params_file=params_json,
+                        out_dir=fit_out_dir,
+                        b1_file=b1_path,
+                        mask_file=mask_file,
+                        out_base=f"{base_prefix}_model-DESPOT1",
+                        algo=despot1_algo,
+                        nthreads=despot1_nthreads,
+                        verbose=despot1_verbose,
+                        extra_options=despot1_extra,
+                    )
+                results.update(despot1_results)
+
+            # DESPOT2 fitting
+            if modeling_cfg.despot2.get("enabled", False):
+                self.logger.info("Starting DESPOT2 fitting.")
+                despot2_cfg = dict(modeling_cfg.despot2 or {})
+                if ssfp_stack is None:
+                    raise ValueError("DESPOT2 requested, but no SSFP image was found.")
+                t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not t1_path:
+                    raise ValueError("DESPOT2 requires a DESPOT1 T1 map, but none was produced.")
+                despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not despot_b1_path:
+                    despot_b1_path = b1_path
+                if not despot_b1_path:
+                    raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
+                despot2_results = fit_despot2(
+                    ssfp_file=ssfp_stack,
+                    t1_file=t1_path,
+                    b1_file=despot_b1_path,
                     params_file=params_json,
                     out_dir=fit_out_dir,
                     mask_file=mask_file,
-                    out_base=f"{base_prefix}_model-DESPOT1HIFI",
-                    algo=despot1_algo,
-                    nthreads=despot1_nthreads,
-                    verbose=despot1_verbose,
-                    extra_options=despot1_extra,
+                    out_base=f"{base_prefix}_model-DESPOT2",
+                    algo=despot2_cfg.get("algo", "lsq"),
+                    nthreads=_model_nthreads(despot2_cfg),
+                    verbose=bool(despot2_cfg.get("verbose", False)),
+                    extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
                 )
-            else:
-                despot1_results = fit_despot1(
-                    spgr_file=spgr_stack,
+                results.update(despot2_results)
+
+            if modeling_cfg.despot2fm.get("enabled", False):
+                self.logger.info("Starting DESPOT2FM fitting.")
+                despot2fm_cfg = dict(modeling_cfg.despot2fm or {})
+                if ssfp_stack is None:
+                    raise ValueError("DESPOT2FM requested, but no SSFP image was found.")
+                t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not t1_path:
+                    raise ValueError("DESPOT2FM requires a DESPOT1 T1 map, but none was produced.")
+                despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not despot_b1_path:
+                    despot_b1_path = b1_path
+                if not despot_b1_path:
+                    raise ValueError("DESPOT2FM requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
+                despot2fm_results = fit_despot2_fm(
+                    ssfp_file=ssfp_stack,
+                    t1_file=t1_path,
+                    b1_file=despot_b1_path,
                     params_file=params_json,
                     out_dir=fit_out_dir,
-                    b1_file=b1_path,
                     mask_file=mask_file,
-                    out_base=f"{base_prefix}_model-DESPOT1",
-                    algo=despot1_algo,
-                    nthreads=despot1_nthreads,
-                    verbose=despot1_verbose,
-                    extra_options=despot1_extra,
+                    out_base=f"{base_prefix}_model-DESPOT2FM",
+                    algo=despot2fm_cfg.get("algo", "src"),
+                    nthreads=_model_nthreads(despot2fm_cfg),
+                    verbose=bool(despot2fm_cfg.get("verbose", False)),
+                    extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
                 )
-            results.update(despot1_results)
+                results.update(despot2fm_results)
 
-        # DESPOT2 fitting
-        if modeling_cfg.despot2.get("enabled", False):
-            self.logger.info("Starting DESPOT2 fitting.")
-            despot2_cfg = dict(modeling_cfg.despot2 or {})
-            if ssfp_stack is None:
-                raise ValueError("DESPOT2 requested, but no SSFP image was found.")
-            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not t1_path:
-                raise ValueError("DESPOT2 requires a DESPOT1 T1 map, but none was produced.")
-            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not despot_b1_path:
-                despot_b1_path = b1_path
-            if not despot_b1_path:
-                raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-            despot2_results = fit_despot2(
-                ssfp_file=ssfp_stack,
-                t1_file=t1_path,
-                b1_file=despot_b1_path,
-                params_file=params_json,
-                out_dir=fit_out_dir,
-                mask_file=mask_file,
-                out_base=f"{base_prefix}_model-DESPOT2",
-                algo=despot2_cfg.get("algo", "lsq"),
-                nthreads=_model_nthreads(despot2_cfg),
-                verbose=bool(despot2_cfg.get("verbose", False)),
-                extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
-            )
-            results.update(despot2_results)
-
-        if modeling_cfg.despot2fm.get("enabled", False):
-            self.logger.info("Starting DESPOT2FM fitting.")
-            despot2fm_cfg = dict(modeling_cfg.despot2fm or {})
-            if ssfp_stack is None:
-                raise ValueError("DESPOT2FM requested, but no SSFP image was found.")
-            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not t1_path:
-                raise ValueError("DESPOT2FM requires a DESPOT1 T1 map, but none was produced.")
-            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not despot_b1_path:
-                despot_b1_path = b1_path
-            if not despot_b1_path:
-                raise ValueError("DESPOT2FM requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-            despot2fm_results = fit_despot2_fm(
-                ssfp_file=ssfp_stack,
-                t1_file=t1_path,
-                b1_file=despot_b1_path,
-                params_file=params_json,
-                out_dir=fit_out_dir,
-                mask_file=mask_file,
-                out_base=f"{base_prefix}_model-DESPOT2FM",
-                algo=despot2fm_cfg.get("algo", "src"),
-                nthreads=_model_nthreads(despot2fm_cfg),
-                verbose=bool(despot2fm_cfg.get("verbose", False)),
-                extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
-            )
-            results.update(despot2fm_results)
-
-        mcdespot_cfg = _mcdespot_cfg()
-        if mcdespot_cfg.get("enabled", False):
-            self.logger.info("Starting mcDESPOT fitting.")
-            if ssfp_stack is None:
-                raise ValueError("mcDESPOT requested, but no SSFP image was found.")
-            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not t1_path:
-                raise ValueError("mcDESPOT requires a DESPOT1 T1 map, but none was produced.")
-            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
-            if not despot_b1_path:
-                despot_b1_path = b1_path
-            if not despot_b1_path:
-                raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-            mcdespot_results = fit_mcdespot(
-                ssfp_file=ssfp_stack,
-                t1_file=t1_path,
-                b1_file=despot_b1_path,
-                params_file=params_json,
-                out_dir=fit_out_dir,
-                mask_file=mask_file,
-                out_base=f"{base_prefix}_model-mcDESPOT",
-                algo=mcdespot_cfg.get("algo", "src"),
-                nthreads=_model_nthreads(mcdespot_cfg),
-                verbose=bool(mcdespot_cfg.get("verbose", False)),
-                cuda=bool(mcdespot_cfg.get("cuda", False)),
-                extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
-            )
-            results.update(mcdespot_results)
+            mcdespot_cfg = _mcdespot_cfg()
+            if mcdespot_cfg.get("enabled", False):
+                self.logger.info("Starting mcDESPOT fitting.")
+                if ssfp_stack is None:
+                    raise ValueError("mcDESPOT requested, but no SSFP image was found.")
+                t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not t1_path:
+                    raise ValueError("mcDESPOT requires a DESPOT1 T1 map, but none was produced.")
+                despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+                if not despot_b1_path:
+                    despot_b1_path = b1_path
+                if not despot_b1_path:
+                    raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
+                mcdespot_results = fit_mcdespot(
+                    ssfp_file=ssfp_stack,
+                    t1_file=t1_path,
+                    b1_file=despot_b1_path,
+                    params_file=params_json,
+                    out_dir=fit_out_dir,
+                    mask_file=mask_file,
+                    out_base=f"{base_prefix}_model-mcDESPOT",
+                    algo=mcdespot_cfg.get("algo", "src"),
+                    nthreads=_model_nthreads(mcdespot_cfg),
+                    verbose=bool(mcdespot_cfg.get("verbose", False)),
+                    cuda=bool(mcdespot_cfg.get("cuda", False)),
+                    extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
+                )
+                results.update(mcdespot_results)
+        finally:
+            if created_temp_inputs and input_dir.exists() and not self.config.get("save_intermediates", False):
+                shutil.rmtree(input_dir, ignore_errors=True)
 
         context["fitted_maps"] = results
         return results
@@ -532,38 +542,48 @@ class RelaxometryWorkflow(BaseWorkflow):
         and ROI statistics extraction. Returns dictionary with paths to stats outputs.
         """
         stats_results = {}
+        analysis_cfg = self.relax_config.analysis or {}
 
-        # Coregistration: maps to anatomical space and T1w space
-        atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
-        stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
+        if analysis_cfg.get("enabled", False):
+            atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
+            stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
 
-        coreg_maps = {}
-        if maps:
-            for map_name, map_img in maps.items():
-                # Coregister fitted map to T1w native space if T1w provided
-                if t1w_anat:
-                    self.logger.info(f"Coregistering {map_name} to T1w space.")
-                    coreg_t1w = atlas_reg_step.coregister_to_t1w(map_img, t1w_anat, output_dir=fit_out_dir)
-                    coreg_maps[f"{map_name}_coreg_t1w"] = coreg_t1w
-                # Coregister fitted map to anatomical reference space
-                self.logger.info(f"Coregistering {map_name} to reference anatomical space.")
-                coreg_anat = atlas_reg_step.coregister_to_anat(map_img, ref_img, output_dir=fit_out_dir)
-                coreg_maps[f"{map_name}_coreg_anat"] = coreg_anat
+            coreg_maps = {}
+            if (
+                atlas_reg_step
+                and stats_extract_step
+                and hasattr(atlas_reg_step, "coregister_to_t1w")
+                and hasattr(atlas_reg_step, "coregister_to_anat")
+                and maps
+            ):
+                for map_name, map_img in maps.items():
+                    if t1w_anat:
+                        self.logger.info(f"Coregistering {map_name} to T1w space.")
+                        coreg_t1w = atlas_reg_step.coregister_to_t1w(map_img, t1w_anat, output_dir=fit_out_dir)
+                        coreg_maps[f"{map_name}_coreg_t1w"] = coreg_t1w
+                    self.logger.info(f"Coregistering {map_name} to reference anatomical space.")
+                    coreg_anat = atlas_reg_step.coregister_to_anat(map_img, ref_img, output_dir=fit_out_dir)
+                    coreg_maps[f"{map_name}_coreg_anat"] = coreg_anat
+            elif maps:
+                self.logger.warning(
+                    "Relaxometry analysis is enabled, but atlas/statistics helpers are not fully available. "
+                    "Skipping atlas registration and ROI statistics extraction."
+                )
 
-        # Merge coregistered maps into context
-        context["coregistered_maps"] = coreg_maps
+            context["coregistered_maps"] = coreg_maps
 
-        # Atlas registration and stats extraction on coregistered maps
-        if atlas_reg_step and stats_extract_step and coreg_maps:
-            self.logger.info("Running atlas registration and ROI statistics extraction.")
-            atlas_reg_step.run(output_dir=fit_out_dir, reference=ref_img)
-            stats_paths = stats_extract_step.run(
-                input_maps=list(coreg_maps.values()),
-                output_dir=fit_out_dir,
-                prefix=base_prefix,
-            )
-            stats_results.update(stats_paths)
-            context["roi_stats"] = stats_paths
+            if atlas_reg_step and stats_extract_step and coreg_maps:
+                self.logger.info("Running atlas registration and ROI statistics extraction.")
+                atlas_reg_step.run(output_dir=fit_out_dir, reference=ref_img)
+                stats_paths = stats_extract_step.run(
+                    input_maps=list(coreg_maps.values()),
+                    output_dir=fit_out_dir,
+                    prefix=base_prefix,
+                )
+                stats_results.update(stats_paths)
+                context["roi_stats"] = stats_paths
+        else:
+            self.logger.debug("Relaxometry atlas registration/statistics analysis is disabled. Skipping post-fit analysis.")
 
         # Quality Control output if enabled
         if self.relax_config.qc.enabled:
@@ -726,6 +746,7 @@ class RelaxometryPipeline(BasePipeline):
             modeling=RelaxometryModelingConfig(**relax_config_dict.get("modeling", {})),
             qc=RelaxometryQCConfig(**relax_config_dict.get("qc", {})),
             masking=relax_config_dict.get("masking", {}),
+            analysis=relax_config_dict.get("analysis", {}),
         )
         self.workflow = RelaxometryWorkflow(self.config, self.logger, self.provenance, relax_config=relax_config)
 
