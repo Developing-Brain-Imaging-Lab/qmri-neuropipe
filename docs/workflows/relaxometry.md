@@ -160,7 +160,8 @@ relaxometry:
       use_hifi: true # Requires IR-SPGR
     despot2:
       enabled: true
-      mcdespot: true # Enable Myelin Water Fraction mapping
+    mcdespot:
+      enabled: true # Enable Myelin Water Fraction mapping
 ```
 
 **B1 Mapping Tools**
@@ -190,5 +191,5 @@ relaxometry:
 All outputs follow BIDS-like naming conventions:
 - **B1 Map**: `sub-XX[_ses-YY]_TB1map.nii.gz`
 - **T1 Map**: `sub-XX[_ses-YY]_despot1_hifi_T1map.nii.gz`
-- **MWF Map**: `sub-XX[_ses-YY]_despot2_fm_MWFmap.nii.gz`
+- **MWF Map**: `sub-XX[_ses-YY]_mcdespot_MWFmap.nii.gz`
 - **Brain Mask**: `sub-XX[_ses-YY]_desc-brain-mask.nii.gz`

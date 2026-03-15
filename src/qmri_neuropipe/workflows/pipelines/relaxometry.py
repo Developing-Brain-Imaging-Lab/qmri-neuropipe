@@ -36,7 +36,8 @@ class RelaxometryPreprocConfig:
 @dataclass
 class RelaxometryModelingConfig:
     despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": True})
-    despot2: Dict = field(default_factory=lambda: {"enabled": False, "mcdespot": False})
+    despot2: Dict = field(default_factory=lambda: {"enabled": False})
+    mcdespot: Dict = field(default_factory=lambda: {"enabled": False})
 
 
 @dataclass
@@ -339,6 +340,18 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         results = {}
         modeling_cfg = self.relax_config.modeling
+        despot1_results: Dict[str, Path] = {}
+
+        def _mcdespot_cfg() -> Dict:
+            mcdespot_cfg = dict(getattr(modeling_cfg, "mcdespot", {}) or {})
+            legacy_enabled = bool(getattr(modeling_cfg, "despot2", {}).get("mcdespot", False))
+            if legacy_enabled:
+                self.logger.warning(
+                    "relaxometry.modeling.despot2.mcdespot is deprecated. "
+                    "Use relaxometry.modeling.mcdespot.enabled instead."
+                )
+                mcdespot_cfg.setdefault("enabled", True)
+            return mcdespot_cfg
 
         # Ensure output directory exists
         fit_out_dir.mkdir(parents=True, exist_ok=True)
@@ -401,28 +414,40 @@ class RelaxometryWorkflow(BaseWorkflow):
                 despot_b1_path = b1_path
             if not despot_b1_path:
                 raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-            mcdespot_enabled = modeling_cfg.despot2.get("mcdespot", False)
-            if mcdespot_enabled:
-                despot2_results = fit_despot2_fm(
-                    ssfp_file=ssfp_stack,
-                    t1_file=t1_path,
-                    b1_file=despot_b1_path,
-                    params_file=params_json,
-                    out_dir=fit_out_dir,
-                    mask_file=mask_file,
-                    out_base=f"{base_prefix}_despot2_fm",
-                )
-            else:
-                despot2_results = fit_despot2(
-                    ssfp_file=ssfp_stack,
-                    t1_file=t1_path,
-                    b1_file=despot_b1_path,
-                    params_file=params_json,
-                    out_dir=fit_out_dir,
-                    mask_file=mask_file,
-                    out_base=f"{base_prefix}_despot2",
-                )
+            despot2_results = fit_despot2(
+                ssfp_file=ssfp_stack,
+                t1_file=t1_path,
+                b1_file=despot_b1_path,
+                params_file=params_json,
+                out_dir=fit_out_dir,
+                mask_file=mask_file,
+                out_base=f"{base_prefix}_despot2",
+            )
             results.update(despot2_results)
+
+        mcdespot_cfg = _mcdespot_cfg()
+        if mcdespot_cfg.get("enabled", False):
+            self.logger.info("Starting mcDESPOT fitting.")
+            if ssfp_stack is None:
+                raise ValueError("mcDESPOT requested, but no SSFP image was found.")
+            t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not t1_path:
+                raise ValueError("mcDESPOT requires a DESPOT1 T1 map, but none was produced.")
+            despot_b1_path = despot1_results.get("b1") if modeling_cfg.despot1.get("enabled", False) else None
+            if not despot_b1_path:
+                despot_b1_path = b1_path
+            if not despot_b1_path:
+                raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
+            mcdespot_results = fit_despot2_fm(
+                ssfp_file=ssfp_stack,
+                t1_file=t1_path,
+                b1_file=despot_b1_path,
+                params_file=params_json,
+                out_dir=fit_out_dir,
+                mask_file=mask_file,
+                out_base=f"{base_prefix}_mcdespot",
+            )
+            results.update(mcdespot_results)
 
         context["fitted_maps"] = results
         return results
