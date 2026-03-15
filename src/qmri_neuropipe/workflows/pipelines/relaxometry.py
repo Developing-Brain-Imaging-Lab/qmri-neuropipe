@@ -591,7 +591,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             context["b1_map"] = b1_map
 
         # Model fitting
-        fit_out_dir = anat_out_dir / "fit"
+        fit_out_dir = anat_out_dir / "models"
         fit_maps = self._run_model_fitting(
             context,
             spgr_moco,
