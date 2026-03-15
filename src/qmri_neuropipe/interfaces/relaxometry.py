@@ -28,6 +28,15 @@ def _append_cli_options(cmd_parts: list[str], options: Optional[Dict[str, Any]] 
             continue
         cmd_parts.append(f"{flag}={value}")
 
+
+def _resolve_output_path(out_dir: Path, out_base: str, metric: str) -> Path:
+    canonical = out_dir / f"{out_base}_{metric}.nii.gz"
+    legacy = out_dir / f"{out_base}{metric}.nii.gz"
+
+    if legacy.exists() and not canonical.exists():
+        legacy.rename(canonical)
+    return canonical
+
 def fit_despot1(
     spgr_file: ImageLike | Path,
     params_file: Path,
@@ -79,8 +88,8 @@ def fit_despot1(
     
     # Expected outputs
     outputs = {
-        "t1": out_d / f"{out_base}_T1.nii.gz",
-        "m0": out_d / f"{out_base}_M0.nii.gz"
+        "t1": _resolve_output_path(out_d, out_base, "T1"),
+        "m0": _resolve_output_path(out_d, out_base, "M0"),
     }
     return outputs
 
@@ -123,9 +132,9 @@ def fit_despot1_hifi(
     run_cmd(" ".join(cmd_parts), label="despot1_hifi_fit")
     
     outputs = {
-        "t1": out_d / f"{out_base}_T1.nii.gz",
-        "m0": out_d / f"{out_base}_M0.nii.gz",
-        "b1": out_d / f"{out_base}_B1.nii.gz" # Assuming HIFI outputs B1 map
+        "t1": _resolve_output_path(out_d, out_base, "T1"),
+        "m0": _resolve_output_path(out_d, out_base, "M0"),
+        "b1": _resolve_output_path(out_d, out_base, "B1"), # Assuming HIFI outputs B1 map
     }
     return outputs
 
@@ -174,9 +183,9 @@ def fit_despot2(
     run_cmd(" ".join(cmd_parts), label="despot2_fit")
     
     outputs = {
-        "t2": out_d / f"{out_base}_T2.nii.gz",
-        "m0": out_d / f"{out_base}_M0.nii.gz",
-        "f0": out_d / f"{out_base}_F0.nii.gz" # If estimated or passed through
+        "t2": _resolve_output_path(out_d, out_base, "T2"),
+        "m0": _resolve_output_path(out_d, out_base, "M0"),
+        "f0": _resolve_output_path(out_d, out_base, "F0"), # If estimated or passed through
     }
     return outputs
 
@@ -225,12 +234,12 @@ def fit_despot2_fm(
     run_cmd(" ".join(cmd_parts), label="despot2fm_fit")
     
     outputs = {
-        "mwf": out_d / f"{out_base}_MWF.nii.gz", # Myelin Water Fraction
-        "t1_fast": out_d / f"{out_base}_T1_fast.nii.gz",
-        "t1_slow": out_d / f"{out_base}_T1_slow.nii.gz",
-        "t2_fast": out_d / f"{out_base}_T2_fast.nii.gz",
-        "t2_slow": out_d / f"{out_base}_T2_slow.nii.gz",
-        "tau": out_d / f"{out_base}_Tau.nii.gz" # Residence time / Exchange
+        "mwf": _resolve_output_path(out_d, out_base, "MWF"), # Myelin Water Fraction
+        "t1_fast": _resolve_output_path(out_d, out_base, "T1_fast"),
+        "t1_slow": _resolve_output_path(out_d, out_base, "T1_slow"),
+        "t2_fast": _resolve_output_path(out_d, out_base, "T2_fast"),
+        "t2_slow": _resolve_output_path(out_d, out_base, "T2_slow"),
+        "tau": _resolve_output_path(out_d, out_base, "Tau"), # Residence time / Exchange
     }
     return outputs
 
@@ -285,11 +294,11 @@ def fit_mcdespot(
     run_cmd(" ".join(cmd_parts), label="mcdespot_fit")
 
     outputs = {
-        "mwf": out_d / f"{out_base}_MWF.nii.gz",
-        "t1_fast": out_d / f"{out_base}_T1_fast.nii.gz",
-        "t1_slow": out_d / f"{out_base}_T1_slow.nii.gz",
-        "t2_fast": out_d / f"{out_base}_T2_fast.nii.gz",
-        "t2_slow": out_d / f"{out_base}_T2_slow.nii.gz",
-        "tau": out_d / f"{out_base}_Tau.nii.gz"
+        "mwf": _resolve_output_path(out_d, out_base, "MWF"),
+        "t1_fast": _resolve_output_path(out_d, out_base, "T1_fast"),
+        "t1_slow": _resolve_output_path(out_d, out_base, "T1_slow"),
+        "t2_fast": _resolve_output_path(out_d, out_base, "T2_fast"),
+        "t2_slow": _resolve_output_path(out_d, out_base, "T2_slow"),
+        "tau": _resolve_output_path(out_d, out_base, "Tau"),
     }
     return outputs
