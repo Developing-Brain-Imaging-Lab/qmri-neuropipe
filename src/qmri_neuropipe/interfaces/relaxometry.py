@@ -37,6 +37,11 @@ def _resolve_output_path(out_dir: Path, out_base: str, metric: str) -> Path:
         legacy.rename(canonical)
     return canonical
 
+
+def _normalize_legacy_outputs(out_dir: Path, out_base: str, metrics: List[str]) -> None:
+    for metric in metrics:
+        _resolve_output_path(out_dir, out_base, metric)
+
 def fit_despot1(
     spgr_file: ImageLike | Path,
     params_file: Path,
@@ -232,6 +237,11 @@ def fit_despot2_fm(
     _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="despot2fm_fit")
+    _normalize_legacy_outputs(
+        out_d,
+        out_base,
+        ["MWF", "T1_fast", "T1_slow", "T2_fast", "T2_slow", "Tau", "T2", "M0", "F0"],
+    )
     
     outputs = {
         "mwf": _resolve_output_path(out_d, out_base, "MWF"), # Myelin Water Fraction
@@ -292,6 +302,11 @@ def fit_mcdespot(
     _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="mcdespot_fit")
+    _normalize_legacy_outputs(
+        out_d,
+        out_base,
+        ["MWF", "T1_fast", "T1_slow", "T2_fast", "T2_slow", "Tau", "T2", "M0", "F0"],
+    )
 
     outputs = {
         "mwf": _resolve_output_path(out_d, out_base, "MWF"),
