@@ -97,17 +97,24 @@ def _build_sandi_model(model_config):
     iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
 
     stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+    extra_cellular = gaussian_models.G1Ball()
+    soma = sphere_models.S4SphereGaussianPhaseApproximation(diffusion_constant=iso_diffusivity)
 
-    soma = sphere_models.S2SphereStejskalTannerApproximation()
-    ball = gaussian_models.G1Ball()
-    ball.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
+    bundle = BundleModel([stick, soma])
 
-    return MultiCompartmentModel(models=[dispersed_bundle, soma, ball])
+    sandi_model = MultiCompartmentModel(models=[bundle, extra_cellular])
+    sandi_model.set_parameter_optimization_bounds('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter',[2e-6, 24e-6])
+    sandi_model.set_parameter_optimization_bounds('G1Ball_1_lambda_iso',[1e-10, 3e-9]) #D_ec
+    sandi_model.set_parameter_optimization_bounds('BundleModel_1_C1Stick_1_lambda_par',[1e-10, 3e-9]) #D_in
+    sandi_model.set_parameter_optimization_bounds('BundleModel_1_partial_volume_0',[0.01, 0.99]) #f_in
+    sandi_model.set_parameter_optimization_bounds('partial_volume_1',[0.01, 0.99]) #f_ec
+
+    # dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+    # dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
+    # dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    # dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
+    
+    return sandi_model
 
 def _fit_chunk(args):
     """
@@ -857,11 +864,13 @@ def fit_sandi(
             out_arr = values.reshape(out_arr.shape)
         full_maps[key] = out_arr
 
-    fsoma = full_maps.get('partial_volume_1')
-    fneurite = full_maps.get('partial_volume_0')
-    fextra = full_maps.get('partial_volume_2')
-    diameter = full_maps.get('S2SphereStejskalTannerApproximation_1_diameter')
+    fsoma = full_maps.get('BundleModel_1_partial_volume_1')
+    fneurite = full_maps.get('BundleModel_1_partial_volume_0')
+    fextra = full_maps.get('partial_volume_1')
+    diameter = full_maps.get('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter')
     rsoma = 0.5 * diameter if diameter is not None else None
+    d_in = full_maps.get('BundleModel_1_C1Stick_1_lambda_par')
+    d_ec = full_maps.get('G1Ball_1_lambda_iso')
 
     outputs = {}
 
@@ -876,5 +885,7 @@ def fit_sandi(
     save_map('fneurite', fneurite)
     save_map('fextra', fextra)
     save_map('Rsoma', rsoma)
+    save_map('d_in', d_in)
+    save_map('d_ec', d_ec)
 
     return outputs

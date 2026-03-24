@@ -37,6 +37,15 @@ def _parse_metric_list(metrics: List[str]) -> List[str]:
     return final
 
 
+def _require_gnl_backend(model_name: str, backend: str, grad_nonlin: Optional[Path], supported_backend: str) -> None:
+    """Fail fast when a CLI backend cannot apply a requested GNL correction."""
+    if grad_nonlin and backend.lower() != supported_backend.lower():
+        raise ValueError(
+            f"{model_name} gradient nonlinearity correction is only supported with the "
+            f"'{supported_backend}' backend, not '{backend}'."
+        )
+
+
 @app.command("fit-dti")
 def fit_dti_cli(
     input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
@@ -152,6 +161,7 @@ def fit_noddi_cli(
     solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
     distribution: str = typer.Option("Watson", "--distribution", help="Distribution type (Watson, Bingham)"),
     model_type: str = typer.Option("standard", "--model-type", help="Model structure (standard, smt)"),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
     Fit NODDI model.
@@ -175,18 +185,19 @@ def fit_noddi_cli(
                 iso_diffusivity=iso_diff,
                 solver=solver,
                 distribution=distribution,
-                model_type=model_type
+                model_type=model_type,
+                grad_nonlin=grad_nonlin,
             )
         elif backend.lower() == 'amico':
+            _require_gnl_backend("NODDI", backend, grad_nonlin, "dmipy")
             from qmri_neuropipe.interfaces.amico import fit_noddi
-            # AMICO binding might have different signature, let's check
             fit_noddi(
                 input,
                 output_dir,
                 bval_file=bval,
                 bvec_file=bvec,
                 mask_file=mask,
-                nthreads=nthreads,
+                n_cpus=nthreads,
                 dPar=parallel_diff,
                 dIso=iso_diff
             )
@@ -195,6 +206,204 @@ def fit_noddi_cli(
             
         console.print("[bold green]Success![/bold green]")
         
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("fit-sandi")
+def fit_sandi_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    backend: str = typer.Option("dmipy", "--backend", help="Backend implementation (dmipy or amico)"),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
+    parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
+    iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
+    big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
+):
+    """
+    Fit SANDI model.
+    """
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"[bold blue]Running SANDI Fit ({backend})[/bold blue]")
+
+    try:
+        if backend.lower() == 'dmipy':
+            from qmri_neuropipe.interfaces.dmipy import fit_sandi
+
+            fit_sandi(
+                input,
+                output_dir,
+                bval_file=bval,
+                bvec_file=bvec,
+                delta_file=delta,
+                Delta_file=big_delta,
+                mask_file=mask,
+                nthreads=nthreads,
+                parallel_diffusivity=parallel_diff,
+                iso_diffusivity=iso_diff,
+                solver=solver,
+                grad_nonlin=grad_nonlin,
+            )
+        elif backend.lower() == 'amico':
+            _require_gnl_backend("SANDI", backend, grad_nonlin, "dmipy")
+            from qmri_neuropipe.interfaces.amico import fit_sandi
+
+            fit_sandi(
+                input,
+                output_dir,
+                bval_file=bval,
+                bvec_file=bvec,
+                mask_file=mask,
+                n_cpus=nthreads,
+                delta_file=delta,
+                Delta_file=big_delta,
+            )
+        else:
+            raise ValueError(f"Unknown backend: {backend}")
+
+        console.print("[bold green]Success![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("fit-microglia")
+def fit_microglia_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
+    parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
+    iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
+    small_diameter: float = typer.Option(4e-6, "--small-diameter", help="Small-sphere diameter in meters."),
+    large_diameter: float = typer.Option(8e-6, "--large-diameter", help="Large-sphere diameter in meters."),
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
+    big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
+):
+    """
+    Fit the 4-compartment Microglia model.
+    """
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print("[bold blue]Running Microglia Fit[/bold blue]")
+
+    from qmri_neuropipe.interfaces.dmipy_microglia import fit_microglia
+
+    try:
+        fit_microglia(
+            input,
+            output_dir,
+            bval_file=bval,
+            bvec_file=bvec,
+            delta_file=delta,
+            Delta_file=big_delta,
+            mask_file=mask,
+            nthreads=nthreads,
+            parallel_diffusivity=parallel_diff,
+            iso_diffusivity=iso_diff,
+            small_diameter=small_diameter,
+            large_diameter=large_diameter,
+            solver=solver,
+            grad_nonlin=grad_nonlin,
+        )
+        console.print("[bold green]Success![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("fit-nexi")
+def fit_nexi_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
+    td_file: Path = typer.Option(..., "--td-file", help="Path to diffusion time file.", exists=True),
+    lowb_noisemap: Path = typer.Option(..., "--lowb-noisemap", help="Path to low-b noise map.", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    debug: bool = typer.Option(False, "--debug", help="Enable NEXI debug mode."),
+):
+    """
+    Fit NEXI model.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print("[bold blue]Running NEXI Fit[/bold blue]")
+
+    from qmri_neuropipe.interfaces.nexi import fit_nexi
+
+    try:
+        fit_nexi(
+            input,
+            output_dir,
+            bval_file=bval,
+            td_file=td_file,
+            lowb_noisemap_file=lowb_noisemap,
+            mask_file=mask,
+            debug=debug,
+        )
+        console.print("[bold green]Success![/bold green]")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("fit-fwe-dti")
+def fit_fwe_dti_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    method: str = typer.Option("NLLS", "--method", help="Fitting method (WLS or NLLS)."),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
+    metrics: List[str] = typer.Option(["fa", "md", "ad", "rd", "f"], help="Metrics to calculate."),
+    grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
+):
+    """
+    Fit free-water elimination DTI model.
+    """
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"[bold blue]Running FWE-DTI Fit ({method})[/bold blue]")
+
+    from qmri_neuropipe.interfaces.dipy import fit_fwe_dti
+
+    try:
+        fit_fwe_dti(
+            in_file=input,
+            out_dir=output_dir,
+            bval_file=bval,
+            bvec_file=bvec,
+            mask_file=mask,
+            fit_method=method,
+            metrics=_parse_metric_list(metrics),
+            nthreads=nthreads,
+            grad_nonlin=grad_nonlin,
+        )
+        console.print("[bold green]Success![/bold green]")
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         import traceback

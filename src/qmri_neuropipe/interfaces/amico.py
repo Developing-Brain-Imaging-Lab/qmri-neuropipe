@@ -32,6 +32,8 @@ def fit_noddi(
     out_dir = ensure_dir(out_dir)
     studies_path = out_dir / "AMICO_studies"
     studies_path.mkdir(exist_ok=True)
+
+    n_cpus = int(kwargs.pop("nthreads", n_cpus))
     
     amico.core.setup()
     
@@ -117,6 +119,8 @@ def fit_sandi(
     out_dir = ensure_dir(out_dir)
     studies_path = out_dir / "AMICO_studies"
     studies_path.mkdir(exist_ok=True)
+
+    n_cpus = int(kwargs.pop("nthreads", n_cpus))
     
     out_dir = ensure_dir(out_dir)
     studies_path = out_dir / "AMICO_studies"
@@ -147,6 +151,7 @@ def fit_sandi(
     in_path = extract_image_path(in_file)
     ae.load_data(dwi_filename=str(in_path), scheme_filename=str(scheme_file), mask_filename=str(mask_file))
     ae.set_model("SANDI")
+    ae.set_config('nthreads', n_cpus)
     ae.generate_kernels()
     ae.load_kernels()
     ae.fit()
