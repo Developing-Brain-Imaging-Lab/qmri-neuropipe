@@ -204,27 +204,38 @@ def validate_required_arguments(config: PipelineConfig) -> None:
         )
 
 
+def _normalize_optional_bids_label(value: Optional[str], prefix: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"none", "null", "n/a", "na"}:
+        return None
+    return text.removeprefix(prefix)
+
+
 def _resolve_auto_import_subject_session(config: PipelineConfig) -> tuple[Optional[str], Optional[str]]:
     import_subject = config.get("import.subject")
     import_session = config.get("import.session")
 
     if import_subject:
-        import_subject = str(import_subject).removeprefix("sub-")
+        import_subject = _normalize_optional_bids_label(import_subject, "sub-")
     elif config.participant_label:
         if len(config.participant_label) != 1:
             raise ConfigurationError(
                 "Automatic import requires exactly one subject. Set `import.subject` explicitly or provide a single participant_label."
             )
-        import_subject = str(config.participant_label[0]).removeprefix("sub-")
+        import_subject = _normalize_optional_bids_label(config.participant_label[0], "sub-")
 
     if import_session:
-        import_session = str(import_session).removeprefix("ses-")
+        import_session = _normalize_optional_bids_label(import_session, "ses-")
     elif config.session_label:
         if len(config.session_label) != 1:
             raise ConfigurationError(
                 "Automatic import requires at most one session. Set `import.session` explicitly or provide a single session_label."
             )
-        import_session = str(config.session_label[0]).removeprefix("ses-")
+        import_session = _normalize_optional_bids_label(config.session_label[0], "ses-")
 
     return import_subject, import_session
 

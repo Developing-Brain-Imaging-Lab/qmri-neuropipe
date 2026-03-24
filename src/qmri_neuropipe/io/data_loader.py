@@ -539,6 +539,8 @@ class DataLoader:
                     ses = parts[1].strip()
                     if ses.startswith('ses-'):
                         ses = ses[4:]
+                    if not ses or ses.lower() in {'none', 'null', 'n/a', 'na'}:
+                        ses = None
                 
                 pairs.append((sub, ses))
         

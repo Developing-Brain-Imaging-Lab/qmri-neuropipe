@@ -26,10 +26,23 @@ def _entity_source_path(json_path: Path) -> Path:
     return _sidecar_nifti_path(json_path) or json_path
 
 
+def _normalize_context_label(value: Any, prefix: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"none", "null", "n/a", "na"}:
+        return None
+    if text.startswith(prefix):
+        text = text[len(prefix):]
+    return text or None
+
+
 def _context_search_root(output_dir: Path, context: dict[str, Any]) -> Path:
     root = Path(output_dir)
-    subject = context.get("subject")
-    session = context.get("session")
+    subject = _normalize_context_label(context.get("subject"), "sub-")
+    session = _normalize_context_label(context.get("session"), "ses-")
 
     if subject:
         root = root / f"sub-{subject}"
@@ -346,8 +359,13 @@ class Dcm2BidsStep(BaseProcessingStep):
         self.logger.info(f"Running dcm2bids on {dicom_dir}...")
         
         # Subject and Session from context or kwargs
-        sub = kwargs.get("subject") or self.config.get("subject")
-        ses = kwargs.get("session") or self.config.get("session")
+        sub = _normalize_context_label(kwargs.get("subject"), "sub-")
+        if sub is None:
+            sub = _normalize_context_label(self.config.get("import.subject"), "sub-")
+
+        ses = _normalize_context_label(kwargs.get("session"), "ses-")
+        if ses is None:
+            ses = _normalize_context_label(self.config.get("import.session"), "ses-")
         
         if not sub:
             raise ValidationError("Subject ID required for dcm2bids.")

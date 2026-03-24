@@ -27,17 +27,29 @@ def _load_json_field(json_path: Path | None, field: str):
     except Exception:
         return None
 
+
+def _normalize_bids_label(label: str | None, prefix: str) -> str | None:
+    if label is None:
+        return None
+    value = str(label).strip()
+    if not value:
+        return None
+    if value.lower() in {"none", "null", "n/a", "na"}:
+        return None
+    if value.startswith(prefix):
+        value = value[len(prefix):]
+    return value or None
+
+
 def _normalize_bids_labels(labels: List[str] | None, prefix: str) -> List[str] | None:
     if labels is None:
         return None
     normalized: List[str] = []
     for label in labels:
-        value = str(label).strip()
-        if value.startswith(prefix):
-            value = value[len(prefix):]
+        value = _normalize_bids_label(label, prefix)
         if value:
             normalized.append(value)
-    return normalized
+    return normalized or None
 
 def select_participants_sessions(bids_dir: Path, participants: List[str]|None, sessions: List[str]|None, skip_validation: bool=False) -> List[Tuple[str, str|None]]:
     participants = _normalize_bids_labels(participants, "sub-")
