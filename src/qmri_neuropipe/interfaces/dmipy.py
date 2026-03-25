@@ -49,6 +49,58 @@ def _build_dmipy_scheme(bvals, bvecs, delta=None, Delta=None):
     return acquisition_scheme.acquisition_scheme_from_bvalues(**kwargs)
 
 
+def _initialize_param_storage(model, n_voxels: int) -> Dict[str, np.ndarray]:
+    cardinality = getattr(model, "parameter_cardinality", {}) or {}
+    storage: Dict[str, np.ndarray] = {}
+    for key in getattr(model, "parameter_names", []):
+        card = int(cardinality.get(key, 1) or 1)
+        shape = (n_voxels,) if card == 1 else (n_voxels, card)
+        storage[key] = np.full(shape, np.nan, dtype=np.float32)
+    return storage
+
+
+def _store_param_result(storage: Dict[str, np.ndarray], index: int, params: Optional[Dict[str, Any]]) -> None:
+    if not params:
+        return
+    for key, dest in storage.items():
+        value = params.get(key)
+        if value is None:
+            continue
+        value_arr = np.asarray(value, dtype=np.float32)
+        if value_arr.size == 0:
+            continue
+        flat = value_arr.reshape(-1)
+        if dest.ndim == 1:
+            dest[index] = flat[0]
+        else:
+            width = dest.shape[1]
+            if flat.size >= width:
+                dest[index, :] = flat[:width]
+
+
+def _voxel_signal_is_valid(voxel: np.ndarray) -> bool:
+    voxel = np.asarray(voxel)
+    if voxel.ndim != 1 or voxel.size == 0:
+        return False
+    if not np.all(np.isfinite(voxel)):
+        return False
+    return bool(np.any(voxel > 0))
+
+
+def _safe_rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
+    try:
+        if vox_gnl is None or not np.all(np.isfinite(vox_gnl)):
+            return bvals, bvecs
+        new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, vox_gnl)
+        if new_bvals.shape != bvals.shape or new_bvecs.shape != bvecs.shape:
+            return bvals, bvecs
+        if not np.all(np.isfinite(new_bvals)) or not np.all(np.isfinite(new_bvecs)):
+            return bvals, bvecs
+        return new_bvals, new_bvecs
+    except Exception:
+        return bvals, bvecs
+
+
 def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = None):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -217,35 +269,75 @@ def _fit_chunk_gnl(args):
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-    results = []
     try:
+        n_voxels = data_chunk.shape[0]
+        merged = None
+        failed_voxels = 0
+        fallback_voxels = 0
+        first_error = None
+        base_scheme = _build_dmipy_scheme(bvals, bvecs)
+
         for vox_idx in range(data_chunk.shape[0]):
             voxel_fixed = {}
             for param_key, param_vals in (chunk_fixed_params or {}).items():
                 if param_vals is not None:
                     voxel_fixed[param_key] = np.asarray([param_vals[vox_idx]])
 
-            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
-            scheme = _build_dmipy_scheme(new_bvals, new_bvecs)
             model = _build_noddi_model(model_config, fixed_params=voxel_fixed)
+            if merged is None:
+                merged = _initialize_param_storage(model, n_voxels)
 
-            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    fit_obj = model.fit(
-                        scheme,
-                        data_chunk[vox_idx][None, :],
-                        number_of_processors=1,
-                        solver=solver,
-                        **solver_kwargs
-                    )
+            voxel_signal = np.asarray(data_chunk[vox_idx], dtype=np.float32)
+            if not _voxel_signal_is_valid(voxel_signal):
+                failed_voxels += 1
+                continue
 
-            results.append(fit_obj.fitted_parameters)
+            new_bvals, new_bvecs = _safe_rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            scheme = _build_dmipy_scheme(new_bvals, new_bvecs)
 
-        merged = {}
-        for key in results[0].keys():
-            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+            try:
+                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        fit_obj = model.fit(
+                            scheme,
+                            voxel_signal[None, :],
+                            number_of_processors=1,
+                            solver=solver,
+                            **solver_kwargs
+                        )
+                _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+            except Exception as exc:
+                try:
+                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            fit_obj = model.fit(
+                                base_scheme,
+                                voxel_signal[None, :],
+                                number_of_processors=1,
+                                solver=solver,
+                                **solver_kwargs
+                            )
+                    _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+                    fallback_voxels += 1
+                except Exception:
+                    failed_voxels += 1
+                    if first_error is None:
+                        first_error = exc
 
+        if merged is None:
+            model = _build_noddi_model(model_config, fixed_params={})
+            merged = _initialize_param_storage(model, n_voxels)
+            failed_voxels = n_voxels
+
+        if failed_voxels:
+            msg = f"[Worker {chunk_id}] GNL-aware NODDI skipped/failed {failed_voxels}/{n_voxels} voxels."
+            if first_error is not None:
+                msg += f" First error: {first_error}"
+            print(msg)
+        if fallback_voxels:
+            print(f"[Worker {chunk_id}] GNL-aware NODDI fell back to the original scheme for {fallback_voxels}/{n_voxels} voxels.")
         print(f"[Worker {chunk_id}] Finished GNL-aware chunk.")
         return merged
 
@@ -289,29 +381,70 @@ def _fit_sandi_chunk_gnl(args):
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
-    results = []
     try:
+        n_voxels = data_chunk.shape[0]
+        merged = None
+        failed_voxels = 0
+        fallback_voxels = 0
+        first_error = None
+        base_scheme = _build_dmipy_scheme(bvals, bvecs, delta=delta_arr, Delta=Delta_arr)
+
         for vox_idx in range(data_chunk.shape[0]):
-            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
-            scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
             sandi = _build_sandi_model(model_config)
+            if merged is None:
+                merged = _initialize_param_storage(sandi, n_voxels)
 
-            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    fit_obj = sandi.fit(
-                        scheme,
-                        data_chunk[vox_idx][None, :],
-                        number_of_processors=1,
-                        solver=solver,
-                        **solver_kwargs
-                    )
-            results.append(fit_obj.fitted_parameters)
+            voxel_signal = np.asarray(data_chunk[vox_idx], dtype=np.float32)
+            if not _voxel_signal_is_valid(voxel_signal):
+                failed_voxels += 1
+                continue
 
-        merged = {}
-        for key in results[0].keys():
-            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+            new_bvals, new_bvecs = _safe_rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
+            try:
+                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        fit_obj = sandi.fit(
+                            scheme,
+                            voxel_signal[None, :],
+                            number_of_processors=1,
+                            solver=solver,
+                            **solver_kwargs
+                        )
+                _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+            except Exception as exc:
+                try:
+                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            fit_obj = sandi.fit(
+                                base_scheme,
+                                voxel_signal[None, :],
+                                number_of_processors=1,
+                                solver=solver,
+                                **solver_kwargs
+                            )
+                    _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+                    fallback_voxels += 1
+                except Exception:
+                    failed_voxels += 1
+                    if first_error is None:
+                        first_error = exc
+
+        if merged is None:
+            sandi = _build_sandi_model(model_config)
+            merged = _initialize_param_storage(sandi, n_voxels)
+            failed_voxels = n_voxels
+
+        if failed_voxels:
+            msg = f"[Worker {chunk_id}] GNL-aware SANDI skipped/failed {failed_voxels}/{n_voxels} voxels."
+            if first_error is not None:
+                msg += f" First error: {first_error}"
+            print(msg)
+        if fallback_voxels:
+            print(f"[Worker {chunk_id}] GNL-aware SANDI fell back to the original scheme for {fallback_voxels}/{n_voxels} voxels.")
         print(f"[Worker {chunk_id}] Finished GNL-aware SANDI chunk.")
         return merged
     except Exception as e:

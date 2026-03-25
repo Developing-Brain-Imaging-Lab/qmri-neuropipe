@@ -11,7 +11,14 @@ from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.utils import ensure_dir, extract_image_path
 from qmri_neuropipe.core.types import ImageLike, DWIFile
 from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
-from qmri_neuropipe.interfaces.dmipy import _rotate_gradients_for_gnl, _build_dmipy_scheme
+from qmri_neuropipe.interfaces.dmipy import (
+    _rotate_gradients_for_gnl,
+    _build_dmipy_scheme,
+    _initialize_param_storage,
+    _store_param_result,
+    _voxel_signal_is_valid,
+    _safe_rotate_gradients_for_gnl,
+)
 
 def _fit_microglia_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
@@ -96,7 +103,13 @@ def _fit_microglia_chunk_gnl(args):
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
     try:
-        results = []
+        n_voxels = data_chunk.shape[0]
+        merged = None
+        failed_voxels = 0
+        fallback_voxels = 0
+        first_error = None
+        base_scheme = _build_dmipy_scheme(bvals, bvecs, delta=delta_arr, Delta=Delta_arr)
+
         for vox_idx in range(data_chunk.shape[0]):
             stick = cylinder_models.C1Stick()
             zeppelin = gaussian_models.G2Zeppelin()
@@ -114,24 +127,66 @@ def _fit_microglia_chunk_gnl(args):
             ball.set_fixed_parameter('G1Ball_1_lambda_iso', float(model_config.get('iso_diffusivity', 3.0e-9)))
 
             model = MultiCompartmentModel(models=[dispersed_bundle, small_sphere, large_sphere, ball])
-            new_bvals, new_bvecs = _rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
+            if merged is None:
+                merged = _initialize_param_storage(model, n_voxels)
+
+            voxel_signal = np.asarray(data_chunk[vox_idx], dtype=np.float32)
+            if not _voxel_signal_is_valid(voxel_signal):
+                failed_voxels += 1
+                continue
+
+            new_bvals, new_bvecs = _safe_rotate_gradients_for_gnl(bvals, bvecs, gnl_chunk[vox_idx])
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
-            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    fit_obj = model.fit(
-                        scheme,
-                        data_chunk[vox_idx][None, :],
-                        number_of_processors=1,
-                        solver=solver,
-                        **solver_kwargs
-                    )
-            results.append(fit_obj.fitted_parameters)
+            try:
+                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        fit_obj = model.fit(
+                            scheme,
+                            voxel_signal[None, :],
+                            number_of_processors=1,
+                            solver=solver,
+                            **solver_kwargs
+                        )
+                _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+            except Exception as exc:
+                try:
+                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            fit_obj = model.fit(
+                                base_scheme,
+                                voxel_signal[None, :],
+                                number_of_processors=1,
+                                solver=solver,
+                                **solver_kwargs
+                            )
+                    _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
+                    fallback_voxels += 1
+                except Exception:
+                    failed_voxels += 1
+                    if first_error is None:
+                        first_error = exc
 
-        merged = {}
-        for key in results[0].keys():
-            merged[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+        if merged is None:
+            stick = cylinder_models.C1Stick()
+            zeppelin = gaussian_models.G2Zeppelin()
+            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+            small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+            large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+            ball = gaussian_models.G1Ball()
+            model = MultiCompartmentModel(models=[dispersed_bundle, small_sphere, large_sphere, ball])
+            merged = _initialize_param_storage(model, n_voxels)
+            failed_voxels = n_voxels
+
+        if failed_voxels:
+            msg = f"[Worker {chunk_id}] GNL-aware Microglia skipped/failed {failed_voxels}/{n_voxels} voxels."
+            if first_error is not None:
+                msg += f" First error: {first_error}"
+            print(msg)
+        if fallback_voxels:
+            print(f"[Worker {chunk_id}] GNL-aware Microglia fell back to the original scheme for {fallback_voxels}/{n_voxels} voxels.")
         print(f"[Worker {chunk_id}] Finished GNL-aware Microglia chunk.")
         return merged
     except Exception as e:
