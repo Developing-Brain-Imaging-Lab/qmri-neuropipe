@@ -684,7 +684,7 @@ class ImportMetadataOverrideStep(BaseProcessingStep):
         from ...core.run import run_cmd
 
         suffix = "".join(nifti_path.suffixes)
-        tmp_path = nifti_path.parent / f".{get_nifti_stem(nifti_path)}_resample_tmp{suffix}"
+        tmp_path = nifti_path.parent / f"{get_nifti_stem(nifti_path)}_resample_tmp{suffix}"
         res_args = " ".join(str(v) for v in target_resolution)
         run_cmd(f"mri_convert {nifti_path} {tmp_path} -vs {res_args}", label="import_resample")
         shutil.move(tmp_path, nifti_path)

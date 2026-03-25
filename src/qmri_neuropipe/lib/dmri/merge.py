@@ -104,12 +104,20 @@ class MergeStep(BaseProcessingStep):
             context["dwi_files"] = [merged_dwi] # Replace list with single file
             context["merged_index"] = out_index
             context["merged_acqp"] = out_acqp
-            context["merge_source_info"] = self._build_merge_source_info(dwi_files)
+            merge_source_info = self._build_merge_source_info(dwi_files)
+            context["merge_source_info"] = merge_source_info
             
             # Provide standard keys for downstream steps (Eddy)
             context["acqp"] = out_acqp
             context["index"] = out_index
             self._propagate_topup_mapping(context, dwi_files, merged_dwi)
+            self._configure_merged_topup_groups(
+                context,
+                merged_dwi,
+                out_acqp,
+                out_index,
+                merge_source_info,
+            )
             
             return context
             
@@ -283,7 +291,8 @@ class MergeStep(BaseProcessingStep):
         context["dwi_files"] = [merged_dwi]
         context["merged_index"] = out_index
         context["merged_acqp"] = out_acqp
-        context["merge_source_info"] = self._build_merge_source_info(dwi_files)
+        merge_source_info = self._build_merge_source_info(dwi_files)
+        context["merge_source_info"] = merge_source_info
         # We need to tell topup/eddy to use this acqp?
         # EddyStep should check context["merged_acqp"] and context["merged_index"]
         # And pass them to eddy.
@@ -291,26 +300,13 @@ class MergeStep(BaseProcessingStep):
         context["acqp"] = out_acqp
         context["index"] = out_index
         self._propagate_topup_mapping(context, dwi_files, merged_dwi)
-
-        # Preserve reverse-PE inputs for Topup even after replacing dwi_files with the merged output.
-        old_topup_groups = context.get("topup_groups", [])
-        if old_topup_groups:
-            merged_targets = [merged_dwi]
-            preserved_groups = []
-            for group_item in old_topup_groups:
-                if isinstance(group_item, dict):
-                    inputs = group_item.get("inputs", [])
-                    targets = list(group_item.get("targets", [])) + merged_targets
-                else:
-                    inputs = list(group_item)
-                    targets = merged_targets
-                if inputs:
-                    preserved_groups.append({
-                        "inputs": inputs,
-                        "targets": targets,
-                    })
-            if preserved_groups:
-                context["topup_groups"] = preserved_groups
+        self._configure_merged_topup_groups(
+            context,
+            merged_dwi,
+            out_acqp,
+            out_index,
+            merge_source_info,
+        )
         
         return context
 
@@ -369,3 +365,36 @@ class MergeStep(BaseProcessingStep):
             topup_map[str(merged_dwi.img)] = merged_base
             context["topup_map"] = topup_map
             context["topup_base"] = merged_base
+
+    def _configure_merged_topup_groups(
+        self,
+        context: Dict[str, Any],
+        merged_dwi: DWIFile,
+        acqp: Path,
+        index: Path,
+        merge_source_info: List[Dict[str, Any]],
+    ) -> None:
+        if not self._has_reverse_phase_sources(merge_source_info):
+            return
+
+        # After merge, Topup must consume the merged image plus merged acqp/index
+        # so the field estimate stays on the same grid as downstream Eddy input.
+        context["topup_groups"] = [{
+            "inputs": [merged_dwi],
+            "targets": [merged_dwi],
+            "acqp": acqp,
+            "index": index,
+        }]
+
+    def _has_reverse_phase_sources(self, merge_source_info: List[Dict[str, Any]]) -> bool:
+        axis_signs: Dict[str, set[int]] = {}
+
+        for source in merge_source_info:
+            ped = source.get("phase_encoding_direction")
+            if not ped:
+                continue
+            axis = str(ped)[0]
+            sign = -1 if str(ped).endswith("-") else 1
+            axis_signs.setdefault(axis, set()).add(sign)
+
+        return any(len(signs) > 1 for signs in axis_signs.values())

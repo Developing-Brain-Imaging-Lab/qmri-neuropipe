@@ -387,7 +387,7 @@ def create_native_ge_gnl_map(
     output_dir.mkdir(parents=True, exist_ok=True)
     native_b0 = output_dir / "native_gnl_b0_mean.nii.gz"
     final_b0 = output_dir / "final_gnl_b0_mean.nii.gz"
-    native_tensor = output_dir / ".gnl_native_tensor_tmp.nii.gz"
+    native_tensor = output_dir / "gnl_native_tensor_tmp.nii.gz"
 
     _extract_mean_b0(native_reference, native_b0, force=force)
     _extract_mean_b0(input_image, final_b0, force=force)

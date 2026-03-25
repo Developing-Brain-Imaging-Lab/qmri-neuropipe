@@ -155,7 +155,7 @@ class ImportWorkflow(BaseWorkflow):
                     rel_parent = Path()
             archive_extract_dir = target_root / rel_parent / archive_key
             archive_extract_dir.mkdir(parents=True, exist_ok=True)
-            stamp = archive_extract_dir / ".extract.done"
+            stamp = archive_extract_dir / "extract.done"
             if stamp.exists():
                 continue
             self.logger.info(f"Extracting import archive: {archive}")

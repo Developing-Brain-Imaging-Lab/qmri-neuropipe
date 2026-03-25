@@ -88,12 +88,16 @@ class TopupStep(BaseProcessingStep):
             if isinstance(group_item, dict):
                  group = group_item.get('inputs', [])
                  targets = group_item.get('targets', [])
+                 group_acqp = group_item.get('acqp')
+                 group_index = group_item.get('index')
             else:
                  group = group_item
                  targets = []
+                 group_acqp = None
+                 group_index = None
 
-            if len(group) < 2:
-                self.logger.warning(f"Topup group {idx} has fewer than 2 images, skipping.")
+            if not group:
+                self.logger.warning(f"Topup group {idx} is empty, skipping.")
                 continue
             
             try:
@@ -122,7 +126,7 @@ class TopupStep(BaseProcessingStep):
                 
                 if not should_skip:
                     # Optional Coregistration to first b0
-                    if distcorr_cfg.get('coregister_inputs', False):
+                    if distcorr_cfg.get('coregister_inputs', False) and not (group_acqp or group_index):
                         self.logger.info(f"Coregistering Topup inputs using MCFLIRT...")
                         from ...core.utils import extract_image_path
                         from ...core.types import ImageFile, DWIFile
@@ -264,9 +268,21 @@ class TopupStep(BaseProcessingStep):
                             
                         # Use the new group for topup
                         group = new_group
+                    elif distcorr_cfg.get('coregister_inputs', False):
+                        self.logger.info(
+                            "Skipping Topup input coregistration because this group uses merged acqp/index metadata."
+                        )
 
                     nthreads = kwargs.get('nthreads', self.config.n_cpus)
-                    fsl.topup(group, out_base=base, field_output=True, nthreads=nthreads, config=topup_config)
+                    fsl.topup(
+                        group,
+                        out_base=base,
+                        field_output=True,
+                        nthreads=nthreads,
+                        config=topup_config,
+                        acqp=Path(group_acqp) if group_acqp else None,
+                        index=Path(group_index) if group_index else None,
+                    )
                 
                 # Map each input image in the group to this topup result
                 for d in group:

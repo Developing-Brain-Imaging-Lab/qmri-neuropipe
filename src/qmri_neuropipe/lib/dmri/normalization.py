@@ -868,7 +868,7 @@ def apply_robust_transform_manifest(
         return out_file
 
     current_path = Path(moving_file)
-    temp_dir = out_file.parent / ".robust_iterative_apply"
+    temp_dir = out_file.parent / "robust_iterative_apply"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, iteration in enumerate(manifest.get("iterations", []), start=1):

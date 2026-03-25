@@ -245,6 +245,9 @@ dmri:
 # ============================================================================
 # anat:
 #   input:
+#     # Optional: force anatomical processing to use only one modality.
+#     # Options: auto, T1w, T2w
+#     primary_modality: T2w
 #     # Optional anatomical selectors when multiple acquisitions exist.
 #     # If provided, exactly one image must match.
 #     t1w_match:

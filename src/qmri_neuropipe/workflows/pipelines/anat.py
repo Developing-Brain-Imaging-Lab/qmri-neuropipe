@@ -171,6 +171,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         reporter.add_anat_step(step_name, details, figures=figures)
 
+    @staticmethod
+    def _has_input_modality(context: dict, suffix: str) -> bool:
+        return bool(context.get(f"{suffix.lower()}_files", []))
+
     def _initialize_steps(self):
         pre_cfg = self.anat_config.preprocessing
 
@@ -271,12 +275,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 return False
             return True
 
-        # Validate preprocessed T1w
-        _check_image_file(context.get("preprocessed_t1w"), "Preprocessed_T1w")
+        # Validate preprocessed T1w only when T1w input was selected.
+        if self._has_input_modality(context, "T1w"):
+            _check_image_file(context.get("preprocessed_t1w"), "Preprocessed_T1w")
 
-        # Validate preprocessed T2w or coregistered T2w
-        pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
-        _check_image_file(pre_t2, "Preprocessed_T2w")
+        # Validate preprocessed T2w only when T2w input was selected.
+        if self._has_input_modality(context, "T2w"):
+            pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
+            _check_image_file(pre_t2, "Preprocessed_T2w")
 
         # Validate brain mask
         _check_image_file(context.get("brain_mask"), "Brain_Mask")
@@ -1065,12 +1071,19 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             except Exception:
                 pass
 
-        t1_img = context.get("preprocessed_t1w")
-        t1_mask = context.get("brain_mask")
+        primary_img = context.get("preprocessed_t1w")
+        primary_key = "preprocessed_t1w"
+        primary_suffix = "T1w"
 
-        if t1_img:
-            self.logger.info("Running Normalization on T1w...")
+        if primary_img is None:
+            primary_img = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
+            primary_key = "preprocessed_t2w"
+            primary_suffix = "T2w"
+
+        if primary_img:
+            self.logger.info(f"Running Normalization on {primary_suffix}...")
             try:
+                context["current_image"] = primary_img
                 norm_step(context, output_dir=output_dir)
             except Exception as e:
                 err_msg = f"Normalization step failed: {e}"
@@ -1080,15 +1093,15 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     self._add_anat_step("Normalization", {"Status": "Failed"}, details={"error": str(e)})
                 return context, step_metrics
 
-            norm_t1 = context.get("current_image")
-            context["preprocessed_t1w"] = norm_t1
+            normalized_primary = context.get("current_image")
+            context[primary_key] = normalized_primary
 
-            if not (norm_t1 and hasattr(norm_t1, 'img') and norm_t1.img.exists()):
-                err_msg = "Normalization output T1w image missing or invalid."
+            if not (normalized_primary and hasattr(normalized_primary, 'img') and normalized_primary.img.exists()):
+                err_msg = f"Normalization output {primary_suffix} image missing or invalid."
                 self.logger.warning(err_msg)
                 errors.append(err_msg)
                 if reporter:
-                    self._add_anat_step("Normalization", {"Status": "Output Missing"}, details={"path": str(getattr(norm_t1, 'img', 'Unknown'))})
+                    self._add_anat_step("Normalization", {"Status": "Output Missing"}, details={"path": str(getattr(normalized_primary, 'img', 'Unknown'))})
 
             # Apply to T2w
             transform = context.get("template_transform")
@@ -1096,7 +1109,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if "preprocessed_t2w_coreg" in context:
                 t2_img = context["preprocessed_t2w_coreg"]
 
-            if t2_img and transform and transform.exists():
+            if primary_suffix == "T1w" and t2_img and transform and transform.exists():
                 self.logger.info("Applying Normalization Warp to T2w...")
                 ents = dict(t2_img.entities)
                 ents['space'] = 'Standard'
@@ -1218,6 +1231,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         """
         fs_stats_step = next((s for s in self.steps if isinstance(s, FreeSurferStatsStep)), None)
         if not fs_stats_step:
+            return context, step_metrics
+
+        if not context.get("preprocessed_t1w"):
+            self.logger.info("Skipping FreeSurfer stats (no preprocessed T1w available).")
             return context, step_metrics
 
         errors = context.setdefault('errors', [])
@@ -1434,31 +1451,25 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         t1w_files = context.get("t1w_files", [])
         t2w_files = context.get("t2w_files", [])
 
-        if not t1w_files:
+        if not t1w_files and not t2w_files:
             return None
 
         preprocessed_t1w = None
         preprocessed_t2w = None
         brain_mask = None
 
-        t1w = t1w_files[0]
-        t1_entities = dict(getattr(t1w, "entities", {}) or {})
-        t1_entities.setdefault("suffix", "T1w")
-        t1_entities["desc"] = "preproc"
-        t1_name = build_bids_name(t1_entities)
-        t1_path = final_output_dir / t1_name
+        if t1w_files:
+            t1w = t1w_files[0]
+            t1_entities = dict(getattr(t1w, "entities", {}) or {})
+            t1_entities.setdefault("suffix", "T1w")
+            t1_entities["desc"] = "preproc"
+            t1_name = build_bids_name(t1_entities)
+            t1_path = final_output_dir / t1_name
 
-        if not t1_path.exists():
-            return None
+            if not t1_path.exists():
+                return None
 
-        preprocessed_t1w = ImageFile(entities=t1_entities, img=t1_path, json=None)
-
-        mask_entities = dict(t1_entities)
-        mask_entities["suffix"] = "mask"
-        mask_name = build_bids_name(mask_entities)
-        mask_path = final_output_dir / mask_name
-        if mask_path.exists():
-            brain_mask = ImageFile(entities=mask_entities, img=mask_path, json=None)
+            preprocessed_t1w = ImageFile(entities=t1_entities, img=t1_path, json=None)
 
         if t2w_files:
             t2w = t2w_files[0]
@@ -1471,6 +1482,18 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 preprocessed_t2w = ImageFile(entities=t2_entities, img=t2_path, json=None)
             else:
                 return None
+
+        if preprocessed_t1w is None and preprocessed_t2w is None:
+            return None
+
+        mask_ref = preprocessed_t1w or preprocessed_t2w
+        mask_entities = dict(getattr(mask_ref, "entities", {}) or {})
+        mask_entities.pop("space", None)
+        mask_entities["suffix"] = "mask"
+        mask_name = build_bids_name(mask_entities)
+        mask_path = final_output_dir / mask_name
+        if mask_path.exists():
+            brain_mask = ImageFile(entities=mask_entities, img=mask_path, json=None)
 
         return {
             "preprocessed_t1w": preprocessed_t1w,
@@ -1505,23 +1528,29 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         context = dict(context)
         step_metrics: List[dict] = []
 
-        context, step_metrics = self._preprocess_t1w(
-            output_dir,
-            context,
-            final_output_dir,
-            reporter,
-            figures_dir,
-            step_metrics
-        )
+        if context.get("t1w_files"):
+            context, step_metrics = self._preprocess_t1w(
+                output_dir,
+                context,
+                final_output_dir,
+                reporter,
+                figures_dir,
+                step_metrics
+            )
+        else:
+            self.logger.info("Skipping T1w preprocessing (no T1w inputs selected).")
 
-        context, step_metrics = self._preprocess_t2w(
-            output_dir,
-            context,
-            final_output_dir,
-            reporter,
-            figures_dir,
-            step_metrics
-        )
+        if context.get("t2w_files"):
+            context, step_metrics = self._preprocess_t2w(
+                output_dir,
+                context,
+                final_output_dir,
+                reporter,
+                figures_dir,
+                step_metrics
+            )
+        else:
+            self.logger.info("Skipping T2w preprocessing (no T2w inputs selected).")
 
         context, step_metrics = self._run_coregistration(
             output_dir,
@@ -1636,7 +1665,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 self.logger.info(f"Final Anat T1w already exists, skipping copy: {dest}")
 
             context['preprocessed_t1w'] = ImageFile(entities=entities, img=dest)
-        else:
+        elif context.get("t1w_files"):
             msg = "Final T1w image missing/corrupted, cannot save result."
             self.logger.warning(msg)
             errors.append(msg)
@@ -1698,7 +1727,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             key = "preprocessed_t2w_coreg" if "preprocessed_t2w_coreg" in context else "preprocessed_t2w"
             context[key] = ImageFile(entities=entities, img=dest)
-        else:
+        elif context.get("t2w_files"):
             msg = "Final T2w image missing/corrupted, cannot save result."
             self.logger.warning(msg)
             errors.append(msg)
@@ -1725,11 +1754,28 @@ class AnatPipeline(BasePipeline):
         """Initialize workflows."""
         self.preprocessing = AnatPreprocessingWorkflow(self.config, self.logger, self.provenance)
 
-    def _apply_anat_selectors(self, t1w: list[ImageFile], t2w: list[ImageFile]) -> tuple[list[ImageFile], list[ImageFile]]:
+    def _get_anat_input_cfg(self) -> dict:
         anat_section = self.config.get('anat') or {}
-        anat_input_cfg = anat_section.get('input') or self.config.get('anat_input') or {}
+        return anat_section.get('input') or self.config.get('anat_input') or {}
+
+    def _get_primary_anat_modality(self) -> str:
+        primary = str(self._get_anat_input_cfg().get("primary_modality", "auto")).strip().lower()
+        if primary not in {"auto", "t1w", "t2w"}:
+            self.logger.warning(
+                f"Unknown anat.input.primary_modality='{primary}'. Falling back to 'auto'."
+            )
+            return "auto"
+        return primary
+
+    def _apply_anat_selectors(self, t1w: list[ImageFile], t2w: list[ImageFile]) -> tuple[list[ImageFile], list[ImageFile]]:
+        anat_input_cfg = self._get_anat_input_cfg()
         t1w = select_anatomical_candidates(t1w, anat_input_cfg.get("t1w_match"), "T1w", logger=self.logger)
         t2w = select_anatomical_candidates(t2w, anat_input_cfg.get("t2w_match"), "T2w", logger=self.logger)
+        primary = self._get_primary_anat_modality()
+        if primary == "t1w":
+            t2w = []
+        elif primary == "t2w":
+            t1w = []
         return t1w, t2w
 
     def _get_work_dir(self, subject: str, session: Optional[str] = None) -> Path:
@@ -1750,10 +1796,29 @@ class AnatPipeline(BasePipeline):
         """Process a single subject/session."""
         ses = f"ses-{session}" if session else ""
 
+        # Find inputs first so anatomical selectors can constrain downstream work.
+        subj_dir = self.config.bids_dir / f"sub-{subject}"
+        if session:
+            subj_dir = subj_dir / f"ses-{session}"
+
+        anat_dir = subj_dir / "anat"
+
+        t1w = bids_find_t1w(anat_dir)
+        t2w = bids_find_t2w(anat_dir)
+        t1w, t2w = self._apply_anat_selectors(t1w, t2w)
+
+        if not t1w and not t2w:
+            self.logger.warning(f"No T1w or T2w found for sub-{subject}. Skipping.")
+            return
+
         # QC: MRIQC
         qc_cfg = self.config.get("qc", {}).get("mriqc", {})
         if qc_cfg.get("enabled"):
-            pipeline_mods = {'T1w', 'T2w'}
+            pipeline_mods = set()
+            if t1w:
+                pipeline_mods.add('T1w')
+            if t2w:
+                pipeline_mods.add('T2w')
             cfg_mods = qc_cfg.get("modalities")
 
             if cfg_mods:
@@ -1780,21 +1845,6 @@ class AnatPipeline(BasePipeline):
                         raise e
             else:
                 self.logger.info(f"Skipping MRIQC for sub-{subject} (Computed modalities empty. Config: {cfg_mods})")
-
-        # Find inputs
-        subj_dir = self.config.bids_dir / f"sub-{subject}"
-        if session:
-            subj_dir = subj_dir / f"ses-{session}"
-
-        anat_dir = subj_dir / "anat"
-
-        t1w = bids_find_t1w(anat_dir)
-        t2w = bids_find_t2w(anat_dir)
-        t1w, t2w = self._apply_anat_selectors(t1w, t2w)
-
-        if not t1w and not t2w:
-            self.logger.warning(f"No T1w or T2w found for sub-{subject}. Skipping.")
-            return
 
         subj_work_dir = self._get_work_dir(subject, session)
 

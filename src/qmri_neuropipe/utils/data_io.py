@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import List, Dict, Optional
 import json
 import shutil
+import nibabel as nib
+import numpy as np
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
@@ -232,7 +234,13 @@ class DataIOManager:
         self.logger.info(f"Saving {len(dwis)} preprocessed DWI files to {output_dir}")
         
         base_out = self.config.output_dir
-        
+        apply_mask_to_final = bool(
+            self.config.get("dmri", {})
+            .get("preprocessing", {})
+            .get("brain_masking", {})
+            .get("apply_to_final_output", False)
+        )
+
         for dwi, mask in zip(dwis, masks or [None] * len(dwis)):
             if not dwi.img.exists():
                 self.logger.warning(f"Final DWI missing: {dwi.img}")
@@ -272,8 +280,6 @@ class DataIOManager:
             
             # Copy files
             self.logger.info(f"Saving: {target_img}")
-            shutil.copy(dwi.img, target_img)
-            
             search_dirs = []
             if dwi.img.parent:
                 search_dirs.append(dwi.img.parent)
@@ -319,6 +325,26 @@ class DataIOManager:
 
             search_dirs = [p for p in search_dirs if p and p.exists()]
 
+            # Save mask if present (fall back to step output mask)
+            mask_src = None
+            if mask and hasattr(mask, 'img') and mask.img.exists():
+                mask_src = mask.img
+            else:
+                mask_src = self._find_mask_for_image(dwi.img, search_dirs)
+
+            mask_applied_to_final = False
+            if apply_mask_to_final and mask_src and mask_src.exists():
+                try:
+                    self._apply_mask_to_dwi_and_save(dwi.img, mask_src, target_img)
+                    mask_applied_to_final = True
+                except Exception as exc:
+                    self.logger.warning(
+                        f"Failed to apply final brain mask for {dwi.img.name}: {exc}. Saving unmasked DWI."
+                    )
+                    shutil.copy(dwi.img, target_img)
+            else:
+                shutil.copy(dwi.img, target_img)
+
             # Copy sidecars (fall back to BIDS-matched files in search dirs)
             bval_src = getattr(dwi, "bval", None) or self._find_sidecar_for_image(dwi.img, ".bval", search_dirs)
             bvec_src = getattr(dwi, "bvec", None) or self._find_sidecar_for_image(dwi.img, ".bvec", search_dirs)
@@ -332,13 +358,8 @@ class DataIOManager:
             processing_details = context.get("processing_steps_detail") or []
             if target_json and processing_steps:
                 self._update_json_history(target_json, processing_steps, processing_details)
-            
-            # Save mask if present (fall back to step output mask)
-            mask_src = None
-            if mask and hasattr(mask, 'img') and mask.img.exists():
-                mask_src = mask.img
-            else:
-                mask_src = self._find_mask_for_image(dwi.img, search_dirs)
+            if target_json and mask_applied_to_final and mask_src and mask_src.exists():
+                self._mark_json_mask_applied(target_json, mask_src)
 
             if mask_src:
                 mask_ents = ents.copy()
@@ -356,6 +377,53 @@ class DataIOManager:
         
         # Save GNL maps if present
         self._save_gnl_maps(context, base_out, skip_existing)
+
+    def _apply_mask_to_dwi_and_save(
+        self,
+        source_dwi: Path,
+        mask_path: Path,
+        target_img: Path,
+    ) -> None:
+        """Apply a binary mask to a DWI and save the masked data to the final target."""
+        dwi_img = nib.load(str(source_dwi))
+        mask_img = nib.load(str(mask_path))
+
+        dwi_shape = dwi_img.shape[:3]
+        if mask_img.shape[:3] != dwi_shape:
+            raise ValueError(
+                f"Mask shape {mask_img.shape[:3]} does not match DWI spatial shape {dwi_shape}"
+            )
+
+        mask_data = np.asarray(mask_img.dataobj)
+        if mask_data.ndim > 3:
+            mask_data = np.squeeze(mask_data)
+        mask_bool = mask_data > 0
+
+        data = np.asarray(dwi_img.dataobj)
+        if data.ndim == 4:
+            masked_data = data * mask_bool[..., np.newaxis]
+        else:
+            masked_data = data * mask_bool
+
+        header = dwi_img.header.copy()
+        masked_img = nib.Nifti1Image(masked_data.astype(data.dtype, copy=False), dwi_img.affine, header)
+        nib.save(masked_img, str(target_img))
+
+    def _mark_json_mask_applied(self, json_path: Path, mask_path: Path) -> None:
+        """Record final-output mask application in the saved JSON sidecar."""
+        payload: Dict[str, object] = {}
+        if json_path.exists():
+            try:
+                with open(json_path, "r") as f:
+                    payload = json.load(f)
+            except Exception:
+                payload = {}
+
+        payload["BrainMaskAppliedToFinalPreprocessedDWI"] = True
+        payload["BrainMaskAppliedToFinalPreprocessedDWIPath"] = str(mask_path)
+
+        with open(json_path, "w") as f:
+            json.dump(payload, f, indent=4)
     
     def _copy_sidecar_with_new_name(
         self,

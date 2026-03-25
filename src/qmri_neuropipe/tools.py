@@ -4,6 +4,7 @@ CLI Tools for direct function access (e.g. Model Fitting).
 This module exposes internal library functions as standalone CLI commands.
 """
 
+import logging
 import typer
 from pathlib import Path
 from typing import Optional, List
@@ -44,6 +45,42 @@ def _require_gnl_backend(model_name: str, backend: str, grad_nonlin: Optional[Pa
             f"{model_name} gradient nonlinearity correction is only supported with the "
             f"'{supported_backend}' backend, not '{backend}'."
         )
+
+
+@app.command("enrich-gnl-metadata")
+def enrich_gnl_metadata_cli(
+    dicom_dir: Path = typer.Option(..., "--dicom-dir", help="Directory containing source GE DICOMs.", exists=True),
+    search_root: Optional[Path] = typer.Option(None, "--search-root", help="Root directory under which to find existing *_dwi.json sidecars.", exists=True),
+    json_paths: List[Path] = typer.Option([], "--json", help="Specific DWI JSON sidecar(s) or directories containing them."),
+    strict: bool = typer.Option(False, "--strict", help="Fail if any target sidecar cannot be matched to a DICOM series."),
+):
+    """
+    Enrich existing DWI JSON sidecars with GE gradient nonlinearity metadata from DICOM headers.
+    """
+    if not search_root and not json_paths:
+        console.print("[bold red]Error:[/bold red] provide either --search-root or at least one --json target.")
+        raise typer.Exit(code=2)
+
+    try:
+        from qmri_neuropipe.lib.common.gnl_metadata import enrich_existing_dwi_sidecars_with_ge_gnl
+        logger = logging.getLogger("qmri_tools.gnl_metadata")
+
+        result = enrich_existing_dwi_sidecars_with_ge_gnl(
+            dicom_dir=dicom_dir,
+            search_root=search_root,
+            json_paths=json_paths or None,
+            logger=logger,
+            strict=strict,
+        )
+        console.print(
+            "[bold green]Success![/bold green] "
+            f"updated={result['updated']}, unchanged={result['unchanged']}, unmatched={len(result['unmatched'])}"
+        )
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
 
 
 @app.command("fit-dti")

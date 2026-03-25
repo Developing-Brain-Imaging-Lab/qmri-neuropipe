@@ -230,7 +230,7 @@ class TortoiseGradNonlinCorrectStep(BaseProcessingStep):
         # During preprocessing we write an internal native-space tensor first and
         # canonicalize to the final desc-gnl_tensor output in the last alignment step.
         if is_context:
-            output_map = output_dir / f".{build_bids_name({**input_img.entities, 'desc': 'gnl_tensor_native_tmp'})}"
+            output_map = output_dir / build_bids_name({**input_img.entities, 'desc': 'gnl_tensor_native_tmp'})
         else:
             output_map = output_dir / build_bids_name({**input_img.entities, "desc": "gnl_tensor"})
         
@@ -395,7 +395,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
             if _same_grid(gnl_map, final_dwi):
                 if gnl_map != mapped_map:
                     nib.save(nib.load(str(gnl_map)), str(mapped_map))
-                    if gnl_map.name.startswith("."):
+                    if "gnl_tensor_native_tmp" in gnl_map.name:
                         gnl_map.unlink(missing_ok=True)
                 context["gnl_map"] = mapped_map
                 context.setdefault("gnl_map_by_image", {})[str(final_dwi)] = mapped_map
@@ -432,7 +432,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
             context.setdefault("gnl_map_by_image", {})[final_dwi] = gnl_map
             return context
 
-        if gnl_map.name.startswith(".") and gnl_map != mapped_map:
+        if "gnl_tensor_native_tmp" in gnl_map.name and gnl_map != mapped_map:
             gnl_map.unlink(missing_ok=True)
 
         # Update context to guarantee modeling uses this final-space map.

@@ -6,7 +6,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import nibabel as nib
 import numpy as np
@@ -294,6 +294,116 @@ def _target_dwi_sidecars(search_root: Path, context: dict[str, Any]) -> list[Pat
     return sorted(search_root.rglob("*_dwi.json"))
 
 
+def _normalize_target_sidecars(
+    search_root: Optional[Path] = None,
+    json_paths: Optional[Sequence[Path]] = None,
+) -> list[Path]:
+    targets: list[Path] = []
+
+    if json_paths:
+        for path in json_paths:
+            path = Path(path)
+            if path.is_dir():
+                targets.extend(sorted(path.rglob("*_dwi.json")))
+            else:
+                targets.append(path)
+    elif search_root:
+        targets = _target_dwi_sidecars(Path(search_root), {})
+
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for path in targets:
+        resolved = Path(path)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append(resolved)
+    return deduped
+
+
+def enrich_existing_dwi_sidecars_with_ge_gnl(
+    dicom_dir: Path,
+    *,
+    search_root: Optional[Path] = None,
+    json_paths: Optional[Sequence[Path]] = None,
+    logger: Optional[logging.Logger] = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """
+    Enrich existing DWI JSON sidecars with GE gradient nonlinearity metadata.
+
+    Parameters
+    ----------
+    dicom_dir : Path
+        Directory containing source GE DICOMs.
+    search_root : Path, optional
+        Root directory under which to find ``*_dwi.json`` sidecars.
+    json_paths : sequence of Path, optional
+        Explicit JSON sidecars or directories containing them.
+    logger : logging.Logger, optional
+        Logger to use for status messages.
+    strict : bool
+        If True, raise when any sidecar cannot be matched to a DICOM series.
+    """
+    logger = logger or LOGGER
+    dicom_dir = Path(dicom_dir)
+    if not dicom_dir.exists():
+        raise FileNotFoundError(f"DICOM directory not found: {dicom_dir}")
+
+    sidecars = _normalize_target_sidecars(search_root=search_root, json_paths=json_paths)
+    if not sidecars:
+        raise FileNotFoundError("No DWI JSON sidecars found to enrich.")
+
+    missing = [path for path in sidecars if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"JSON sidecar not found: {missing[0]}")
+
+    series_meta = collect_ge_series_metadata(dicom_dir, logger=logger)
+    if not series_meta:
+        raise ProcessingError(f"No GE DICOM series with usable PDB metadata found under {dicom_dir}")
+
+    updated = 0
+    unchanged = 0
+    unmatched: list[str] = []
+
+    for json_path in sidecars:
+        sidecar = _load_json(json_path)
+        match = _match_series(sidecar, series_meta)
+
+        if match is None and len(series_meta) == 1:
+            match = series_meta[0]
+
+        if match is None:
+            unmatched.append(str(json_path))
+            continue
+
+        if enrich_dwi_sidecar_with_ge_gnl(json_path, match, logger=logger):
+            updated += 1
+        else:
+            unchanged += 1
+
+    if strict and unmatched:
+        raise ProcessingError(
+            "GNL metadata could not be matched for sidecars: " + ", ".join(unmatched)
+        )
+
+    if unmatched:
+        logger.warning(
+            "GNL metadata could not be matched for sidecars: " + ", ".join(unmatched)
+        )
+
+    logger.info(
+        f"GE GNL metadata enrichment complete: updated={updated}, unchanged={unchanged}, unmatched={len(unmatched)}"
+    )
+    return {
+        "updated": updated,
+        "unchanged": unchanged,
+        "unmatched": unmatched,
+        "series_found": len(series_meta),
+        "sidecars_considered": len(sidecars),
+    }
+
+
 class GEGnlMetadataEnrichmentStep(BaseProcessingStep):
     """
     Post-conversion sidecar enrichment for GE gradient nonlinearity metadata.
@@ -338,37 +448,11 @@ class GEGnlMetadataEnrichmentStep(BaseProcessingStep):
             self.logger.info("No DWI sidecars found for GNL metadata enrichment")
             return context
 
-        series_meta = collect_ge_series_metadata(dicom_dir, logger=self.logger)
-        if not series_meta:
-            self.logger.warning(f"No GE DICOM series with usable PDB metadata found under {dicom_dir}")
-            return context
-
-        updated = 0
-        unmatched: list[str] = []
-
-        for json_path in dwi_sidecars:
-            sidecar = _load_json(json_path)
-            match = _match_series(sidecar, series_meta)
-
-            if match is None and len(series_meta) == 1:
-                match = series_meta[0]
-
-            if match is None:
-                unmatched.append(json_path.name)
-                continue
-
-            try:
-                if enrich_dwi_sidecar_with_ge_gnl(json_path, match, logger=self.logger):
-                    updated += 1
-            except Exception as exc:
-                raise ProcessingError(f"Failed to update GNL metadata in {json_path}: {exc}") from exc
-
-        if unmatched:
-            self.logger.warning(
-                "GNL metadata could not be matched for sidecars: "
-                + ", ".join(unmatched)
-            )
-
-        self.logger.info(f"Updated GE GNL metadata in {updated} DWI sidecar(s)")
-        context["gnl_metadata_sidecars_updated"] = updated
+        result = enrich_existing_dwi_sidecars_with_ge_gnl(
+            dicom_dir=dicom_dir,
+            json_paths=dwi_sidecars,
+            logger=self.logger,
+            strict=False,
+        )
+        context["gnl_metadata_sidecars_updated"] = result["updated"]
         return context

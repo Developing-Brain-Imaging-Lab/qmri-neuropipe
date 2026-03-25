@@ -110,13 +110,13 @@ class PreprocessingWorkflow(BaseWorkflow):
         dmri_cfg = (self.config.get('dmri') or {}).get('preprocessing', {})
         
         # Add steps based on configuration
+        self._add_merge_step(dmri_cfg, context)
         self._add_reorientation_step(dmri_cfg)
         self._add_resample_step(dmri_cfg)
+        self._add_distortion_correction_steps(dmri_cfg, context)
+        self._add_gradient_nonlinearity_step(dmri_cfg)
         self._add_gradient_check_step(dmri_cfg)
         self._add_manual_outlier_removal_step(dmri_cfg)
-        self._add_distortion_correction_steps(dmri_cfg, context)
-        self._add_merge_step(dmri_cfg, context)
-        self._add_gradient_nonlinearity_step(dmri_cfg)
         self._add_denoising_step(dmri_cfg)
         self._add_gibbs_step(dmri_cfg)
         self._add_motion_correction_step(dmri_cfg)

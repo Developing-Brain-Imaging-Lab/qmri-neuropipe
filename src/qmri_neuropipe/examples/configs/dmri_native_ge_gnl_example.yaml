@@ -118,6 +118,7 @@ dmri:
     brain_masking:
       enabled: true
       method: mrtrix
+      apply_to_final_output: false
 
   modeling:
     grad_nonlin:

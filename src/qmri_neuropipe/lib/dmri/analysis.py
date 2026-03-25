@@ -113,7 +113,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
             fixed_path = Path(target_img.img) if hasattr(target_img, 'img') else Path(target_img)
             fixed_img = nib.load(str(fixed_path))
             if len(fixed_img.shape) == 4:
-                reg_tmp = atlas_out / ".reg_tmp"
+                reg_tmp = atlas_out / "reg_tmp"
                 reg_tmp.mkdir(parents=True, exist_ok=True)
 
                 b0_mean = None
@@ -222,7 +222,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
              
              # We need a stable place to run registration.
              # Use a generic 'transforms' cache folder for the raw registration output.
-             cache_dir = atlas_out / ".transforms_work"
+             cache_dir = atlas_out / "transforms_work"
              cache_dir.mkdir(exist_ok=True)
              
              t_name = tpl_path.name.replace('.nii.gz', '').replace('.nii', '')

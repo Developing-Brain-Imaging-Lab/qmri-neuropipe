@@ -136,6 +136,89 @@ class ExecutionEngine:
         except ImportError as e:
             self.logger.warning(f"Could not import step types: {e}")
             return tuple()
+
+    def _build_image_mapping(self, old_dwis: List, new_dwis: List) -> Dict[Any, Any]:
+        image_mapping: Dict[Any, Any] = {}
+
+        for old_dwi, new_dwi in zip(old_dwis, new_dwis):
+            old_img = getattr(old_dwi, "img", None)
+            if old_img is None or getattr(new_dwi, "img", None) is None:
+                continue
+            image_mapping[old_img] = new_dwi
+            image_mapping[str(old_img)] = new_dwi
+
+        return image_mapping
+
+    def _remap_group_images(self, items: List[Any], image_mapping: Dict[Any, Any]) -> List[Any]:
+        remapped: List[Any] = []
+        seen = set()
+
+        for item in items or []:
+            key = getattr(item, "img", item)
+            mapped = image_mapping.get(key)
+            if mapped is None:
+                mapped = image_mapping.get(str(key))
+            if mapped is None:
+                mapped = item
+
+            dedupe_key = getattr(mapped, "img", mapped)
+            dedupe_key = str(dedupe_key)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            remapped.append(mapped)
+
+        return remapped
+
+    def _remap_topup_groups(self, context: Dict, image_mapping: Dict[Any, Any]) -> None:
+        topup_groups = context.get("topup_groups")
+        if not topup_groups:
+            return
+
+        remapped_groups = []
+        for group_item in topup_groups:
+            if isinstance(group_item, dict):
+                updated_group = dict(group_item)
+                updated_group["inputs"] = self._remap_group_images(
+                    group_item.get("inputs", []),
+                    image_mapping,
+                )
+                updated_group["targets"] = self._remap_group_images(
+                    group_item.get("targets", []),
+                    image_mapping,
+                )
+                if updated_group.get("inputs"):
+                    remapped_groups.append(updated_group)
+            else:
+                remapped_inputs = self._remap_group_images(list(group_item), image_mapping)
+                if remapped_inputs:
+                    remapped_groups.append(remapped_inputs)
+
+        context["topup_groups"] = remapped_groups
+
+    def _remap_topup_map(self, context: Dict, image_mapping: Dict[Any, Any]) -> None:
+        topup_map = context.get("topup_map")
+        if not topup_map:
+            return
+
+        remapped_map = dict(topup_map)
+        for old_key, new_dwi in image_mapping.items():
+            if isinstance(old_key, str):
+                continue
+            if old_key in topup_map:
+                value = topup_map[old_key]
+            elif str(old_key) in topup_map:
+                value = topup_map[str(old_key)]
+            else:
+                continue
+
+            new_img = getattr(new_dwi, "img", None)
+            if new_img is None:
+                continue
+            remapped_map[new_img] = value
+            remapped_map[str(new_img)] = value
+
+        context["topup_map"] = remapped_map
     
     def _execute_global_step(
         self,
@@ -169,8 +252,11 @@ class ExecutionEngine:
         # Check if files changed
         current_dwis = context.get("dwi_files", [])
         if current_dwis != old_dwis:
-            # Refresh topup groups if files changed, unless the step already rewrote them.
-            if context.get("topup_groups", []) == old_topup_groups:
+            image_mapping = self._build_image_mapping(old_dwis, current_dwis)
+            self._remap_topup_groups(context, image_mapping)
+            self._remap_topup_map(context, image_mapping)
+
+            if not context.get("topup_groups") and old_topup_groups:
                 from qmri_neuropipe.io.dmri.bids import find_reversed_phase_groups
                 context["topup_groups"] = find_reversed_phase_groups(current_dwis)
             native_ref_map = context.setdefault("gnl_native_reference_map", {})
@@ -356,6 +442,11 @@ class ExecutionEngine:
         
         if progress_callback:
             progress_callback(None, advance=True)
+
+        if new_dwis != current_dwis:
+            image_mapping = self._build_image_mapping(current_dwis, new_dwis)
+            self._remap_topup_groups(context, image_mapping)
+            self._remap_topup_map(context, image_mapping)
         
         return new_dwis, new_masks
     
