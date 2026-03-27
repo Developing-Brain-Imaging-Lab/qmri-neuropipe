@@ -62,6 +62,23 @@ class ReconAllStep(BaseProcessingStep):
             return t1w_files[0]
         return input_image
 
+    @staticmethod
+    def _aparc_aseg_path(subj_dir: Path) -> Path:
+        return subj_dir / "mri" / "aparc+aseg.mgz"
+
+    def _critical_outputs(self, subj_dir: Path) -> list[Path]:
+        return [
+            subj_dir / "mri" / "brain.mgz",
+            subj_dir / "mri" / "aseg.mgz",
+            self._aparc_aseg_path(subj_dir),
+            subj_dir / "surf" / "lh.white",
+            subj_dir / "surf" / "rh.white",
+            subj_dir / "scripts" / "recon-all.done",
+        ]
+
+    def _has_complete_recon(self, subj_dir: Path) -> bool:
+        return all(path.exists() for path in self._critical_outputs(subj_dir))
+
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer
         if not self.enabled and not self.use_freesurfer:
@@ -97,10 +114,12 @@ class ReconAllStep(BaseProcessingStep):
         })
         t1w_nii = output_dir / out_name
         mask_nii = output_dir / out_name.replace('T1w', 'mask')
+        aparc_aseg = self._aparc_aseg_path(subj_dir)
+        fs_complete = self._has_complete_recon(subj_dir)
         
         # If skip_existing enabled and final outputs exist, skip entirely
         if self.config.skip_existing and not kwargs.get('force', False):
-            if subj_dir.exists() and t1w_nii.exists() and mask_nii.exists():
+            if subj_dir.exists() and fs_complete and t1w_nii.exists() and mask_nii.exists():
                 # Quick validation
                 if (t1w_nii.stat().st_size > 1000 and 
                     mask_nii.stat().st_size > 1000):
@@ -129,21 +148,18 @@ class ReconAllStep(BaseProcessingStep):
              self.logger.info(f"Recon-all force run: Removing existing subject dir {subj_dir}")
              import shutil
              shutil.rmtree(subj_dir)
+        elif subj_dir.exists() and not aparc_aseg.exists():
+             self.logger.warning(
+                 f"FreeSurfer directory exists for {fs_sub_id} but {aparc_aseg.name} is missing. "
+                 "Removing the subject directory and restarting recon-all."
+             )
+             import shutil
+             shutil.rmtree(subj_dir)
              
         fs_dir.mkdir(parents=True, exist_ok=True)
         
-        # Check integrity of key FS outputs (multiple files for robustness)
-        # Check critical files that indicate complete processing
-        critical_files = [
-            subj_dir / "mri" / "brain.mgz",
-            subj_dir / "mri" / "aseg.mgz",
-            subj_dir / "surf" / "lh.white",
-            subj_dir / "surf" / "rh.white",
-            subj_dir / "scripts" / "recon-all.done"
-        ]
-        
-        # Fast check: if any critical file missing, recon is incomplete
-        fs_complete = all(f.exists() for f in critical_files)
+        # Check integrity of key FS outputs, including aparc+aseg.mgz as a completion sentinel.
+        fs_complete = self._has_complete_recon(subj_dir)
         
         if not fs_complete:
              if not recon_input:
@@ -174,6 +190,12 @@ class ReconAllStep(BaseProcessingStep):
                  )
         else:
              self.logger.info(f"Using existing FreeSurfer output for {fs_sub_id}")
+
+        if not aparc_aseg.exists():
+             raise ValidationError(
+                 f"FreeSurfer output for {fs_sub_id} is incomplete: missing {aparc_aseg}. "
+                 "The subject directory should be removed and recon-all rerun."
+             )
 
         # Post-Processing / Injection
         if context:
