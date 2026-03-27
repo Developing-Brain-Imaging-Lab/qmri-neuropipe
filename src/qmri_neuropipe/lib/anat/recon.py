@@ -66,18 +66,20 @@ class ReconAllStep(BaseProcessingStep):
     def _aparc_aseg_path(subj_dir: Path) -> Path:
         return subj_dir / "mri" / "aparc+aseg.mgz"
 
-    def _critical_outputs(self, subj_dir: Path) -> list[Path]:
+    @classmethod
+    def critical_outputs(cls, subj_dir: Path) -> list[Path]:
         return [
             subj_dir / "mri" / "brain.mgz",
             subj_dir / "mri" / "aseg.mgz",
-            self._aparc_aseg_path(subj_dir),
+            cls._aparc_aseg_path(subj_dir),
             subj_dir / "surf" / "lh.white",
             subj_dir / "surf" / "rh.white",
             subj_dir / "scripts" / "recon-all.done",
         ]
 
-    def _has_complete_recon(self, subj_dir: Path) -> bool:
-        return all(path.exists() for path in self._critical_outputs(subj_dir))
+    @classmethod
+    def has_complete_recon(cls, subj_dir: Path) -> bool:
+        return all(path.exists() for path in cls.critical_outputs(subj_dir))
 
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer
@@ -115,7 +117,7 @@ class ReconAllStep(BaseProcessingStep):
         t1w_nii = output_dir / out_name
         mask_nii = output_dir / out_name.replace('T1w', 'mask')
         aparc_aseg = self._aparc_aseg_path(subj_dir)
-        fs_complete = self._has_complete_recon(subj_dir)
+        fs_complete = self.has_complete_recon(subj_dir)
         
         # If skip_existing enabled and final outputs exist, skip entirely
         if self.config.skip_existing and not kwargs.get('force', False):
@@ -159,7 +161,7 @@ class ReconAllStep(BaseProcessingStep):
         fs_dir.mkdir(parents=True, exist_ok=True)
         
         # Check integrity of key FS outputs, including aparc+aseg.mgz as a completion sentinel.
-        fs_complete = self._has_complete_recon(subj_dir)
+        fs_complete = self.has_complete_recon(subj_dir)
         
         if not fs_complete:
              if not recon_input:

@@ -1501,6 +1501,47 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             "brain_mask": brain_mask
         }
 
+    def _recon_all_finished(self, context: dict) -> bool:
+        pre_cfg = self.anat_config.preprocessing
+        if not (pre_cfg.recon_all.get("enabled") or pre_cfg.use_freesurfer):
+            return True
+
+        subject = context.get("subject")
+        session = context.get("session")
+
+        if not subject:
+            for image in (context.get("t1w_files") or []) + (context.get("t2w_files") or []):
+                entities = getattr(image, "entities", {}) or {}
+                subject = entities.get("sub") or subject
+                session = session or entities.get("ses")
+                if subject:
+                    break
+
+        if not subject:
+            self.logger.warning(
+                "Recon-all is enabled, but the subject could not be determined during the FreeSurfer completion check."
+            )
+            return False
+
+        recon_cfg = pre_cfg.recon_all or {}
+        fs_dir = Path(recon_cfg.get("subjects_dir")) if recon_cfg.get("subjects_dir") else (
+            self.config.bids_dir / "derivatives" / "freesurfer"
+        )
+
+        fs_sub_id = f"sub-{subject}"
+        if session:
+            fs_sub_id += f"_ses-{session}"
+
+        subj_dir = fs_dir / fs_sub_id
+        if ReconAllStep.has_complete_recon(subj_dir):
+            return True
+
+        self.logger.info(
+            f"Cached anatomical outputs found, but FreeSurfer recon is incomplete for {fs_sub_id}. "
+            "Running the anatomical workflow so recon-all can be checked or rerun."
+        )
+        return False
+
     def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
         """
         Execute the anatomical preprocessing workflow.
@@ -1513,7 +1554,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         if self.config.get("skip_existing", True) and not self.config.get("force", False):
             cached = self._load_preprocessed_from_output(context, final_output_dir)
-            if cached:
+            if cached and self._recon_all_finished(context):
                 self.logger.info(
                     f"⚡ FAST SKIP: Found preprocessed anatomical outputs in {final_output_dir}"
                 )
