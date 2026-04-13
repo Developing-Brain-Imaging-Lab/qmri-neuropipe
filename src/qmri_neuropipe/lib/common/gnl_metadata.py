@@ -66,11 +66,9 @@ def _kv_from_pdb(txt: str) -> dict[str, str]:
 
 
 def _parse_letter_value(token: str) -> float:
-    token = token.strip().strip('"')
-    match = re.match(r'^([LRAPSI])\s*([-+]?\d+(?:\.\d+)?)$', token)
-    if not match:
+    letter, value = _parse_position_token(token)
+    if letter is None:
         raise ValueError(f"Unsupported GE position token: {token!r}")
-    letter, value = match.group(1), float(match.group(2))
     return {
         "R": +value,
         "L": -value,
@@ -81,18 +79,108 @@ def _parse_letter_value(token: str) -> float:
     }[letter]
 
 
-def _pdb_center_ras_rel_iso(kv: dict[str, str]) -> list[float]:
+def _parse_position_token(token: str) -> tuple[Optional[str], float]:
+    token = token.strip().strip('"').strip()
+    token = token.replace("\x00", "")
+    token = re.sub(r"\s+", " ", token)
+
+    patterns = [
+        r'^([LRAPSI])\s*([-+]?\d+(?:\.\d+)?)\s*(?:MM)?$',
+        r'^([-+]?\d+(?:\.\d+)?)\s*([LRAPSI])\s*(?:MM)?$',
+        r'^([-+]?\d+(?:\.\d+)?)\s*(?:MM)?$',
+    ]
+    for idx, pattern in enumerate(patterns):
+        match = re.match(pattern, token, flags=re.IGNORECASE)
+        if not match:
+            continue
+        if idx == 0:
+            return match.group(1).upper(), float(match.group(2))
+        if idx == 1:
+            return match.group(2).upper(), float(match.group(1))
+        return None, float(match.group(1))
+
+    raise ValueError(f"Unsupported GE position token: {token!r}")
+
+
+def _axis_to_ras_index(axis: str) -> int:
+    axis = axis.upper()
+    if axis in {"R", "L"}:
+        return 0
+    if axis in {"A", "P"}:
+        return 1
+    if axis in {"S", "I"}:
+        return 2
+    raise ValueError(f"Unsupported GE position token axis: {axis!r}")
+
+
+def _axis_value_to_ras(axis: str, value: float) -> float:
+    return {
+        "R": +value,
+        "L": -value,
+        "A": +value,
+        "P": -value,
+        "S": +value,
+        "I": -value,
+    }[axis.upper()]
+
+
+def _assign_ras_from_token(
+    target: list[Optional[float]],
+    token: str,
+) -> bool:
+    axis, value = _parse_position_token(token)
+    if axis is None:
+        return False
+    target[_axis_to_ras_index(axis)] = _axis_value_to_ras(axis, value)
+    return True
+
+
+def _legacy_center_from_required_keys(kv: dict[str, str]) -> list[float]:
     required = ["SLOC1", "ELOC1", "FOVCNT1", "FOVCNT2"]
     missing = [key for key in required if key not in kv]
     if missing:
         raise ValueError(f"Missing GE PDB keys: {', '.join(missing)}")
 
-    x0 = _parse_letter_value(kv["SLOC1"])
-    x1 = _parse_letter_value(kv["ELOC1"])
-    xc = 0.5 * (x0 + x1)
-    y = _parse_letter_value(kv["FOVCNT1"])
-    z = _parse_letter_value(kv["FOVCNT2"])
-    return [float(xc), float(y), float(z)]
+    sloc_axis, sloc_val = _parse_position_token(kv["SLOC1"])
+    eloc_axis, eloc_val = _parse_position_token(kv["ELOC1"])
+    fov1_axis, fov1_val = _parse_position_token(kv["FOVCNT1"])
+    fov2_axis, fov2_val = _parse_position_token(kv["FOVCNT2"])
+
+    x0 = _axis_value_to_ras(sloc_axis or "R", sloc_val)
+    x1 = _axis_value_to_ras(eloc_axis or "R", eloc_val)
+    y = _axis_value_to_ras(fov1_axis or "A", fov1_val)
+    z = _axis_value_to_ras(fov2_axis or "S", fov2_val)
+    return [float(0.5 * (x0 + x1)), float(y), float(z)]
+
+
+def _pdb_center_ras_rel_iso(kv: dict[str, str]) -> list[float]:
+    start = [None, None, None]
+    end = [None, None, None]
+    center = [None, None, None]
+
+    # Prefer explicit axis-labelled coordinates from all available location keys.
+    for idx in (1, 2, 3):
+        sloc_key = f"SLOC{idx}"
+        eloc_key = f"ELOC{idx}"
+        fov_key = f"FOVCNT{idx}"
+
+        if sloc_key in kv:
+            _assign_ras_from_token(start, kv[sloc_key])
+        if eloc_key in kv:
+            _assign_ras_from_token(end, kv[eloc_key])
+        if fov_key in kv:
+            _assign_ras_from_token(center, kv[fov_key])
+
+    for axis_idx in range(3):
+        if center[axis_idx] is None and start[axis_idx] is not None and end[axis_idx] is not None:
+            center[axis_idx] = 0.5 * (start[axis_idx] + end[axis_idx])
+
+    if all(value is not None for value in center):
+        return [float(value) for value in center]
+
+    # Fall back to the older interpretation where missing axis labels imply
+    # x from SLOC1/ELOC1, y from FOVCNT1, and z from FOVCNT2.
+    return _legacy_center_from_required_keys(kv)
 
 
 def extract_ge_series_metadata(dicom_path: Path) -> GeDicomSeriesMetadata:
