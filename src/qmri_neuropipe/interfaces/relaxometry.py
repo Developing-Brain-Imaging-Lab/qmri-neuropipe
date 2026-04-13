@@ -15,6 +15,18 @@ def _get_binary(name: str) -> str:
     return path
 
 
+def _get_qmri_fit_command(subcommand: str, legacy_binary: Optional[str] = None) -> list[str]:
+    """Resolve the modern qmri_fit CLI with optional fallback to a legacy standalone binary."""
+    qmri_fit = shutil.which("qmri_fit")
+    if qmri_fit:
+        return [qmri_fit, subcommand]
+    if legacy_binary:
+        return [_get_binary(legacy_binary)]
+    raise RuntimeError(
+        "Binary 'qmri_fit' not found in PATH. Please ensure it is installed."
+    )
+
+
 def _append_cli_options(cmd_parts: list[str], options: Optional[Dict[str, Any]] = None) -> None:
     if not options:
         return
@@ -57,14 +69,12 @@ def fit_despot1(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for qmri_fit_despot1.
+    Wrapper for `qmri_fit despot1`.
     """
-    binary = _get_binary("qmri_fit_despot1")
     out_d = ensure_dir(out_dir)
     spgr_p = extract_image_path(spgr_file)
     
-    cmd_parts = [
-        binary,
+    cmd_parts = _get_qmri_fit_command("despot1", legacy_binary="qmri_fit_despot1") + [
         f"--spgr={spgr_p}",
         f"--params={params_file}",
         f"--out_dir={out_d}",
@@ -111,13 +121,11 @@ def fit_despot1_hifi(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for qmri_fit_despot1_hifi.
+    Wrapper for `qmri_fit despot1_hifi`.
     """
-    binary = _get_binary("qmri_fit_despot1_hifi")
     out_d = ensure_dir(out_dir)
     
-    cmd_parts = [
-        binary,
+    cmd_parts = _get_qmri_fit_command("despot1_hifi", legacy_binary="qmri_fit_despot1_hifi") + [
         f"--spgr={extract_image_path(spgr_file)}",
         f"--irspgr={extract_image_path(irspgr_file)}",
         f"--params={params_file}",
@@ -158,13 +166,11 @@ def fit_despot2(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for qmri_fit_despot2.
+    Wrapper for `qmri_fit despot2`.
     """
-    binary = _get_binary("qmri_fit_despot2")
     out_d = ensure_dir(out_dir)
     
-    cmd_parts = [
-        binary,
+    cmd_parts = _get_qmri_fit_command("despot2", legacy_binary="qmri_fit_despot2") + [
         f"--ssfp={extract_image_path(ssfp_file)}",
         f"--t1={extract_image_path(t1_file)}",
         f"--b1={extract_image_path(b1_file)}",
@@ -209,13 +215,11 @@ def fit_despot2_fm(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for qmri_fit_despot2fm (mcDESPOT / 2-Component).
+    Wrapper for `qmri_fit despot2fm` (mcDESPOT / 2-Component).
     """
-    binary = _get_binary("qmri_fit_despot2fm")
     out_d = ensure_dir(out_dir)
     
-    cmd_parts = [
-        binary,
+    cmd_parts = _get_qmri_fit_command("despot2fm", legacy_binary="qmri_fit_despot2fm") + [
         f"--ssfp={extract_image_path(ssfp_file)}",
         f"--t1={extract_image_path(t1_file)}",
         f"--b1={extract_image_path(b1_file)}",
@@ -255,6 +259,7 @@ def fit_despot2_fm(
 
 
 def fit_mcdespot(
+    spgr_file: ImageLike | Path,
     ssfp_file: ImageLike | Path,
     t1_file: ImageLike | Path,
     b1_file: ImageLike | Path,
@@ -270,17 +275,19 @@ def fit_mcdespot(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for qmri_fit_mcdespot.
+    Wrapper for `qmri_fit mcdespot`.
 
-    This currently assumes the CLI contract matches the existing DESPOT2-FM style
-    interface: SSFP stack plus T1, B1, params, optional F0 and mask, along with
-    standard output base and threading flags.
+    This uses the unified CLI contract: SPGR and SSFP stacks plus params, B1,
+    optional F0/mask, and standard output/threading flags.
     """
-    binary = _get_binary("qmri_fit_mcdespot_cuda" if cuda else "qmri_fit_mcdespot")
     out_d = ensure_dir(out_dir)
 
-    cmd_parts = [
-        binary,
+    cmd_parts = (
+        [_get_binary("qmri_fit_mcdespot_cuda")]
+        if cuda
+        else _get_qmri_fit_command("mcdespot", legacy_binary="qmri_fit_mcdespot")
+    ) + [
+        f"--spgr={extract_image_path(spgr_file)}",
         f"--ssfp={extract_image_path(ssfp_file)}",
         f"--t1={extract_image_path(t1_file)}",
         f"--b1={extract_image_path(b1_file)}",

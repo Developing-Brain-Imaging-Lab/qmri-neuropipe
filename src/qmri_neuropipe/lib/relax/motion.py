@@ -1,15 +1,12 @@
-
 from pathlib import Path
-from typing import List, Optional, Union
-import numpy as np
+from typing import List, Optional
 import nibabel as nib
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
-from ...core.utils import ensure_dir
-from ...core.run import run_cmd
+from ...core.utils import ensure_dir, get_nifti_stem
 from ...io.bids import build_bids_name
-from ...interfaces import ants, fsl # Assuming ants interface exists or use direct
+from ...interfaces import ants
 from ...utils.relax_params import _extract_bids_param
 from ..common.json_metadata import copy_json_with_metadata
 
@@ -24,6 +21,29 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         self.method = method
         self.options = options or {}
+
+    @staticmethod
+    def _normalize_ants_transform(transform: str) -> str:
+        """
+        Normalize legacy ANTs shell shorthand to antspy transform names.
+        """
+        mapping = {
+            "r": "Rigid",
+            "rigid": "Rigid",
+            "a": "Affine",
+            "affine": "Affine",
+            "s": "SyN",
+            "syn": "SyN",
+            "sr": "SyNRA",
+            "synra": "SyNRA",
+            "b": "SyN",
+            "br": "SyNRA",
+            "bo": "SyNOnly",
+            "so": "SyNOnly",
+            "t": "Translation",
+            "translation": "Translation",
+        }
+        return mapping.get(str(transform).strip().lower(), str(transform))
         
     def run(self, 
             images: List[ImageFile], 
@@ -59,11 +79,12 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
         try:
             ref_nii = nib.load(ref_path)
             if len(ref_nii.shape) == 4 and ref_nii.shape[3] > 1:
-                 # Extract vol 0 as temp ref
                  temp_ref = output_dir / "temp_ref.nii.gz"
-                 # Using fslroi directly via run_cmd
-                 cmd = f"fslroi {ref_path} {temp_ref} 0 1"
-                 run_cmd(cmd, label="fslroi_ref")
+                 ref_data = ref_nii.dataobj[..., 0]
+                 nib.save(
+                     nib.Nifti1Image(ref_data, ref_nii.affine, ref_nii.header.copy()),
+                     temp_ref,
+                 )
                  ref_path = temp_ref
         except Exception as e:
             self.logger.warning(f"Could not check dimensions of ref: {e}")
@@ -156,22 +177,56 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
     def _register(self, in_file, ref_file, out_file):
         """Helper to run registration."""
         if self.method == 'ants':
-             transform = self.options.get('transform_type', 'r') 
-             threads = self.options.get('threads', 4)
-             prefix = str(out_file).replace(".nii.gz", "").replace(".nii", "")
-             cmd = f"antsRegistrationSyNQuick.sh -d 3 -f {ref_file} -m {in_file} -o {prefix} -t {transform} -n {threads}"
-             if 'args' in self.options: cmd += f" {self.options['args']}"
-             run_cmd(cmd, label="ants_moco")
-             warped = Path(f"{prefix}Warped.nii.gz")
-             if warped.exists(): warped.rename(out_file)
-             
+             nthreads = int(self.options.get('nthreads', self.options.get('threads', 4)))
+             transform_type = self._normalize_ants_transform(
+                 self.options.get('transform_type', self.options.get('type_of_transform', 'Rigid'))
+             )
+             interpolator = self.options.get('interpolation', self.options.get('interpolator', 'linear'))
+             out_prefix = out_file.parent / f"{get_nifti_stem(out_file)}_ants_"
+             registration_kwargs = {
+                 k: v for k, v in self.options.items()
+                 if k not in {
+                     'transform_type', 'type_of_transform', 'threads', 'nthreads',
+                     'interpolation', 'interpolator', 'args', 'extra_args'
+                 }
+             }
+             ignored_shell_args = self.options.get('args') or self.options.get('extra_args')
+             if ignored_shell_args:
+                 self.logger.warning(
+                     "Ignoring relaxometry motion-correction ANTs shell arguments for antspy registration: %s",
+                     ignored_shell_args,
+                 )
+
+             warped, _ = ants.registration(
+                 fixed_file=ref_file,
+                 moving_file=in_file,
+                 out_prefix=out_prefix,
+                 transform_type=transform_type,
+                 interpolator=interpolator,
+                 nthreads=nthreads,
+                 **registration_kwargs,
+             )
+             warped_path = Path(warped)
+             if warped_path != Path(out_file):
+                 warped_path.replace(out_file)
+
         elif self.method == 'fsl':
              from ...interfaces.fsl import flirt
              flirt_kwargs = {
                  'in_file': in_file, 'ref_file': ref_file, 'out_file': out_file,
                  'dof': self.options.get('dof', 6)
              }
-             for k in ['cost', 'bins', 'searchcost', 'interp']:
-                 if k in self.options: flirt_kwargs[k] = self.options[k]
-             flirt(**flirt_kwargs)
+             if 'cost' in self.options:
+                 flirt_kwargs['cost'] = self.options['cost']
 
+             extra_args = self.options.get('extra_args', self.options.get('args', ''))
+             if extra_args:
+                 flirt_kwargs['extra_args'] = extra_args
+
+             extra_opts = {
+                 k: v for k, v in self.options.items()
+                 if k not in {'dof', 'cost', 'extra_args', 'args'}
+             }
+             if extra_opts:
+                 flirt_kwargs['extra_opts'] = extra_opts
+             flirt(**flirt_kwargs)

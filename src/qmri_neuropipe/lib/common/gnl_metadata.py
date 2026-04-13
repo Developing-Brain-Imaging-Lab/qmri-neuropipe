@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -43,19 +44,24 @@ def _extract_pdb_text(ds: pydicom.dataset.FileDataset) -> str:
     if not isinstance(pdb, (bytes, bytearray)):
         raise ValueError("Unsupported GE PDB payload type")
 
-    idx = bytes(pdb).find(b"\x1f\x8b")
+    raw = bytes(pdb)
+    idx = raw.find(b"\x1f\x8b")
     if idx < 0:
-        raise ValueError("GE PDB payload does not contain a gzip stream")
-    return gzip.decompress(bytes(pdb)[idx:]).decode("latin1", errors="replace")
+        text = raw.decode("latin1", errors="replace").replace("\x00", "").strip()
+        if _kv_from_pdb(text):
+            return text
+        raise ValueError("GE PDB payload does not contain a gzip stream or recognizable text")
+
+    try:
+        return gzip.decompress(raw[idx:]).decode("latin1", errors="replace")
+    except Exception as exc:
+        raise ValueError(f"Failed to decompress GE PDB gzip payload: {exc}") from exc
 
 
 def _kv_from_pdb(txt: str) -> dict[str, str]:
     kv: dict[str, str] = {}
-    for line in txt.splitlines():
-        line = line.strip()
-        match = re.match(r'^([A-Z0-9_]+)\s+"(.*)"\s*$', line)
-        if match:
-            kv[match.group(1)] = match.group(2)
+    for match in re.finditer(r'([A-Z0-9_]+)\s*(?:=|:)?\s*"([^"]*)"', txt):
+        kv[match.group(1)] = match.group(2)
     return kv
 
 
@@ -114,16 +120,85 @@ def _iter_dicom_files(dicom_dir: Path) -> list[Path]:
     return sorted(path for path in dicom_dir.rglob("*") if path.is_file())
 
 
-def collect_ge_series_metadata(dicom_dir: Path, logger: Optional[logging.Logger] = None) -> list[GeDicomSeriesMetadata]:
+def _classify_ge_metadata_error(exc: Exception) -> str:
+    msg = str(exc)
+    if msg.startswith("Not a GE DICOM:"):
+        return "not_ge"
+    if msg.startswith("GE PDB private tag missing:"):
+        return "missing_pdb_tag"
+    if msg.startswith("GE PDB payload does not contain a gzip stream"):
+        return "unrecognized_pdb_payload"
+    if msg.startswith("Failed to decompress GE PDB gzip payload:"):
+        return "corrupt_pdb_gzip"
+    if msg.startswith("Missing GE PDB keys:"):
+        return "missing_pdb_keys"
+    if msg.startswith("Unsupported GE position token:"):
+        return "unsupported_position_token"
+    if msg.startswith("Unsupported GE PDB payload type"):
+        return "unsupported_pdb_payload_type"
+    return f"other:{msg}"
+
+
+def _format_ge_metadata_scan_summary(
+    *,
+    dicom_dir: Path,
+    scanned_files: int,
+    failure_counts: Counter[str],
+    failure_examples: dict[str, Path],
+) -> str:
+    if scanned_files == 0:
+        return f"No files were found under {dicom_dir}."
+
+    labels = {
+        "not_ge": "non-GE files",
+        "missing_pdb_tag": f"GE files missing private tag {PDB_TAG}",
+        "unrecognized_pdb_payload": "GE files with unreadable PDB payloads",
+        "corrupt_pdb_gzip": "GE files with corrupt PDB gzip payloads",
+        "missing_pdb_keys": "GE files missing required PDB keys",
+        "unsupported_position_token": "GE files with unsupported position tokens",
+        "unsupported_pdb_payload_type": "GE files with unsupported PDB payload types",
+    }
+
+    parts = [f"Scanned {scanned_files} file(s)."]
+    if not failure_counts:
+        parts.append("No DICOM candidates could be parsed.")
+        return " ".join(parts)
+
+    ranked = failure_counts.most_common(3)
+    formatted: list[str] = []
+    for key, count in ranked:
+        label = labels.get(key, key.removeprefix("other:"))
+        example = failure_examples.get(key)
+        if example:
+            formatted.append(f"{label}: {count} (example: {example})")
+        else:
+            formatted.append(f"{label}: {count}")
+    parts.append("Top rejection reasons: " + "; ".join(formatted) + ".")
+    return " ".join(parts)
+
+
+def collect_ge_series_metadata(
+    dicom_dir: Path,
+    logger: Optional[logging.Logger] = None,
+    *,
+    return_diagnostics: bool = False,
+) -> list[GeDicomSeriesMetadata] | tuple[list[GeDicomSeriesMetadata], dict[str, Any]]:
     logger = logger or LOGGER
     series_map: dict[str, GeDicomSeriesMetadata] = {}
+    failure_counts: Counter[str] = Counter()
+    failure_examples: dict[str, Path] = {}
+    scanned_files = 0
 
     for path in _iter_dicom_files(dicom_dir):
+        scanned_files += 1
         try:
             meta = extract_ge_series_metadata(path)
         except (InvalidDicomError, IsADirectoryError):
             continue
         except Exception as exc:
+            key = _classify_ge_metadata_error(exc)
+            failure_counts[key] += 1
+            failure_examples.setdefault(key, path)
             logger.debug(f"Skipping DICOM candidate {path}: {exc}")
             continue
 
@@ -131,7 +206,21 @@ def collect_ge_series_metadata(dicom_dir: Path, logger: Optional[logging.Logger]
         if key not in series_map:
             series_map[key] = meta
 
-    return list(series_map.values())
+    series = list(series_map.values())
+    if return_diagnostics:
+        diagnostics = {
+            "scanned_files": scanned_files,
+            "failure_counts": dict(failure_counts),
+            "failure_examples": {key: str(path) for key, path in failure_examples.items()},
+            "summary": _format_ge_metadata_scan_summary(
+                dicom_dir=dicom_dir,
+                scanned_files=scanned_files,
+                failure_counts=failure_counts,
+                failure_examples=failure_examples,
+            ),
+        }
+        return series, diagnostics
+    return series
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -358,9 +447,16 @@ def enrich_existing_dwi_sidecars_with_ge_gnl(
     if missing:
         raise FileNotFoundError(f"JSON sidecar not found: {missing[0]}")
 
-    series_meta = collect_ge_series_metadata(dicom_dir, logger=logger)
+    series_meta, diagnostics = collect_ge_series_metadata(
+        dicom_dir,
+        logger=logger,
+        return_diagnostics=True,
+    )
     if not series_meta:
-        raise ProcessingError(f"No GE DICOM series with usable PDB metadata found under {dicom_dir}")
+        raise ProcessingError(
+            f"No GE DICOM series with usable PDB metadata found under {dicom_dir}. "
+            f"{diagnostics['summary']}"
+        )
 
     updated = 0
     unchanged = 0

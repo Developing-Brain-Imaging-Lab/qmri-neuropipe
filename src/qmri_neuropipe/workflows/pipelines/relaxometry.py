@@ -506,6 +506,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 if not despot_b1_path:
                     raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
                 mcdespot_results = fit_mcdespot(
+                    spgr_file=spgr_stack,
                     ssfp_file=ssfp_stack,
                     t1_file=t1_path,
                     b1_file=despot_b1_path,
