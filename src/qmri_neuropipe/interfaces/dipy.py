@@ -480,11 +480,17 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     fit_kwargs.pop('nthreads', None)
     fit_kwargs.pop('grad_nonlin', None) # GNL is handled by splitting, not passed to fit directly here
     fit_kwargs.pop('sub_method', None)
+    fit_method = _normalize_dki_fit_method(fit_kwargs.pop('fit_method', 'WLLS'))
+    if fit_kwargs.get('weights_method') is not None or fit_method == 'IRLS':
+        fit_kwargs['return_S0_hat'] = True
+        fit_kwargs.setdefault('min_signal', 1e-6)
+        if fit_method == 'IRLS':
+            fit_method = 'WLS'
 
     if use_msdki:
-        model = dipy_msdki.MeanDiffusionKurtosisModel(gtab, **fit_kwargs)
+        model = dipy_msdki.MeanDiffusionKurtosisModel(gtab, fit_method=fit_method, **fit_kwargs)
     else:
-        model = dipy_dki.DiffusionKurtosisModel(gtab, **fit_kwargs)
+        model = dipy_dki.DiffusionKurtosisModel(gtab, fit_method=fit_method, **fit_kwargs)
         
     # Reshape to 4D to ensure safe broadcasting
     n_vox = data_chunk.shape[0]
@@ -905,6 +911,30 @@ def _resolve_iterative_params(fit_method, kwargs):
          # Default to WLS as it aligns with default weights_method_wls_m_est
          kwargs['fit_type'] = 'WLS'
 
+
+def _normalize_dki_fit_method(fit_method: str) -> str:
+    """
+    Map pipeline-friendly DKI fit labels to the subset accepted by DIPY's
+    DiffusionKurtosisModel constructor.
+    """
+    normalized = str(fit_method or "WLLS").strip().upper()
+    aliases = {
+        "WLLS": "WLS",
+        "UWLLS": "WLS",
+        "WLS": "WLS",
+        "OLS": "OLS",
+        "ULLS": "OLS",
+        "LS": "OLS",
+        "LLS": "OLS",
+        # DIPY's DKI constructor does not expose NLLS directly. If the caller
+        # requests iterative robust fitting, weights_method drives that path.
+        "NLLS": "WLS",
+        "IRLS": "WLS",
+        "CLS": "CLS",
+        "CWLS": "CWLS",
+    }
+    return aliases.get(normalized, normalized)
+
 def fit_dti(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -1211,8 +1241,8 @@ def fit_dki(
     from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 
     # Resolve iterative parameters if needed
-    # Resolve iterative parameters if needed
     _resolve_iterative_params(fit_method, kwargs)
+    dki_fit_method = _normalize_dki_fit_method(fit_method)
 
     in_path = extract_image_path(in_file)
     img = nib.load(str(in_path))
@@ -1266,6 +1296,10 @@ def fit_dki(
     dki_kwargs.pop('smoothing_fwhm', None)
     dki_kwargs.pop('grad_nonlin', None)
     dki_kwargs.pop('sub_method', None)
+    dki_kwargs['fit_method'] = dki_fit_method
+    if dki_kwargs.get('weights_method') is not None or str(fit_method).strip().upper() == 'IRLS':
+        dki_kwargs['return_S0_hat'] = True
+        dki_kwargs.setdefault('min_signal', 1e-6)
 
     dkimodel = ModelClass(gtab, **dki_kwargs)
     
@@ -1342,6 +1376,7 @@ def fit_dki(
         "FittingSoftware": "DIPY",
         "InputData": in_path.name,
         "FittingMethod": fit_method,
+        "ResolvedFittingMethod": dki_fit_method,
         "Metrics": metrics
     }
 
