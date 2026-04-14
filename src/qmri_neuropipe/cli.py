@@ -215,6 +215,25 @@ def _normalize_optional_bids_label(value: Optional[str], prefix: str) -> Optiona
     return text.removeprefix(prefix)
 
 
+def _parse_csv_int_option(value: Optional[str], option_name: str) -> Optional[list[int]]:
+    if value is None:
+        return None
+    parts = [part.strip() for part in str(value).split(",") if part.strip()]
+    try:
+        parsed = sorted({int(part) for part in parts})
+    except ValueError:
+        console.print(
+            f"[bold red]Error:[/bold red] Invalid {option_name} format: {value}. Expected comma-separated integers."
+        )
+        raise typer.Exit(code=1)
+    if any(idx < 0 for idx in parsed):
+        console.print(
+            f"[bold red]Error:[/bold red] Invalid {option_name} format: {value}. Indices must be non-negative."
+        )
+        raise typer.Exit(code=1)
+    return parsed
+
+
 def _resolve_auto_import_subject_session(config: PipelineConfig) -> tuple[Optional[str], Optional[str]]:
     import_subject = config.get("import.subject")
     import_session = config.get("import.session")
@@ -531,6 +550,16 @@ def main(
         "--outlier-indices",
         help="Comma-separated list of volume indices to remove (e.g., '0,1,2')"
     ),
+    spgr_exclude: Optional[str] = typer.Option(
+        None,
+        "--spgr-exclude",
+        help="Comma-separated list of logical SPGR acquisition indices to exclude (e.g., '0,1,3')"
+    ),
+    ssfp_exclude: Optional[str] = typer.Option(
+        None,
+        "--ssfp-exclude",
+        help="Comma-separated list of logical SSFP acquisition indices to exclude (e.g., '5,10')"
+    ),
     subjects_file: Optional[Path] = typer.Option(
         None,
         "--subjects-file",
@@ -596,14 +625,10 @@ def main(
                 console.print(f"[bold red]Error:[/bold red] Invalid gpu_ids format: {gpu_ids}. Expected comma-separated integers.")
                 raise typer.Exit(code=1)
 
-        # Parse outlier_indices
-        outlier_indices_list = None
-        if outlier_indices is not None:
-            try:
-                outlier_indices_list = [int(x.strip()) for x in outlier_indices.split(',')]
-            except ValueError:
-                console.print(f"[bold red]Error:[/bold red] Invalid outlier-indices format: {outlier_indices}. Expected comma-separated integers.")
-                raise typer.Exit(code=1)
+        # Parse index-list options
+        outlier_indices_list = _parse_csv_int_option(outlier_indices, "outlier-indices")
+        spgr_exclude_list = _parse_csv_int_option(spgr_exclude, "spgr-exclude")
+        ssfp_exclude_list = _parse_csv_int_option(ssfp_exclude, "ssfp-exclude")
 
         # Collect CLI arguments (only non-None values)
         # Note: pipeline and level are NOT part of PipelineConfig dataclass
@@ -632,6 +657,8 @@ def main(
             'dmri.preprocessing.outliers.manual_indices': outlier_indices_list,
             'dmri.preprocessing.outliers.method': 'manual' if outlier_indices_list else None,
             'dmri.preprocessing.outliers.enabled': True if outlier_indices_list else None,
+            'relaxometry.preprocessing.exclude_indices.spgr': spgr_exclude_list,
+            'relaxometry.preprocessing.exclude_indices.ssfp': ssfp_exclude_list,
             # If submit_file is provided, pass it as 'submit' value (path string)
             # If submit is True but no file, pass True (or "DEFAULT")
             # We'll normalize this logic here

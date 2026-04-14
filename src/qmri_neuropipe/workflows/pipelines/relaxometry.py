@@ -1,9 +1,12 @@
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import shutil
 import json
 from dataclasses import dataclass, field
+
+import nibabel as nib
+import numpy as np
 
 from ...core import BaseWorkflow, PipelineConfig
 from ...core.types import ImageFile
@@ -31,6 +34,7 @@ class RelaxometryPreprocConfig:
     motion_correction: Dict = field(default_factory=lambda: {"enabled": False, "method": "ants"})
     b1: Dict = field(default_factory=lambda: {"method": "afi", "smoothing_fwhm": 0.0})
     brain_masking: Dict = field(default_factory=dict)
+    exclude_indices: Dict = field(default_factory=dict)
 
 
 @dataclass
@@ -146,6 +150,133 @@ class RelaxometryWorkflow(BaseWorkflow):
         spgr_files.sort(key=lambda x: str(x.img))
         ssfp_files.sort(key=lambda x: str(x.img))
         return spgr_files, ssfp_files, irspgr_files, b1_files
+
+    @staticmethod
+    def _normalize_exclude_indices(raw_value: Any, label: str) -> List[int]:
+        if raw_value in (None, "", []):
+            return []
+        if isinstance(raw_value, str):
+            values = [part.strip() for part in raw_value.split(",") if part.strip()]
+        elif isinstance(raw_value, (list, tuple, set)):
+            values = list(raw_value)
+        else:
+            raise ValueError(f"{label} exclude indices must be a list or comma-separated string.")
+
+        normalized: List[int] = []
+        for value in values:
+            try:
+                idx = int(value)
+            except Exception as exc:
+                raise ValueError(f"{label} exclude indices must be integers. Invalid value: {value!r}") from exc
+            if idx < 0:
+                raise ValueError(f"{label} exclude indices must be non-negative. Invalid value: {idx}")
+            normalized.append(idx)
+        return sorted(set(normalized))
+
+    @staticmethod
+    def _load_json_payload(src_json: Any) -> dict[str, Any]:
+        if not src_json:
+            return {}
+        if isinstance(src_json, dict):
+            return dict(src_json)
+        src_path = Path(src_json)
+        if not src_path.exists():
+            return {}
+        try:
+            return json.loads(src_path.read_text())
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _volume_json_payload(payload: dict[str, Any], volume_index: int, volume_count: int) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, value in payload.items():
+            if isinstance(value, list) and len(value) == volume_count:
+                out[key] = value[volume_index]
+            else:
+                out[key] = value
+        return out
+
+    def _expand_modality_exclusions(
+        self,
+        images: List[ImageFile],
+        *,
+        modality_label: str,
+        exclude_indices: List[int],
+        derived_dir: Path,
+    ) -> List[ImageFile]:
+        if not images or not exclude_indices:
+            return images
+
+        logical_ranges: list[tuple[ImageFile, int, int]] = []
+        running = 0
+        for img in images:
+            shape = nib.load(str(img.img)).shape
+            count = int(shape[3]) if len(shape) >= 4 and shape[3] > 1 else 1
+            logical_ranges.append((img, running, count))
+            running += count
+
+        total_count = running
+        invalid = [idx for idx in exclude_indices if idx >= total_count]
+        if invalid:
+            raise ValueError(
+                f"{modality_label} exclude indices out of range: {invalid}. "
+                f"Found {total_count} logical {modality_label} acquisition(s)."
+            )
+
+        exclude_set = set(exclude_indices)
+        derived_dir.mkdir(parents=True, exist_ok=True)
+        filtered: List[ImageFile] = []
+        excluded_paths: List[str] = []
+
+        for img, start_idx, count in logical_ranges:
+            local_keep = [local_idx for local_idx in range(count) if (start_idx + local_idx) not in exclude_set]
+            local_drop = [start_idx + local_idx for local_idx in range(count) if (start_idx + local_idx) in exclude_set]
+            if local_drop:
+                excluded_paths.append(f"{img.img.name}: {local_drop}")
+            if not local_keep:
+                continue
+            if count == 1 or len(local_keep) == count:
+                filtered.append(img)
+                continue
+
+            nii = nib.load(str(img.img))
+            base_payload = self._load_json_payload(getattr(img, "json", None))
+            suffix = img.entities.get("suffix", "VFA")
+            for local_idx in local_keep:
+                global_idx = start_idx + local_idx
+                out_entities = dict(img.entities)
+                chunk_token = f"{global_idx:04d}"
+                if out_entities.get("chunk"):
+                    chunk_token = f"{out_entities['chunk']}{chunk_token}"
+                out_entities["chunk"] = chunk_token
+                out_path = derived_dir / build_bids_name(out_entities, suffix=suffix)
+                out_json = out_path.with_suffix("").with_suffix(".json")
+
+                if not out_path.exists():
+                    vol_data = np.asanyarray(nii.dataobj[..., local_idx])
+                    nib.save(nib.Nifti1Image(vol_data, nii.affine, nii.header.copy()), str(out_path))
+
+                if not out_json.exists():
+                    vol_payload = self._volume_json_payload(base_payload, local_idx, count)
+                    vol_payload["SourceImage"] = str(img.img)
+                    vol_payload["SelectedVolumeIndex"] = int(local_idx)
+                    with out_json.open("w") as f:
+                        json.dump(vol_payload, f, indent=2)
+                        f.write("\n")
+
+                filtered.append(ImageFile(img=out_path, entities=out_entities, json=out_json))
+
+        self.logger.info(
+            "%s exclusions applied: removed indices=%s, remaining=%d/%d",
+            modality_label,
+            exclude_indices,
+            total_count - len(exclude_set),
+            total_count,
+        )
+        for item in excluded_paths:
+            self.logger.debug("Excluded %s acquisition(s): %s", modality_label, item)
+        return filtered
 
     def _setup_directories(
         self, output_dir: Path, context: dict
@@ -638,6 +769,35 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         relax_cfg = self.relax_config
         preproc_cfg = relax_cfg.preprocessing
+
+        exclude_cfg = getattr(preproc_cfg, "exclude_indices", {}) or {}
+        spgr_exclude = self._normalize_exclude_indices(exclude_cfg.get("spgr"), "SPGR")
+        ssfp_exclude = self._normalize_exclude_indices(exclude_cfg.get("ssfp"), "SSFP")
+
+        if spgr_exclude:
+            spgr_files = self._expand_modality_exclusions(
+                spgr_files,
+                modality_label="SPGR",
+                exclude_indices=spgr_exclude,
+                derived_dir=intermediate_dir / "excluded_inputs" / "spgr",
+            )
+        if ssfp_exclude:
+            ssfp_files = self._expand_modality_exclusions(
+                ssfp_files,
+                modality_label="SSFP",
+                exclude_indices=ssfp_exclude,
+                derived_dir=intermediate_dir / "excluded_inputs" / "ssfp",
+            )
+        context["spgr_exclude_indices"] = spgr_exclude
+        context["ssfp_exclude_indices"] = ssfp_exclude
+
+        self.logger.info(
+            "Using relaxometry inputs after exclusions: %d SPGR, %d SSFP, %d IR-SPGR, %d B1.",
+            len(spgr_files),
+            len(ssfp_files),
+            len(irspgr_files),
+            len(b1_files),
+        )
 
         # Preprocess images
         spgr_pre = self._preprocess_images(spgr_files, "SPGR", intermediate_dir)
