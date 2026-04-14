@@ -25,9 +25,21 @@ class NonlinearRegistrationStep(BaseProcessingStep):
     output: warped image and warp field.
     """
     
-    def __init__(self, config, logger=None, provenance=None, template: Optional[Path] = None):
+    def __init__(
+        self,
+        config,
+        logger=None,
+        provenance=None,
+        template: Optional[Path] = None,
+        method: str = "ants",
+        options: Optional[Dict[str, Any]] = None,
+        save_transforms: bool = True,
+    ):
         super().__init__(config, logger, provenance)
         self.template = template # If None, must be in config or passed in run
+        self.method = str(method or "ants").lower()
+        self.options = dict(options or {})
+        self.save_transforms = save_transforms
 
     def run(self, first_arg, output_dir: Path, template: Optional[Path]=None, **kwargs) -> Any:
         context, input_image = self.unpack_input(first_arg)
@@ -61,35 +73,77 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         
         output_img = output_dir / build_bids_name({**entities, "desc": "norm"})
         output_transform = output_dir / build_bids_name({**entities, "desc": "norm", "suffix": "transform"})
+        method = str(kwargs.get("method", self.method) or "ants").lower()
+        options = dict(self.options)
+        options.update(kwargs.get("options", {}) or {})
+        nthreads = kwargs.get("nthreads", getattr(self.config, "n_cpus", 1))
+
+        transform_ref: Optional[Path] = None
+        transform_kind = method
+        expected_transform = output_transform
+        if method == "fsl":
+            expected_transform = output_dir / build_bids_name(
+                {**entities, "desc": "norm", "suffix": "transform"},
+                extension=".mat",
+            )
+        transform_ref = expected_transform
         
-        if output_img.exists() and not kwargs.get('force', False):
+        if output_img.exists() and expected_transform.exists() and not kwargs.get('force', False):
              self.logger.info(f"Skipping nonlinear registration (exists): {output_img}")
         else:
              in_p = self._extract_path(input_image)
-             ants.registration(
-                 fixed_file=target,
-                 moving_file=in_p,
-                 out_prefix=output_transform,
-                 transform_type="SyN" # Nonlinear
-             )
-             
-             # ANTs outputs:
-             # prefixWarped.nii.gz -> output_img
-             # prefix1Warp.nii.gz -> forward warp
-             # prefix0GenericAffine.mat -> affine
-             
-             import shutil
-             warped = output_transform.with_suffix("").parent / (output_transform.name + "Warped.nii.gz")
-             if warped.exists():
-                 shutil.copy(warped, output_img)
+             if method == "ants":
+                 transform_type = str(options.get("transform_type", "SyN"))
+                 interpolator = str(options.get("interpolation", "linear"))
+                 ants.registration(
+                     fixed_file=target,
+                     moving_file=in_p,
+                     out_prefix=output_transform,
+                     transform_type=transform_type,
+                     interpolator=interpolator,
+                     nthreads=nthreads,
+                     **{k: v for k, v in options.items() if k not in {"transform_type", "interpolation"}}
+                 )
+
+                 # ANTs outputs:
+                 # prefixWarped.nii.gz -> output_img
+                 # prefix1Warp.nii.gz -> forward warp
+                 # prefix0GenericAffine.mat -> affine
+                 import shutil
+                 warped = output_transform.with_suffix("").parent / (output_transform.name + "Warped.nii.gz")
+                 if warped.exists():
+                     shutil.copy(warped, output_img)
+                 else:
+                     self.logger.warning("ANTs SyN completed but warped image not found?")
+             elif method == "fsl":
+                 output_mat = expected_transform
+                 flirt_opts: Dict[str, Any] = {}
+                 if "interpolation" in options:
+                     flirt_opts["interp"] = options["interpolation"]
+                 for key, value in options.items():
+                     if key in {"dof", "cost", "interpolation", "output_resolution"}:
+                         continue
+                     flirt_opts[key] = value
+
+                 fsl.flirt(
+                     in_file=in_p,
+                     ref_file=target,
+                     out_file=output_img,
+                     omat=output_mat,
+                     dof=int(options.get("dof", 6)),
+                     cost=str(options.get("cost", "normmi")),
+                     extra_opts=flirt_opts or None,
+                 )
              else:
-                 self.logger.warning("ANTs SyN completed but warped image not found?")
+                 raise ValidationError(f"Unsupported normalization method: {method}")
 
         result = ImageFile(img=output_img, entities=entities)
         
         if context:
              context["current_image"] = result
-             context["template_transform"] = output_transform # Store prefix for applying later?
+             if transform_ref is not None:
+                 context["template_transform"] = transform_ref
+                 context["template_transform_type"] = transform_kind
              return context
         return result
 

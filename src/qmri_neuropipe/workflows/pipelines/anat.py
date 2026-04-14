@@ -38,7 +38,7 @@ from ...lib.anat.recon import ReconAllStep, FreeSurferStatsStep
 from ...lib.common.sharpen import SharpeningStep
 from ...lib.common.segmentation import SegmentationStep
 from ...interfaces.mriqc import run_mriqc
-from ...interfaces import ants  # For manual apply_transforms
+from ...interfaces import ants, fsl  # For manual apply_transforms
 from ...lib.reporting.report import ReportGenerator
 
 # Rich and Viz imports moved to local scope below
@@ -63,6 +63,9 @@ class PreprocessingConfig:
 class NormalizationConfig:
     enabled: bool = False
     template: Optional[str] = None
+    method: str = "ants"
+    options: Dict[str, Any] = field(default_factory=dict)
+    save_transforms: bool = True
 
 @dataclass
 class SegmentationConfig:
@@ -125,7 +128,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             ),
             normalization=NormalizationConfig(
                 enabled=normalization_cfg.get("enabled", False),
-                template=normalization_cfg.get("template")
+                template=normalization_cfg.get("template"),
+                method=normalization_cfg.get("method", "ants"),
+                options=normalization_cfg.get("options", {}),
+                save_transforms=normalization_cfg.get("save_transforms", True),
             ),
             segmentation=SegmentationConfig(
                 enabled=segmentation_cfg.get("enabled", False),
@@ -234,7 +240,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         # 8. Nonlinear Registration
         norm_cfg = pre_cfg.normalization
         if norm_cfg.get("enabled"):
-            self.add_step(NonlinearRegistrationStep(self.config, self.logger, self.provenance, template=norm_cfg.get("template")))
+            self.add_step(
+                NonlinearRegistrationStep(
+                    self.config,
+                    self.logger,
+                    self.provenance,
+                    template=norm_cfg.get("template"),
+                    method=norm_cfg.get("method", "ants"),
+                    options=norm_cfg.get("options", {}),
+                    save_transforms=norm_cfg.get("save_transforms", True),
+                )
+            )
 
         # 9. Segmentation
         seg_cfg = self.anat_config.segmentation
@@ -1109,6 +1125,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if "preprocessed_t2w_coreg" in context:
                 t2_img = context["preprocessed_t2w_coreg"]
 
+            transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
             if primary_suffix == "T1w" and t2_img and transform and transform.exists():
                 self.logger.info("Applying Normalization Warp to T2w...")
                 ents = dict(t2_img.entities)
@@ -1124,33 +1141,56 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
 
                         if template:
-                            prefix = Path(transform)
-                            warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
-                            affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
-
-                            if warp.exists() and affine.exists():
-                                ants.apply_transforms(
-                                    fixed_file=Path(template),
-                                    moving_file=t2_img.img,
-                                    out_file=norm_t2_path,
-                                    transforms=[warp, affine],
-                                    interpolator='linear'
+                            if transform_type == "fsl" or Path(transform).suffix == ".mat":
+                                interp = (
+                                    self.anat_config.preprocessing.normalization.get("options", {}).get("interpolation")
+                                    or "trilinear"
                                 )
-                                norm_t2_obj = ImageFile(norm_t2_path, self.config.bids_dir, entities=ents)
+                                fsl.applywarp(
+                                    in_file=t2_img.img,
+                                    ref_file=Path(template),
+                                    out_file=norm_t2_path,
+                                    premat=Path(transform),
+                                    interp=interp,
+                                    force=True,
+                                )
+                                norm_t2_obj = ImageFile(entities=ents, img=norm_t2_path)
                                 context["preprocessed_t2w"] = norm_t2_obj
 
                                 if not norm_t2_obj.img.exists():
-                                    err_msg = f"T2w normalized output file missing after apply_transforms: {norm_t2_obj.img}"
+                                    err_msg = f"T2w normalized output file missing after FLIRT apply: {norm_t2_obj.img}"
                                     self.logger.warning(err_msg)
                                     errors.append(err_msg)
                                     if reporter:
                                         self._add_anat_step("Normalization_T2w", {"Status": "Output Missing"}, details={"path": str(norm_t2_obj.img)})
                             else:
-                                warn_msg = "Could not find warp/affine files for T2 normalization."
-                                self.logger.warning(warn_msg)
-                                errors.append(warn_msg)
-                                if reporter:
-                                    self._add_anat_step("Normalization_T2w", {"Status": "Warp Files Missing"}, details={"warp": str(warp), "affine": str(affine)})
+                                prefix = Path(transform)
+                                warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
+                                affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
+
+                                if warp.exists() and affine.exists():
+                                    ants.apply_transforms(
+                                        fixed_file=Path(template),
+                                        moving_file=t2_img.img,
+                                        out_file=norm_t2_path,
+                                        transforms=[warp, affine],
+                                        interpolator='linear'
+                                    )
+                                    norm_t2_obj = ImageFile(entities=ents, img=norm_t2_path)
+                                    context["preprocessed_t2w"] = norm_t2_obj
+
+                                    if not norm_t2_obj.img.exists():
+                                        err_msg = f"T2w normalized output file missing after apply_transforms: {norm_t2_obj.img}"
+                                        self.logger.warning(err_msg)
+                                        errors.append(err_msg)
+                                        if reporter:
+                                            self._add_anat_step("Normalization_T2w", {"Status": "Output Missing"}, details={"path": str(norm_t2_obj.img)})
+                                else:
+                                    warn_msg = "Could not find warp/affine files for T2 normalization."
+                                    self.logger.warning(warn_msg)
+                                    errors.append(warn_msg)
+                                    if reporter:
+                                        self._add_anat_step("Normalization_T2w", {"Status": "Warp Files Missing"}, details={"warp": str(warp), "affine": str(affine)})
                         else:
                             warn_msg = "No template reference found for T2 normalization apply."
                             self.logger.warning(warn_msg)
