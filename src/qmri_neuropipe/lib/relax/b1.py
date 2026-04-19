@@ -18,10 +18,61 @@ class B1MappingStep(BaseProcessingStep):
     2. If External: Registers/Resamples to SPGR Reference.
     """
     
-    def __init__(self, config, logger, provenance, method="afi", smoothing_fwhm: float = 0.0):
+    def __init__(
+        self,
+        config,
+        logger,
+        provenance,
+        method="afi",
+        smoothing_fwhm: float = 0.0,
+        registration: Optional[Dict] = None,
+    ):
         super().__init__(config, logger, provenance)
         self.method = method # 'afi', 'external', 'hifi'
         self.smoothing_fwhm = float(smoothing_fwhm if smoothing_fwhm is not None else 0.0)
+        self.registration = dict(registration or {})
+
+    def _registration_method(self) -> str:
+        return str(self.registration.get("method", "fsl") or "fsl").lower()
+
+    def _registration_interpolator(self) -> str:
+        return str(
+            self.registration.get(
+                "interpolation",
+                self.registration.get("interpolator", "linear"),
+            )
+        )
+
+    def _ants_transform_type(self) -> str:
+        mapping = {
+            "r": "Rigid",
+            "rigid": "Rigid",
+            "a": "Affine",
+            "affine": "Affine",
+            "translation": "Translation",
+            "t": "Translation",
+        }
+        value = str(self.registration.get("transform_type", "Rigid") or "Rigid").strip()
+        return mapping.get(value.lower(), value)
+
+    def _ants_registration_kwargs(self) -> Dict:
+        reserved = {"method", "transform_type", "interpolation", "interpolator", "dof", "cost"}
+        return {k: v for k, v in self.registration.items() if k not in reserved}
+
+    def _register_with_ants(self, moving: Path, reference: Path, output_dir: Path, prefix_name: str):
+        nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
+        out_prefix = output_dir / prefix_name
+        if not out_prefix.suffix:
+            out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
+        return ants.registration(
+            fixed_file=reference,
+            moving_file=moving,
+            out_prefix=out_prefix,
+            transform_type=self._ants_transform_type(),
+            interpolator=self._registration_interpolator(),
+            nthreads=nthreads,
+            **self._ants_registration_kwargs(),
+        )
         
     def run(self, 
             b1_image: ImageFile, 
@@ -56,6 +107,7 @@ class B1MappingStep(BaseProcessingStep):
         
 
         if self.method == 'afi':
+            registration_method = self._registration_method()
             # Check if input is Map or Raw (2 volumes)
             import nibabel as nib
             img = nib.load(b1_image.img)
@@ -69,7 +121,7 @@ class B1MappingStep(BaseProcessingStep):
                  self.logger.info("Detected Raw AFI Input (4D). Aligning before computation...")
                  
                  # 1. Split 4D
-                 from ...interfaces.fsl import split, merge, flirt, applywarp
+                 from ...interfaces.fsl import split, merge
                  
                  # Temp dir for split
                  tmp_split = output_dir / "tmp_afi_split"
@@ -82,21 +134,46 @@ class B1MappingStep(BaseProcessingStep):
                      raise ValueError("AFI input seems to be 4D but found less than 2 volumes.")
                      
                  # 2. Register Vol 0 (S1) to Reference
-                 # Use Rigid (6 DOF)
                  vol0 = vols[0]
                  mat_file = output_dir / "afi_to_spgr.mat"
                  
-                 if not mat_file.exists() or force:
-                      flirt(in_file=vol0, ref_file=reference_image.img, out_file=tmp_split / "vol0_aligned_ref.nii.gz", omat=mat_file, dof=6)
+                 if registration_method == "ants":
+                      _, transforms = self._register_with_ants(
+                          moving=vol0,
+                          reference=reference_image.img,
+                          output_dir=output_dir,
+                          prefix_name="afi_to_spgr_ants_",
+                      )
+                 elif registration_method == "fsl":
+                      if not mat_file.exists() or force:
+                           fsl.flirt(
+                               in_file=vol0,
+                               ref_file=reference_image.img,
+                               out_file=tmp_split / "vol0_aligned_ref.nii.gz",
+                               omat=mat_file,
+                               dof=int(self.registration.get("dof", 6)),
+                               cost=str(self.registration.get("cost", "normmi")),
+                           )
+                      transforms = None
+                 else:
+                      raise ValueError(f"Unknown AFI registration method: {registration_method}")
                  
                  # 3. Apply Transform to ALL volumes independently
                  aligned_vols = []
                  for i, v in enumerate(vols):
                      out_v = tmp_split / f"vol{i}_aligned.nii.gz"
-                     # applywarp or flirt -applyxfm
-                     cmd = f"flirt -in {v} -ref {reference_image.img} -out {out_v} -init {mat_file} -applyxfm"
-                     from ...core.run import run_cmd
-                     run_cmd(cmd, label=f"apply_afi_prop_{i}")
+                     if registration_method == "ants":
+                          ants.apply_transforms(
+                              fixed_file=reference_image.img,
+                              moving_file=v,
+                              out_file=out_v,
+                              transforms=transforms,
+                              interpolator=self._registration_interpolator(),
+                          )
+                     else:
+                          cmd = f"flirt -in {v} -ref {reference_image.img} -out {out_v} -init {mat_file} -applyxfm"
+                          from ...core.run import run_cmd
+                          run_cmd(cmd, label=f"apply_afi_prop_{i}")
                      aligned_vols.append(out_v)
                      
                  # 4. Merge back to 4D
@@ -126,21 +203,42 @@ class B1MappingStep(BaseProcessingStep):
                  moving = b1_ref_image.img if b1_ref_image else b1_image.img
                  
                  # 1. Register B1 Ref -> SPGR Ref
-                 # Use Rigid (intra-subject)
-                 prefix = str(output_dir / "b1_to_spgr_")
                  mat_file = output_dir / "b1_to_spgr.mat"
                  
-                 from ...interfaces.fsl import flirt, applywarp
-                 
-                 # Calculate transform
-                 flirt(in_file=moving, ref_file=reference_image.img, out_file=output_dir / "b1_ref_aligned.nii.gz", omat=mat_file, dof=6)
-                 
-                 # Apply to B1 Map
-                 self.logger.info("Applying transform to B1 Map")
-                 # Apply XFM to the computed (or input) map
-                 cmd = f"flirt -in {b1_map_path} -ref {reference_image.img} -out {out_path} -init {mat_file} -applyxfm"
-                 from ...core.run import run_cmd
-                 run_cmd(cmd, label="apply_b1_transform")
+                 if registration_method == "ants":
+                      self.logger.info("Registering B1 reference to SPGR with ANTs")
+                      _, transforms = self._register_with_ants(
+                          moving=moving,
+                          reference=reference_image.img,
+                          output_dir=output_dir,
+                          prefix_name="b1_to_spgr_ants_",
+                      )
+                      self.logger.info("Applying ANTs transform to B1 Map")
+                      ants.apply_transforms(
+                          fixed_file=reference_image.img,
+                          moving_file=b1_map_path,
+                          out_file=out_path,
+                          transforms=transforms,
+                          interpolator=self._registration_interpolator(),
+                      )
+                 elif registration_method == "fsl":
+                      # Calculate transform
+                      fsl.flirt(
+                          in_file=moving,
+                          ref_file=reference_image.img,
+                          out_file=output_dir / "b1_ref_aligned.nii.gz",
+                          omat=mat_file,
+                          dof=int(self.registration.get("dof", 6)),
+                          cost=str(self.registration.get("cost", "normmi")),
+                      )
+                      
+                      # Apply to B1 Map
+                      self.logger.info("Applying transform to B1 Map")
+                      cmd = f"flirt -in {b1_map_path} -ref {reference_image.img} -out {out_path} -init {mat_file} -applyxfm"
+                      from ...core.run import run_cmd
+                      run_cmd(cmd, label="apply_b1_transform")
+                 else:
+                      raise ValueError(f"Unknown B1 registration method: {registration_method}")
             
         elif self.method == 'external':
              # Just resample to match grid if needed, assuming already aligned? 

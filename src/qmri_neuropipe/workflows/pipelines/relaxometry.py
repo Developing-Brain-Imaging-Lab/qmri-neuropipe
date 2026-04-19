@@ -112,6 +112,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 self.provenance,
                 method=b1_cfg.get("method", "afi"),
                 smoothing_fwhm=b1_cfg.get("smoothing_fwhm", 0.0),
+                registration=b1_cfg.get("registration", {}),
             )
         )
 
