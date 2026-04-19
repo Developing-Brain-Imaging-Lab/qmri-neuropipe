@@ -59,14 +59,39 @@ class B1MappingStep(BaseProcessingStep):
         reserved = {"method", "transform_type", "interpolation", "interpolator", "dof", "cost"}
         return {k: v for k, v in self.registration.items() if k not in reserved}
 
+    def _ensure_3d_registration_image(self, image_path: Path, output_dir: Path, label: str) -> Path:
+        image_path = Path(image_path)
+        try:
+            img = nib.load(str(image_path))
+        except Exception:
+            return image_path
+
+        if len(img.shape) < 4 or img.shape[3] <= 1:
+            return image_path
+
+        index = int(self.registration.get(f"{label}_volume", self.registration.get("reference_volume", 0)))
+        if index < 0 or index >= img.shape[3]:
+            raise ValueError(
+                f"Requested {label}_volume={index} for ANTs B1 registration, "
+                f"but {image_path.name} has {img.shape[3]} volumes."
+            )
+
+        out_path = output_dir / f"{image_path.stem}_{label}vol{index:04d}.nii.gz"
+        if not out_path.exists():
+            vol_data = np.asanyarray(img.dataobj[..., index])
+            nib.save(nib.Nifti1Image(vol_data, img.affine, img.header.copy()), str(out_path))
+        return out_path
+
     def _register_with_ants(self, moving: Path, reference: Path, output_dir: Path, prefix_name: str):
         nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
         out_prefix = output_dir / prefix_name
         if not out_prefix.suffix:
             out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
+        moving_3d = self._ensure_3d_registration_image(moving, output_dir, "moving")
+        reference_3d = self._ensure_3d_registration_image(reference, output_dir, "fixed")
         return ants.registration(
-            fixed_file=reference,
-            moving_file=moving,
+            fixed_file=reference_3d,
+            moving_file=moving_3d,
             out_prefix=out_prefix,
             transform_type=self._ants_transform_type(),
             interpolator=self._registration_interpolator(),
