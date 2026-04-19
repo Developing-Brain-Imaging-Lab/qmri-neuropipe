@@ -89,7 +89,7 @@ class B1MappingStep(BaseProcessingStep):
             out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
         moving_3d = self._ensure_3d_registration_image(moving, output_dir, "moving")
         reference_3d = self._ensure_3d_registration_image(reference, output_dir, "fixed")
-        return ants.registration(
+        warped, transforms = ants.registration(
             fixed_file=reference_3d,
             moving_file=moving_3d,
             out_prefix=out_prefix,
@@ -98,6 +98,7 @@ class B1MappingStep(BaseProcessingStep):
             nthreads=nthreads,
             **self._ants_registration_kwargs(),
         )
+        return warped, transforms, reference_3d
         
     def run(self, 
             b1_image: ImageFile, 
@@ -163,7 +164,7 @@ class B1MappingStep(BaseProcessingStep):
                  mat_file = output_dir / "afi_to_spgr.mat"
                  
                  if registration_method == "ants":
-                      _, transforms = self._register_with_ants(
+                      _, transforms, ants_fixed = self._register_with_ants(
                           moving=vol0,
                           reference=reference_image.img,
                           output_dir=output_dir,
@@ -189,7 +190,7 @@ class B1MappingStep(BaseProcessingStep):
                      out_v = tmp_split / f"vol{i}_aligned.nii.gz"
                      if registration_method == "ants":
                           ants.apply_transforms(
-                              fixed_file=reference_image.img,
+                              fixed_file=ants_fixed,
                               moving_file=v,
                               out_file=out_v,
                               transforms=transforms,
@@ -232,7 +233,7 @@ class B1MappingStep(BaseProcessingStep):
                  
                  if registration_method == "ants":
                       self.logger.info("Registering B1 reference to SPGR with ANTs")
-                      _, transforms = self._register_with_ants(
+                      _, transforms, ants_fixed = self._register_with_ants(
                           moving=moving,
                           reference=reference_image.img,
                           output_dir=output_dir,
@@ -240,7 +241,7 @@ class B1MappingStep(BaseProcessingStep):
                       )
                       self.logger.info("Applying ANTs transform to B1 Map")
                       ants.apply_transforms(
-                          fixed_file=reference_image.img,
+                          fixed_file=ants_fixed,
                           moving_file=b1_map_path,
                           out_file=out_path,
                           transforms=transforms,
