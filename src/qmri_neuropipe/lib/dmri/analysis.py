@@ -18,6 +18,53 @@ from ...core import BaseProcessingStep, ProcessingError
 from ...interfaces import ants, fsl # Assuming ANTs or FSL for registration
 from ...io.bids import build_bids_name
 
+
+def _resolve_analysis_cfg(config, context: dict | object) -> dict:
+    """Resolve analysis config for the active modality."""
+    if isinstance(context, dict):
+        inline_cfg = context.get("analysis_cfg")
+        if isinstance(inline_cfg, dict):
+            return inline_cfg
+
+        modality = str(context.get("analysis_modality", "") or "").lower()
+        if modality == "relaxometry":
+            return config.get("relaxometry", {}).get("analysis", {}) or {}
+        if modality == "anat":
+            return config.get("anat", {}).get("segmentation", {}) or {}
+
+    return (
+        config.get("analysis")
+        or config.get("dmri", {}).get("analysis", {})
+        or {}
+    )
+
+
+def _resolve_normalization_cfg(config, context: dict | object) -> dict:
+    """Resolve normalization config for the active modality."""
+    if isinstance(context, dict):
+        modality = str(context.get("analysis_modality", "") or "").lower()
+        if modality == "relaxometry":
+            return config.get("relaxometry", {}).get("normalization", {}) or {}
+        if modality == "anat":
+            return config.get("anat", {}).get("normalization", {}) or {}
+
+    return (
+        config.get("normalization")
+        or config.get("dmri", {}).get("normalization", {})
+        or {}
+    )
+
+
+def _is_reference_registration_target(value: Any) -> bool:
+    token = "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+    return token in {
+        "spgrref",
+        "reference",
+        "ref",
+        "currentimage",
+        "sourceimage",
+    }
+
 class AtlasRegistrationStep(BaseProcessingStep):
     """
     Step to register standard atlases to the subject's diffusion space.
@@ -51,7 +98,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # Check context for FA map.
         # 1. Identify Target Image (Subject Space)
         # Search all models for FA map (e.g. DTI, DKI)
-        analysis_cfg = self.config.get("analysis") or self.config.get("dmri", {}).get("analysis", {})
+        analysis_cfg = _resolve_analysis_cfg(self.config, context)
 
         target_img = None
         modeling_results = context.get('modeling_results', {})
@@ -63,8 +110,17 @@ class AtlasRegistrationStep(BaseProcessingStep):
             target_metrics = [str(reg_target).upper()]
         else:
             target_metrics = ["FA"]
+
+        if any(_is_reference_registration_target(metric) for metric in target_metrics):
+            if hasattr(dwi, "img"):
+                target_img = dwi.img
+            else:
+                target_img = dwi
+            self.logger.info("Using workflow reference image as registration target.")
         
         for model_name, metrics in modeling_results.items():
+             if target_img:
+                 break
              for t in target_metrics:
                  # Check exact match
                  if t in metrics:
@@ -149,7 +205,7 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # For now, we will look for FSLDIR.
         # Ideally, user config 'normalization.template' provides the template.
         
-        norm_cfg = self.config.get("normalization") or self.config.get("dmri", {}).get("normalization", {})
+        norm_cfg = _resolve_normalization_cfg(self.config, context)
         template_img = norm_cfg.get("template")
         # Global template is optional if atlases define their own.
         if not template_img:
@@ -456,7 +512,7 @@ class StatsExtractionStep(BaseProcessingStep):
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Load LUTs
-        analysis_cfg = self.config.get("dmri", {}).get("analysis", {})
+        analysis_cfg = _resolve_analysis_cfg(self.config, context)
         if not analysis_cfg:
              analysis_cfg = self.config.get("dmri", {}).get("modeling", {}).get("analysis", {})
              

@@ -10,6 +10,18 @@ import nibabel as nib
 from ...core import BaseProcessingStep, ProcessingError
 from ...core.utils import ensure_dir
 
+
+def _is_reference_target(value: Any) -> bool:
+    token = "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+    return token in {
+        "spgrref",
+        "reference",
+        "ref",
+        "currentimage",
+        "sourceimage",
+    }
+
+
 class NormalizationStep(BaseProcessingStep):
     """
     Step to register diffusion metrics to a standard space template.
@@ -528,7 +540,13 @@ class NormalizationStep(BaseProcessingStep):
         
         # Look for partial match if exact match fails? e.g. 'FA' vs 'tensor_fa'
         # Or require exact match.
-        if self.driving_metric in flat_metrics:
+        if _is_reference_target(self.driving_metric):
+            current_image = context.get('current_image')
+            if hasattr(current_image, 'img'):
+                ref_path = current_image.img
+            elif current_image:
+                ref_path = current_image
+        elif self.driving_metric in flat_metrics:
             ref_path = flat_metrics[self.driving_metric]
         else:
             # Try caseless?
@@ -544,11 +562,10 @@ class NormalizationStep(BaseProcessingStep):
         # Ensure driving metric is included for warping even if it wasn't
         # listed in modeling_results (e.g., custom metrics lists).
         ref_ents = get_entities_from_path(ref_path)
-        ref_model = ref_ents.get('model') or 'Unknown'
+        ref_model = ref_ents.get('model') or ('Reference' if _is_reference_target(self.driving_metric) else 'Unknown')
         ref_metric = ref_ents.get('suffix')
         if not ref_metric:
-             ref_name_part = Path(ref_path).name.replace(".nii.gz", "")
-             ref_metric = ref_name_part.split("_")[-1]
+             ref_metric = 'SPGRref' if _is_reference_target(self.driving_metric) else Path(ref_path).name.replace(".nii.gz", "").split("_")[-1]
         _add_metric(ref_model, ref_metric, Path(ref_path))
 
         # Output dir

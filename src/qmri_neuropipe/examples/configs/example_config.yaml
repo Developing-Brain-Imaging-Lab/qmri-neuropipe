@@ -241,6 +241,55 @@ dmri:
 #     generate_reports: true
 
 # ============================================================================
+# RELAXOMETRY PIPELINE CONFIGURATION (if needed)
+# ============================================================================
+# relaxometry:
+#   preprocessing:
+#     motion_correction:
+#       enabled: true
+#       method: ants
+#     b1:
+#       method: afi
+#   modeling:
+#     despot1:
+#       enabled: true
+#     mcdespot:
+#       enabled: true
+#   normalization:
+#     enabled: true
+#     template: /path/to/MNI152_T1_1mm.nii.gz
+#     # Typical relaxometry usage is to normalize using the SPGR reference.
+#     # Fitted-map options such as T1 or MWF are also supported.
+#     driving_metric: spgr_ref
+#     space_name: MNI
+#     tool: ants
+#   analysis:
+#     enabled: true
+#     # Atlas registration target. Typical relaxometry usage is `spgr_ref`,
+#     # which uses the motion-corrected SPGR reference image to drive atlas
+#     # registration, then applies the resulting atlas ROIs to the selected
+#     # fitted maps below.
+#     # Other options can point to fitted maps such as T1 or MWF.
+#     registration_metric: spgr_ref
+#     atlases:
+#       JHU:
+#         labels: /path/to/JHU-ICBM-labels.nii.gz
+#         template: /path/to/MNI152_T1_1mm.nii.gz
+#         lut: /path/to/JHU-ICBM-labels.xml
+#     # Optional map selection for ROI statistics. Supported forms:
+#     #   - model-scoped strings: ["DESPOT1:T1", "mcDESPOT:VFm"]
+#     #   - plain metric names: ["T1", "MWF"]
+#     #   - mapping form:
+#     #       DESPOT1: [T1]
+#     #       mcDESPOT: [VFm]
+#     # VFm is accepted as an alias for MWF.
+#     parameters:
+#       DESPOT1:
+#         - T1
+#       mcDESPOT:
+#         - VFm
+
+# ============================================================================
 # ANATOMICAL PIPELINE CONFIGURATION (if needed)
 # ============================================================================
 # anat:

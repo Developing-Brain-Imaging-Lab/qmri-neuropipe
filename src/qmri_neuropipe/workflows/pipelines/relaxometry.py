@@ -20,7 +20,7 @@ from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
-from ...lib.common.stats import ROIStatsStep
+from ...lib.dmri.normalization import NormalizationStep
 from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
 from ...utils.relax_params import generate_acq_params
@@ -56,6 +56,7 @@ class RelaxometryConfig:
     modeling: RelaxometryModelingConfig = field(default_factory=RelaxometryModelingConfig)
     qc: RelaxometryQCConfig = field(default_factory=RelaxometryQCConfig)
     masking: Dict = field(default_factory=dict)
+    normalization: Dict = field(default_factory=lambda: {"enabled": False})
     analysis: Dict = field(default_factory=lambda: {"enabled": False})
 
 
@@ -72,6 +73,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
     def _initialize_steps(self):
         preproc_cfg = self.relax_config.preprocessing
+        norm_cfg = self.relax_config.normalization or {}
         analysis_cfg = self.relax_config.analysis or {}
 
         # 0. Reorientation
@@ -116,10 +118,272 @@ class RelaxometryWorkflow(BaseWorkflow):
             )
         )
 
-        # 5. Post-Processing: Atlas Registration & Stats
+        # 5. Standard-Space Normalization
+        if norm_cfg.get("enabled", False):
+            self.add_step(
+                NormalizationStep(
+                    self.config,
+                    self.logger,
+                    self.provenance,
+                    template=norm_cfg.get("template"),
+                    driving_metric=norm_cfg.get("driving_metric", "spgr_ref"),
+                    space_name=norm_cfg.get("space_name", norm_cfg.get("space", "MNI")),
+                    tool=norm_cfg.get("tool", "ants"),
+                    save_transforms=norm_cfg.get("save_transforms", True),
+                    transform_type=norm_cfg.get("transform_type", "SyN"),
+                    include_all_metrics=norm_cfg.get("include_all_metrics", True),
+                    synthmorph_args=norm_cfg.get("synthmorph_args", ""),
+                    synthmorph_moving_flag=norm_cfg.get("synthmorph_moving_flag", "--mov"),
+                    synthmorph_target_flag=norm_cfg.get("synthmorph_target_flag", "--targ"),
+                    synthmorph_output_flag=norm_cfg.get("synthmorph_output_flag", "--o"),
+                    synthmorph_transform_ext=norm_cfg.get("synthmorph_transform_ext", ".lta"),
+                    synthmorph_register_args=norm_cfg.get("synthmorph_register_args", ""),
+                    synthmorph_apply_args=norm_cfg.get("synthmorph_apply_args", ""),
+                    robust_iterative=norm_cfg.get("robust_iterative", {}),
+                )
+            )
+
+        # 6. Post-Processing: Atlas Registration & Stats
         if analysis_cfg.get("enabled", False):
             self.add_step(AtlasRegistrationStep(self.config, self.logger, self.provenance))
             self.add_step(StatsExtractionStep(self.config, self.logger, self.provenance))
+
+    @staticmethod
+    def _normalize_analysis_token(value: Any) -> str:
+        return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+    @classmethod
+    def _relax_model_specs(cls) -> Dict[str, Dict[str, Any]]:
+        return {
+            "DESPOT1": {
+                "aliases": {"despot1"},
+                "metrics": {"t1": "T1", "m0": "M0"},
+            },
+            "DESPOT1HIFI": {
+                "aliases": {"despot1hifi", "despot1_hifi", "hifi"},
+                "metrics": {"t1": "T1", "m0": "M0", "b1": "B1"},
+            },
+            "DESPOT2": {
+                "aliases": {"despot2"},
+                "metrics": {"t2": "T2", "m0": "M0", "f0": "F0"},
+            },
+            "DESPOT2FM": {
+                "aliases": {"despot2fm", "despot2_fm"},
+                "metrics": {
+                    "mwf": "MWF",
+                    "t1_fast": "T1_fast",
+                    "t1_slow": "T1_slow",
+                    "t2_fast": "T2_fast",
+                    "t2_slow": "T2_slow",
+                    "tau": "Tau",
+                },
+            },
+            "mcDESPOT": {
+                "aliases": {"mcdespot"},
+                "metrics": {
+                    "mwf": "MWF",
+                    "t1_fast": "T1_fast",
+                    "t1_slow": "T1_slow",
+                    "t2_fast": "T2_fast",
+                    "t2_slow": "T2_slow",
+                    "tau": "Tau",
+                },
+            },
+        }
+
+    @classmethod
+    def _resolve_relax_model_name(cls, value: Any) -> Optional[str]:
+        token = cls._normalize_analysis_token(value)
+        if not token:
+            return None
+        for model_name, spec in cls._relax_model_specs().items():
+            aliases = {cls._normalize_analysis_token(model_name), *(cls._normalize_analysis_token(v) for v in spec["aliases"])}
+            if token in aliases:
+                return model_name
+        return None
+
+    @classmethod
+    def _resolve_relax_metric_name(cls, value: Any) -> Optional[str]:
+        token = cls._normalize_analysis_token(value)
+        if not token:
+            return None
+
+        alias_map = {
+            "t1": "T1",
+            "m0": "M0",
+            "b1": "B1",
+            "t2": "T2",
+            "f0": "F0",
+            "mwf": "MWF",
+            "vfm": "MWF",
+            "myelinwaterfraction": "MWF",
+            "t1fast": "T1_fast",
+            "t1slow": "T1_slow",
+            "t2fast": "T2_fast",
+            "t2slow": "T2_slow",
+            "tau": "Tau",
+        }
+        if token in alias_map:
+            return alias_map[token]
+
+        for spec in cls._relax_model_specs().values():
+            for metric_name in spec["metrics"].values():
+                if token == cls._normalize_analysis_token(metric_name):
+                    return metric_name
+        return None
+
+    def _record_model_results(
+        self,
+        *,
+        model_name: str,
+        raw_results: Dict[str, Path],
+        fitted_maps: Dict[str, ImageFile],
+        modeling_results: Dict[str, Dict[str, Path]],
+    ) -> None:
+        spec = self._relax_model_specs()[model_name]
+        model_bucket = modeling_results.setdefault(model_name, {})
+
+        for raw_metric, metric_path in (raw_results or {}).items():
+            metric_file = Path(metric_path)
+            if not metric_file.exists():
+                self.logger.warning("Expected %s output missing for %s: %s", raw_metric, model_name, metric_file)
+                continue
+
+            metric_name = spec["metrics"].get(raw_metric, raw_metric.upper())
+            model_bucket[metric_name] = metric_file
+
+            try:
+                entities = get_entities_from_path(metric_file)
+            except Exception:
+                entities = {}
+
+            image_file = ImageFile(img=metric_file, entities=entities)
+            fitted_maps[f"{self._normalize_analysis_token(model_name)}_{self._normalize_analysis_token(metric_name)}"] = image_file
+            fitted_maps.setdefault(raw_metric.lower(), image_file)
+
+    def _select_analysis_parameters(
+        self,
+        modeling_results: Dict[str, Dict[str, Path]],
+        analysis_cfg: Dict[str, Any],
+    ) -> Dict[str, Dict[str, Path]]:
+        raw_selection = analysis_cfg.get("parameters")
+        if raw_selection in (None, "", [], {}):
+            raw_selection = analysis_cfg.get("metrics")
+
+        if raw_selection in (None, "", [], {}):
+            return modeling_results
+
+        selected_by_model: Dict[str, set[str]] = {}
+        global_metrics: set[str] = set()
+
+        def _add_metric(model_name: Optional[str], metric_name: Optional[str]) -> None:
+            if not metric_name:
+                return
+            if model_name:
+                selected_by_model.setdefault(model_name, set()).add(metric_name)
+            else:
+                global_metrics.add(metric_name)
+
+        if isinstance(raw_selection, dict):
+            items = raw_selection.items()
+        else:
+            if isinstance(raw_selection, str):
+                raw_selection = [part.strip() for part in raw_selection.split(",") if part.strip()]
+            items = [(None, item) for item in raw_selection]
+
+        for model_name, selection in items:
+            if model_name is not None:
+                canonical_model = self._resolve_relax_model_name(model_name)
+                if not canonical_model:
+                    self.logger.warning("Unknown relaxometry analysis model selector: %s", model_name)
+                    continue
+                metric_values = selection if isinstance(selection, (list, tuple, set)) else [selection]
+                for metric_value in metric_values:
+                    canonical_metric = self._resolve_relax_metric_name(metric_value)
+                    if not canonical_metric:
+                        self.logger.warning("Unknown relaxometry analysis metric selector: %s", metric_value)
+                        continue
+                    _add_metric(canonical_model, canonical_metric)
+                continue
+
+            value = selection
+            if not isinstance(value, str):
+                canonical_metric = self._resolve_relax_metric_name(value)
+                if not canonical_metric:
+                    self.logger.warning("Unknown relaxometry analysis metric selector: %s", value)
+                    continue
+                _add_metric(None, canonical_metric)
+                continue
+
+            selector = value.strip()
+            if not selector:
+                continue
+
+            for delimiter in (":", ".", "/"):
+                if delimiter in selector:
+                    left, right = selector.split(delimiter, 1)
+                    canonical_model = self._resolve_relax_model_name(left)
+                    canonical_metric = self._resolve_relax_metric_name(right)
+                    if not canonical_model or not canonical_metric:
+                        self.logger.warning("Unknown relaxometry analysis selector: %s", selector)
+                        break
+                    _add_metric(canonical_model, canonical_metric)
+                    break
+            else:
+                canonical_metric = self._resolve_relax_metric_name(selector)
+                if not canonical_metric:
+                    self.logger.warning("Unknown relaxometry analysis metric selector: %s", selector)
+                    continue
+                _add_metric(None, canonical_metric)
+
+        filtered: Dict[str, Dict[str, Path]] = {}
+        for model_name, metrics in modeling_results.items():
+            allowed = set(selected_by_model.get(model_name, set()))
+            for metric_name, metric_path in metrics.items():
+                if allowed and metric_name in allowed:
+                    filtered.setdefault(model_name, {})[metric_name] = metric_path
+                elif metric_name in global_metrics:
+                    filtered.setdefault(model_name, {})[metric_name] = metric_path
+
+        if not filtered:
+            self.logger.warning("No relaxometry fitted maps matched analysis selectors. Atlas registration/statistics will be skipped.")
+            return {}
+
+        return filtered
+
+    def _default_analysis_registration_metric(self, modeling_results: Dict[str, Dict[str, Path]]) -> Optional[str]:
+        preferred_metrics = ["T1", "MWF", "T2", "M0", "T1_slow", "T1_fast"]
+        for preferred in preferred_metrics:
+            for metrics in modeling_results.values():
+                if preferred in metrics:
+                    return preferred
+        for metrics in modeling_results.values():
+            for metric_name in metrics:
+                return metric_name
+        return None
+
+    def _build_analysis_context(
+        self,
+        context: dict,
+        ref_img: ImageFile,
+        modeling_results: Dict[str, Dict[str, Path]],
+    ) -> dict:
+        analysis_cfg = dict(self.relax_config.analysis or {})
+        selected_results = self._select_analysis_parameters(modeling_results, analysis_cfg)
+        if selected_results and not (
+            analysis_cfg.get("registration_metric") or analysis_cfg.get("registration_target")
+        ):
+            default_metric = self._default_analysis_registration_metric(selected_results)
+            if default_metric:
+                analysis_cfg["registration_metric"] = default_metric
+
+        analysis_context = dict(context)
+        analysis_context["analysis_modality"] = "relaxometry"
+        analysis_context["analysis_cfg"] = analysis_cfg
+        analysis_context["current_image"] = ref_img
+        analysis_context["modeling_results"] = selected_results
+        analysis_context.setdefault("segmentations", {})
+        return analysis_context
 
     def _parse_inputs(self, context: dict):
         relax_files: List[ImageFile] = context.get("relax_files", [])
@@ -465,15 +729,16 @@ class RelaxometryWorkflow(BaseWorkflow):
         mask_file: Optional[Path],
         b1_map: Optional[ImageFile],
         base_prefix: str,
-    ) -> Dict[str, ImageFile]:
+    ) -> tuple[Dict[str, ImageFile], Dict[str, Dict[str, Path]]]:
         """
         Run model fitting for DESPOT1, DESPOT1 HIFI, DESPOT2, DESPOT2FM, mcDESPOT if enabled.
 
-        Returns a dictionary of fitted map ImageFiles keyed by map name.
+        Returns flat fitted map handles plus structured modeling results.
         """
         from ...interfaces.fsl import merge as fslmerge
 
-        results = {}
+        fitted_maps: Dict[str, ImageFile] = {}
+        modeling_results: Dict[str, Dict[str, Path]] = {}
         modeling_cfg = self.relax_config.modeling
         despot1_results: Dict[str, Path] = {}
 
@@ -565,7 +830,13 @@ class RelaxometryWorkflow(BaseWorkflow):
                         verbose=despot1_verbose,
                         extra_options=despot1_extra,
                     )
-                results.update(despot1_results)
+                model_name = "DESPOT1HIFI" if use_hifi else "DESPOT1"
+                self._record_model_results(
+                    model_name=model_name,
+                    raw_results=despot1_results,
+                    fitted_maps=fitted_maps,
+                    modeling_results=modeling_results,
+                )
 
             # DESPOT2 fitting
             if modeling_cfg.despot2.get("enabled", False):
@@ -594,7 +865,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     verbose=bool(despot2_cfg.get("verbose", False)),
                     extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
                 )
-                results.update(despot2_results)
+                self._record_model_results(
+                    model_name="DESPOT2",
+                    raw_results=despot2_results,
+                    fitted_maps=fitted_maps,
+                    modeling_results=modeling_results,
+                )
 
             if modeling_cfg.despot2fm.get("enabled", False):
                 self.logger.info("Starting DESPOT2FM fitting.")
@@ -622,7 +898,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     verbose=bool(despot2fm_cfg.get("verbose", False)),
                     extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
                 )
-                results.update(despot2fm_results)
+                self._record_model_results(
+                    model_name="DESPOT2FM",
+                    raw_results=despot2fm_results,
+                    fitted_maps=fitted_maps,
+                    modeling_results=modeling_results,
+                )
 
             mcdespot_cfg = _mcdespot_cfg()
             if mcdespot_cfg.get("enabled", False):
@@ -652,69 +933,51 @@ class RelaxometryWorkflow(BaseWorkflow):
                     cuda=bool(mcdespot_cfg.get("cuda", False)),
                     extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
                 )
-                results.update(mcdespot_results)
+                self._record_model_results(
+                    model_name="mcDESPOT",
+                    raw_results=mcdespot_results,
+                    fitted_maps=fitted_maps,
+                    modeling_results=modeling_results,
+                )
         finally:
             if created_temp_inputs and input_dir.exists() and not self.config.get("save_intermediates", False):
                 shutil.rmtree(input_dir, ignore_errors=True)
 
-        context["fitted_maps"] = results
-        return results
+        context["fitted_maps"] = fitted_maps
+        context["modeling_results"] = modeling_results
+        return fitted_maps, modeling_results
 
     def _run_postprocessing_and_stats(
         self,
         context: dict,
         fit_out_dir: Path,
-        output_dir: Path,
         ref_img: ImageFile,
-        t1w_anat: Optional[ImageFile],
-        maps: Dict[str, ImageFile],
+        modeling_results: Dict[str, Dict[str, Path]],
         base_prefix: str,
     ) -> Dict[str, Path]:
         """
-        Run post-processing steps: coregistration, resampling, atlas registration,
-        and ROI statistics extraction. Returns dictionary with paths to stats outputs.
+        Run atlas registration and ROI statistics extraction for selected relaxometry maps.
         """
-        stats_results = {}
+        stats_results: Dict[str, Path] = {}
         analysis_cfg = self.relax_config.analysis or {}
 
         if analysis_cfg.get("enabled", False):
             atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
             stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
+            analysis_context = self._build_analysis_context(context, ref_img, modeling_results)
 
-            coreg_maps = {}
-            if (
-                atlas_reg_step
-                and stats_extract_step
-                and hasattr(atlas_reg_step, "coregister_to_t1w")
-                and hasattr(atlas_reg_step, "coregister_to_anat")
-                and maps
-            ):
-                for map_name, map_img in maps.items():
-                    if t1w_anat:
-                        self.logger.info(f"Coregistering {map_name} to T1w space.")
-                        coreg_t1w = atlas_reg_step.coregister_to_t1w(map_img, t1w_anat, output_dir=fit_out_dir)
-                        coreg_maps[f"{map_name}_coreg_t1w"] = coreg_t1w
-                    self.logger.info(f"Coregistering {map_name} to reference anatomical space.")
-                    coreg_anat = atlas_reg_step.coregister_to_anat(map_img, ref_img, output_dir=fit_out_dir)
-                    coreg_maps[f"{map_name}_coreg_anat"] = coreg_anat
-            elif maps:
-                self.logger.warning(
-                    "Relaxometry analysis is enabled, but atlas/statistics helpers are not fully available. "
-                    "Skipping atlas registration and ROI statistics extraction."
-                )
-
-            context["coregistered_maps"] = coreg_maps
-
-            if atlas_reg_step and stats_extract_step and coreg_maps:
-                self.logger.info("Running atlas registration and ROI statistics extraction.")
-                atlas_reg_step.run(output_dir=fit_out_dir, reference=ref_img)
-                stats_paths = stats_extract_step.run(
-                    input_maps=list(coreg_maps.values()),
-                    output_dir=fit_out_dir,
-                    prefix=base_prefix,
-                )
-                stats_results.update(stats_paths)
-                context["roi_stats"] = stats_paths
+            if not analysis_context.get("modeling_results"):
+                self.logger.warning("Relaxometry analysis is enabled, but no fitted maps were selected for atlas/statistics analysis.")
+            elif atlas_reg_step and stats_extract_step:
+                self.logger.info("Running relaxometry atlas registration and ROI statistics extraction.")
+                atlas_reg_step.run(analysis_context, fit_out_dir)
+                stats_extract_step.run(analysis_context, fit_out_dir)
+                stats_results.update(analysis_context.get("roi_stats_files", {}))
+                context["segmentations"] = analysis_context.get("segmentations", {})
+                context["roi_stats_files"] = analysis_context.get("roi_stats_files", {})
+                context["roi_stats"] = stats_results
+            else:
+                self.logger.warning("Relaxometry analysis is enabled, but atlas/statistics steps are not available. Skipping post-fit analysis.")
         else:
             self.logger.debug("Relaxometry atlas registration/statistics analysis is disabled. Skipping post-fit analysis.")
 
@@ -730,6 +993,28 @@ class RelaxometryWorkflow(BaseWorkflow):
                 self.logger.warning(f"Failed to generate QC report: {e}")
 
         return stats_results
+
+    def _run_normalization(
+        self,
+        context: dict,
+        normalization_output_dir: Path,
+    ) -> dict:
+        """
+        Run standard-space normalization on relaxometry fitted maps if enabled.
+        """
+        norm_cfg = self.relax_config.normalization or {}
+        if not norm_cfg.get("enabled", False):
+            self.logger.debug("Relaxometry normalization is disabled. Skipping standard-space normalization.")
+            return context
+
+        norm_step = next((s for s in self.steps if isinstance(s, NormalizationStep)), None)
+        if not norm_step:
+            self.logger.warning("Relaxometry normalization is enabled, but no normalization step is configured.")
+            return context
+
+        normalization_output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.info("Running relaxometry normalization to standard space.")
+        return norm_step.run(context, normalization_output_dir)
 
     def run(
         self,
@@ -838,7 +1123,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Model fitting
         fit_out_dir = anat_out_dir / "models"
-        fit_maps = self._run_model_fitting(
+        fit_maps, modeling_results = self._run_model_fitting(
             context,
             spgr_moco,
             ssfp_moco,
@@ -850,10 +1135,13 @@ class RelaxometryWorkflow(BaseWorkflow):
             base_prefix,
         )
 
-        # Post-processing, coregistration, atlas registration, stats extraction
-        t1w_anat: Optional[ImageFile] = context.get("t1w_file", None)
+        # Standard-space normalization
+        normalization_out_dir = anat_out_dir / "normalization"
+        context = self._run_normalization(context, normalization_out_dir)
+
+        # Post-processing, atlas registration, segmentation, stats extraction
         stats_results = self._run_postprocessing_and_stats(
-            context, fit_out_dir, output_dir, ref_img, t1w_anat, fit_maps, base_prefix
+            context, fit_out_dir, ref_img, modeling_results, base_prefix
         )
 
         # Save intermediates if requested
@@ -873,6 +1161,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         results = {
             "context": context,
             "fitted_maps": fit_maps,
+            "modeling_results": modeling_results,
+            "normalized_results": context.get("normalized_results", {}),
             "roi_stats": stats_results,
             "brain_mask": context.get("brain_mask", None),
             "b1_map": b1_map,
@@ -908,6 +1198,7 @@ class RelaxometryPipeline(BasePipeline):
             modeling=RelaxometryModelingConfig(**relax_config_dict.get("modeling", {})),
             qc=RelaxometryQCConfig(**relax_config_dict.get("qc", {})),
             masking=relax_config_dict.get("masking", {}),
+            normalization=relax_config_dict.get("normalization", {}),
             analysis=relax_config_dict.get("analysis", {}),
         )
         self.workflow = RelaxometryWorkflow(self.config, self.logger, self.provenance, relax_config=relax_config)

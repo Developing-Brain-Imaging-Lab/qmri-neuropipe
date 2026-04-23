@@ -490,6 +490,111 @@ def fit_mapmri_cli(
         raise typer.Exit(code=1)
 
 
+@app.command("fit-csd")
+def fit_csd_cli(
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
+    bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    method: str = typer.Option("msmt_csd", "--method", help="FOD algorithm (msmt_csd or csd)."),
+    response_algorithm: str = typer.Option("dhollander", "--response-algorithm", help="Response estimation algorithm."),
+    lmax: Optional[str] = typer.Option(None, "--lmax", help="Optional lmax (single value or comma-separated list)."),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing outputs."),
+):
+    """
+    Fit Constrained Spherical Deconvolution (CSD) using MRtrix3.
+    """
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"[bold blue]Running CSD Fit ({method})[/bold blue]")
+    console.print(f"  Input: {input}")
+    console.print(f"  Output: {output_dir}")
+
+    from qmri_neuropipe.core.types import DWIFile
+    from qmri_neuropipe.interfaces.mrtrix import dwi2response, dwi2fod
+    from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
+    import json
+
+    try:
+        dwi = DWIFile(img=input, entities=get_entities_from_path(input), bval=bval, bvec=bvec)
+        ent_base = get_entities_from_path(input)
+        ent_base.pop("desc", None)
+        ent_base["model"] = "CSD"
+
+        response_out = output_dir / "response"
+        response_out.mkdir(parents=True, exist_ok=True)
+        responses = dwi2response(
+            dwi,
+            response_out,
+            in_bvec=bvec,
+            in_bval=bval,
+            mask_file=mask,
+            algorithm=response_algorithm,
+            nthreads=nthreads,
+            force=force,
+        )
+
+        lmax_value: Optional[object] = None
+        if lmax:
+            lmax_value = [int(x.strip()) for x in lmax.split(",")] if "," in lmax else int(lmax)
+
+        fods = dwi2fod(
+            dwi,
+            responses,
+            output_dir,
+            in_bvec=bvec,
+            in_bval=bval,
+            mask_file=mask,
+            algorithm=method,
+            lmax=lmax_value,
+            nthreads=nthreads,
+            force=force,
+        )
+
+        renamed_outputs: list[Path] = []
+        for key, path in fods.items():
+            suffix = f"{key}FOD"
+            if key == "fod":
+                suffix = "FOD"
+
+            new_name = build_bids_name({**ent_base, "suffix": suffix})
+            new_path = output_dir / new_name
+
+            if path.exists() and path != new_path:
+                if new_path.exists() and force:
+                    new_path.unlink()
+                path.rename(new_path)
+            elif path.exists():
+                new_path = path
+
+            if new_path.exists():
+                sidecar = {
+                    "ModelName": "Constrained Spherical Deconvolution",
+                    "FittingSoftware": "MRtrix3",
+                    "InputData": input.name,
+                    "Algorithm": method,
+                    "ResponseAlgorithm": response_algorithm,
+                }
+                with open(str(new_path).replace(".nii.gz", ".json"), "w") as f:
+                    json.dump(sidecar, f, indent=4)
+                renamed_outputs.append(new_path)
+
+        if not renamed_outputs:
+            raise RuntimeError("CSD fitting completed without producing any FOD outputs.")
+
+        console.print("[bold green]Success![/bold green]")
+        for out_path in renamed_outputs:
+            console.print(f"  {out_path.name}")
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
 @app.command("run-relaxometry")
 def run_relaxometry_cli(
     output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory"),
