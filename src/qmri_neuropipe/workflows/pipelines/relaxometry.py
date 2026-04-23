@@ -261,6 +261,57 @@ class RelaxometryWorkflow(BaseWorkflow):
             fitted_maps[f"{self._normalize_analysis_token(model_name)}_{self._normalize_analysis_token(metric_name)}"] = image_file
             fitted_maps.setdefault(raw_metric.lower(), image_file)
 
+    def _backfill_model_results(
+        self,
+        fit_out_dir: Path,
+        fitted_maps: Dict[str, ImageFile],
+        modeling_results: Dict[str, Dict[str, Path]],
+    ) -> None:
+        """
+        Populate relaxometry modeling results from files already present on disk.
+        This keeps normalization/analysis working when fits were produced in a
+        previous run or when an external fitter emits a slightly different set
+        of outputs than the wrapper enumerates explicitly.
+        """
+        if not fit_out_dir.exists():
+            return
+
+        for metric_file in sorted(fit_out_dir.glob("*.nii.gz")):
+            try:
+                entities = get_entities_from_path(metric_file)
+            except Exception:
+                entities = {}
+
+            raw_model = entities.get("model")
+            raw_metric = entities.get("suffix")
+            if not raw_model or not raw_metric:
+                stem = metric_file.name.replace(".nii.gz", "")
+                tokens = stem.split("_")
+                for token in tokens:
+                    if token.startswith("model-") and not raw_model:
+                        raw_model = token.split("-", 1)[1]
+                if not raw_metric and tokens:
+                    raw_metric = tokens[-1]
+
+            canonical_model = self._resolve_relax_model_name(raw_model) if raw_model else None
+            if not canonical_model:
+                continue
+
+            canonical_metric = self._resolve_relax_metric_name(raw_metric) if raw_metric else None
+            if not canonical_metric:
+                canonical_metric = str(raw_metric or "").strip()
+            if not canonical_metric:
+                continue
+
+            modeling_results.setdefault(canonical_model, {})[canonical_metric] = metric_file
+
+            image_file = ImageFile(img=metric_file, entities=entities)
+            fitted_maps.setdefault(
+                f"{self._normalize_analysis_token(canonical_model)}_{self._normalize_analysis_token(canonical_metric)}",
+                image_file,
+            )
+            fitted_maps.setdefault(str(raw_metric or canonical_metric).lower(), image_file)
+
     def _select_analysis_parameters(
         self,
         modeling_results: Dict[str, Dict[str, Path]],
@@ -943,6 +994,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             if created_temp_inputs and input_dir.exists() and not self.config.get("save_intermediates", False):
                 shutil.rmtree(input_dir, ignore_errors=True)
 
+        self._backfill_model_results(fit_out_dir, fitted_maps, modeling_results)
         context["fitted_maps"] = fitted_maps
         context["modeling_results"] = modeling_results
         return fitted_maps, modeling_results
@@ -997,7 +1049,7 @@ class RelaxometryWorkflow(BaseWorkflow):
     def _run_normalization(
         self,
         context: dict,
-        normalization_output_dir: Path,
+        model_output_dir: Path,
     ) -> dict:
         """
         Run standard-space normalization on relaxometry fitted maps if enabled.
@@ -1012,9 +1064,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             self.logger.warning("Relaxometry normalization is enabled, but no normalization step is configured.")
             return context
 
-        normalization_output_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info("Running relaxometry normalization to standard space.")
-        return norm_step.run(context, normalization_output_dir)
+        return norm_step.run(context, model_output_dir)
 
     def run(
         self,
@@ -1136,8 +1187,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         )
 
         # Standard-space normalization
-        normalization_out_dir = anat_out_dir / "normalization"
-        context = self._run_normalization(context, normalization_out_dir)
+        context = self._run_normalization(context, fit_out_dir)
 
         # Post-processing, atlas registration, segmentation, stats extraction
         stats_results = self._run_postprocessing_and_stats(
