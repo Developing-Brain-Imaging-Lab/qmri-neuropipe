@@ -20,6 +20,7 @@ from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
+from ...lib.common.json_metadata import copy_json_with_metadata
 from ...lib.dmri.normalization import NormalizationStep
 from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
@@ -435,6 +436,37 @@ class RelaxometryWorkflow(BaseWorkflow):
         analysis_context["modeling_results"] = selected_results
         analysis_context.setdefault("segmentations", {})
         return analysis_context
+
+    def _materialize_spgr_reference(
+        self,
+        ref_img: ImageFile,
+        anat_out_dir: Path,
+        context: dict,
+    ) -> ImageFile:
+        """
+        Persist the selected SPGR reference into the final anat output tree so
+        normalization/analysis can reliably use `spgr_ref` even when
+        intermediates are later cleaned up.
+        """
+        subj = context.get("subject")
+        sess = context.get("session")
+
+        out_entities = dict(ref_img.entities)
+        if subj and not out_entities.get("sub"):
+            out_entities["sub"] = subj
+        if sess and not out_entities.get("ses"):
+            out_entities["ses"] = sess
+        out_entities["desc"] = "spgrref"
+        suffix = out_entities.get("suffix") or "VFA"
+
+        out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
+        out_json = out_path.with_suffix("").with_suffix(".json")
+
+        if ref_img.img != out_path:
+            shutil.copy2(ref_img.img, out_path)
+        json_result = copy_json_with_metadata(getattr(ref_img, "json", None), out_json)
+        final_json = json_result if json_result and Path(json_result).exists() else (out_json if out_json.exists() else None)
+        return ImageFile(img=out_path, entities=out_entities, json=final_json)
 
     def _parse_inputs(self, context: dict):
         relax_files: List[ImageFile] = context.get("relax_files", [])
@@ -1143,18 +1175,21 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Select reference image
         ref_img = self._select_reference(spgr_pre)
-        context["relax_reference"] = ref_img
-        self.logger.info(f"Selected Relaxometry Reference (Preprocessed): {ref_img.img.name}")
+        spgr_ref = self._materialize_spgr_reference(ref_img, anat_out_dir, context)
+        context["relax_reference"] = spgr_ref
+        context["spgr_ref"] = spgr_ref
+        context["current_image"] = spgr_ref
+        self.logger.info(f"Selected Relaxometry Reference (Preprocessed): {spgr_ref.img.name}")
 
         # Motion Correction
         spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
-            spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, ref_img
+            spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, spgr_ref
         )
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
 
         # Brain Masking
-        self._run_brain_masking(ref_img, anat_out_dir, intermediate_dir, context, preproc_cfg, relax_cfg)
+        self._run_brain_masking(spgr_ref, anat_out_dir, intermediate_dir, context, preproc_cfg, relax_cfg)
 
         # Parameter Generation
         ir_final = ir_moco if ir_moco is not None else ir_pre
@@ -1168,7 +1203,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         # B1 Mapping
         b1_step = next((s for s in self.steps if isinstance(s, B1MappingStep)), None)
         fmap_inter_dir = fmap_out_dir / "intermediate"
-        b1_map = self._run_b1_mapping(b1_files, b1_step, ref_img, fmap_out_dir, fmap_inter_dir)
+        b1_map = self._run_b1_mapping(b1_files, b1_step, spgr_ref, fmap_out_dir, fmap_inter_dir)
         if b1_map:
             context["b1_map"] = b1_map
 
@@ -1191,7 +1226,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Post-processing, atlas registration, segmentation, stats extraction
         stats_results = self._run_postprocessing_and_stats(
-            context, fit_out_dir, ref_img, modeling_results, base_prefix
+            context, fit_out_dir, spgr_ref, modeling_results, base_prefix
         )
 
         # Save intermediates if requested
@@ -1217,7 +1252,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             "brain_mask": context.get("brain_mask", None),
             "b1_map": b1_map,
             "qc_report": context.get("qc_report", None),
-            "reference_image": ref_img,
+            "reference_image": spgr_ref,
         }
         return results
 
