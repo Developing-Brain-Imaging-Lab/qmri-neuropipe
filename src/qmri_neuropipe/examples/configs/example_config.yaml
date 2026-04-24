@@ -248,6 +248,10 @@ dmri:
 #     motion_correction:
 #       enabled: true
 #       method: ants
+#     spgr_reference:
+#       # Options: mean, last, index, max_flip
+#       mode: mean
+#       # index: 7
 #     b1:
 #       method: afi
 #   modeling:

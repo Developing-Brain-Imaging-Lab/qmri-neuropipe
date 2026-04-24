@@ -34,6 +34,7 @@ class RelaxometryPreprocConfig:
     degibbs: Dict = field(default_factory=lambda: {"enabled": False, "method": "mrtrix"})
     motion_correction: Dict = field(default_factory=lambda: {"enabled": False, "method": "ants"})
     b1: Dict = field(default_factory=lambda: {"method": "afi", "smoothing_fwhm": 0.0})
+    spgr_reference: Dict = field(default_factory=lambda: {"mode": "mean"})
     brain_masking: Dict = field(default_factory=dict)
     exclude_indices: Dict = field(default_factory=dict)
 
@@ -437,21 +438,97 @@ class RelaxometryWorkflow(BaseWorkflow):
         analysis_context.setdefault("segmentations", {})
         return analysis_context
 
-    def _materialize_spgr_reference(
+    def _build_spgr_reference(
         self,
-        ref_img: ImageFile,
+        spgr_images: List[ImageFile],
         anat_out_dir: Path,
         context: dict,
     ) -> ImageFile:
         """
-        Persist the selected SPGR reference into the final anat output tree so
-        normalization/analysis can reliably use `spgr_ref` even when
-        intermediates are later cleaned up.
+        Build and persist a 3D SPGR reference into the final anat output tree so
+        normalization/analysis can reliably use `spgr_ref`.
         """
+        if not spgr_images:
+            raise ValueError("Cannot build SPGR reference without SPGR images.")
+
         subj = context.get("subject")
         sess = context.get("session")
+        ref_cfg = getattr(self.relax_config.preprocessing, "spgr_reference", {}) or {}
+        mode = str(ref_cfg.get("mode", "mean") or "mean").strip().lower()
+        volume_index = ref_cfg.get("index", ref_cfg.get("volume_index"))
 
-        out_entities = dict(ref_img.entities)
+        def _logical_volumes(images: List[ImageFile]) -> List[tuple[ImageFile, int]]:
+            volumes: List[tuple[ImageFile, int]] = []
+            for img in images:
+                shape = nib.load(str(img.img)).shape
+                count = int(shape[3]) if len(shape) >= 4 and shape[3] > 1 else 1
+                for idx in range(count):
+                    volumes.append((img, idx))
+            return volumes
+
+        def _flip_angle_for_volume(img: ImageFile, idx: int) -> float:
+            from ...utils.relax_params import _extract_bids_param
+
+            fa = _extract_bids_param(img, "FlipAngle", 0.0)
+            if isinstance(fa, list):
+                if 0 <= idx < len(fa):
+                    return float(fa[idx])
+                return float(max(fa)) if fa else 0.0
+            try:
+                return float(fa)
+            except Exception:
+                return 0.0
+
+        logical_vols = _logical_volumes(spgr_images)
+        if not logical_vols:
+            raise ValueError("Unable to derive logical SPGR volumes for reference generation.")
+
+        first_img = nib.load(str(logical_vols[0][0].img))
+        first_vol = np.asanyarray(first_img.dataobj[..., logical_vols[0][1]], dtype=np.float32)
+        out_data: np.ndarray
+        metadata_source: ImageFile
+        generation_details: dict[str, Any] = {"mode": mode}
+
+        if mode in {"mean", "average", "avg"}:
+            acc = np.zeros(first_vol.shape, dtype=np.float32)
+            for img_obj, vol_idx in logical_vols:
+                nii = nib.load(str(img_obj.img))
+                acc += np.asanyarray(nii.dataobj[..., vol_idx], dtype=np.float32)
+            out_data = acc / float(len(logical_vols))
+            metadata_source = logical_vols[0][0]
+            generation_details["num_volumes"] = len(logical_vols)
+        elif mode in {"last", "final"}:
+            metadata_source, selected_idx = logical_vols[-1]
+            nii = nib.load(str(metadata_source.img))
+            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
+            generation_details["selected_volume_index"] = len(logical_vols) - 1
+        elif mode in {"index", "volume", "volume_index"}:
+            if volume_index is None:
+                raise ValueError("SPGR reference mode 'index' requires relaxometry.preprocessing.spgr_reference.index.")
+            global_idx = int(volume_index)
+            if global_idx < 0 or global_idx >= len(logical_vols):
+                raise ValueError(
+                    f"SPGR reference index {global_idx} out of range for {len(logical_vols)} logical SPGR volume(s)."
+                )
+            metadata_source, selected_idx = logical_vols[global_idx]
+            nii = nib.load(str(metadata_source.img))
+            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
+            generation_details["selected_volume_index"] = global_idx
+        elif mode in {"max_flip", "maxfa", "highest_flip"}:
+            ranked = sorted(
+                ((img_obj, vol_idx, _flip_angle_for_volume(img_obj, vol_idx)) for img_obj, vol_idx in logical_vols),
+                key=lambda item: item[2],
+            )
+            metadata_source, selected_idx, selected_fa = ranked[-1]
+            nii = nib.load(str(metadata_source.img))
+            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
+            generation_details["selected_flip_angle"] = selected_fa
+        else:
+            raise ValueError(
+                "Unknown SPGR reference mode. Supported modes: mean, last, index, max_flip."
+            )
+
+        out_entities = dict(metadata_source.entities)
         if subj and not out_entities.get("sub"):
             out_entities["sub"] = subj
         if sess and not out_entities.get("ses"):
@@ -462,9 +539,19 @@ class RelaxometryWorkflow(BaseWorkflow):
         out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
         out_json = out_path.with_suffix("").with_suffix(".json")
 
-        if ref_img.img != out_path:
-            shutil.copy2(ref_img.img, out_path)
-        json_result = copy_json_with_metadata(getattr(ref_img, "json", None), out_json)
+        out_img = nib.Nifti1Image(out_data, first_img.affine, first_img.header.copy())
+        nib.save(out_img, str(out_path))
+
+        json_result = copy_json_with_metadata(getattr(metadata_source, "json", None), out_json)
+        if out_json.exists():
+            try:
+                payload = json.loads(out_json.read_text())
+            except Exception:
+                payload = {}
+            payload["SPGRReferenceGeneration"] = generation_details
+            with out_json.open("w") as f:
+                json.dump(payload, f, indent=2)
+                f.write("\n")
         final_json = json_result if json_result and Path(json_result).exists() else (out_json if out_json.exists() else None)
         return ImageFile(img=out_path, entities=out_entities, json=final_json)
 
@@ -1175,18 +1262,20 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Select reference image
         ref_img = self._select_reference(spgr_pre)
-        spgr_ref = self._materialize_spgr_reference(ref_img, anat_out_dir, context)
-        context["relax_reference"] = spgr_ref
-        context["spgr_ref"] = spgr_ref
-        context["current_image"] = spgr_ref
-        self.logger.info(f"Selected Relaxometry Reference (Preprocessed): {spgr_ref.img.name}")
+        self.logger.info(f"Selected Relaxometry Reference Source: {ref_img.img.name}")
 
         # Motion Correction
         spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
-            spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, spgr_ref
+            spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, ref_img
         )
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
+
+        spgr_ref = self._build_spgr_reference(spgr_moco, anat_out_dir, context)
+        context["relax_reference"] = spgr_ref
+        context["spgr_ref"] = spgr_ref
+        context["current_image"] = spgr_ref
+        self.logger.info(f"Materialized Relaxometry SPGR Reference: {spgr_ref.img.name}")
 
         # Brain Masking
         self._run_brain_masking(spgr_ref, anat_out_dir, intermediate_dir, context, preproc_cfg, relax_cfg)
