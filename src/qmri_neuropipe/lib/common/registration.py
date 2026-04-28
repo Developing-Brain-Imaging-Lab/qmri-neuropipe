@@ -34,12 +34,14 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         method: str = "ants",
         options: Optional[Dict[str, Any]] = None,
         save_transforms: bool = True,
+        space_entity: Optional[str] = None,
     ):
         super().__init__(config, logger, provenance)
         self.template = template # If None, must be in config or passed in run
         self.method = str(method or "ants").lower()
         self.options = dict(options or {})
         self.save_transforms = save_transforms
+        self.space_entity = str(space_entity or "Standard")
 
     def run(self, first_arg, output_dir: Path, template: Optional[Path]=None, **kwargs) -> Any:
         context, input_image = self.unpack_input(first_arg)
@@ -68,8 +70,7 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         
         # We'll rely on config to enforce naming if strict, else generic:
         new_desc = "std" # standardized space
-        if 'space' not in entities:
-             entities['space'] = 'Standard' 
+        entities['space'] = kwargs.get("space_entity", self.space_entity)
         
         output_img = output_dir / build_bids_name({**entities, "desc": "norm"})
         output_transform = output_dir / build_bids_name({**entities, "desc": "norm", "suffix": "transform"})

@@ -265,6 +265,9 @@ dmri:
 #     # Typical relaxometry usage is to normalize using the SPGR reference.
 #     # Fitted-map options such as T1 or MWF are also supported.
 #     driving_metric: spgr_ref
+#     # Optional BIDS `space` entity for normalized outputs. Use this when
+#     # the template is a specific standard space such as MNI152NLin2009cAsym.
+#     space_entity: MNI152NLin2009cAsym
 #     space_name: MNI
 #     tool: ants
 #   analysis:
@@ -315,6 +318,11 @@ dmri:
 #       method: synthstrip
 #     bias_correction:
 #       enabled: true
+#     normalization:
+#       enabled: true
+#       template: /path/to/MNI152_T1_1mm.nii.gz
+#       # Optional BIDS `space` entity for normalized outputs.
+#       space_entity: MNI152NLin2009cAsym
 #     segmentation:
 #       enabled: true
 #       method: fast

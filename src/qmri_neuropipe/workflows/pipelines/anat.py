@@ -249,6 +249,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     method=norm_cfg.get("method", "ants"),
                     options=norm_cfg.get("options", {}),
                     save_transforms=norm_cfg.get("save_transforms", True),
+                    space_entity=norm_cfg.get("space_entity", norm_cfg.get("space_name", norm_cfg.get("space", "Standard"))),
                 )
             )
 
@@ -1074,6 +1075,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         norm_step = next((s for s in self.steps if isinstance(s, NonlinearRegistrationStep)), None)
         if not norm_step:
             return context, step_metrics
+        norm_space = getattr(norm_step, "space_entity", None) or "Standard"
 
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
@@ -1129,7 +1131,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if primary_suffix == "T1w" and t2_img and transform and transform.exists():
                 self.logger.info("Applying Normalization Warp to T2w...")
                 ents = dict(t2_img.entities)
-                ents['space'] = 'Standard'
+                ents['space'] = norm_space
                 ents['desc'] = 'norm'
                 if 'suffix' not in ents:
                     ents['suffix'] = 'T2w'
@@ -1222,32 +1224,72 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             except Exception:
                 pass
 
-        # Save intermediate normalized images
-        if save_inter and final_output_dir:
-            def _save_norm_img(img_obj, suffix: str):
-                if img_obj and hasattr(img_obj, 'entities') and hasattr(img_obj, 'img') and img_obj.img.exists():
-                    if img_obj.entities.get('space') == 'Standard':
-                        ents = dict(img_obj.entities)
-                        ents['desc'] = 'norm'
-                        if 'suffix' not in ents:
-                            ents['suffix'] = suffix
-                        fname = build_bids_name(ents)
-                        dest = final_output_dir / fname
-                        try:
-                            if not dest.exists():
-                                dest.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.copy(img_obj.img, dest)
-                                if img_obj.json and img_obj.json.exists():
-                                    shutil.copy(img_obj.json, dest.with_suffix("").with_suffix(".json"))
-                        except Exception as e:
-                            err_msg = f"Failed to save normalized intermediate {suffix}: {e}"
-                            self.logger.warning(err_msg)
-                            errors.append(err_msg)
-                            if reporter:
-                                self._add_anat_step(f"Normalization_{suffix}", {"Status": "Failed to Save Intermediate"}, details={"error": str(e)})
+        # Publish normalized images and transforms to the final anat directory.
+        if final_output_dir:
+            def _publish_norm_img(img_obj, suffix: str):
+                if not (img_obj and hasattr(img_obj, 'entities') and hasattr(img_obj, 'img') and img_obj.img.exists()):
+                    return
+                if not img_obj.entities.get('space'):
+                    return
 
-            _save_norm_img(context.get("preprocessed_t1w"), 'T1w')
-            _save_norm_img(context.get("preprocessed_t2w"), 'T2w')
+                ents = dict(img_obj.entities)
+                ents['desc'] = 'norm'
+                if 'suffix' not in ents:
+                    ents['suffix'] = suffix
+                fname = build_bids_name(ents)
+                dest = final_output_dir / fname
+                try:
+                    if img_obj.img.resolve() != dest.resolve():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(img_obj.img, dest)
+                        if img_obj.json and img_obj.json.exists():
+                            shutil.copy2(img_obj.json, dest.with_suffix("").with_suffix(".json"))
+                    img_obj.img = dest
+                except Exception as e:
+                    err_msg = f"Failed to publish normalized {suffix}: {e}"
+                    self.logger.warning(err_msg)
+                    errors.append(err_msg)
+                    if reporter:
+                        self._add_anat_step(f"Normalization_{suffix}", {"Status": "Failed to Save"}, details={"error": str(e)})
+
+            def _publish_norm_transforms():
+                transform = context.get("template_transform")
+                if not transform:
+                    return
+
+                transform = Path(transform)
+                transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
+                candidates = []
+
+                if transform_type == "ants":
+                    candidates.extend([
+                        transform.parent / f"{transform.name}0GenericAffine.mat",
+                        transform.parent / f"{transform.name}1Warp.nii.gz",
+                        transform.parent / f"{transform.name}1InverseWarp.nii.gz",
+                    ])
+                    if transform.exists():
+                        candidates.append(transform)
+                else:
+                    candidates.append(transform)
+
+                for src in candidates:
+                    if not src.exists():
+                        continue
+                    dest = final_output_dir / src.name
+                    try:
+                        if src.resolve() != dest.resolve():
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dest)
+                    except Exception as e:
+                        err_msg = f"Failed to publish normalization transform {src.name}: {e}"
+                        self.logger.warning(err_msg)
+                        errors.append(err_msg)
+                        if reporter:
+                            self._add_anat_step("Normalization_Transform", {"Status": "Failed to Save"}, details={"error": str(e), "file": str(src)})
+
+            _publish_norm_img(context.get("preprocessed_t1w"), 'T1w')
+            _publish_norm_img(context.get("preprocessed_t2w"), 'T2w')
+            _publish_norm_transforms()
 
         # Run QC if enabled on normalized outputs
         try:

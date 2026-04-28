@@ -55,6 +55,7 @@ class NormalizationStep(BaseProcessingStep):
         self.template = Path(template) if template else None
         self.driving_metric = driving_metric
         self.space_name = space_name or "Standard"
+        self.space_entity = kwargs.get('space_entity') or self.space_name
         tool_normalized = tool.lower()
         if tool_normalized == 'mri_synthmorph':
             tool_normalized = 'synthmorph'
@@ -92,20 +93,20 @@ class NormalizationStep(BaseProcessingStep):
         return value
 
     @staticmethod
-    def _clean_transform_entities(ref_path: Path, space_name: str) -> dict[str, Any]:
+    def _clean_transform_entities(ref_path: Path, space_entity: str) -> dict[str, Any]:
         from ...io.bids import get_entities_from_path
 
         ents = get_entities_from_path(ref_path)
         for key in ['acq', 'dir', 'run', 'echo', 'part', 'model', 'desc', 'space']:
             ents.pop(key, None)
-        ents['space'] = space_name
+        ents['space'] = space_entity
         ents['suffix'] = 'xfm'
         return ents
 
     def _robust_manifest_path(self, ref_path: Path, norm_out: Path) -> Path:
         from ...io.bids import build_bids_name
 
-        ents = self._clean_transform_entities(ref_path, self.space_name)
+        ents = self._clean_transform_entities(ref_path, self.space_entity)
         ents['desc'] = 'robustiterative'
         return norm_out / build_bids_name(ents, extension='.json')
 
@@ -116,7 +117,7 @@ class NormalizationStep(BaseProcessingStep):
         for model_name, metrics in metrics_to_norm.items():
             for name, path in metrics.items():
                 ents = get_entities_from_path(path)
-                ents['space'] = self.space_name
+                ents['space'] = self.space_entity
                 if 'model' not in ents or not ents['model']:
                     ents['model'] = model_name
                 predicted_outputs.append((model_name, name, norm_out / build_bids_name(ents)))
@@ -270,7 +271,7 @@ class NormalizationStep(BaseProcessingStep):
         cli_forward_chain: list[str] = []
         cli_inverse_chain: list[str] = []
 
-        transform_ents = self._clean_transform_entities(ref_path, self.space_name)
+        transform_ents = self._clean_transform_entities(ref_path, self.space_entity)
 
         self.logger.info(
             "Running robust iterative normalization with %d iteration(s): SynthMorph=%s, ANTs=%s",
@@ -296,7 +297,7 @@ class NormalizationStep(BaseProcessingStep):
                     extension=synth_ext,
                 )
                 synth_ents = get_entities_from_path(ref_path)
-                synth_ents['space'] = self.space_name
+                synth_ents['space'] = self.space_entity
                 synth_ents['desc'] = f"iter{iteration}synthmorph"
                 synth_warped = work_dir / build_bids_name(synth_ents)
 
@@ -421,6 +422,7 @@ class NormalizationStep(BaseProcessingStep):
             "tool": "robust_iterative",
             "template": str(template),
             "space_name": self.space_name,
+            "space_entity": self.space_entity,
             "driving_metric": self.driving_metric,
             "iterations": iterations_manifest,
             "forward_chain_cli_order": cli_forward_chain,
@@ -595,7 +597,7 @@ class NormalizationStep(BaseProcessingStep):
              # Driving metric entities
              d_ents = get_entities_from_path(ref_path)
              # Affine
-             d_ents.update({'space': self.space_name, 'suffix': 'xfm', 'desc': 'affine', 'extension': '.mat', 'model': None}) # .mat usually for ANTs affine
+             d_ents.update({'space': self.space_entity, 'suffix': 'xfm', 'desc': 'affine', 'extension': '.mat', 'model': None}) # .mat usually for ANTs affine
              # Simplified name: sub-X_ses-Y_space-MNI_desc-affine_xfm.mat
              # Remove other entities?
              for k in ['acq', 'dir', 'run', 'echo', 'part']: 
@@ -614,7 +616,7 @@ class NormalizationStep(BaseProcessingStep):
              for k in ['acq', 'dir', 'run', 'echo', 'part']:
                  if k in d_ents:
                      del d_ents[k]
-             d_ents['space'] = self.space_name
+             d_ents['space'] = self.space_entity
              d_ents['suffix'] = 'xfm'
              d_ents['desc'] = 'synthmorph'
              ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
@@ -694,7 +696,7 @@ class NormalizationStep(BaseProcessingStep):
                     for k in ['acq', 'dir', 'run', 'echo', 'part', 'model']: 
                         if k in d_ents: del d_ents[k]
                     
-                    d_ents['space'] = self.space_name
+                    d_ents['space'] = self.space_entity
                     d_ents['suffix'] = 'xfm'
                     
                     # ANTs returns [Warp, Affine] usually for SyN
@@ -717,7 +719,7 @@ class NormalizationStep(BaseProcessingStep):
                 # reg['warpedmovout']
                 from ...io.bids import build_bids_name, get_entities_from_path
                 driving_ents = get_entities_from_path(ref_path)
-                driving_ents['space'] = self.space_name
+                driving_ents['space'] = self.space_entity
                 if not driving_ents.get('model'):
                     driving_ents['model'] = 'Unknown'
                 driving_out = norm_out / build_bids_name(driving_ents)
@@ -741,7 +743,7 @@ class NormalizationStep(BaseProcessingStep):
             for k in ['acq', 'dir', 'run', 'echo', 'part']:
                 if k in d_ents:
                     del d_ents[k]
-            d_ents['space'] = self.space_name
+            d_ents['space'] = self.space_entity
             d_ents['suffix'] = 'xfm'
             d_ents['desc'] = 'synthmorph'
             ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
@@ -749,7 +751,7 @@ class NormalizationStep(BaseProcessingStep):
 
             # Compute driving metric output path so register can write it directly.
             driving_ents = get_entities_from_path(ref_path)
-            driving_ents['space'] = self.space_name
+            driving_ents['space'] = self.space_entity
             if not driving_ents.get('model'):
                 driving_ents['model'] = 'Unknown'
             if not driving_ents.get('suffix'):
@@ -796,7 +798,7 @@ class NormalizationStep(BaseProcessingStep):
         for model_name, metrics in metrics_to_norm.items():
             for name, path in metrics.items():
                  ents = get_entities_from_path(path)
-                 ents['space'] = self.space_name
+                 ents['space'] = self.space_entity
                  if 'model' not in ents or not ents['model']:
                       ents['model'] = model_name
                  

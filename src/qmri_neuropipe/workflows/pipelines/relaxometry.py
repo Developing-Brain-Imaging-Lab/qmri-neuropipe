@@ -129,7 +129,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                     self.provenance,
                     template=norm_cfg.get("template"),
                     driving_metric=norm_cfg.get("driving_metric", "spgr_ref"),
-                    space_name=norm_cfg.get("space_name", norm_cfg.get("space", "MNI")),
+                    space_name=norm_cfg.get("space_name", norm_cfg.get("space_entity", norm_cfg.get("space", "MNI"))),
+                    space_entity=norm_cfg.get("space_entity", norm_cfg.get("space_name", norm_cfg.get("space", "MNI"))),
                     tool=norm_cfg.get("tool", "ants"),
                     save_transforms=norm_cfg.get("save_transforms", True),
                     transform_type=norm_cfg.get("transform_type", "SyN"),
@@ -714,13 +715,19 @@ class RelaxometryWorkflow(BaseWorkflow):
         return filtered
 
     def _setup_directories(
-        self, output_dir: Path, context: dict
+        self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None
     ) -> Dict[str, Path]:
         """
-        Setup anat_out_dir, fmap_out_dir, intermediate_dir with respect to config work_dir and subject/session.
+        Setup final output and intermediate directories.
+
+        Final derivative products are written under ``final_output_dir`` when it is
+        provided. Staging/intermediate files remain under the workflow work root
+        or the subject/session ``output_dir``.
         """
-        anat_out_dir = output_dir / "anat"
-        fmap_out_dir = output_dir / "fmap"
+        publish_root = final_output_dir or output_dir
+
+        anat_out_dir = publish_root / "anat"
+        fmap_out_dir = publish_root / "fmap"
         anat_out_dir.mkdir(parents=True, exist_ok=True)
         fmap_out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -732,6 +739,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             if sess:
                 wd_subj = wd_subj / f"ses-{sess}"
             intermediate_dir = wd_subj / "anat" / "intermediate"
+        elif output_dir != publish_root:
+            intermediate_dir = output_dir / "anat" / "intermediate"
         else:
             intermediate_dir = anat_out_dir / "intermediate"
         intermediate_dir.mkdir(parents=True, exist_ok=True)
@@ -741,6 +750,132 @@ class RelaxometryWorkflow(BaseWorkflow):
             fmap_out_dir=fmap_out_dir,
             intermediate_dir=intermediate_dir,
         )
+
+    def _aggregate_series_json_payload(self, images: List[ImageFile]) -> dict[str, Any]:
+        payloads = [self._load_json_payload(getattr(img, "json", None)) for img in images]
+        payloads = [payload for payload in payloads if payload]
+        if not payloads:
+            return {}
+
+        merged = dict(payloads[0])
+        series_keys = {
+            "FlipAngle",
+            "RepetitionTime",
+            "EchoTime",
+            "PhaseCycling",
+            "InversionTime",
+            "EchoTrainLength",
+        }
+
+        for key in set().union(*(payload.keys() for payload in payloads)):
+            values: list[Any] = []
+            saw_list = False
+            for payload in payloads:
+                if key not in payload:
+                    continue
+                value = payload[key]
+                if isinstance(value, list):
+                    saw_list = True
+                    values.extend(value)
+                else:
+                    values.append(value)
+
+            if not values:
+                continue
+
+            if key in series_keys or saw_list:
+                if values and all(value == values[0] for value in values) and key not in {"FlipAngle", "PhaseCycling", "InversionTime"}:
+                    merged[key] = values[0]
+                else:
+                    merged[key] = values
+            elif len(values) == 1 or all(value == values[0] for value in values):
+                merged[key] = values[0]
+
+        merged["Sources"] = [str(img.img) for img in images]
+        return merged
+
+    def _cleanup_paths(self, paths: List[Path]) -> None:
+        for path in paths:
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                elif path.exists():
+                    path.unlink()
+            except Exception as e:
+                self.logger.debug("Failed to remove temporary path %s: %s", path, e)
+
+    def _cleanup_chunk_artifacts(self, root: Path) -> None:
+        if not root.exists():
+            return
+        targets = sorted(root.rglob("*chunk-*"), key=lambda path: len(path.parts), reverse=True)
+        self._cleanup_paths(targets)
+
+    def _collapse_chunked_series(
+        self,
+        images: List[ImageFile],
+        *,
+        anat_out_dir: Path,
+        modality_label: str,
+        force_merge: bool = False,
+    ) -> List[ImageFile]:
+        if not images:
+            return images
+
+        has_chunked_inputs = any(img.entities.get("chunk") for img in images)
+        if not force_merge and not has_chunked_inputs:
+            return images
+
+        source_images = sorted(images, key=lambda img: str(img.entities.get("chunk", img.img.name)))
+        out_entities = dict(source_images[0].entities)
+        out_entities.pop("chunk", None)
+        suffix = out_entities.get("suffix") or "VFA"
+        out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
+        out_json = out_path.with_suffix("").with_suffix(".json")
+
+        rebuild = True
+        if out_path.exists():
+            newest_source = max(img.img.stat().st_mtime for img in source_images if img.img.exists())
+            rebuild = newest_source > out_path.stat().st_mtime or not out_json.exists()
+
+        if rebuild:
+            if len(source_images) == 1:
+                shutil.copy2(source_images[0].img, out_path)
+            else:
+                from ...interfaces.fsl import merge as fslmerge
+
+                fslmerge(source_images, out_path, dimension="t")
+
+            payload = self._aggregate_series_json_payload(source_images)
+            payload["SeriesConsolidation"] = {
+                "modality": modality_label,
+                "source_count": len(source_images),
+                "from_chunked_inputs": has_chunked_inputs,
+            }
+            out_json.parent.mkdir(parents=True, exist_ok=True)
+            with out_json.open("w") as f:
+                json.dump(payload, f, indent=2)
+                f.write("\n")
+
+        result_json = out_json if out_json.exists() else None
+        consolidated = ImageFile(img=out_path, entities=out_entities, json=result_json)
+
+        if not self.config.get("save_intermediates", False):
+            cleanup_targets: List[Path] = []
+            for img in source_images:
+                if img.img != out_path:
+                    cleanup_targets.append(img.img)
+                img_json = getattr(img, "json", None)
+                if img_json and hasattr(img_json, "exists") and Path(img_json) != out_json:
+                    cleanup_targets.append(Path(img_json))
+            self._cleanup_paths(cleanup_targets)
+
+        self.logger.info(
+            "Collapsed %d %s chunk(s) into canonical preprocessed series: %s",
+            len(source_images),
+            modality_label,
+            out_path.name,
+        )
+        return [consolidated]
 
     def _preprocess_images(self, img_list: List[ImageFile], modality_name: str, output_dir: Path) -> List[ImageFile]:
         """
@@ -941,6 +1076,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         input_dir = fit_out_dir / "inputs"
         created_temp_inputs = False
+        cleanup_temp_inputs = not self.config.get("save_intermediates", False)
 
         def _stack_inputs(images: List[ImageFile], stem: str) -> Optional[Path]:
             nonlocal created_temp_inputs
@@ -1110,7 +1246,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                     modeling_results=modeling_results,
                 )
         finally:
-            if created_temp_inputs and input_dir.exists() and not self.config.get("save_intermediates", False):
+            if created_temp_inputs and cleanup_temp_inputs and input_dir.exists():
                 shutil.rmtree(input_dir, ignore_errors=True)
 
         self._backfill_model_results(fit_out_dir, fitted_maps, modeling_results)
@@ -1218,7 +1354,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             raise ValueError("No SPGR images found. Cannot proceed with Relaxometry.")
 
         # Setup directories
-        dirs = self._setup_directories(output_dir, context)
+        dirs = self._setup_directories(output_dir, context, final_output_dir=final_output_dir)
         anat_out_dir = dirs["anat_out_dir"]
         fmap_out_dir = dirs["fmap_out_dir"]
         intermediate_dir = dirs["intermediate_dir"]
@@ -1268,6 +1404,20 @@ class RelaxometryWorkflow(BaseWorkflow):
         spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
             spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, ref_img
         )
+        if spgr_exclude:
+            spgr_moco = self._collapse_chunked_series(
+                spgr_moco,
+                anat_out_dir=anat_out_dir,
+                modality_label="SPGR",
+                force_merge=True,
+            )
+        if ssfp_exclude:
+            ssfp_moco = self._collapse_chunked_series(
+                ssfp_moco,
+                anat_out_dir=anat_out_dir,
+                modality_label="SSFP",
+                force_merge=True,
+            )
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
 
@@ -1317,6 +1467,16 @@ class RelaxometryWorkflow(BaseWorkflow):
         stats_results = self._run_postprocessing_and_stats(
             context, fit_out_dir, spgr_ref, modeling_results, base_prefix
         )
+
+        if not self.config.get("save_intermediates", False):
+            cleanup_dirs = []
+            if spgr_exclude:
+                cleanup_dirs.append(intermediate_dir / "excluded_inputs" / "spgr")
+            if ssfp_exclude:
+                cleanup_dirs.append(intermediate_dir / "excluded_inputs" / "ssfp")
+            self._cleanup_paths([path for path in cleanup_dirs if path.exists()])
+            if spgr_exclude or ssfp_exclude:
+                self._cleanup_chunk_artifacts(intermediate_dir)
 
         # Save intermediates if requested
         save_inter = self.config.get("save_intermediates", False)
