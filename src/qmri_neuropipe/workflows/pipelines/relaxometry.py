@@ -804,6 +804,30 @@ class RelaxometryWorkflow(BaseWorkflow):
         targets = sorted(root.rglob("*chunk-*"), key=lambda path: len(path.parts), reverse=True)
         self._cleanup_paths(targets)
 
+    def _cleanup_exclusion_outputs(self, anat_out_dir: Path) -> None:
+        """
+        Remove chunked relaxometry outputs and ANTs side-products from the final
+        anat derivatives directory.
+        """
+        if not anat_out_dir.exists():
+            return
+
+        patterns = [
+            "*desc-SPGRpreproc_chunk-*",
+            "*desc-SSFPpreproc_chunk-*",
+            "*chunk-*_ants_*",
+        ]
+        targets: list[Path] = []
+        seen: set[Path] = set()
+        for pattern in patterns:
+            for path in anat_out_dir.glob(pattern):
+                if path not in seen:
+                    seen.add(path)
+                    targets.append(path)
+
+        if targets:
+            self._cleanup_paths(sorted(targets, key=lambda path: len(path.parts), reverse=True))
+
     @staticmethod
     def _chunk_sidecar_artifacts(img_path: Path) -> List[Path]:
         prefix = img_path.parent / f"{get_nifti_stem(img_path)}_ants_"
@@ -1426,6 +1450,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             # Clear stale chunked exclusion artifacts from previous runs before
             # preprocessing starts so the final derivatives tree converges back
             # to only the canonical preprocessed outputs.
+            self._cleanup_exclusion_outputs(anat_out_dir)
             self._cleanup_chunk_artifacts(anat_out_dir)
             self._cleanup_chunk_artifacts(intermediate_dir)
 
@@ -1522,6 +1547,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 cleanup_dirs.append(intermediate_dir / "excluded_inputs" / "ssfp")
             self._cleanup_paths([path for path in cleanup_dirs if path.exists()])
             if spgr_exclude or ssfp_exclude:
+                self._cleanup_exclusion_outputs(anat_out_dir)
                 self._cleanup_chunk_artifacts(intermediate_dir)
                 self._cleanup_chunk_artifacts(anat_out_dir)
 
