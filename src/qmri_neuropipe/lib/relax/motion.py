@@ -44,6 +44,19 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             "translation": "Translation",
         }
         return mapping.get(str(transform).strip().lower(), str(transform))
+
+    @staticmethod
+    def _cleanup_ants_outputs(out_prefix: Path) -> None:
+        candidates = list(out_prefix.parent.glob(f"{out_prefix.name}*"))
+        for path in sorted(candidates, key=lambda item: len(item.parts), reverse=True):
+            try:
+                if path.is_dir():
+                    import shutil
+                    shutil.rmtree(path, ignore_errors=True)
+                elif path.exists():
+                    path.unlink()
+            except Exception:
+                pass
         
     def run(self, 
             images: List[ImageFile], 
@@ -209,6 +222,7 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
              warped_path = Path(warped)
              if warped_path != Path(out_file):
                  warped_path.replace(out_file)
+             self._cleanup_ants_outputs(out_prefix)
 
         elif self.method == 'fsl':
              from ...interfaces.fsl import flirt

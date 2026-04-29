@@ -11,6 +11,7 @@ import numpy as np
 from ...core import BaseWorkflow, PipelineConfig
 from ...core.types import ImageFile
 from ...io.bids import build_bids_name, get_entities_from_path
+from ...core.utils import get_nifti_stem
 
 
 # Import Steps
@@ -172,14 +173,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             },
             "DESPOT2FM": {
                 "aliases": {"despot2fm", "despot2_fm"},
-                "metrics": {
-                    "mwf": "MWF",
-                    "t1_fast": "T1_fast",
-                    "t1_slow": "T1_slow",
-                    "t2_fast": "T2_fast",
-                    "t2_slow": "T2_slow",
-                    "tau": "Tau",
-                },
+                "metrics": {"t2": "T2", "m0": "M0", "f0": "F0"},
             },
             "mcDESPOT": {
                 "aliases": {"mcdespot"},
@@ -810,6 +804,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         targets = sorted(root.rglob("*chunk-*"), key=lambda path: len(path.parts), reverse=True)
         self._cleanup_paths(targets)
 
+    @staticmethod
+    def _chunk_sidecar_artifacts(img_path: Path) -> List[Path]:
+        prefix = img_path.parent / f"{get_nifti_stem(img_path)}_ants_"
+        return sorted(prefix.parent.glob(f"{prefix.name}*"), key=lambda path: len(path.parts), reverse=True)
+
     def _collapse_chunked_series(
         self,
         images: List[ImageFile],
@@ -864,6 +863,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             for img in source_images:
                 if img.img != out_path:
                     cleanup_targets.append(img.img)
+                    cleanup_targets.extend(self._chunk_sidecar_artifacts(img.img))
                 img_json = getattr(img, "json", None)
                 if img_json and hasattr(img_json, "exists") and Path(img_json) != out_json:
                     cleanup_targets.append(Path(img_json))
@@ -1477,6 +1477,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             self._cleanup_paths([path for path in cleanup_dirs if path.exists()])
             if spgr_exclude or ssfp_exclude:
                 self._cleanup_chunk_artifacts(intermediate_dir)
+                self._cleanup_chunk_artifacts(anat_out_dir)
 
         # Save intermediates if requested
         save_inter = self.config.get("save_intermediates", False)

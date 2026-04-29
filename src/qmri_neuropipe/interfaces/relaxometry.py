@@ -215,7 +215,10 @@ def fit_despot2_fm(
     extra_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for `qmri_fit despot2fm` (mcDESPOT / 2-Component).
+    Wrapper for `qmri_fit despot2fm`.
+
+    DESPOT2FM outputs the fitted single-component DESPOT2FM maps from the
+    binary, not the mcDESPOT multicomponent parameter set.
     """
     out_d = ensure_dir(out_dir)
     
@@ -244,16 +247,13 @@ def fit_despot2_fm(
     _normalize_legacy_outputs(
         out_d,
         out_base,
-        ["MWF", "T1_fast", "T1_slow", "T2_fast", "T2_slow", "Tau", "T2", "M0", "F0"],
+        ["T2", "M0", "F0"],
     )
     
     outputs = {
-        "mwf": _resolve_output_path(out_d, out_base, "MWF"), # Myelin Water Fraction
-        "t1_fast": _resolve_output_path(out_d, out_base, "T1_fast"),
-        "t1_slow": _resolve_output_path(out_d, out_base, "T1_slow"),
-        "t2_fast": _resolve_output_path(out_d, out_base, "T2_fast"),
-        "t2_slow": _resolve_output_path(out_d, out_base, "T2_slow"),
-        "tau": _resolve_output_path(out_d, out_base, "Tau"), # Residence time / Exchange
+        "t2": _resolve_output_path(out_d, out_base, "T2"),
+        "m0": _resolve_output_path(out_d, out_base, "M0"),
+        "f0": _resolve_output_path(out_d, out_base, "F0"),
     }
     return outputs
 
