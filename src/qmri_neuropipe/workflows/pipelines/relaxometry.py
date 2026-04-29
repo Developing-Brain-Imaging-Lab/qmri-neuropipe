@@ -1046,6 +1046,12 @@ class RelaxometryWorkflow(BaseWorkflow):
         modeling_results: Dict[str, Dict[str, Path]] = {}
         modeling_cfg = self.relax_config.modeling
         despot1_results: Dict[str, Path] = {}
+        force_modeling = bool(
+            self.config.get("force", False)
+            or self.config.get("force_run", False)
+            or self.config.get("force_rerun", False)
+        )
+        skip_existing = bool(self.config.get("skip_existing", False)) and not force_modeling
 
         def _model_cli_options(cfg: Dict, exclude: set[str]) -> Dict:
             return {k: v for k, v in (cfg or {}).items() if k not in exclude}
@@ -1071,8 +1077,22 @@ class RelaxometryWorkflow(BaseWorkflow):
                 mcdespot_cfg.setdefault("enabled", True)
             return mcdespot_cfg
 
+        def _raw_results_from_existing(model_name: str) -> Dict[str, Path]:
+            spec = self._relax_model_specs().get(model_name, {})
+            reverse_metrics = {canonical: raw for raw, canonical in spec.get("metrics", {}).items()}
+            existing_bucket = modeling_results.get(model_name, {})
+            return {
+                reverse_metrics.get(metric_name, self._normalize_analysis_token(metric_name)): metric_path
+                for metric_name, metric_path in existing_bucket.items()
+            }
+
+        def _model_has_metrics(model_name: str, required_metrics: List[str]) -> bool:
+            existing_bucket = modeling_results.get(model_name, {})
+            return all(existing_bucket.get(metric_name) and Path(existing_bucket[metric_name]).exists() for metric_name in required_metrics)
+
         # Ensure output directory exists
         fit_out_dir.mkdir(parents=True, exist_ok=True)
+        self._backfill_model_results(fit_out_dir, fitted_maps, modeling_results)
 
         input_dir = fit_out_dir / "inputs"
         created_temp_inputs = False
@@ -1101,52 +1121,61 @@ class RelaxometryWorkflow(BaseWorkflow):
 
             # DESPOT1 fitting
             if modeling_cfg.despot1.get("enabled", False):
-                self.logger.info("Starting DESPOT1 fitting.")
                 despot1_cfg = dict(modeling_cfg.despot1 or {})
                 use_hifi = despot1_cfg.get("use_hifi", False)
-                despot1_algo = despot1_cfg.get("algo", "lsq")
-                despot1_nthreads = _model_nthreads(despot1_cfg)
-                despot1_verbose = bool(despot1_cfg.get("verbose", False))
-                despot1_extra = _model_cli_options(despot1_cfg, {"enabled", "use_hifi", "algo", "nthreads", "threads", "verbose"})
-                if use_hifi:
-                    if irspgr_stack is None:
-                        raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
-                    despot1_results = fit_despot1_hifi(
-                        spgr_file=spgr_stack,
-                        irspgr_file=irspgr_stack,
-                        params_file=params_json,
-                        out_dir=fit_out_dir,
-                        mask_file=mask_file,
-                        out_base=f"{base_prefix}_model-DESPOT1HIFI",
-                        algo=despot1_algo,
-                        nthreads=despot1_nthreads,
-                        verbose=despot1_verbose,
-                        extra_options=despot1_extra,
-                    )
-                else:
-                    despot1_results = fit_despot1(
-                        spgr_file=spgr_stack,
-                        params_file=params_json,
-                        out_dir=fit_out_dir,
-                        b1_file=b1_path,
-                        mask_file=mask_file,
-                        out_base=f"{base_prefix}_model-DESPOT1",
-                        algo=despot1_algo,
-                        nthreads=despot1_nthreads,
-                        verbose=despot1_verbose,
-                        extra_options=despot1_extra,
-                    )
                 model_name = "DESPOT1HIFI" if use_hifi else "DESPOT1"
-                self._record_model_results(
-                    model_name=model_name,
-                    raw_results=despot1_results,
-                    fitted_maps=fitted_maps,
-                    modeling_results=modeling_results,
-                )
+                required_metrics = ["T1", "B1"] if use_hifi else ["T1"]
+                if skip_existing and _model_has_metrics(model_name, required_metrics):
+                    self.logger.info(
+                        "Skipping %s fitting (found existing %s map%s).",
+                        model_name,
+                        ", ".join(required_metrics),
+                        "" if len(required_metrics) == 1 else "s",
+                    )
+                    despot1_results = _raw_results_from_existing(model_name)
+                else:
+                    self.logger.info("Starting %s fitting.", model_name)
+                    despot1_algo = despot1_cfg.get("algo", "lsq")
+                    despot1_nthreads = _model_nthreads(despot1_cfg)
+                    despot1_verbose = bool(despot1_cfg.get("verbose", False))
+                    despot1_extra = _model_cli_options(despot1_cfg, {"enabled", "use_hifi", "algo", "nthreads", "threads", "verbose"})
+                    if use_hifi:
+                        if irspgr_stack is None:
+                            raise ValueError("DESPOT1-HIFI requested, but no IR-SPGR image was found.")
+                        despot1_results = fit_despot1_hifi(
+                            spgr_file=spgr_stack,
+                            irspgr_file=irspgr_stack,
+                            params_file=params_json,
+                            out_dir=fit_out_dir,
+                            mask_file=mask_file,
+                            out_base=f"{base_prefix}_model-DESPOT1HIFI",
+                            algo=despot1_algo,
+                            nthreads=despot1_nthreads,
+                            verbose=despot1_verbose,
+                            extra_options=despot1_extra,
+                        )
+                    else:
+                        despot1_results = fit_despot1(
+                            spgr_file=spgr_stack,
+                            params_file=params_json,
+                            out_dir=fit_out_dir,
+                            b1_file=b1_path,
+                            mask_file=mask_file,
+                            out_base=f"{base_prefix}_model-DESPOT1",
+                            algo=despot1_algo,
+                            nthreads=despot1_nthreads,
+                            verbose=despot1_verbose,
+                            extra_options=despot1_extra,
+                        )
+                    self._record_model_results(
+                        model_name=model_name,
+                        raw_results=despot1_results,
+                        fitted_maps=fitted_maps,
+                        modeling_results=modeling_results,
+                    )
 
             # DESPOT2 fitting
             if modeling_cfg.despot2.get("enabled", False):
-                self.logger.info("Starting DESPOT2 fitting.")
                 despot2_cfg = dict(modeling_cfg.despot2 or {})
                 if ssfp_stack is None:
                     raise ValueError("DESPOT2 requested, but no SSFP image was found.")
@@ -1158,28 +1187,31 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                despot2_results = fit_despot2(
-                    ssfp_file=ssfp_stack,
-                    t1_file=t1_path,
-                    b1_file=despot_b1_path,
-                    params_file=params_json,
-                    out_dir=fit_out_dir,
-                    mask_file=mask_file,
-                    out_base=f"{base_prefix}_model-DESPOT2",
-                    algo=despot2_cfg.get("algo", "lsq"),
-                    nthreads=_model_nthreads(despot2_cfg),
-                    verbose=bool(despot2_cfg.get("verbose", False)),
-                    extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
-                )
-                self._record_model_results(
-                    model_name="DESPOT2",
-                    raw_results=despot2_results,
-                    fitted_maps=fitted_maps,
-                    modeling_results=modeling_results,
-                )
+                if skip_existing and _model_has_metrics("DESPOT2", ["T2"]):
+                    self.logger.info("Skipping DESPOT2 fitting (found existing T2 map).")
+                else:
+                    self.logger.info("Starting DESPOT2 fitting.")
+                    despot2_results = fit_despot2(
+                        ssfp_file=ssfp_stack,
+                        t1_file=t1_path,
+                        b1_file=despot_b1_path,
+                        params_file=params_json,
+                        out_dir=fit_out_dir,
+                        mask_file=mask_file,
+                        out_base=f"{base_prefix}_model-DESPOT2",
+                        algo=despot2_cfg.get("algo", "lsq"),
+                        nthreads=_model_nthreads(despot2_cfg),
+                        verbose=bool(despot2_cfg.get("verbose", False)),
+                        extra_options=_model_cli_options(despot2_cfg, {"enabled", "algo", "nthreads", "threads", "verbose", "mcdespot"}),
+                    )
+                    self._record_model_results(
+                        model_name="DESPOT2",
+                        raw_results=despot2_results,
+                        fitted_maps=fitted_maps,
+                        modeling_results=modeling_results,
+                    )
 
             if modeling_cfg.despot2fm.get("enabled", False):
-                self.logger.info("Starting DESPOT2FM fitting.")
                 despot2fm_cfg = dict(modeling_cfg.despot2fm or {})
                 if ssfp_stack is None:
                     raise ValueError("DESPOT2FM requested, but no SSFP image was found.")
@@ -1191,29 +1223,32 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("DESPOT2FM requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                despot2fm_results = fit_despot2_fm(
-                    ssfp_file=ssfp_stack,
-                    t1_file=t1_path,
-                    b1_file=despot_b1_path,
-                    params_file=params_json,
-                    out_dir=fit_out_dir,
-                    mask_file=mask_file,
-                    out_base=f"{base_prefix}_model-DESPOT2FM",
-                    algo=despot2fm_cfg.get("algo", "src"),
-                    nthreads=_model_nthreads(despot2fm_cfg),
-                    verbose=bool(despot2fm_cfg.get("verbose", False)),
-                    extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
-                )
-                self._record_model_results(
-                    model_name="DESPOT2FM",
-                    raw_results=despot2fm_results,
-                    fitted_maps=fitted_maps,
-                    modeling_results=modeling_results,
-                )
+                if skip_existing and _model_has_metrics("DESPOT2FM", ["T2"]):
+                    self.logger.info("Skipping DESPOT2FM fitting (found existing T2 map).")
+                else:
+                    self.logger.info("Starting DESPOT2FM fitting.")
+                    despot2fm_results = fit_despot2_fm(
+                        ssfp_file=ssfp_stack,
+                        t1_file=t1_path,
+                        b1_file=despot_b1_path,
+                        params_file=params_json,
+                        out_dir=fit_out_dir,
+                        mask_file=mask_file,
+                        out_base=f"{base_prefix}_model-DESPOT2FM",
+                        algo=despot2fm_cfg.get("algo", "src"),
+                        nthreads=_model_nthreads(despot2fm_cfg),
+                        verbose=bool(despot2fm_cfg.get("verbose", False)),
+                        extra_options=_model_cli_options(despot2fm_cfg, {"enabled", "algo", "nthreads", "threads", "verbose"}),
+                    )
+                    self._record_model_results(
+                        model_name="DESPOT2FM",
+                        raw_results=despot2fm_results,
+                        fitted_maps=fitted_maps,
+                        modeling_results=modeling_results,
+                    )
 
             mcdespot_cfg = _mcdespot_cfg()
             if mcdespot_cfg.get("enabled", False):
-                self.logger.info("Starting mcDESPOT fitting.")
                 if ssfp_stack is None:
                     raise ValueError("mcDESPOT requested, but no SSFP image was found.")
                 t1_path = despot1_results.get("t1") if modeling_cfg.despot1.get("enabled", False) else None
@@ -1224,27 +1259,31 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                mcdespot_results = fit_mcdespot(
-                    spgr_file=spgr_stack,
-                    ssfp_file=ssfp_stack,
-                    t1_file=t1_path,
-                    b1_file=despot_b1_path,
-                    params_file=params_json,
-                    out_dir=fit_out_dir,
-                    mask_file=mask_file,
-                    out_base=f"{base_prefix}_model-mcDESPOT",
-                    algo=mcdespot_cfg.get("algo", "src"),
-                    nthreads=_model_nthreads(mcdespot_cfg),
-                    verbose=bool(mcdespot_cfg.get("verbose", False)),
-                    cuda=bool(mcdespot_cfg.get("cuda", False)),
-                    extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
-                )
-                self._record_model_results(
-                    model_name="mcDESPOT",
-                    raw_results=mcdespot_results,
-                    fitted_maps=fitted_maps,
-                    modeling_results=modeling_results,
-                )
+                if skip_existing and _model_has_metrics("mcDESPOT", ["MWF"]):
+                    self.logger.info("Skipping mcDESPOT fitting (found existing MWF/VFm map).")
+                else:
+                    self.logger.info("Starting mcDESPOT fitting.")
+                    mcdespot_results = fit_mcdespot(
+                        spgr_file=spgr_stack,
+                        ssfp_file=ssfp_stack,
+                        t1_file=t1_path,
+                        b1_file=despot_b1_path,
+                        params_file=params_json,
+                        out_dir=fit_out_dir,
+                        mask_file=mask_file,
+                        out_base=f"{base_prefix}_model-mcDESPOT",
+                        algo=mcdespot_cfg.get("algo", "src"),
+                        nthreads=_model_nthreads(mcdespot_cfg),
+                        verbose=bool(mcdespot_cfg.get("verbose", False)),
+                        cuda=bool(mcdespot_cfg.get("cuda", False)),
+                        extra_options=_model_cli_options(mcdespot_cfg, {"enabled", "cuda", "algo", "nthreads", "threads", "verbose"}),
+                    )
+                    self._record_model_results(
+                        model_name="mcDESPOT",
+                        raw_results=mcdespot_results,
+                        fitted_maps=fitted_maps,
+                        modeling_results=modeling_results,
+                    )
         finally:
             if created_temp_inputs and cleanup_temp_inputs and input_dir.exists():
                 shutil.rmtree(input_dir, ignore_errors=True)
@@ -1382,6 +1421,13 @@ class RelaxometryWorkflow(BaseWorkflow):
             )
         context["spgr_exclude_indices"] = spgr_exclude
         context["ssfp_exclude_indices"] = ssfp_exclude
+
+        if (spgr_exclude or ssfp_exclude) and not self.config.get("save_intermediates", False):
+            # Clear stale chunked exclusion artifacts from previous runs before
+            # preprocessing starts so the final derivatives tree converges back
+            # to only the canonical preprocessed outputs.
+            self._cleanup_chunk_artifacts(anat_out_dir)
+            self._cleanup_chunk_artifacts(intermediate_dir)
 
         self.logger.info(
             "Using relaxometry inputs after exclusions: %d SPGR, %d SSFP, %d IR-SPGR, %d B1.",
