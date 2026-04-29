@@ -182,7 +182,8 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     
     fixed_p = extract_image_path(fixed_file)
     moving_p = extract_image_path(moving_file)
-    out_prefix = ensure_dir(out_prefix)
+    out_prefix = Path(out_prefix)
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
     
     warped_out = out_prefix.with_suffix("").parent / (out_prefix.name + "Warped.nii.gz")
     

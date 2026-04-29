@@ -105,7 +105,17 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # --------------------------------------------------------------------------------
     # 6. qmri-neuropipe and Python dependencies
     # --------------------------------------------------------------------------------
-    cd /app
+    REPO_DIR=/app
+    if [ ! -f "${REPO_DIR}/pyproject.toml" ]; then
+        REPO_DIR="$(find /app -maxdepth 3 -name pyproject.toml -printf '%h\n' | head -n 1)"
+    fi
+    if [ -z "${REPO_DIR}" ] || [ ! -f "${REPO_DIR}/pyproject.toml" ]; then
+        echo "Could not locate pyproject.toml under /app during Apptainer build." >&2
+        find /app -maxdepth 3 -mindepth 1 -print >&2 || true
+        exit 1
+    fi
+
+    cd "${REPO_DIR}"
     pip install --upgrade pip setuptools wheel
     pip install ".[all]"
 
