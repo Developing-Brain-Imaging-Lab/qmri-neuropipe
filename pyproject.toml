@@ -65,7 +65,6 @@ all = [
     "pyAFQ",
     "streamlit",
     "weasyprint",
-    "mriqc>=24.0.0; python_version<'3.12'",
     "dash",
     "pywebview"
 ]
