@@ -65,6 +65,7 @@ RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Minif
     mamba install -y -c mrtrix3 -c conda-forge \
         python=${PYTHON_VERSION} \
         pip \
+        numpy \
         cython \
         imagecodecs \
         mrtrix3 \
@@ -107,7 +108,7 @@ WORKDIR /app
 COPY . /app
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel && \
-    ${CONDA_DIR}/bin/python -m pip install --prefer-binary ".[all]"
+    ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]"
 
 # --------------------------------------------------------------------------------
 # 7. Runtime wrapper
