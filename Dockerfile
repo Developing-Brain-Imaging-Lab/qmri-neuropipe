@@ -26,7 +26,7 @@ ENV FS_LICENSE=/opt/freesurfer/license.txt
 ENV FSFAST_HOME=/opt/freesurfer/fsfast
 ENV MNI_DIR=/opt/freesurfer/mni
 ENV C3DPATH=/opt/c3d/bin
-ENV PATH=${FSLDIR}/bin:${FREESURFER_HOME}/bin:${C3DPATH}:$PATH
+ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${C3DPATH}:$PATH
 
 # --------------------------------------------------------------------------------
 # 1. System dependencies
@@ -107,8 +107,8 @@ RUN mkdir -p /opt/c3d && \
 WORKDIR /app
 COPY . /app
 
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install ".[all]"
+RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel && \
+    ${CONDA_DIR}/bin/python -m pip install ".[all]"
 
 # --------------------------------------------------------------------------------
 # 7. Runtime wrapper

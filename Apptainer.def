@@ -13,6 +13,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 %post
     set -e
     export DEBIAN_FRONTEND=noninteractive
+    export CONDA_DIR=/opt/conda
+    export PATH=${CONDA_DIR}/bin:$PATH
 
     FREESURFER_VERSION="${FREESURFER_VERSION:-8.2.0}"
     FREESURFER_PACKAGE="${FREESURFER_PACKAGE:-freesurfer_ubuntu22-8.2.0_amd64.deb}"
@@ -56,9 +58,6 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # --------------------------------------------------------------------------------
     # 2. Miniforge and core neuroimaging binaries
     # --------------------------------------------------------------------------------
-    export CONDA_DIR=/opt/conda
-    export PATH=${CONDA_DIR}/bin:$PATH
-
     wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /tmp/miniforge.sh
     bash /tmp/miniforge.sh -b -p ${CONDA_DIR}
     rm /tmp/miniforge.sh
@@ -76,7 +75,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # 3. FSL
     # --------------------------------------------------------------------------------
     export FSLDIR=/usr/local/fsl
-    export PATH=${FSLDIR}/bin:$PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:$PATH
     curl -fsSL https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/releases/fslinstaller.py -o /tmp/fslinstaller.py
     python3 /tmp/fslinstaller.py -d ${FSLDIR} -q --no_env
     rm /tmp/fslinstaller.py
@@ -116,15 +115,15 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     fi
 
     cd "${REPO_DIR}"
-    pip install --upgrade pip setuptools wheel
-    pip install ".[all]"
+    ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
+    ${CONDA_DIR}/bin/python -m pip install ".[all]"
 
 %environment
     export CONDA_DIR=/opt/conda
     export PATH=${CONDA_DIR}/bin:$PATH
 
     export FSLDIR=/usr/local/fsl
-    export PATH=${FSLDIR}/bin:$PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:$PATH
     export FSLOUTPUTTYPE=NIFTI_GZ
 
     export FREESURFER_HOME=/opt/freesurfer
@@ -132,10 +131,10 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export FS_LICENSE=/opt/freesurfer/license.txt
     export FSFAST_HOME=/opt/freesurfer/fsfast
     export MNI_DIR=/opt/freesurfer/mni
-    export PATH=${FREESURFER_HOME}/bin:$PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:$PATH
 
     export C3DPATH=/opt/c3d/bin
-    export PATH=${C3DPATH}:$PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${C3DPATH}:$PATH
     export LC_ALL=C
 
 %runscript

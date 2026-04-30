@@ -41,7 +41,7 @@ pyafq = [
     "pyAFQ"
 ]
 mriqc = [
-    "mriqc"
+    "mriqc>=24.0.0"
 ]
 tracker = [
     "openpyxl",
@@ -65,7 +65,7 @@ all = [
     "pyAFQ",
     "streamlit",
     "weasyprint",
-    "mriqc",
+    "mriqc>=24.0.0",
     "dash",
     "pywebview"
 ]
