@@ -2,10 +2,7 @@
 # Base: NVIDIA CUDA 12.2 runtime on Ubuntu 22.04
 #
 # Notes:
-# - FreeSurfer 8.2.0 was requested, but the official FreeSurfer distribution
-#   site did not expose an 8.2.0 Ubuntu 22 package when this file was updated
-#   on 2026-04-29. The default below therefore uses 8.1.0, with build args so
-#   the package URL can be overridden when 8.2.0 becomes available.
+# - The default FreeSurfer package below targets version 8.2.0 for Ubuntu 22.
 
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
@@ -68,6 +65,8 @@ RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Minif
     mamba install -y -c mrtrix3 -c conda-forge \
         python=${PYTHON_VERSION} \
         pip \
+        cython \
+        imagecodecs \
         mrtrix3 \
         ants \
         afni \
@@ -108,7 +107,7 @@ WORKDIR /app
 COPY . /app
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel && \
-    ${CONDA_DIR}/bin/python -m pip install ".[all]"
+    ${CONDA_DIR}/bin/python -m pip install --prefer-binary ".[all]"
 
 # --------------------------------------------------------------------------------
 # 7. Runtime wrapper

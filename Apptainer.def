@@ -20,9 +20,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     FREESURFER_PACKAGE="${FREESURFER_PACKAGE:-freesurfer_ubuntu22-8.2.0_amd64.deb}"
     FREESURFER_URL="${FREESURFER_URL:-https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/${FREESURFER_VERSION}/${FREESURFER_PACKAGE}}"
 
-    # FreeSurfer 8.2.0 was requested, but the official distribution site did
-    # not expose an 8.2.0 Ubuntu 22 package when this file was updated on
-    # 2026-04-29. The defaults therefore use 8.1.0 and can be overridden.
+    # The default FreeSurfer package below targets version 8.2.0 for Ubuntu 22.
 
     # --------------------------------------------------------------------------------
     # 1. System dependencies
@@ -65,6 +63,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     mamba install -y -c mrtrix3 -c conda-forge \
         python=3.10 \
         pip \
+        cython \
+        imagecodecs \
         mrtrix3 \
         ants \
         afni \
@@ -116,7 +116,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
     cd "${REPO_DIR}"
     ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
-    ${CONDA_DIR}/bin/python -m pip install ".[all]"
+    ${CONDA_DIR}/bin/python -m pip install --prefer-binary ".[all]"
 
 %environment
     export CONDA_DIR=/opt/conda

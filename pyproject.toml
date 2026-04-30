@@ -23,7 +23,6 @@ dependencies = [
     "pywavelets",
     "threadpoolctl",
     "tqdm",
-    "HD-BET",
     "dcm2bids"
 ]
 
@@ -39,6 +38,10 @@ nifreeze = [
 ]
 pyafq = [
     "pyAFQ"
+]
+hdbet = [
+    "HD-BET",
+    "imagecodecs>=2023.9.18"
 ]
 mriqc = [
     "mriqc>=24.0.0; python_version<'3.12'"
@@ -60,6 +63,8 @@ all = [
     "dmri-amico",
     "nexi",
     "nifreeze",
+    "HD-BET",
+    "imagecodecs>=2023.9.18",
     "openpyxl",
     "plotly",
     "pyAFQ",
