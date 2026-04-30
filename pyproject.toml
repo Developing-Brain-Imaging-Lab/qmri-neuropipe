@@ -9,7 +9,7 @@ version = "0.0.1"
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
-    "pandas>=1.5,<2.0",
+    "pandas>=1.5",
     "pyyaml>=6.0", 
     "jinja2>=3.1", 
     "matplotlib>=3.8", 
@@ -41,7 +41,7 @@ pyafq = [
     "pyAFQ"
 ]
 mriqc = [
-    "mriqc>=24.0.0"
+    "mriqc>=24.0.0; python_version<'3.12'"
 ]
 tracker = [
     "openpyxl",
@@ -65,7 +65,7 @@ all = [
     "pyAFQ",
     "streamlit",
     "weasyprint",
-    "mriqc>=24.0.0",
+    "mriqc>=24.0.0; python_version<'3.12'",
     "dash",
     "pywebview"
 ]
