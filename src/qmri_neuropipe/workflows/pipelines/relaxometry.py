@@ -1446,10 +1446,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         context["spgr_exclude_indices"] = spgr_exclude
         context["ssfp_exclude_indices"] = ssfp_exclude
 
-        if (spgr_exclude or ssfp_exclude) and not self.config.get("save_intermediates", False):
-            # Clear stale chunked exclusion artifacts from previous runs before
+        if not self.config.get("save_intermediates", False):
+            # Clear stale chunked artifacts from previous runs before
             # preprocessing starts so the final derivatives tree converges back
-            # to only the canonical preprocessed outputs.
+            # to only the canonical preprocessed outputs, even if the current
+            # run is resuming or no longer has exclusion flags enabled.
             self._cleanup_exclusion_outputs(anat_out_dir)
             self._cleanup_chunk_artifacts(anat_out_dir)
             self._cleanup_chunk_artifacts(intermediate_dir)
@@ -1546,10 +1547,9 @@ class RelaxometryWorkflow(BaseWorkflow):
             if ssfp_exclude:
                 cleanup_dirs.append(intermediate_dir / "excluded_inputs" / "ssfp")
             self._cleanup_paths([path for path in cleanup_dirs if path.exists()])
-            if spgr_exclude or ssfp_exclude:
-                self._cleanup_exclusion_outputs(anat_out_dir)
-                self._cleanup_chunk_artifacts(intermediate_dir)
-                self._cleanup_chunk_artifacts(anat_out_dir)
+            self._cleanup_exclusion_outputs(anat_out_dir)
+            self._cleanup_chunk_artifacts(intermediate_dir)
+            self._cleanup_chunk_artifacts(anat_out_dir)
 
         # Save intermediates if requested
         save_inter = self.config.get("save_intermediates", False)
