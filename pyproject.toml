@@ -62,7 +62,6 @@ viewer = [
 all = [
     "dmri-amico",
     "nexi",
-    "nifreeze",
     "HD-BET",
     "imagecodecs>=2023.9.18",
     "openpyxl",

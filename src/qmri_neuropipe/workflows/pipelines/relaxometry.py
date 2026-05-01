@@ -1425,6 +1425,16 @@ class RelaxometryWorkflow(BaseWorkflow):
         relax_cfg = self.relax_config
         preproc_cfg = relax_cfg.preprocessing
 
+        if not self.config.get("save_intermediates", False):
+            # Clear stale chunked artifacts from previous runs before
+            # exclusion expansion/preprocessing starts. This must happen
+            # before we materialize excluded_inputs chunk files, otherwise
+            # the generic "*chunk-*" cleanup will delete the current run's
+            # newly created exclusion volumes.
+            self._cleanup_exclusion_outputs(anat_out_dir)
+            self._cleanup_chunk_artifacts(anat_out_dir)
+            self._cleanup_chunk_artifacts(intermediate_dir)
+
         exclude_cfg = getattr(preproc_cfg, "exclude_indices", {}) or {}
         spgr_exclude = self._normalize_exclude_indices(exclude_cfg.get("spgr"), "SPGR")
         ssfp_exclude = self._normalize_exclude_indices(exclude_cfg.get("ssfp"), "SSFP")
@@ -1445,15 +1455,6 @@ class RelaxometryWorkflow(BaseWorkflow):
             )
         context["spgr_exclude_indices"] = spgr_exclude
         context["ssfp_exclude_indices"] = ssfp_exclude
-
-        if not self.config.get("save_intermediates", False):
-            # Clear stale chunked artifacts from previous runs before
-            # preprocessing starts so the final derivatives tree converges back
-            # to only the canonical preprocessed outputs, even if the current
-            # run is resuming or no longer has exclusion flags enabled.
-            self._cleanup_exclusion_outputs(anat_out_dir)
-            self._cleanup_chunk_artifacts(anat_out_dir)
-            self._cleanup_chunk_artifacts(intermediate_dir)
 
         self.logger.info(
             "Using relaxometry inputs after exclusions: %d SPGR, %d SSFP, %d IR-SPGR, %d B1.",
