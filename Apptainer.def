@@ -93,6 +93,9 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     rm -rf /var/lib/apt/lists/*
     mkdir -p ${FREESURFER_HOME}/subjects
     touch ${FREESURFER_HOME}/license.txt
+    if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then
+        ln -s "${FREESURFER_HOME}/python/scripts/mri_synthseg" "${FREESURFER_HOME}/bin/mri_synthseg"
+    fi
 
     # --------------------------------------------------------------------------------
     # 5. Convert3D (C3D)
@@ -101,6 +104,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     wget https://sourceforge.net/projects/c3d/files/c3d/1.0.0/c3d-1.0.0-Linux-x86_64.tar.gz/download -O /tmp/c3d.tar.gz
     tar -xzf /tmp/c3d.tar.gz -C /opt/c3d --strip-components=1
     rm /tmp/c3d.tar.gz
+    mkdir -p /data /output /code
 
     # --------------------------------------------------------------------------------
     # 6. qmri-neuropipe and Python dependencies
@@ -132,10 +136,13 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export FS_LICENSE=/opt/freesurfer/license.txt
     export FSFAST_HOME=/opt/freesurfer/fsfast
     export MNI_DIR=/opt/freesurfer/mni
-    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:$PATH
+    if [ -f "${FREESURFER_HOME}/SetUpFreeSurfer.sh" ]; then
+        . "${FREESURFER_HOME}/SetUpFreeSurfer.sh" >/dev/null 2>&1 || true
+    fi
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:$PATH
 
     export C3DPATH=/opt/c3d/bin
-    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${C3DPATH}:$PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:$PATH
     export LC_ALL=C
 
 %runscript

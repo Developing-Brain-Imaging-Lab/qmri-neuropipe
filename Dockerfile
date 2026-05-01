@@ -14,6 +14,8 @@ ARG FREESURFER_URL=https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/${FREE
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CONDA_DIR=/opt/conda
 ENV PATH=${CONDA_DIR}/bin:$PATH
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 ENV FSLDIR=/usr/local/fsl
 ENV FSLOUTPUTTYPE=NIFTI_GZ
@@ -23,7 +25,7 @@ ENV FS_LICENSE=/opt/freesurfer/license.txt
 ENV FSFAST_HOME=/opt/freesurfer/fsfast
 ENV MNI_DIR=/opt/freesurfer/mni
 ENV C3DPATH=/opt/c3d/bin
-ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${C3DPATH}:$PATH
+ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:$PATH
 
 # --------------------------------------------------------------------------------
 # 1. System dependencies
@@ -91,7 +93,8 @@ RUN mkdir -p ${FREESURFER_HOME} && \
     rm -f /tmp/freesurfer.deb && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p ${SUBJECTS_DIR} && \
-    touch ${FS_LICENSE}
+    touch ${FS_LICENSE} && \
+    if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then ln -s "${FREESURFER_HOME}/python/scripts/mri_synthseg" "${FREESURFER_HOME}/bin/mri_synthseg"; fi
 
 # --------------------------------------------------------------------------------
 # 5. Convert3D (C3D)
@@ -99,7 +102,8 @@ RUN mkdir -p ${FREESURFER_HOME} && \
 RUN mkdir -p /opt/c3d && \
     wget https://sourceforge.net/projects/c3d/files/c3d/1.0.0/c3d-1.0.0-Linux-x86_64.tar.gz/download -O /tmp/c3d.tar.gz && \
     tar -xzf /tmp/c3d.tar.gz -C /opt/c3d --strip-components=1 && \
-    rm /tmp/c3d.tar.gz
+    rm /tmp/c3d.tar.gz && \
+    mkdir -p /data /output /code
 
 # --------------------------------------------------------------------------------
 # 6. qmri-neuropipe and Python dependencies

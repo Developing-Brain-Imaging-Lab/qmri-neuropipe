@@ -12,6 +12,32 @@ Robust neuroimaging pipeline for BIDS datasets.
 pip install -e .
 ```
 
+## Containers
+
+GPU-enabled tools such as `eddy_cuda` require the host NVIDIA driver libraries at
+runtime. Those are not reliably solved by baking `libcuda.so.1` into the image.
+Use the container with GPU passthrough enabled:
+
+```bash
+# Apptainer
+apptainer exec --nv qneuro.sif eddy_cuda
+
+# Docker
+docker run --gpus all ...
+```
+
+If `eddy_cuda` reports `libcuda.so.1: cannot open shared object file`, the usual
+cause is that the container was launched without `--nv` (Apptainer) or without
+the NVIDIA runtime / `--gpus all` (Docker).
+
+The container also provides bind-target directories:
+
+```text
+/data
+/output
+/code
+```
+
 ### Optional Extras
 
 Install optional features as needed:
