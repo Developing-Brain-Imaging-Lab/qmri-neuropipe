@@ -627,6 +627,48 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out[key] = value
         return out
 
+    @staticmethod
+    def _aggregate_payload_dicts(payloads: List[dict[str, Any]]) -> dict[str, Any]:
+        payloads = [payload for payload in payloads if payload]
+        if not payloads:
+            return {}
+
+        merged = dict(payloads[0])
+        series_keys = {
+            "FlipAngle",
+            "RepetitionTime",
+            "EchoTime",
+            "PhaseCycling",
+            "InversionTime",
+            "EchoTrainLength",
+        }
+
+        for key in set().union(*(payload.keys() for payload in payloads)):
+            values: list[Any] = []
+            saw_list = False
+            for payload in payloads:
+                if key not in payload:
+                    continue
+                value = payload[key]
+                if isinstance(value, list):
+                    saw_list = True
+                    values.extend(value)
+                else:
+                    values.append(value)
+
+            if not values:
+                continue
+
+            if key in series_keys or saw_list:
+                if values and all(value == values[0] for value in values) and key not in {"FlipAngle", "PhaseCycling", "InversionTime"}:
+                    merged[key] = values[0]
+                else:
+                    merged[key] = values
+            elif len(values) == 1 or all(value == values[0] for value in values):
+                merged[key] = values[0]
+
+        return merged
+
     def _expand_modality_exclusions(
         self,
         images: List[ImageFile],
@@ -656,8 +698,8 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         exclude_set = set(exclude_indices)
         derived_dir.mkdir(parents=True, exist_ok=True)
-        filtered: List[ImageFile] = []
         excluded_paths: List[str] = []
+        kept_volumes: list[tuple[ImageFile, int, int, int]] = []
 
         for img, start_idx, count in logical_ranges:
             local_keep = [local_idx for local_idx in range(count) if (start_idx + local_idx) not in exclude_set]
@@ -666,36 +708,64 @@ class RelaxometryWorkflow(BaseWorkflow):
                 excluded_paths.append(f"{img.img.name}: {local_drop}")
             if not local_keep:
                 continue
-            if count == 1 or len(local_keep) == count:
-                filtered.append(img)
-                continue
-
-            nii = nib.load(str(img.img))
-            base_payload = self._load_json_payload(getattr(img, "json", None))
-            suffix = img.entities.get("suffix", "VFA")
             for local_idx in local_keep:
                 global_idx = start_idx + local_idx
-                out_entities = dict(img.entities)
-                chunk_token = f"{global_idx:04d}"
-                if out_entities.get("chunk"):
-                    chunk_token = f"{out_entities['chunk']}{chunk_token}"
-                out_entities["chunk"] = chunk_token
-                out_path = derived_dir / build_bids_name(out_entities, suffix=suffix)
-                out_json = out_path.with_suffix("").with_suffix(".json")
+                kept_volumes.append((img, local_idx, global_idx, count))
 
-                if not out_path.exists():
+        if not kept_volumes:
+            raise ValueError(f"All {modality_label} acquisitions were excluded; no volumes remain.")
+
+        out_entities = dict(images[0].entities)
+        out_entities.pop("chunk", None)
+        suffix = out_entities.get("suffix", "VFA")
+        out_path = derived_dir / build_bids_name(out_entities, suffix=suffix)
+        out_json = out_path.with_suffix("").with_suffix(".json")
+
+        source_paths = [img.img for img, _, _, _ in kept_volumes]
+        rebuild = True
+        if out_path.exists():
+            newest_source = max(path.stat().st_mtime for path in source_paths if path.exists())
+            rebuild = newest_source > out_path.stat().st_mtime or not out_json.exists()
+
+        if rebuild:
+            source_niis: dict[Path, nib.Nifti1Image] = {}
+            merged_volumes: list[np.ndarray] = []
+            payloads: list[dict[str, Any]] = []
+
+            for img, local_idx, global_idx, count in kept_volumes:
+                nii = source_niis.setdefault(img.img, nib.load(str(img.img)))
+                if len(nii.shape) >= 4 and nii.shape[3] > 1:
                     vol_data = np.asanyarray(nii.dataobj[..., local_idx])
-                    nib.save(nib.Nifti1Image(vol_data, nii.affine, nii.header.copy()), str(out_path))
+                else:
+                    vol_data = np.asanyarray(nii.dataobj)
+                merged_volumes.append(vol_data)
 
-                if not out_json.exists():
-                    vol_payload = self._volume_json_payload(base_payload, local_idx, count)
-                    vol_payload["SourceImage"] = str(img.img)
-                    vol_payload["SelectedVolumeIndex"] = int(local_idx)
-                    with out_json.open("w") as f:
-                        json.dump(vol_payload, f, indent=2)
-                        f.write("\n")
+                base_payload = self._load_json_payload(getattr(img, "json", None))
+                vol_payload = self._volume_json_payload(base_payload, local_idx, count)
+                vol_payload["SourceImage"] = str(img.img)
+                vol_payload["SelectedVolumeIndex"] = int(local_idx)
+                vol_payload["SelectedGlobalIndex"] = int(global_idx)
+                payloads.append(vol_payload)
 
-                filtered.append(ImageFile(img=out_path, entities=out_entities, json=out_json))
+            first_nii = source_niis[kept_volumes[0][0].img]
+            if len(merged_volumes) == 1:
+                merged_data = merged_volumes[0][..., np.newaxis]
+            else:
+                merged_data = np.stack(merged_volumes, axis=-1)
+
+            nib.save(nib.Nifti1Image(merged_data, first_nii.affine, first_nii.header.copy()), str(out_path))
+
+            merged_payload = self._aggregate_payload_dicts(payloads)
+            merged_payload["Sources"] = [str(path) for path in source_paths]
+            merged_payload["VolumeSelection"] = {
+                "modality": modality_label,
+                "excluded_indices": list(exclude_indices),
+                "selected_global_indices": [int(global_idx) for _, _, global_idx, _ in kept_volumes],
+                "source_count": len({str(path) for path in source_paths}),
+            }
+            with out_json.open("w") as f:
+                json.dump(merged_payload, f, indent=2)
+                f.write("\n")
 
         self.logger.info(
             "%s exclusions applied: removed indices=%s, remaining=%d/%d",
@@ -704,9 +774,14 @@ class RelaxometryWorkflow(BaseWorkflow):
             total_count - len(exclude_set),
             total_count,
         )
+        self.logger.info(
+            "Created filtered %s 4D series after exclusions: %s",
+            modality_label,
+            out_path.name,
+        )
         for item in excluded_paths:
             self.logger.debug("Excluded %s acquisition(s): %s", modality_label, item)
-        return filtered
+        return [ImageFile(img=out_path, entities=out_entities, json=out_json if out_json.exists() else None)]
 
     def _setup_directories(
         self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None
@@ -747,44 +822,9 @@ class RelaxometryWorkflow(BaseWorkflow):
 
     def _aggregate_series_json_payload(self, images: List[ImageFile]) -> dict[str, Any]:
         payloads = [self._load_json_payload(getattr(img, "json", None)) for img in images]
-        payloads = [payload for payload in payloads if payload]
-        if not payloads:
+        merged = self._aggregate_payload_dicts(payloads)
+        if not merged:
             return {}
-
-        merged = dict(payloads[0])
-        series_keys = {
-            "FlipAngle",
-            "RepetitionTime",
-            "EchoTime",
-            "PhaseCycling",
-            "InversionTime",
-            "EchoTrainLength",
-        }
-
-        for key in set().union(*(payload.keys() for payload in payloads)):
-            values: list[Any] = []
-            saw_list = False
-            for payload in payloads:
-                if key not in payload:
-                    continue
-                value = payload[key]
-                if isinstance(value, list):
-                    saw_list = True
-                    values.extend(value)
-                else:
-                    values.append(value)
-
-            if not values:
-                continue
-
-            if key in series_keys or saw_list:
-                if values and all(value == values[0] for value in values) and key not in {"FlipAngle", "PhaseCycling", "InversionTime"}:
-                    merged[key] = values[0]
-                else:
-                    merged[key] = values
-            elif len(values) == 1 or all(value == values[0] for value in values):
-                merged[key] = values[0]
-
         merged["Sources"] = [str(img.img) for img in images]
         return merged
 
