@@ -110,6 +110,9 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export FREESURFER_HOME="${FS_ACTUAL_HOME}"
     mkdir -p ${FREESURFER_HOME}/subjects
     touch ${FREESURFER_HOME}/license.txt
+    mkdir -p ${FREESURFER_HOME}/models
+    wget -O "${FREESURFER_HOME}/models/SuperSynth_August_2025.pth" \
+        "https://ftp.nmr.mgh.harvard.edu/pub/dist/lcnpublic/dist/SuperSynth_Iglesias_2025/SuperSynth_August_2025.pth"
     if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then
         ln -s "${FREESURFER_HOME}/python/scripts/mri_synthseg" "${FREESURFER_HOME}/bin/mri_synthseg"
     fi

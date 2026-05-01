@@ -103,6 +103,8 @@ RUN mkdir -p ${FREESURFER_HOME} && \
     if [ -z "${FS_ACTUAL_HOME}" ]; then echo "Could not locate FreeSurfer install root after package install." >&2; find /usr/local -maxdepth 3 -type f -name mri_convert >&2 || true; exit 1; fi && \
     mkdir -p ${SUBJECTS_DIR} && \
     touch ${FS_LICENSE} && \
+    mkdir -p "${FS_ACTUAL_HOME}/models" && \
+    wget -O "${FS_ACTUAL_HOME}/models/SuperSynth_August_2025.pth" "https://ftp.nmr.mgh.harvard.edu/pub/dist/lcnpublic/dist/SuperSynth_Iglesias_2025/SuperSynth_August_2025.pth" && \
     if [ -x "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FS_ACTUAL_HOME}/bin/mri_synthseg" ]; then ln -s "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" "${FS_ACTUAL_HOME}/bin/mri_synthseg"; fi
 
 # --------------------------------------------------------------------------------
