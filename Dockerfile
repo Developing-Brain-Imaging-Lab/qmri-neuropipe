@@ -19,11 +19,11 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 ENV FSLDIR=/usr/local/fsl
 ENV FSLOUTPUTTYPE=NIFTI_GZ
-ENV FREESURFER_HOME=/opt/freesurfer
-ENV SUBJECTS_DIR=/opt/freesurfer/subjects
-ENV FS_LICENSE=/opt/freesurfer/license.txt
-ENV FSFAST_HOME=/opt/freesurfer/fsfast
-ENV MNI_DIR=/opt/freesurfer/mni
+ENV FREESURFER_HOME=/usr/local/freesurfer/${FREESURFER_VERSION}
+ENV SUBJECTS_DIR=${FREESURFER_HOME}/subjects
+ENV FS_LICENSE=${FREESURFER_HOME}/license.txt
+ENV FSFAST_HOME=${FREESURFER_HOME}/fsfast
+ENV MNI_DIR=${FREESURFER_HOME}/mni
 ENV C3DPATH=/opt/c3d/bin
 ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:$PATH
 
@@ -92,9 +92,18 @@ RUN mkdir -p ${FREESURFER_HOME} && \
     apt-get install -y /tmp/freesurfer.deb && \
     rm -f /tmp/freesurfer.deb && \
     rm -rf /var/lib/apt/lists/* && \
+    FS_ACTUAL_HOME="" && \
+    for candidate in \
+        "${FREESURFER_HOME}" \
+        "/usr/local/freesurfer/${FREESURFER_VERSION%.*}" \
+        "/usr/local/freesurfer" \
+        "/opt/freesurfer"; do \
+        if [ -x "${candidate}/bin/mri_convert" ]; then FS_ACTUAL_HOME="${candidate}"; break; fi; \
+    done && \
+    if [ -z "${FS_ACTUAL_HOME}" ]; then echo "Could not locate FreeSurfer install root after package install." >&2; find /usr/local -maxdepth 3 -type f -name mri_convert >&2 || true; exit 1; fi && \
     mkdir -p ${SUBJECTS_DIR} && \
     touch ${FS_LICENSE} && \
-    if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then ln -s "${FREESURFER_HOME}/python/scripts/mri_synthseg" "${FREESURFER_HOME}/bin/mri_synthseg"; fi
+    if [ -x "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FS_ACTUAL_HOME}/bin/mri_synthseg" ]; then ln -s "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" "${FS_ACTUAL_HOME}/bin/mri_synthseg"; fi
 
 # --------------------------------------------------------------------------------
 # 5. Convert3D (C3D)

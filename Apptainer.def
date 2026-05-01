@@ -84,13 +84,30 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # --------------------------------------------------------------------------------
     # 4. FreeSurfer
     # --------------------------------------------------------------------------------
-    export FREESURFER_HOME=/opt/freesurfer
+    export FREESURFER_HOME="/usr/local/freesurfer/${FREESURFER_VERSION}"
     mkdir -p ${FREESURFER_HOME}
     wget -O /tmp/freesurfer.deb ${FREESURFER_URL}
     apt-get update
     apt-get install -y /tmp/freesurfer.deb
     rm -f /tmp/freesurfer.deb
     rm -rf /var/lib/apt/lists/*
+    FS_ACTUAL_HOME=""
+    for candidate in \
+        "${FREESURFER_HOME}" \
+        "/usr/local/freesurfer/${FREESURFER_VERSION%.*}" \
+        "/usr/local/freesurfer" \
+        "/opt/freesurfer"; do
+        if [ -x "${candidate}/bin/mri_convert" ]; then
+            FS_ACTUAL_HOME="${candidate}"
+            break
+        fi
+    done
+    if [ -z "${FS_ACTUAL_HOME}" ]; then
+        echo "Could not locate FreeSurfer install root after package install." >&2
+        find /usr/local -maxdepth 3 -type f -name mri_convert >&2 || true
+        exit 1
+    fi
+    export FREESURFER_HOME="${FS_ACTUAL_HOME}"
     mkdir -p ${FREESURFER_HOME}/subjects
     touch ${FREESURFER_HOME}/license.txt
     if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then
@@ -131,11 +148,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:$PATH
     export FSLOUTPUTTYPE=NIFTI_GZ
 
-    export FREESURFER_HOME=/opt/freesurfer
-    export SUBJECTS_DIR=/opt/freesurfer/subjects
-    export FS_LICENSE=/opt/freesurfer/license.txt
-    export FSFAST_HOME=/opt/freesurfer/fsfast
-    export MNI_DIR=/opt/freesurfer/mni
+    export FREESURFER_HOME=/usr/local/freesurfer/8.2.0
+    export SUBJECTS_DIR=${FREESURFER_HOME}/subjects
+    export FS_LICENSE=${FREESURFER_HOME}/license.txt
+    export FSFAST_HOME=${FREESURFER_HOME}/fsfast
+    export MNI_DIR=${FREESURFER_HOME}/mni
     if [ -f "${FREESURFER_HOME}/SetUpFreeSurfer.sh" ]; then
         . "${FREESURFER_HOME}/SetUpFreeSurfer.sh" >/dev/null 2>&1 || true
     fi
