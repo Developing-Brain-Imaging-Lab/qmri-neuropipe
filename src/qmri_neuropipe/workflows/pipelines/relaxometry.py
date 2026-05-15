@@ -23,7 +23,7 @@ from ...lib.common.mask import BrainMaskingStep
 from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.json_metadata import copy_json_with_metadata
 from ...lib.dmri.normalization import NormalizationStep
-from ...lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
+from ...lib.common.analysis import AtlasRegistrationStep, StatsExtractionStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
 from ...utils.relax_params import generate_acq_params
 
@@ -178,7 +178,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             "mcDESPOT": {
                 "aliases": {"mcdespot"},
                 "metrics": {
-                    "mwf": "MWF",
+                    "vfm": "VFm",
+                    "mwf": "VFm",
                     "t1_fast": "T1_fast",
                     "t1_slow": "T1_slow",
                     "t2_fast": "T2_fast",
@@ -211,9 +212,9 @@ class RelaxometryWorkflow(BaseWorkflow):
             "b1": "B1",
             "t2": "T2",
             "f0": "F0",
-            "mwf": "MWF",
-            "vfm": "MWF",
-            "myelinwaterfraction": "MWF",
+            "mwf": "VFm",
+            "vfm": "VFm",
+            "myelinwaterfraction": "VFm",
             "t1fast": "T1_fast",
             "t1slow": "T1_slow",
             "t2fast": "T2_fast",
@@ -400,7 +401,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         return filtered
 
     def _default_analysis_registration_metric(self, modeling_results: Dict[str, Dict[str, Path]]) -> Optional[str]:
-        preferred_metrics = ["T1", "MWF", "T2", "M0", "T1_slow", "T1_fast"]
+        preferred_metrics = ["T1", "VFm", "T2", "M0", "T1_slow", "T1_fast"]
         for preferred in preferred_metrics:
             for metrics in modeling_results.values():
                 if preferred in metrics:
@@ -1334,8 +1335,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                if skip_existing and _model_has_metrics("mcDESPOT", ["MWF"]):
-                    self.logger.info("Skipping mcDESPOT fitting (found existing MWF/VFm map).")
+                if skip_existing and _model_has_metrics("mcDESPOT", ["VFm"]):
+                    self.logger.info("Skipping mcDESPOT fitting (found existing VFm map).")
                 else:
                     self.logger.info("Starting mcDESPOT fitting.")
                     mcdespot_results = fit_mcdespot(

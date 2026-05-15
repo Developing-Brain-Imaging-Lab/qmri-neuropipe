@@ -3,7 +3,7 @@ from typing import Optional
 
 from qmri_neuropipe.core import BaseWorkflow
 from qmri_neuropipe.lib.common.segmentation import SegmentationStep
-from qmri_neuropipe.lib.dmri.analysis import AtlasRegistrationStep, StatsExtractionStep
+from qmri_neuropipe.lib.common.analysis import AtlasRegistrationStep, StatsExtractionStep
 
 
 class SegmentationWorkflow(BaseWorkflow):
