@@ -1377,9 +1377,10 @@ class RelaxometryWorkflow(BaseWorkflow):
               atlases/       <- registered atlas labels   (analysis_out_dir / "atlases")
               statistics/    <- per-ROI CSV files         (analysis_out_dir / "statistics")
 
-        When normalization has already run, stats are extracted from the normalized
-        (standard-space) maps so that the registered atlas can be applied directly
-        without a separate atlas-to-native-space registration step.
+        Stats are always extracted in native subject space: atlases are registered from
+        template space to subject space using the SPGR reference (or a fitted metric map)
+        as the fixed image, and the same native-space fitted maps are used for extraction.
+        Normalized (standard-space) maps are produced separately for group analysis only.
         """
         stats_results: Dict[str, Path] = {}
         analysis_cfg = self.relax_config.analysis or {}
@@ -1388,18 +1389,13 @@ class RelaxometryWorkflow(BaseWorkflow):
             atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
             stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
 
-            # Prefer normalized maps for stats extraction when they are available so that
-            # atlas labels can be applied directly in standard space.
-            normalized_by_model = context.get("normalized_results_by_model")
-            if normalized_by_model:
-                self.logger.info(
-                    "Using normalized (standard-space) maps for ROI statistics extraction."
-                )
-                stats_modeling_results = normalized_by_model
-            else:
-                stats_modeling_results = modeling_results
-
-            analysis_context = self._build_analysis_context(context, ref_img, stats_modeling_results)
+            # Always use native-space modeling results for atlas registration and stats
+            # extraction.  The atlas is registered from template space to subject native
+            # space (using the SPGR reference or a fitted metric map as the fixed image),
+            # so the metric maps must share the same native-space grid.  Normalized
+            # (standard-space) maps are produced solely for group-level analysis and must
+            # not be mixed with a native-space atlas here.
+            analysis_context = self._build_analysis_context(context, ref_img, modeling_results)
 
             if not analysis_context.get("modeling_results"):
                 self.logger.warning("Relaxometry analysis is enabled, but no fitted maps were selected for atlas/statistics analysis.")
