@@ -1367,6 +1367,10 @@ class RelaxometryWorkflow(BaseWorkflow):
     ) -> Dict[str, Path]:
         """
         Run atlas registration and ROI statistics extraction for selected relaxometry maps.
+
+        When normalization has already run, stats are extracted from the normalized
+        (standard-space) maps so that the registered atlas can be applied directly
+        without a separate atlas-to-native-space registration step.
         """
         stats_results: Dict[str, Path] = {}
         analysis_cfg = self.relax_config.analysis or {}
@@ -1374,7 +1378,19 @@ class RelaxometryWorkflow(BaseWorkflow):
         if analysis_cfg.get("enabled", False):
             atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
             stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
-            analysis_context = self._build_analysis_context(context, ref_img, modeling_results)
+
+            # Prefer normalized maps for stats extraction when they are available so that
+            # atlas labels can be applied directly in standard space.
+            normalized_by_model = context.get("normalized_results_by_model")
+            if normalized_by_model:
+                self.logger.info(
+                    "Using normalized (standard-space) maps for ROI statistics extraction."
+                )
+                stats_modeling_results = normalized_by_model
+            else:
+                stats_modeling_results = modeling_results
+
+            analysis_context = self._build_analysis_context(context, ref_img, stats_modeling_results)
 
             if not analysis_context.get("modeling_results"):
                 self.logger.warning("Relaxometry analysis is enabled, but no fitted maps were selected for atlas/statistics analysis.")
@@ -1386,6 +1402,8 @@ class RelaxometryWorkflow(BaseWorkflow):
                 context["segmentations"] = analysis_context.get("segmentations", {})
                 context["roi_stats_files"] = analysis_context.get("roi_stats_files", {})
                 context["roi_stats"] = stats_results
+                if analysis_context.get("roi_stats_combined_csv"):
+                    context["roi_stats_combined_csv"] = analysis_context["roi_stats_combined_csv"]
             else:
                 self.logger.warning("Relaxometry analysis is enabled, but atlas/statistics steps are not available. Skipping post-fit analysis.")
         else:
@@ -1612,6 +1630,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             "modeling_results": modeling_results,
             "normalized_results": context.get("normalized_results", {}),
             "roi_stats": stats_results,
+            "roi_stats_files": context.get("roi_stats_files", {}),
+            "roi_stats_combined_csv": context.get("roi_stats_combined_csv", None),
             "brain_mask": context.get("brain_mask", None),
             "b1_map": b1_map,
             "qc_report": context.get("qc_report", None),

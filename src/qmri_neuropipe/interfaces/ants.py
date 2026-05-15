@@ -3,6 +3,15 @@ from typing import Optional, Tuple
 from ..core.types import ImageLike
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
 import os
+import subprocess
+
+
+def run_cmd(cmd: str, label: str = "", n_threads: int = 1) -> None:
+    env = os.environ.copy()
+    env["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(n_threads)
+    result = subprocess.run(cmd, shell=True, env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"{label} failed (exit {result.returncode}):\n{result.stderr}")
 
 # Lazy import ants inside functions to allow thread setting
 

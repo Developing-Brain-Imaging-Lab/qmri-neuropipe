@@ -719,31 +719,33 @@ class StatsExtractionStep(BaseProcessingStep):
                           ents = dwi.entities.copy()
                           ents['desc'] = atlas_name
                           ents['suffix'] = 'stats'
-                          fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
-                          df.to_csv(output_dir / fname, sep='\t', index=False)
-                          context.setdefault('segmentation_stats', []).append(output_dir / fname)
-                          context.setdefault('roi_stats_files', {})[atlas_name] = output_dir / fname
+                          fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".csv"
+                          out_path = output_dir / fname
+                          df.to_csv(out_path, index=False)
+                          context.setdefault('segmentation_stats', []).append(out_path)
+                          context.setdefault('roi_stats_files', {})[atlas_name] = out_path
 
+             else:
                  # Binary/Probabilistic Masks (TractSeg, etc.)
                  # Treat 'seg_type' as the source name (e.g. 'TractSeg')
                  self.logger.info(f"Extracting stats for: {seg_type}")
-                 
+
                  # Check if specific morphology/cleaning is requested for this type
                  seg_cfg = analysis_cfg.get(seg_type, {})
                  morph_op = seg_cfg.get('morphology', None) # e.g. 'erode', 'dilate'
                  morph_iters = seg_cfg.get('morphology_iterations', 1)
                  prob_thresh = seg_cfg.get('threshold', 0.1) # Lower threshold for probabilities
-                 
+
                  from scipy.ndimage import binary_erosion, binary_dilation
-                 
+
                  seg_stats = []
                  for roi_name, roi_path in seg_dict.items():
                       if not Path(roi_path).exists(): continue
-                      
+
                       try:
                           mask_img = nib.load(str(roi_path))
                           mask_data_raw = mask_img.get_fdata()
-                          
+
                           is_prob = False
                           # If it's a probability map or TOM, use weights.
                           # Typically max is 1.0, but let's check if it's not strictly binary
@@ -755,35 +757,35 @@ class StatsExtractionStep(BaseProcessingStep):
                               # Binary Mask
                               mask_data = mask_data_raw > 0.5
                               weights = mask_data.astype(float) # Uniform weights
-                              
+
                           if morph_op == 'erode':
                               mask_data = binary_erosion(mask_data, iterations=morph_iters)
                           elif morph_op == 'dilate':
                               mask_data = binary_dilation(mask_data, iterations=morph_iters)
-                              
+
                       except: continue
-                      
+
                       if np.sum(mask_data) == 0: continue
-                      
+
                       for metric_key, m_info in loaded_maps.items():
                            m_data = m_info['data']
                            if m_data.shape != mask_data.shape: continue
-                           
+
                            w_vals = weights[mask_data]
                            d_vals = m_data[mask_data]
-                           
+
                            # Filter NaNs
                            valid = np.isfinite(d_vals) & (d_vals != 0)
                            w_vals = w_vals[valid]
                            d_vals = d_vals[valid]
-                           
+
                            if d_vals.size == 0 or np.sum(w_vals) <= 0: continue
-                           
+
                            w_sum = np.sum(w_vals)
                            w_mean = np.sum(d_vals * w_vals) / w_sum
                            w_var = np.sum(w_vals * (d_vals - w_mean)**2) / w_sum
                            w_std = np.sqrt(w_var)
-                           
+
                            try:
                                order = np.argsort(d_vals)
                                d_sorted = d_vals[order]
@@ -793,7 +795,7 @@ class StatsExtractionStep(BaseProcessingStep):
                                w_median = d_sorted[cum_w >= cutoff][0]
                            except:
                                w_median = np.median(d_vals)
-                           
+
                            stat = {
                                 "roi_id": roi_name,
                                 "roi_name": roi_name,
@@ -805,15 +807,42 @@ class StatsExtractionStep(BaseProcessingStep):
                                 "count": d_vals.size
                             }
                            seg_stats.append(stat)
-                           
+
                  if seg_stats:
                       df = pd.DataFrame(seg_stats)
                       ents = dwi.entities.copy()
                       ents['desc'] = seg_type
                       ents['suffix'] = 'stats'
-                      fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".tsv"
-                      df.to_csv(output_dir / fname, sep='\t', index=False)
-                      context.setdefault('segmentation_stats', []).append(output_dir / fname)
-                      context.setdefault('roi_stats_files', {})[seg_type] = output_dir / fname
-                      
+                      fname = build_bids_name(ents).replace('.nii.gz', '').replace('.nii', '') + ".csv"
+                      out_path = output_dir / fname
+                      df.to_csv(out_path, index=False)
+                      context.setdefault('segmentation_stats', []).append(out_path)
+                      context.setdefault('roi_stats_files', {})[seg_type] = out_path
+
+        # Aggregate all per-atlas/source CSVs into one combined file
+        all_stats_files = context.get('segmentation_stats', [])
+        if all_stats_files:
+            frames = []
+            for stats_path in all_stats_files:
+                try:
+                    df_part = pd.read_csv(stats_path)
+                    source_name = Path(stats_path).stem.split('_')[-2] if '_' in Path(stats_path).stem else Path(stats_path).stem
+                    df_part.insert(0, 'source', source_name)
+                    frames.append(df_part)
+                except Exception as e:
+                    self.logger.warning(f"Could not read stats file for aggregation: {stats_path}: {e}")
+            if frames:
+                combined_df = pd.concat(frames, ignore_index=True)
+                if dwi is not None and hasattr(dwi, 'entities'):
+                    agg_ents = dwi.entities.copy()
+                    agg_ents['desc'] = 'roiStats'
+                    agg_ents['suffix'] = 'stats'
+                    agg_fname = build_bids_name(agg_ents).replace('.nii.gz', '').replace('.nii', '') + ".csv"
+                else:
+                    agg_fname = "roi_stats_combined.csv"
+                agg_out = output_dir / agg_fname
+                combined_df.to_csv(agg_out, index=False)
+                context['roi_stats_combined_csv'] = agg_out
+                self.logger.info(f"Saved combined ROI stats CSV: {agg_out}")
+
         return context
