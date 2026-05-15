@@ -232,28 +232,42 @@ class AtlasRegistrationStep(BaseProcessingStep):
         # 2. Parse Atlases and Group by Template
         # Structure: template_groups[template_path] = list of (atlas_name, label_path)
         template_groups = {}
-        
-        default_template = norm_cfg.get("template")
-        
+
+        # A registration_template override forces all atlases through the same template,
+        # ignoring per-atlas 'template' keys. Critical for relaxometry: atlas templates
+        # are FA-based (JHU-ICBM-FA, FSL_HCP1065_FA) which have completely different
+        # contrast from a T1w SPGR reference — SyN fails. Setting registration_template
+        # to the normalization MNI T1w template ensures good contrast matching while
+        # still correctly placing the labels (all FSL atlases share the MNI coordinate
+        # system regardless of the contrast image used).
+        override_template = analysis_cfg.get("registration_template") or analysis_cfg.get("atlas_template")
+        default_template = override_template or norm_cfg.get("template")
+
+        if override_template:
+            self.logger.info(
+                f"Using registration template override for all atlases: {Path(override_template).name}"
+            )
+
         for name, cfg in atlases_to_reg.items():
              label_p = None
              tpl_p = default_template
-             
+
              if isinstance(cfg, (str, Path)):
                  label_p = cfg
              elif isinstance(cfg, dict):
                  label_p = cfg.get('labels') or cfg.get('file') # support 'labels' or 'file'
-                 if 'template' in cfg:
+                 # Only use atlas-specific template when no global override is active
+                 if not override_template and 'template' in cfg:
                       tpl_p = cfg['template']
-             
+
              if not label_p:
                  self.logger.warning(f"Atlas {name} missing label path. Skipping.")
                  continue
-                 
+
              if not tpl_p:
                   self.logger.warning(f"Atlas {name} has no template defined and no global default. Skipping.")
                   continue
-                  
+
              tpl_p = str(tpl_p) # Ensure string key
              if tpl_p not in template_groups:
                  template_groups[tpl_p] = []
@@ -613,7 +627,26 @@ class StatsExtractionStep(BaseProcessingStep):
                           continue
                           
                       seg_stats = []
-                      
+
+                      # Diagnostic: log shapes so mismatches are immediately visible
+                      metric_shapes = {k: v['data'].shape for k, v in loaded_maps.items()}
+                      self.logger.debug(
+                          f"Atlas '{atlas_name}': shape={seg_data.shape}, "
+                          f"metric map shapes={metric_shapes}"
+                      )
+                      if metric_shapes:
+                          shape_mismatches = [
+                              f"{k}={s}" for k, s in metric_shapes.items()
+                              if s[:3] != seg_data.shape[:3]
+                          ]
+                          if shape_mismatches:
+                              self.logger.warning(
+                                  f"Atlas '{atlas_name}' shape {seg_data.shape[:3]} does not match "
+                                  f"metric map(s): {', '.join(shape_mismatches)}. "
+                                  "Re-run atlas registration so the atlas is warped to the same "
+                                  "native-space grid as the metric maps."
+                              )
+
                       if is_prob:
                            # PROBABILISTIC / 4D ATLAS
                            # We iterate over the 4th dimension (Volumes)

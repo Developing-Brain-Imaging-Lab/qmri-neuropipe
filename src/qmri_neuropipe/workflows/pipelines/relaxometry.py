@@ -426,6 +426,16 @@ class RelaxometryWorkflow(BaseWorkflow):
         if not (analysis_cfg.get("registration_metric") or analysis_cfg.get("registration_target")):
             analysis_cfg["registration_target"] = "reference"
 
+        # Override all atlas templates with the normalization MNI T1w template when not
+        # explicitly set. FSL atlas templates (JHU-ICBM-FA, FSL_HCP1065_FA) are FA maps —
+        # registering them to a T1w SPGR reference fails due to contrast mismatch, even
+        # though the atlas labels themselves are valid in MNI space. Using the same MNI T1w
+        # template as normalization gives correct registration and correct label placement.
+        if not (analysis_cfg.get("registration_template") or analysis_cfg.get("atlas_template")):
+            norm_template = (self.relax_config.normalization or {}).get("template")
+            if norm_template:
+                analysis_cfg["registration_template"] = norm_template
+
         analysis_context = dict(context)
         analysis_context["analysis_modality"] = "relaxometry"
         analysis_context["analysis_cfg"] = analysis_cfg
