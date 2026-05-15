@@ -558,15 +558,30 @@ class StatsExtractionStep(BaseProcessingStep):
              self.logger.warning("No modeling results found. Skipping statistics extraction.")
              return context
 
-        # Load all metrics once into memory (map name -> data)
+        # Load all metrics once into memory (map name -> data).
+        # Reorient every map to RAS+ canonical so that shape comparisons against
+        # the registered atlas (also canonicalized below) are orientation-agnostic.
+        # Fitting tools may write outputs with transposed axes relative to the
+        # input NIfTI convention, producing e.g. (80,128,128) when the atlas and
+        # reference image are (128,128,80) — canonicalization resolves this mismatch.
         loaded_maps = {}
         for model_name, metrics in all_models.items():
             for metric_name, metric_path in metrics.items():
                 if not Path(metric_path).exists(): continue
                 try:
-                    img = nib.load(str(metric_path))
+                    img = nib.as_closest_canonical(nib.load(str(metric_path)))
                     data = img.get_fdata()
-                    # Store as (model, metric) tuple in key or value
+                    if data.ndim == 4:
+                        if data.shape[3] == 1:
+                            data = data[..., 0]
+                        else:
+                            self.logger.warning(
+                                f"Metric '{model_name}/{metric_name}' ({Path(metric_path).name}) "
+                                f"has unexpected 4D shape {data.shape} — expected a 3D scalar map. "
+                                "This may be a combined multi-map output file picked up by the backfill. "
+                                "Skipping; check that the per-metric output files exist separately."
+                            )
+                            continue
                     loaded_maps[f"{model_name}_{metric_name}"] = {
                         'model': model_name,
                         'metric': metric_name,
@@ -616,10 +631,11 @@ class StatsExtractionStep(BaseProcessingStep):
                                 prob_thresh = atlas_cfg['atlas_threshold']
 
                       try:
-                          seg_img = nib.load(str(atlas_path))
-                          # For probabilistic, we keep floats. For deterministic, we want ints.
+                          # Canonicalize to RAS+ so the shape matches the
+                          # metric maps which are also canonicalized on load.
+                          seg_img = nib.as_closest_canonical(nib.load(str(atlas_path)))
                           if is_prob:
-                               seg_data = seg_img.get_fdata() # Keep float
+                               seg_data = seg_img.get_fdata()
                           else:
                                seg_data = seg_img.get_fdata().astype(int)
                       except Exception as e:
