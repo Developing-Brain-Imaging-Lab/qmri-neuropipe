@@ -223,7 +223,10 @@ class AtlasRegistrationStep(BaseProcessingStep):
         #      JHU: /path/to/JHU-ICBM-labels.nii.gz
         
         if not atlases_to_reg:
-             self.logger.info("No atlases configured for registration.")
+             self.logger.warning(
+                 "No atlases configured for registration — atlas ROI statistics will not be produced. "
+                 "Add an 'atlases' block under your analysis config (e.g. analysis.atlases.JHU.labels: /path/to/labels.nii.gz)."
+             )
              return context
              
         # 2. Parse Atlases and Group by Template
@@ -724,6 +727,15 @@ class StatsExtractionStep(BaseProcessingStep):
                           df.to_csv(out_path, index=False)
                           context.setdefault('segmentation_stats', []).append(out_path)
                           context.setdefault('roi_stats_files', {})[atlas_name] = out_path
+                          self.logger.info(f"Saved ROI stats for atlas '{atlas_name}': {out_path}")
+                      else:
+                          self.logger.warning(
+                              f"No ROI statistics were produced for atlas '{atlas_name}'. "
+                              "Possible causes: (1) shape mismatch between atlas and metric maps — "
+                              "check that the atlas was registered to the correct target image; "
+                              "(2) all voxel values within ROIs are zero or non-finite; "
+                              "(3) the registered atlas label file is empty (registration may have failed)."
+                          )
 
              else:
                  # Binary/Probabilistic Masks (TractSeg, etc.)

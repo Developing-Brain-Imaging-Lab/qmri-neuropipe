@@ -1361,12 +1361,21 @@ class RelaxometryWorkflow(BaseWorkflow):
         self,
         context: dict,
         fit_out_dir: Path,
+        analysis_out_dir: Path,
         ref_img: ImageFile,
         modeling_results: Dict[str, Dict[str, Path]],
         base_prefix: str,
     ) -> Dict[str, Path]:
         """
         Run atlas registration and ROI statistics extraction for selected relaxometry maps.
+
+        Atlas and statistics directories are written under ``analysis_out_dir`` (the
+        modality root, e.g. ``anat/``) so that the layout mirrors the diffusion pipeline:
+            anat/
+              models/        <- fitted maps
+              normalization/ <- warped maps
+              atlases/       <- registered atlas labels   (analysis_out_dir / "atlases")
+              statistics/    <- per-ROI CSV files         (analysis_out_dir / "statistics")
 
         When normalization has already run, stats are extracted from the normalized
         (standard-space) maps so that the registered atlas can be applied directly
@@ -1396,8 +1405,10 @@ class RelaxometryWorkflow(BaseWorkflow):
                 self.logger.warning("Relaxometry analysis is enabled, but no fitted maps were selected for atlas/statistics analysis.")
             elif atlas_reg_step and stats_extract_step:
                 self.logger.info("Running relaxometry atlas registration and ROI statistics extraction.")
-                atlas_reg_step.run(analysis_context, fit_out_dir)
-                stats_extract_step.run(analysis_context, fit_out_dir)
+                # Use analysis_out_dir (anat root) so atlases/ and statistics/ land
+                # alongside models/ and normalization/, matching the diffusion layout.
+                atlas_reg_step.run(analysis_context, analysis_out_dir)
+                stats_extract_step.run(analysis_context, analysis_out_dir)
                 stats_results.update(analysis_context.get("roi_stats_files", {}))
                 context["segmentations"] = analysis_context.get("segmentations", {})
                 context["roi_stats_files"] = analysis_context.get("roi_stats_files", {})
@@ -1596,7 +1607,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Post-processing, atlas registration, segmentation, stats extraction
         stats_results = self._run_postprocessing_and_stats(
-            context, fit_out_dir, spgr_ref, modeling_results, base_prefix
+            context, fit_out_dir, anat_out_dir, spgr_ref, modeling_results, base_prefix
         )
 
         if not self.config.get("save_intermediates", False):
