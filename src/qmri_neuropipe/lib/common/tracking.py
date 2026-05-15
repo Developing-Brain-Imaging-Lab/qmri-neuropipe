@@ -178,35 +178,47 @@ class TrackingStep(BaseProcessingStep):
             # 2d. Update list of Atlases and Model Fits (Self-healing: check statistics dir if missing from context)
             roi_files = context.get('roi_stats_files', {})
             if not roi_files:
-                 # Attempt filesystem recovery of atlases
+                 # Attempt filesystem recovery of atlases — check both .csv and .tsv stats files.
                  stats_dir = session_root / "statistics"
                  if stats_dir.exists():
                       recovered_atlases = []
-                      for tsv in stats_dir.glob("*.tsv"):
-                           name = tsv.name
+                      for stat_file in list(stats_dir.glob("*.tsv")) + list(stats_dir.glob("*.csv")):
+                           name = stat_file.name
                            if 'desc-' in name:
                                 atlas = name.split('desc-')[1].split('_')[0]
-                                recovered_atlases.append(atlas)
+                                if atlas not in recovered_atlases:
+                                    recovered_atlases.append(atlas)
+                                    roi_files[atlas] = stat_file
                       if recovered_atlases:
                            tracker.update_status(subject, session, "Atlases", ", ".join(sorted(set(recovered_atlases))), study, modality=inferred_modality)
             else:
                 atlases = ", ".join(sorted(roi_files.keys()))
                 tracker.update_status(subject, session, "Atlases", atlases, study, modality=inferred_modality)
-            
+
+            models = context.get('models_fitted', [])
+            if not models and 'model_fits' in context:
+                models = context['model_fits']
+
             if inferred_modality == 'Diffusion':
-                models = context.get('models_fitted', [])
-                if not models and 'model_fits' in context: models = context['model_fits']
                 if not models:
-                     # Check filesystem for model folders or files
                      model_hints = []
                      if (session_root / "dti").exists(): model_hints.append("DTI")
                      if (session_root / "dki").exists(): model_hints.append("DKI")
                      if (session_root / "noddi").exists(): model_hints.append("NODDI")
                      if model_hints: models = model_hints
-                
                 if models:
                     model_str = ", ".join(models) if isinstance(models, list) else str(models)
                     tracker.update_status(subject, session, "Model_Fits", model_str, study, modality='Diffusion')
+
+            elif inferred_modality == 'Relaxometry':
+                if not models:
+                     # Filesystem recovery: look for model subdirectories
+                     models_dir = session_root / "models"
+                     if models_dir.exists():
+                          models = [d.name for d in models_dir.iterdir() if d.is_dir()]
+                if models:
+                    model_str = ", ".join(sorted(models)) if isinstance(models, list) else str(models)
+                    tracker.update_status(subject, session, "Model_Fits", model_str, study, modality='Relaxometry')
 
             # Final overall statuses
             overall_stat = final_statuses.get('Overall_Status', 'Complete')

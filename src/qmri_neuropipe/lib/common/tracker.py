@@ -33,7 +33,7 @@ class NeuroimagingTracker:
             'Processing_Status': ['Subject_ID', 'Session', 'Study', 'Overall_Pipeline_Status', 'Last_Processing_Date'],
             'Anatomical_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Reorienting', 'Bias_Correction', 'Brain_Masking', 'Segmentation', 'Segmentation_Method', 'Coregistration', 'Analysis', 'Atlases', 'Overall_Status', 'Last_Update'],
             'Diffusion_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Ringing', 'Eddy_Correction', 'Bias_Correction', 'Topup', 'SynB0', 'Coregistration', 'Reorienting', 'Model_Fits', 'Atlases', 'Overall_Status', 'Last_Update'],
-            'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Analysis', 'Overall_Status', 'Last_Update'],
+            'Relaxometry_Status': ['Subject_ID', 'Session', 'Study', 'Denoising', 'Gibbs_Correction', 'Motion_Correction', 'B1_Mapping_Method', 'Model_Fits', 'Atlases', 'Analysis', 'Overall_Status', 'Last_Update'],
             'Volume_Statistics': ['Subject_ID', 'Session', 'Study', 'Method', 'Structure', 'Volume_mm3', 'ICV_Normalized'],
             'ROI_Metrics': ['Subject_ID', 'Session', 'Study', 'ROI_Source', 'ROI_Name', 'Modality', 'Metric', 'Statistic', 'Value'],
             'Quality_Metrics': ['Subject_ID', 'Session', 'Study', 'Motion_FD_Mean', 'DWI_SNR'],
@@ -290,6 +290,13 @@ class NeuroimagingTracker:
                 try: os.remove(temp_path)
                 except: pass
 
+        # Export cohort CSVs after each forced (end-of-subject) save.
+        if force:
+            try:
+                self.export_cohort_csvs()
+            except Exception as e:
+                self.logger.warning(f"Failed to export cohort CSVs: {e}")
+
     def _ensure_row(self, sheet_name: str, subject_id: str, session: str, study: Optional[str] = None, extra_keys: Optional[Dict[str, Any]] = None) -> int:
         """
         Ensure a row exists for the subject/session/study and optional extra keys.
@@ -431,14 +438,16 @@ class NeuroimagingTracker:
 
     def add_roi_stats(self, subject_id: str, session: str, tsv_path: Path, atlas_name: str, study: Optional[str] = None):
         """
-        Parse an ROI stats TSV and update the tracker in a 'Wide-ROI' format.
+        Parse an ROI stats CSV/TSV and update the tracker in a 'Wide-ROI' format.
         Each Atlas gets its own sheet (e.g., HarvardOxford_Metrics).
         ROIs become columns. Model, Metric, and Statistic are rows.
         """
         if not tsv_path.exists():
             return
-            
-        new_stats = pd.read_csv(tsv_path, sep='\t')
+
+        # Auto-detect separator: TSV files use tab, CSV files use comma.
+        sep = '\t' if str(tsv_path).endswith('.tsv') else ','
+        new_stats = pd.read_csv(tsv_path, sep=sep)
         
         # Ensure we have a 'model' column.
         if 'model' not in new_stats.columns:
@@ -719,6 +728,41 @@ class NeuroimagingTracker:
                  merged = pd.concat([df, wide_df], ignore_index=True)
                  subset = ['Subject_ID', 'Session', 'Study'] + actual_index
                  self._data[sheet_name] = merged.drop_duplicates(subset=subset, keep='last')
+
+    def export_cohort_csvs(self, csv_dir: Optional[Path] = None) -> List[Path]:
+        """Export key tracker sheets as CSVs for cross-subject/session review.
+
+        Writes one CSV per tracked sheet next to the Excel file under
+        ``tracker_reports/``.  Called automatically after each forced save so
+        the files always reflect all subjects processed so far.
+        """
+        if csv_dir is None:
+            csv_dir = self.excel_path.parent / "tracker_reports"
+        csv_dir = Path(csv_dir)
+        csv_dir.mkdir(parents=True, exist_ok=True)
+
+        priority = [
+            'Subject_Metadata', 'Processing_Status',
+            'Relaxometry_Status', 'Diffusion_Status', 'Anatomical_Status',
+            'Quality_Metrics',
+        ]
+        metric_sheets = [s for s in self._data if s.endswith('_Metrics')]
+        exported: List[Path] = []
+
+        for sheet in priority + metric_sheets:
+            df = self._data.get(sheet)
+            if df is None or df.empty:
+                continue
+            out_path = csv_dir / f"{sheet}.csv"
+            try:
+                df.to_csv(out_path, index=False)
+                exported.append(out_path)
+            except Exception as e:
+                self.logger.warning(f"Failed to export {sheet} to CSV: {e}")
+
+        if exported:
+            self.logger.info(f"Exported {len(exported)} cohort CSV(s) to {csv_dir}")
+        return exported
 
     def _norm_ses(self, s):
         if pd.isna(s) or s is None: return "N/A"

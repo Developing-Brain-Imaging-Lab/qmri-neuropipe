@@ -24,6 +24,7 @@ from ...lib.common.gibbs import GibbsUnringingStep
 from ...lib.common.json_metadata import copy_json_with_metadata
 from ...lib.dmri.normalization import NormalizationStep
 from ...lib.common.analysis import AtlasRegistrationStep, StatsExtractionStep
+from ...lib.common.tracking import TrackingStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
 from ...utils.relax_params import generate_acq_params
 
@@ -1009,6 +1010,17 @@ class RelaxometryWorkflow(BaseWorkflow):
                 ir_moco = moco_step(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR")
         return spgr_moco, ssfp_moco, ir_moco
 
+    def _update_study_tracker(self, context: dict, output_dir: Path) -> None:
+        """Update the study-wide tracker with relaxometry results."""
+        if not self.config.get('tracker.enabled', False):
+            return
+        try:
+            context['study_name'] = self.config.get('study_name')
+            tracking = TrackingStep(self.config, self.logger)
+            tracking.run(context, output_dir)
+        except Exception as e:
+            self.logger.warning(f"Relaxometry tracker update failed: {e}")
+
     def _run_brain_masking(
         self,
         ref_img: ImageFile,
@@ -1663,6 +1675,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     shutil.copytree(intermediate_dir, final_inter_dir, dirs_exist_ok=True)
                 except Exception as e:
                     self.logger.warning(f"Failed to copy intermediates: {e}")
+
+        # Surface fitted model names for the tracker
+        context["models_fitted"] = sorted(modeling_results.keys()) if modeling_results else []
+
+        # Update study tracker
+        self._update_study_tracker(context, anat_out_dir)
 
         # Compose final results dictionary to return
         results = {
