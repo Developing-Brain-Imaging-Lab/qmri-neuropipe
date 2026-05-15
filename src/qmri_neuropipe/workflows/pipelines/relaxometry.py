@@ -418,12 +418,13 @@ class RelaxometryWorkflow(BaseWorkflow):
     ) -> dict:
         analysis_cfg = dict(self.relax_config.analysis or {})
         selected_results = self._select_analysis_parameters(modeling_results, analysis_cfg)
-        if selected_results and not (
-            analysis_cfg.get("registration_metric") or analysis_cfg.get("registration_target")
-        ):
-            default_metric = self._default_analysis_registration_metric(selected_results)
-            if default_metric:
-                analysis_cfg["registration_metric"] = default_metric
+
+        # Default to the SPGR reference as the atlas registration fixed image when not
+        # explicitly configured. T1w SPGR contrast matches MNI T1w templates; quantitative
+        # relaxometry maps (MWF, T1, etc.) differ strongly in contrast and produce poor
+        # atlas-to-native registration, causing empty ROI statistics even when shapes match.
+        if not (analysis_cfg.get("registration_metric") or analysis_cfg.get("registration_target")):
+            analysis_cfg["registration_target"] = "reference"
 
         analysis_context = dict(context)
         analysis_context["analysis_modality"] = "relaxometry"
@@ -1389,13 +1390,28 @@ class RelaxometryWorkflow(BaseWorkflow):
             atlas_reg_step = next((s for s in self.steps if isinstance(s, AtlasRegistrationStep)), None)
             stats_extract_step = next((s for s in self.steps if isinstance(s, StatsExtractionStep)), None)
 
-            # Always use native-space modeling results for atlas registration and stats
-            # extraction.  The atlas is registered from template space to subject native
-            # space (using the SPGR reference or a fitted metric map as the fixed image),
-            # so the metric maps must share the same native-space grid.  Normalized
-            # (standard-space) maps are produced solely for group-level analysis and must
-            # not be mixed with a native-space atlas here.
-            analysis_context = self._build_analysis_context(context, ref_img, modeling_results)
+            # Use a skull-stripped SPGR reference as the fixed image for atlas registration
+            # when a brain mask is available. Removing the skull improves alignment with
+            # brain-only MNI templates and avoids scalp tissue pulling the registration off.
+            # Falls back to the unmasked SPGR reference if masking fails or no mask exists.
+            analysis_ref = ref_img
+            brain_mask_path = context.get("brain_mask")
+            if brain_mask_path and Path(brain_mask_path).exists():
+                masked_ref_path = analysis_out_dir / f"{base_prefix}_desc-spgrrefMasked_VFA.nii.gz"
+                if not masked_ref_path.exists():
+                    try:
+                        ref_nii = nib.load(str(ref_img.img))
+                        mask_nii = nib.load(str(brain_mask_path))
+                        masked_data = (ref_nii.get_fdata() * mask_nii.get_fdata()).astype(np.float32)
+                        nib.save(nib.Nifti1Image(masked_data, ref_nii.affine, ref_nii.header), str(masked_ref_path))
+                        self.logger.info(f"Created skull-stripped SPGR reference for atlas registration: {masked_ref_path.name}")
+                    except Exception as _e:
+                        self.logger.warning(f"Could not create skull-stripped SPGR reference for atlas registration: {_e}")
+                        masked_ref_path = None
+                if masked_ref_path and masked_ref_path.exists():
+                    analysis_ref = ImageFile(img=masked_ref_path, entities=ref_img.entities)
+
+            analysis_context = self._build_analysis_context(context, analysis_ref, modeling_results)
 
             if not analysis_context.get("modeling_results"):
                 self.logger.warning("Relaxometry analysis is enabled, but no fitted maps were selected for atlas/statistics analysis.")

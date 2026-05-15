@@ -304,11 +304,17 @@ class AtlasRegistrationStep(BaseProcessingStep):
                  moving_path_dbg = Path(tpl_path)
                  fixed_shape_dbg = nib.load(str(fixed_path_dbg)).shape
                  moving_shape_dbg = nib.load(str(moving_path_dbg)).shape
+                 _tgt_label = (
+                     "SPGR reference"
+                     if any(_is_reference_registration_target(m) for m in target_metrics)
+                     else (target_metrics[0] if target_metrics else "native space")
+                 )
                  self.logger.info(
-                     f"Registering {tpl_path.name} to Subject FA (fixed={fixed_shape_dbg}, moving={moving_shape_dbg})..."
+                     f"Registering {tpl_path.name} to Subject {_tgt_label} "
+                     f"(fixed={fixed_shape_dbg}, moving={moving_shape_dbg})..."
                  )
              except Exception as e:
-                 self.logger.info(f"Registering {tpl_path.name} to Subject FA...")
+                 self.logger.info(f"Registering {tpl_path.name} to subject native space...")
                  self.logger.warning(f"Failed to read image shapes for registration debug: {e}")
              
              _, tx_forward = ants.registration(
