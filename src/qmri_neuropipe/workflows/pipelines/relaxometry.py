@@ -1040,6 +1040,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         if target_mask_name.exists():
             self.logger.info(f"Skipping Brain Masking (Exists): {target_mask_name}")
             mask_file = target_mask_name
+            # Fix any pre-existing 4D mask so downstream tools see a 3D binary volume.
+            _m = nib.load(str(mask_file))
+            if _m.ndim > 3:
+                self.logger.warning(
+                    f"Brain mask {mask_file.name} is {_m.ndim}D {_m.shape} — squeezing to 3D (volume 0)."
+                )
+                nib.save(_m.slicer[..., 0], str(mask_file))
             context["brain_mask"] = mask_file
         else:
             self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")

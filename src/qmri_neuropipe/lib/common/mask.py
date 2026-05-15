@@ -166,6 +166,14 @@ class BrainMaskingStep(BaseProcessingStep):
         
         if should_skip:
              self.logger.info(f"Skipping brain masking (outputs exist): {target_output}")
+             # Fix any existing 4D mask on disk before returning it.
+             _existing_mask = nib.load(str(mask_out_path))
+             if _existing_mask.ndim > 3:
+                 self.logger.warning(
+                     f"Existing brain mask {mask_out_path.name} has {_existing_mask.ndim}D shape "
+                     f"{_existing_mask.shape} — squeezing to 3D (using volume 0)."
+                 )
+                 nib.save(_existing_mask.slicer[..., 0], str(mask_out_path))
              mask_obj = ImageFile(img=mask_out_path, entities=dict(entities, suffix="mask"))
              
              if self.apply_mask:
@@ -374,10 +382,18 @@ class BrainMaskingStep(BaseProcessingStep):
              raise ProcessingError(f"Brain masking failed to generate mask: {mask_generated_path}")
 
         if mask_generated_path != mask_out_path:
-             # Copy/move
              import shutil
              shutil.copy(mask_generated_path, mask_out_path)
-        
+
+        # Ensure the saved mask is always 3D — some tools write 4D outputs.
+        _mask_nii = nib.load(str(mask_out_path))
+        if _mask_nii.ndim > 3:
+            self.logger.warning(
+                f"Brain mask has {_mask_nii.ndim}D shape {_mask_nii.shape} — squeezing to 3D (using volume 0)."
+            )
+            _mask_3d = _mask_nii.slicer[..., 0]
+            nib.save(_mask_3d, str(mask_out_path))
+
         apply_mask = kwargs.get('apply_mask', self.apply_mask)
         if apply_mask:
             # Load mask
