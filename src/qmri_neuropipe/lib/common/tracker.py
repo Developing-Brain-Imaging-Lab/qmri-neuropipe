@@ -10,8 +10,27 @@ import shutil
 
 class NeuroimagingTracker:
     """
-    Manages a multi-sheet Excel file for tracking neuroimaging data,
-    processing status, and quality metrics.
+    Manages a multi-sheet Excel workbook that accumulates processing status,
+    QC metrics, ROI statistics, and anatomical volumes across all subjects
+    and sessions in a study.
+
+    The workbook is updated incrementally: each subject's results are merged
+    (upserted) into the relevant sheets using a file-based lock so that
+    parallel pipeline runs on a shared filesystem do not corrupt each other.
+
+    Automatic CSV export
+    --------------------
+    After each forced (end-of-subject) ``save(force=True)`` call, key sheets
+    are automatically exported as CSVs to a ``tracker_reports/`` directory
+    placed next to the Excel file via ``export_cohort_csvs()``.  This makes
+    the accumulated cohort data immediately available for inspection without
+    opening Excel.
+
+    ROI statistics ingestion
+    ------------------------
+    ``add_roi_stats()`` accepts both CSV (comma-separated) and TSV
+    (tab-separated) files.  The separator is auto-detected from the file
+    extension (``.tsv`` → tab, anything else → comma).
     """
     
     CORE_SHEETS = [
@@ -732,9 +751,26 @@ class NeuroimagingTracker:
     def export_cohort_csvs(self, csv_dir: Optional[Path] = None) -> List[Path]:
         """Export key tracker sheets as CSVs for cross-subject/session review.
 
-        Writes one CSV per tracked sheet next to the Excel file under
-        ``tracker_reports/``.  Called automatically after each forced save so
-        the files always reflect all subjects processed so far.
+        Writes one CSV per exported sheet into ``tracker_reports/`` (a
+        sibling directory of the Excel file).  The exported sheets are:
+        ``Subject_Metadata``, ``Processing_Status``, ``Relaxometry_Status``,
+        ``Diffusion_Status``, ``Anatomical_Status``, ``Quality_Metrics``, and
+        all ``*_Metrics`` atlas sheets.
+
+        Called automatically after each forced (end-of-subject)
+        ``save(force=True)`` so the CSVs always reflect all subjects
+        processed so far.  May also be called manually at any time.
+
+        Parameters
+        ----------
+        csv_dir:
+            Override the output directory.  Defaults to
+            ``<excel_path.parent>/tracker_reports/``.
+
+        Returns
+        -------
+        List[Path]
+            Paths of all CSV files that were successfully written.
         """
         if csv_dir is None:
             csv_dir = self.excel_path.parent / "tracker_reports"

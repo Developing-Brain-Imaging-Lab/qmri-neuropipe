@@ -193,6 +193,8 @@ anat:
 | `apply_mask` | bool | true | Apply mask to data |
 | `use_gpu` | bool | false | Some tools support GPU |
 
+> **Note:** The pipeline always saves brain masks as 3D NIfTI files. If a pre-existing mask on disk has more than 3 dimensions (e.g. from an older run), it is automatically detected and squeezed to 3D on the next run, using the first volume.
+
 ## Coregistration
 
 **Tools**
@@ -235,6 +237,25 @@ anat:
 | `options.dof` | int | 6 | FSL |
 | `options.cost` | str | `normmi` | FSL |
 | `options.transform_type` | str | `Rigid` | ANTs |
+
+## WM Segmentation (BBR Coregistration)
+
+The `wm_seg_method` option controls which tool is used to generate the white-matter
+segmentation mask used during boundary-based registration (BBR).
+
+| Method | Description |
+|--------|-------------|
+| `fast` | FSL FAST (3-class tissue segmentation). Fast but less accurate. |
+| `synthseg` | FreeSurfer `mri_synthseg`. Better accuracy; requires FreeSurfer. |
+| `supersynth` | FreeSurfer `mri_super_synth`. Best accuracy; requires FreeSurfer dev build (>Oct 2025). **Automatically falls back to `synthseg`** if `mri_super_synth` is not found on PATH or in `$FREESURFER_HOME/bin/`. |
+
+**Config**
+```yaml
+anat:
+  preprocessing:
+    coregistration:
+      wm_seg_method: supersynth  # fast | synthseg | supersynth
+```
 
 ## Anatomical Input Selection
 
@@ -481,6 +502,7 @@ anat:
     mode: invivo        # invivo | exvivo | cerebrum | left-hemi | right-hemi
     sharpen_synths: false
     device: null        # null = tool default (cuda when available), or "cpu" / "cuda"
+    compute_volumes: false
 ```
 
 **Parameters**
@@ -490,6 +512,7 @@ anat:
 | `anat.super_synth.mode` | str | `invivo` | `invivo`, `exvivo`, `cerebrum`, `left-hemi`, `right-hemi` |
 | `anat.super_synth.sharpen_synths` | bool | false | Sharpen synthetic T1w/T2w/FLAIR predictions |
 | `anat.super_synth.device` | str\|null | null | Compute device: `cpu` or `cuda` |
+| `anat.super_synth.compute_volumes` | bool | false | Load `seg.nii.gz`, map label IDs to names via `$FREESURFER_HOME/FreeSurferColorLUT.txt` (falls back to `ROI_{id}`), and save a CSV (`sub-XX_ses-YY_desc-supersynth_volumes.csv`) with columns `label_id`, `label_name`, `n_voxels`, `volume_mm3`. Volumes are also logged to the study tracker `Volume_Statistics` sheet. |
 
 **Outputs** (written to `super_synth/sub-<id>/[ses-<id>/]`)
 | File | Description |
@@ -537,3 +560,40 @@ relaxometry:
 | --- | --- | --- | --- |
 | `method` | str | `afi` | `afi`, `external`, `hifi` |
 | `smoothing_fwhm` | float | 0.0 | Optional smoothing |
+
+## Analysis & Statistics (Atlas Registration / ROI Extraction)
+
+The shared analysis module (`lib/common/analysis.py`) handles atlas registration and
+ROI statistics extraction across all modalities (diffusion, relaxometry, anatomical).
+
+**Config**
+```yaml
+dmri:
+  analysis:
+    enabled: true
+    atlases:
+      - name: JHU
+        template: /path/to/JHU-ICBM-FA-1mm.nii.gz
+        labels: /path/to/JHU-labels.nii.gz
+        label_names: /path/to/JHU-label-names.txt
+        registration_template: /path/to/JHU-ICBM-FA-1mm.nii.gz
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `enabled` | bool | false | Enable atlas registration and ROI extraction |
+| `atlases` | list | none | List of atlas configurations |
+| `atlases[].name` | str | required | Atlas label used in output filenames |
+| `atlases[].template` | path | required | Atlas template image |
+| `atlases[].labels` | path | required | Atlas label image |
+| `atlases[].label_names` | path | none | Text file mapping label IDs to region names |
+| `atlases[].registration_template` | path | none | Override the registration target when the atlas template has different contrast from the primary reference (e.g. FA-contrast templates used with a T1w SPGR reference). If omitted, the atlas `template` is used directly. |
+
+**Output**
+
+ROI statistics are written as **CSV** files (one per atlas, per subject/session) with
+columns for region name, mean, standard deviation, and voxel count for each
+fitted metric.
+
+See [Atlas Registration & ROI Statistics](analysis.md) for full configuration options.

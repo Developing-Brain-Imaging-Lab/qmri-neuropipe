@@ -1,6 +1,6 @@
 # Diffusion Workflow
 
-The **Diffusion Pipeline** (`--pipeline dmri`) processes Diffusion Weighted Imaging (DWI) data, performing corrections for noise, artifacts, and distortion, followed by coregistration.
+The **Diffusion Pipeline** (`--pipeline dmri`) processes Diffusion Weighted Imaging (DWI) data, performing corrections for noise, artifacts, and distortion, followed by coregistration, model fitting, and atlas-based analysis.
 
 ## Overview
 
@@ -23,6 +23,7 @@ The pipeline handles single-shell and multi-shell data and supports advanced dis
 | Coregistration | `dmri.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
 | Brain masking | `dmri.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
 | Normalization | `dmri.normalization` | `ants`, `synthmorph`, `robust_iterative` |
+| Analysis | `dmri.analysis` | Atlas-based ROI statistics |
 
 **Main Class**: `qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline`
 
@@ -85,13 +86,13 @@ dmri:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `dmri.preprocessing.distcorr.method` | str | `none` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
-| `dmri.preprocessing.distcorr.fallback` | bool | false | Allow Synb0 fallback |
+| `dmri.preprocessing.distcorr.fallback` | bool | false | Allow Synb0 fallback when reverse-PE data is missing |
 | `dmri.preprocessing.distcorr.config` | path | none | Topup config file |
-| `dmri.preprocessing.distcorr.drbuddi.transform_type` | str | `SyNOnly` | Native DRBUDDI ANTs transform |
-| `dmri.preprocessing.distcorr.drbuddi.interpolator` | str | `linear` | Output resampling interpolator |
-| `dmri.preprocessing.distcorr.drbuddi.symmetric_pairwise` | bool | `true` | Use symmetric blip-up/blip-down half-warps |
-| `dmri.preprocessing.distcorr.drbuddi.pe_axis_constraint` | float | `1.0` | Constrain warp mostly to the PE axis |
-| `dmri.preprocessing.distcorr.drbuddi.registration_options` | dict | `{}` | Extra ANTs registration kwargs |
+| `dmri.preprocessing.distcorr.drbuddi.transform_type` | str | `SyNOnly` | ANTs transform type (`SyNOnly`, `SyN`, `Rigid`, `Affine`) |
+| `dmri.preprocessing.distcorr.drbuddi.interpolator` | str | `linear` | Output resampling interpolator (`linear`, `nearest`, `cubic`) |
+| `dmri.preprocessing.distcorr.drbuddi.symmetric_pairwise` | bool | true | Use symmetric blip-up/blip-down half-warps |
+| `dmri.preprocessing.distcorr.drbuddi.pe_axis_constraint` | float | 1.0 | Constrain warp to the PE axis (0.0–1.0) |
+| `dmri.preprocessing.distcorr.drbuddi.registration_options` | dict | {} | Extra ANTs registration kwargs passed through to the registration call |
 
 ### Distortion-Correction QC
 
@@ -194,6 +195,12 @@ dmri:
 Detects and removes outlier volumes/slices based on Eddy QC or manual thresholds.
 *   **Config**: `dmri.preprocessing.outliers`
 
+Three methods are available:
+
+*   `manual` — explicitly specify volume indices to remove via `manual_indices`.
+*   `eddy_qc` — parse the Eddy outlier map (produced by `eddy` with `--repol`) to identify and exclude slice/volume outliers automatically. Requires the eddy outlier map file.
+*   `threshold` — remove volumes whose mean signal falls below a specified threshold fraction.
+
 **Available tools**
 *   `manual` (explicit indices)
 *   `eddy_qc` (from eddy outlier map)
@@ -216,9 +223,9 @@ dmri:
 | --- | --- | --- | --- |
 | `dmri.preprocessing.outliers.enabled` | bool | false | Enable step |
 | `dmri.preprocessing.outliers.method` | str | `manual` | `manual`, `eddy_qc`, `threshold` |
-| `dmri.preprocessing.outliers.manual_indices` | list[int] | none | Manual volume indices |
-| `dmri.preprocessing.outliers.threshold` | float | 0.05 | Threshold mode |
-| `dmri.preprocessing.outliers.volumes_file` | path | none | Eddy outlier map |
+| `dmri.preprocessing.outliers.manual_indices` | list[int] | none | Volume indices to remove (manual mode) |
+| `dmri.preprocessing.outliers.threshold` | float | 0.05 | Signal threshold fraction (threshold mode) |
+| `dmri.preprocessing.outliers.volumes_file` | path | none | Eddy outlier map file (eddy_qc mode) |
 
 ### 7. Bias Correction
 Corrects B1 field inhomogeneity in the DWI series (often on the b0 or mean b0).
@@ -339,11 +346,89 @@ dmri:
 | `dmri.preprocessing.brain_masking.apply_mask` | bool | true | Apply mask to data |
 | `dmri.preprocessing.brain_masking.use_gpu` | bool | false | Some tools support GPU |
 
+### 11. Normalization (Optional)
+Registers preprocessed DWI-derived maps to a standard template.
+*   **Config**: `dmri.normalization`
+
+Three methods are available:
+
+*   `ants` — standard ANTs SyN nonlinear registration.
+*   `synthmorph` — learning-based diffeomorphic registration (FreeSurfer SynthMorph); does not require skull-stripping.
+*   `robust_iterative` — iterative registration scheme that alternates between updating the template and refining individual subject warps; improves registration quality for heterogeneous cohorts.
+
+**Config**
+```yaml
+dmri:
+  normalization:
+    enabled: true
+    method: ants                  # ants | synthmorph | robust_iterative
+    template: /path/to/FA_template.nii.gz
+    registration_target: FA       # metric map used as moving image (FA, MD, etc.)
+    include_all_metrics: false    # warp all metric maps after primary registration
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `dmri.normalization.enabled` | bool | false | Enable normalization |
+| `dmri.normalization.method` | str | `ants` | `ants`, `synthmorph`, `robust_iterative` |
+| `dmri.normalization.template` | path | required | Template image |
+| `dmri.normalization.registration_target` | str | `FA` | Which metric map is used as the moving image for registration |
+| `dmri.normalization.include_all_metrics` | bool | false | After computing the warp from `registration_target`, apply it to all available metric maps |
+
+### 12. Atlas-Based Analysis
+
+Registers atlas label sets to the preprocessed (or normalized) DWI-derived maps and extracts per-ROI statistics.
+
+For the full atlas configuration format, see [Analysis](../analysis.md).
+
+**Config**
+```yaml
+dmri:
+  analysis:
+    enabled: true
+    atlases:
+      JHU:
+        labels: /path/to/JHU-ICBM-labels-1mm.nii.gz
+        template: /path/to/JHU-ICBM-FA-1mm.nii.gz
+      XTRACT:
+        labels: /path/to/xtract_labels.nii.gz
+        template: /path/to/MNI152_T1_1mm.nii.gz
+    registration_target: FA          # default for diffusion; which metric to register atlases to
+    registration_template: /path/to/FA_template.nii.gz  # override per-atlas templates for all atlases
+```
+
+**Parameters**
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `dmri.analysis.enabled` | bool | false | Enable atlas analysis |
+| `dmri.analysis.atlases` | dict | none | Dictionary of named atlases; each entry requires `labels` and optionally `template` |
+| `dmri.analysis.atlases.<name>.labels` | path | required | NIfTI label image |
+| `dmri.analysis.atlases.<name>.template` | path | none | Atlas-space template used for registration; falls back to `registration_template` if not set |
+| `dmri.analysis.registration_target` | str | `FA` | Metric map used as the fixed image when registering atlases |
+| `dmri.analysis.registration_template` | path | none | Global template override applied to all atlases that do not specify their own |
+
+**Outputs**
+
+Atlas outputs are written alongside the model output folders:
+
+```
+<output_dir>/dwi/atlases/<AtlasName>/
+    sub-XX_ses-YY_atlas-<AtlasName>_desc-<metric>_roiStats.csv
+
+<output_dir>/dwi/statistics/
+    sub-XX_ses-YY_desc-roiStats_stats.csv   # combined across all atlases and metrics
+```
+
+The combined `desc-roiStats_stats.csv` aggregates every atlas and every metric into a single wide-format CSV for cohort-level analysis.
+
 ## Outputs
 
 *   `*desc-preproc_dwi.nii.gz`: Fully preprocessed DWI 4D series.
 *   `*desc-preproc_dwi.bval/.bvec`: Rotated/Corrected gradient table.
 *   `*desc-brain_mask.nii.gz`: Binary brain mask.
+*   `dwi/atlases/`: Per-atlas ROI statistics CSVs.
+*   `dwi/statistics/desc-roiStats_stats.csv`: Combined ROI statistics across atlases.
 *   `qc/`: Quality control metrics and reports (Eddy QC).
 *   `report.html`: Visual pipeline report.
 
@@ -361,4 +446,28 @@ dmri:
     eddy:
       enabled: true
       method: "eddy"
+    outliers:
+      enabled: true
+      method: eddy_qc
+  normalization:
+    enabled: true
+    method: robust_iterative
+    registration_target: FA
+    include_all_metrics: true
+    template: /path/to/FA_template.nii.gz
+  analysis:
+    enabled: true
+    atlases:
+      JHU:
+        labels: /path/to/JHU-ICBM-labels-1mm.nii.gz
+        template: /path/to/JHU-ICBM-FA-1mm.nii.gz
+    registration_target: FA
 ```
+
+## Study Tracker
+
+When `tracker.enabled: true`, the diffusion pipeline records step statuses
+(Denoising, Eddy_Correction, etc.), model fits, atlas names, DWI motion
+(absolute and relative), SNR, and outlier counts to the study tracker. Cohort
+CSVs are exported after each subject completes to `tracker_reports/`. See
+[Study Tracker](../study_tracker.md).

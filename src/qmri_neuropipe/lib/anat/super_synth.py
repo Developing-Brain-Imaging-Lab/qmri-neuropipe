@@ -2,8 +2,14 @@
 FreeSurfer SuperSynth (mri_super_synth) processing step.
 """
 
+import logging
+import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Tuple
+
+import nibabel as nib
+import numpy as np
+import pandas as pd
 
 from ...core import BaseProcessingStep, ValidationError
 from ...core.types import ImageFile, ImageLike
@@ -19,6 +25,61 @@ _OUTPUT_STEMS = {
     "synth_t2w": "T2w.nii.gz",
     "synth_flair": "FLAIR.nii.gz",
 }
+
+_log = logging.getLogger(__name__)
+
+
+def _load_freesurfer_lut() -> Dict[int, str]:
+    """Load FreeSurferColorLUT.txt from $FREESURFER_HOME.
+
+    Returns a dict mapping integer label IDs to region name strings.
+    Returns an empty dict when the LUT cannot be found.
+    """
+    fs_home = os.environ.get("FREESURFER_HOME", "")
+    if not fs_home:
+        return {}
+    lut_path = Path(fs_home) / "FreeSurferColorLUT.txt"
+    if not lut_path.exists():
+        return {}
+    lut: Dict[int, str] = {}
+    with open(lut_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    lut[int(parts[0])] = parts[1]
+                except ValueError:
+                    pass
+    return lut
+
+
+def _compute_volumes(seg_path: Path) -> Dict[int, Tuple[str, float, int]]:
+    """Compute per-region volumes from a segmentation NIfTI.
+
+    Returns a dict keyed by integer label ID:
+        {label_id: (label_name, volume_mm3, n_voxels)}
+
+    Label 0 (background / unknown) is always excluded.
+    Region names fall back to ``ROI_{label_id}`` when the FreeSurfer LUT is
+    not available.
+    """
+    img = nib.load(str(seg_path))
+    data = np.round(img.get_fdata()).astype(int)
+    vox_vol_mm3 = float(np.prod(img.header.get_zooms()[:3]))
+
+    lut = _load_freesurfer_lut()
+
+    result: Dict[int, Tuple[str, float, int]] = {}
+    labels, counts = np.unique(data, return_counts=True)
+    for label, count in zip(labels.tolist(), counts.tolist()):
+        if label == 0:
+            continue
+        name = lut.get(label, f"ROI_{label}")
+        result[label] = (name, float(count) * vox_vol_mm3, int(count))
+    return result
 
 
 class SuperSynthStep(BaseProcessingStep):
@@ -42,6 +103,8 @@ class SuperSynthStep(BaseProcessingStep):
             ``left-hemi``, or ``right-hemi``. Default ``"invivo"``.
         sharpen_synths (bool): Sharpen synthetic predictions. Default False.
         device (str|None): ``"cpu"`` or ``"cuda"``. Omit to use tool default.
+        compute_volumes (bool): Extract and save per-region anatomical volumes
+            from the segmentation output. Default False.
     """
 
     def __init__(self, config, logger=None, provenance=None):
@@ -51,6 +114,7 @@ class SuperSynthStep(BaseProcessingStep):
         self.mode = ss_cfg.get("mode", "invivo")
         self.sharpen_synths = ss_cfg.get("sharpen_synths", False)
         self.device: Optional[str] = ss_cfg.get("device", None)
+        self.compute_volumes: bool = bool(ss_cfg.get("compute_volumes", False))
 
     # ------------------------------------------------------------------
     # BaseProcessingStep interface
@@ -63,7 +127,15 @@ class SuperSynthStep(BaseProcessingStep):
 
         context, input_image = self.unpack_input(first_arg)
 
-        # Resolve input path
+        # Resolve input image — fall back through context keys when
+        # current_image is not set (e.g. called right after preprocessing).
+        if input_image is None and context is not None:
+            for key in ("preprocessed_t1w", "t1w", "current_t1w"):
+                candidate = context.get(key)
+                if candidate is not None:
+                    input_image = candidate
+                    break
+
         if input_image is None:
             raise ValidationError("SuperSynthStep requires an input image.")
 
@@ -76,8 +148,7 @@ class SuperSynthStep(BaseProcessingStep):
         if not in_path.exists():
             raise ValidationError(f"SuperSynthStep: input not found: {in_path}")
 
-        # Build a subject/session-specific output subdirectory so that
-        # concurrent runs for different subjects do not collide.
+        # Build a subject/session-specific output subdirectory.
         sub = context.get("subject") if context else None
         ses = context.get("session") if context else None
         if not sub and isinstance(input_image, ImageFile):
@@ -112,7 +183,7 @@ class SuperSynthStep(BaseProcessingStep):
             overwrite=kwargs.get("force", False),
         )
 
-        # Collect outputs and update context
+        # Collect recognised output files.
         outputs: dict[str, Path] = {}
         for key, fname in _OUTPUT_STEMS.items():
             candidate = step_dir / fname
@@ -126,23 +197,67 @@ class SuperSynthStep(BaseProcessingStep):
                 f"your build version."
             )
         else:
-            self.logger.info(
-                f"mri_super_synth outputs: {[k for k in outputs]}"
-            )
+            self.logger.info(f"mri_super_synth outputs: {list(outputs)}")
 
+        # ----------------------------------------------------------------
+        # Optional: compute and save anatomical volumes from segmentation
+        # ----------------------------------------------------------------
+        compute_vols = kwargs.get("compute_volumes", self.compute_volumes)
+        volumes_csv: Optional[Path] = None
+        volumes_dict: Dict[str, float] = {}
+
+        if compute_vols and "seg" in outputs:
+            try:
+                vol_data = _compute_volumes(outputs["seg"])
+
+                prefix = f"sub-{sub}" if sub else "subject"
+                if ses:
+                    prefix += f"_ses-{ses}"
+                volumes_csv = step_dir / f"{prefix}_desc-supersynth_volumes.csv"
+
+                rows = [
+                    {
+                        "label_id": lid,
+                        "label_name": name,
+                        "n_voxels": n_vox,
+                        "volume_mm3": round(vol_mm3, 4),
+                    }
+                    for lid, (name, vol_mm3, n_vox) in sorted(vol_data.items())
+                ]
+                pd.DataFrame(rows).to_csv(volumes_csv, index=False)
+
+                volumes_dict = {name: vol_mm3 for _, (name, vol_mm3, _) in vol_data.items()}
+                self.logger.info(
+                    f"Saved SuperSynth volumes ({len(rows)} regions) → {volumes_csv.name}"
+                )
+            except Exception as e:
+                self.logger.warning(f"SuperSynth volume computation failed: {e}")
+
+        # ----------------------------------------------------------------
+        # Update context
+        # ----------------------------------------------------------------
         if context is not None:
             context["super_synth_dir"] = step_dir
             context["super_synth_outputs"] = outputs
 
+            if volumes_dict:
+                context["super_synth_volumes"] = volumes_dict
+            if volumes_csv and volumes_csv.exists():
+                context["super_synth_volumes_csv"] = volumes_csv
+
             # If a synthetic T1w was produced and no preprocessed T1w is set
             # yet, inject it so downstream steps can use it.
             if "synth_t1w" in outputs and "preprocessed_t1w" not in context:
-                entities = {"sub": sub, "ses": ses, "suffix": "T1w", "desc": "synthT1w"}
+                entities = {
+                    "sub": sub, "ses": ses,
+                    "suffix": "T1w", "desc": "synthT1w",
+                }
                 context["preprocessed_t1w"] = ImageFile(
-                    img=outputs["synth_t1w"], entities={k: v for k, v in entities.items() if v}
+                    img=outputs["synth_t1w"],
+                    entities={k: v for k, v in entities.items() if v},
                 )
 
             return context
 
-        # Standalone (no context) — return the output directory
+        # Standalone (no context) — return the output directory.
         return step_dir

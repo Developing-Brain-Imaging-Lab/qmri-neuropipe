@@ -31,6 +31,20 @@ from ...utils.relax_params import generate_acq_params
 
 @dataclass
 class RelaxometryPreprocConfig:
+    """
+    Preprocessing options for the relaxometry pipeline.
+
+    Key fields
+    ----------
+    ``exclude_indices``
+        Dictionary with keys ``spgr`` and/or ``ssfp`` containing lists (or
+        comma-separated strings) of 0-based logical volume indices to drop
+        before fitting.  Useful for removing motion-corrupted acquisitions.
+    ``spgr_reference``
+        Controls how the 3-D SPGR reference image is constructed from the
+        (possibly 4-D, multi-flip-angle) SPGR series.  Supported modes:
+        ``mean`` (default), ``last``, ``index``, ``max_flip``.
+    """
     reorient: Dict = field(default_factory=lambda: {"enabled": False})
     denoising: Dict = field(default_factory=lambda: {"enabled": False, "method": "mrtrix"})
     degibbs: Dict = field(default_factory=lambda: {"enabled": False, "method": "mrtrix"})
@@ -43,6 +57,21 @@ class RelaxometryPreprocConfig:
 
 @dataclass
 class RelaxometryModelingConfig:
+    """
+    Model-fitting options for the relaxometry pipeline.
+
+    Key fields
+    ----------
+    ``despot1``
+        DESPOT1 (or DESPOT1-HIFI when ``use_hifi: true``) T1 fitting.
+    ``despot2fm``
+        DESPOT2-FM off-resonance-corrected T2 fitting.
+    ``mcdespot``
+        mcDESPOT multi-component fitting.  The canonical output myelin-water
+        metric is ``VFm`` (myelin water fraction expressed as a volume
+        fraction); the alias ``MWF`` is accepted in selectors but resolves to
+        ``VFm`` internally.
+    """
     despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": False})
     despot2: Dict = field(default_factory=lambda: {"enabled": False})
     despot2fm: Dict = field(default_factory=lambda: {"enabled": False})
@@ -56,6 +85,26 @@ class RelaxometryQCConfig:
 
 @dataclass
 class RelaxometryConfig:
+    """
+    Top-level configuration for the relaxometry pipeline.
+
+    Sections
+    --------
+    ``preprocessing``  (``RelaxometryPreprocConfig``)
+        Reorientation, denoising, Gibbs correction, motion correction, B1
+        mapping, brain masking, and SPGR reference generation.
+    ``modeling``  (``RelaxometryModelingConfig``)
+        DESPOT1 / DESPOT1-HIFI / DESPOT2 / DESPOT2FM / mcDESPOT fitting.
+    ``masking``
+        Fallback / top-level brain masking options (used when
+        ``preprocessing.brain_masking`` is empty).
+    ``normalization``
+        Standard-space normalization to MNI (ANTs SyN or SynthMorph).
+    ``analysis``
+        Atlas registration and per-ROI statistics extraction.
+    ``qc``  (``RelaxometryQCConfig``)
+        Optional QC report generation.
+    """
     preprocessing: RelaxometryPreprocConfig = field(default_factory=RelaxometryPreprocConfig)
     modeling: RelaxometryModelingConfig = field(default_factory=RelaxometryModelingConfig)
     qc: RelaxometryQCConfig = field(default_factory=RelaxometryQCConfig)
@@ -1408,10 +1457,13 @@ class RelaxometryWorkflow(BaseWorkflow):
               atlases/       <- registered atlas labels   (analysis_out_dir / "atlases")
               statistics/    <- per-ROI CSV files         (analysis_out_dir / "statistics")
 
-        Stats are always extracted in native subject space: atlases are registered from
-        template space to subject space using the SPGR reference (or a fitted metric map)
-        as the fixed image, and the same native-space fitted maps are used for extraction.
-        Normalized (standard-space) maps are produced separately for group analysis only.
+        Atlas registration always uses native-space metric maps as the source of
+        quantitative values — normalized (standard-space) maps are produced separately
+        for group analysis only.  Atlases are registered from template space to native
+        subject space using the SPGR reference as the fixed image; when a brain mask is
+        available, a skull-stripped version of the SPGR reference is used to improve
+        alignment with brain-only MNI templates.  Falls back to the unmasked SPGR
+        reference if masking fails or no mask exists.
         """
         stats_results: Dict[str, Path] = {}
         analysis_cfg = self.relax_config.analysis or {}

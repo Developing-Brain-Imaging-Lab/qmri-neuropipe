@@ -6,10 +6,28 @@ Robust neuroimaging pipeline for BIDS datasets.
 
 `qmri-neuropipe` provides configurable pipelines for processing MRI data, supporting both anatomical and diffusion workflows. It is designed to be robust and easy to use with BIDS formatted datasets.
 
+**Supported modalities:**
+
+- **Structural (T1w/T2w)**: denoising, bias correction, brain masking, coregistration, normalization, FreeSurfer recon-all, SuperSynth segmentation + volume extraction
+- **Diffusion (dMRI)**: full preprocessing (eddy, topup, DRBUDDI), model fitting (DTI, DKI, NODDI, FWE-DTI, NEXI, MAP-MRI, SANDI, CSD), atlas-based ROI statistics
+- **Relaxometry (DESPOT/mcDESPOT)**: SPGR/SSFP/IR-SPGR preprocessing, DESPOT1/2FM/mcDESPOT fitting, VFm/T1/T2 maps, atlas-based ROI statistics
+- **fMRI**: fMRIPrep or HCP pipeline wrapper
+
 ## Installation
 
 ```bash
 pip install -e .
+```
+
+### Quick Start
+
+```bash
+# Run the full pipeline on your BIDS dataset
+qmri-neuropipe run \
+  --bids-dir /data/bids \
+  --output-dir /data/derivatives \
+  --config config.yaml \
+  --participant-label 001 002 003
 ```
 
 ## Containers

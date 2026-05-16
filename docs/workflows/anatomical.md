@@ -20,6 +20,7 @@ The pipeline processes T1w and T2w images independently and then coregisters the
 | Brain masking | `anat.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
 | Recon-all | `anat.preprocessing.recon_all` | `standard`, `clinical` |
 | Normalization | `anat.preprocessing.normalization` | `ants` |
+| SuperSynth | `anat.super_synth` | `freesurfer` (`mri_super_synth`) |
 
 ## Input Selection
 
@@ -253,8 +254,33 @@ anat:
 | `anat.preprocessing.coregistration.method` | str | `fsl` | `fsl`, `ants`, `freesurfer` |
 | `anat.preprocessing.coregistration.reference_image` | str | `t1w` | `t1w`, `t2w` |
 | `anat.preprocessing.coregistration.options.dof` | int | 6 | FSL |
-| `anat.preprocessing.coregistration.options.cost` | str | `normmi` | FSL |
+| `anat.preprocessing.coregistration.options.cost` | str | `normmi` | FSL cost function; use `bbr` for boundary-based registration |
 | `anat.preprocessing.coregistration.options.interpolation` | str | `trilinear` | FSL |
+| `anat.preprocessing.coregistration.options.wm_seg_method` | str | `fast` | WM mask method for BBR (see below) |
+
+#### White Matter Segmentation for BBR Coregistration
+
+When `cost: bbr` is set, the pipeline needs a white matter mask to drive
+boundary-based registration. The `wm_seg_method` option controls how that mask
+is generated:
+
+| Method | Backend | Notes |
+| --- | --- | --- |
+| `fast` | FSL FAST | Default; fast but less accurate |
+| `synthseg` | FreeSurfer `mri_synthseg` | Better accuracy; requires FreeSurfer |
+| `supersynth` | FreeSurfer `mri_super_synth` | Best accuracy; requires FreeSurfer dev build newer than Oct 2025; **automatically falls back to `synthseg`** if `mri_super_synth` is not available |
+
+**Example — BBR with SuperSynth WM segmentation:**
+```yaml
+anat:
+  preprocessing:
+    coregistration:
+      enabled: true
+      method: fsl
+      options:
+        cost: bbr
+        wm_seg_method: supersynth   # falls back to synthseg if unavailable
+```
 
 ### 7. Brain Masking
 Generates a binary brain mask from the reference structural image.
@@ -285,11 +311,16 @@ anat:
 | `anat.preprocessing.brain_masking.method` | str | `ants` | `mrtrix`, `fsl`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
 
 ### 8. Recon-all (Optional)
-Runs FreeSurfer `recon-all` surface reconstruction.
+Runs FreeSurfer surface reconstruction on the preprocessed T1w image.
 *   **Config**: `anat.preprocessing.recon_all.enabled: true`
 
+Two methods are supported:
+
+*   `standard` — runs the standard `recon-all` pipeline (full cortical surface reconstruction).
+*   `clinical` — runs `recon-all-clinical.sh`, a faster streamlined variant designed for clinical-quality (lower-resolution or non-isotropic) data that may not be suitable for the full pipeline.
+
 **Available tools**
-*   `freesurfer` (recon-all)
+*   `freesurfer` (`recon-all` / `recon-all-clinical.sh`)
 
 **Config**
 ```yaml
@@ -297,6 +328,7 @@ anat:
   preprocessing:
     recon_all:
       enabled: true
+      method: standard        # standard | clinical
       subjects_dir: /path/to/freesurfer_subjects
 ```
 
@@ -304,7 +336,7 @@ anat:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `anat.preprocessing.recon_all.enabled` | bool | false | Enable step |
-| `anat.preprocessing.recon_all.method` | str | `standard` | `standard`, `clinical` |
+| `anat.preprocessing.recon_all.method` | str | `standard` | `standard` (recon-all) or `clinical` (recon-all-clinical.sh) |
 | `anat.preprocessing.recon_all.subjects_dir` | path | `<bids_dir>/derivatives/freesurfer` | Optional external FreeSurfer `SUBJECTS_DIR` to reuse or write recon-all outputs |
 
 ### 9. SuperSynth (Optional)
@@ -312,7 +344,7 @@ anat:
 Runs FreeSurfer `mri_super_synth`, a modality-agnostic U-Net that produces brain
 region segmentation, MNI atlas registration, and synthetic 1 mm isotropic T1w,
 T2w, and FLAIR images from any 3D brain volume — regardless of resolution or
-contrast.  It supports in vivo, ex vivo, cerebrum-only, and single-hemisphere
+contrast. It supports in vivo, ex vivo, cerebrum-only, and single-hemisphere
 acquisitions.
 
 > **Requires** a FreeSurfer development build newer than October 2025.
@@ -325,9 +357,10 @@ acquisitions.
 anat:
   super_synth:
     enabled: true
-    mode: invivo         # invivo | exvivo | cerebrum | left-hemi | right-hemi
+    mode: invivo             # invivo | exvivo | cerebrum | left-hemi | right-hemi
     sharpen_synths: false
-    device: null         # null = tool default (cuda when available)
+    device: null             # null = auto (cuda when available), cpu, or cuda
+    compute_volumes: false
 ```
 
 **Parameters**
@@ -336,27 +369,45 @@ anat:
 | `anat.super_synth.enabled` | bool | false | Enable step |
 | `anat.super_synth.mode` | str | `invivo` | Input type — `invivo`, `exvivo`, `cerebrum`, `left-hemi`, `right-hemi` |
 | `anat.super_synth.sharpen_synths` | bool | false | Sharpen synthetic T1w/T2w/FLAIR predictions |
-| `anat.super_synth.device` | str\|null | null | `cpu` or `cuda`; omit to use tool default |
+| `anat.super_synth.device` | str\|null | null | `cpu` or `cuda`; null = tool default (cuda when available) |
+| `anat.super_synth.compute_volumes` | bool | false | Extract per-region anatomical volumes from `seg.nii.gz` using the FreeSurfer LUT |
+
+#### Volume Extraction (`compute_volumes`)
+
+When `compute_volumes: true`, the pipeline reads the SuperSynth `seg.nii.gz`
+segmentation using the FreeSurfer Look-Up Table (LUT) and computes the volume
+(mm³) of every labeled region. Results are saved as:
+
+```
+<output_dir>/super_synth/sub-<id>/[ses-<id>/]
+    sub-XX_ses-YY_desc-supersynth_volumes.csv
+```
+
+The CSV contains one row per region with columns `label`, `name`, and
+`volume_mm3`. When the study tracker is enabled (`tracker.enabled: true`),
+volumes are also logged to the `Volume_Statistics` sheet of the tracker
+workbook.
 
 **Outputs** (written to `<output_dir>/super_synth/sub-<id>/[ses-<id>/]`)
 | File | Description |
 | --- | --- |
-| `seg.nii.gz` | Brain region segmentation |
+| `seg.nii.gz` | Brain region segmentation (FreeSurfer LUT labels) |
 | `T1w.nii.gz` | Synthetic 1 mm isotropic T1w |
 | `T2w.nii.gz` | Synthetic 1 mm isotropic T2w |
 | `FLAIR.nii.gz` | Synthetic 1 mm isotropic FLAIR |
+| `sub-XX_ses-YY_desc-supersynth_volumes.csv` | Per-region volumes (when `compute_volumes: true`) |
 
 **Notes**
 - The step sets `super_synth_dir` and `super_synth_outputs` in the pipeline
-  context.  If no `preprocessed_t1w` is present, the synthetic T1w is injected
+  context. If no `preprocessed_t1w` is present, the synthetic T1w is injected
   automatically so downstream steps receive a structural reference.
 - The tool also performs MNI registration internally and writes Dice scores for
   QC; both are preserved in the output directory.
 - See [Tool Reference](../tool_reference.md#supersynth-anatomical) for the full
   parameter list and output-file notes.
 
-### 10. Nonlinear Registration (Optional)
-Registers the structural image to a template (e.g., MNI).
+### 10. Nonlinear Normalization (Optional)
+Registers the structural image to a template (e.g., MNI) using ANTs SyN.
 *   **Config**: `anat.preprocessing.normalization`
 
 **Available tools**
@@ -369,19 +420,24 @@ anat:
     normalization:
       enabled: true
       template: /path/to/template.nii.gz
+      space_entity: MNI152NLin2009cAsym   # BIDS space entity for output filenames
+      space_name: MNI                     # human-readable label used in reports
 ```
 
 **Parameters**
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `anat.preprocessing.normalization.enabled` | bool | false | Enable step |
-| `anat.preprocessing.normalization.template` | path | required | Template image |
+| `anat.preprocessing.normalization.template` | path | required | Template image to register to |
+| `anat.preprocessing.normalization.space_entity` | str | none | BIDS `space-` entity written into output filenames (e.g., `MNI152NLin2009cAsym`) |
+| `anat.preprocessing.normalization.space_name` | str | none | Human-readable space label used in pipeline reports and the study tracker |
 
 ## Outputs
 
 *   `*desc-preproc_T1w.nii.gz`: Preprocessed T1w image.
 *   `*desc-preproc_T2w.nii.gz`: Preprocessed T2w image (aligned to T1w).
 *   `*desc-preproc_mask.nii.gz`: Binary brain mask.
+*   `super_synth/sub-<id>/[ses-<id>/]`: SuperSynth outputs including segmentation, synthetics, and (optionally) volumes CSV.
 *   `report.html`: Visual quality report (if enabled).
 
 ## Configuration Example
@@ -394,5 +450,26 @@ anat:
     bias_correction:
       method: "ants"
     coregistration:
-      reference_image: "t1w" # Align T2w to T1w
+      reference_image: "t1w"   # Align T2w to T1w
+      options:
+        cost: bbr
+        wm_seg_method: supersynth
+    recon_all:
+      enabled: true
+      method: clinical
+    normalization:
+      enabled: true
+      template: /path/to/MNI152_T1_1mm.nii.gz
+      space_entity: MNI152NLin2009cAsym
+      space_name: MNI
+  super_synth:
+    enabled: true
+    mode: invivo
+    compute_volumes: true
 ```
+
+## Study Tracker
+
+When `tracker.enabled: true`, the anatomical pipeline records step statuses,
+segmentation method, and (if SuperSynth `compute_volumes` is enabled)
+per-region volumes to the study tracker. See [Study Tracker](../study_tracker.md).

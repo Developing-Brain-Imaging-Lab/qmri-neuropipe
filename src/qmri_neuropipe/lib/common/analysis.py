@@ -1,7 +1,10 @@
 """
-Atlas registration and ROI statistics extraction.
+Atlas registration and ROI statistics extraction (lib/common/analysis.py).
 
-Shared by all quantitative MRI modalities (diffusion, relaxometry, etc.).
+Shared across all quantitative MRI modalities (diffusion, relaxometry,
+anatomical, etc.).  The two main classes — ``AtlasRegistrationStep`` and
+``StatsExtractionStep`` — implement a modality-agnostic atlas-to-native
+registration and per-ROI statistics pipeline that is reused by every workflow.
 """
 
 from pathlib import Path
@@ -66,16 +69,44 @@ def _is_reference_registration_target(value: Any) -> bool:
 
 class AtlasRegistrationStep(BaseProcessingStep):
     """
-    Step to register standard atlases to the subject's diffusion space.
-    
-    Atlases:
-    - JHU (ICBM-DTI-81, JHU-WhiteMatter-labels)
-    - MNI standard atlases
-    - IIT (if provided)
-    
-    This step typically:
-    1. Registers MNI152 template to Subject FA (or b0) using ANTs/FSL.
-    2. Applies the inverse transform to the Atlas labels (nearest neighbor).
+    Register standard-space atlases into the subject's native imaging space.
+
+    Supports any atlas configured under ``analysis.atlases`` (e.g. JHU,
+    HarvardOxford, MNI, IIT).  One ANTs SyN registration is performed per
+    unique template, and the resulting warp is applied to all atlases that
+    share that template.
+
+    Key configuration keys
+    ----------------------
+    ``analysis.registration_target``
+        Selects which native-space image is used as the fixed (reference)
+        image during registration.  Accepts a metric name (e.g. ``"FA"``,
+        ``"T1"``), the token ``"reference"`` / ``"spgrRef"`` to use the
+        workflow reference image directly, or a list of metric names tried
+        in order.  Defaults to ``"FA"`` for diffusion and ``"reference"``
+        for relaxometry.
+
+    ``analysis.registration_template``
+        Global template override — all atlases are registered through this
+        single template, ignoring any per-atlas ``template`` keys.  Critical
+        for relaxometry: FSL/JHU atlas templates are FA maps whose contrast
+        differs strongly from a T1w SPGR reference, causing SyN to fail.
+        Setting this to the normalization MNI T1w template ensures correct
+        contrast matching while atlas label placement remains valid because
+        all FSL atlases share the same MNI coordinate system.
+
+    Canonical-axis reorientation
+    ----------------------------
+    Both the registered atlas label file and every metric map are reoriented
+    to RAS+ canonical axis order using ``nib.as_closest_canonical()`` before
+    shape comparison and voxel extraction.  This resolves orientation
+    mismatches that arise when fitting tools emit outputs with transposed axes
+    relative to the input NIfTI convention.
+
+    4-D metric handling
+    -------------------
+    If a metric file is 4-D, volume 0 is extracted and used as the scalar
+    map.  A log message is emitted so the choice is visible in the run log.
     """
     def __init__(self, config, logger, provenance, method='ants', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)
@@ -434,13 +465,30 @@ class AtlasRegistrationStep(BaseProcessingStep):
 
 class StatsExtractionStep(BaseProcessingStep):
     """
-    Step to extract mean/median/std statistics of diffusion metrics within ROIs.
-    
+    Extract per-ROI statistics for all fitted metric maps and segmentations.
+
     Iterates over:
-    - Modeling Results (DTI, NODDI, etc.) -> Metric Maps (FA, MD, ODI...)
-    - Segmentations (TractSeg bundles, PyAFQ bundles, Atlas labels)
-    
-    Outputs TSV files.
+    - Modeling results (DTI, NODDI, DESPOT1, mcDESPOT, …) -> metric maps
+      (FA, MD, T1, VFm, …)
+    - Segmentations: registered atlas label maps and binary/probabilistic
+      tract masks (TractSeg bundles, PyAFQ bundles, etc.)
+
+    Output layout
+    -------------
+    All files are written into a ``statistics/`` sub-directory of the
+    provided output directory:
+
+    ``desc-{atlas}_stats.csv``
+        One CSV per atlas source (e.g. ``desc-JHU_stats.csv``).
+
+    ``desc-roiStats_stats.csv``
+        Combined CSV that concatenates all per-atlas CSVs.
+
+    CSV columns: ``roi_name``, ``model``, ``metric``, ``mean``,
+    ``median``, ``std``.
+
+    Probabilistic atlases use weighted statistics; deterministic (label-map)
+    atlases use unweighted statistics over all voxels belonging to each label.
     """
     def __init__(self, config, logger, provenance, nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)

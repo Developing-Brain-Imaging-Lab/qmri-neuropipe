@@ -11,7 +11,28 @@ from .tracker import NeuroimagingTracker
 
 class TrackingStep(BaseProcessingStep):
     """
-    Pipeline step to update the study-wide tracker with participant data.
+    Pipeline step that records per-subject/session results into the
+    study-wide ``NeuroimagingTracker`` Excel file.
+
+    What is recorded
+    ----------------
+    - Per-modality processing statuses (denoising, motion correction, eddy,
+      brain masking, coregistration, segmentation, …) inferred from the
+      pipeline context and by scanning existing output files on disk.
+    - Model fits: for relaxometry, records which of DESPOT1, DESPOT2FM, and
+      mcDESPOT were run (``Model_Fits`` column of ``Relaxometry_Status``).
+    - Atlas names: the ``Atlases`` column is populated from
+      ``context['roi_stats_files']`` keys.
+    - QC metrics: DWI motion, SNR, outlier counts from eddy_quad JSON files
+      and ``*desc-outliers_stats.json`` sidecar files.
+
+    Filesystem recovery
+    -------------------
+    If ``roi_stats_files`` is absent from the context (e.g. the current run
+    skipped the analysis step but a previous run produced results),
+    ``TrackingStep`` automatically scans the ``statistics/`` directory for
+    both ``*.csv`` and ``*.tsv`` stat files and reconstructs the atlas name
+    list from BIDS ``desc-`` entities in the filenames.
     """
 
     def __init__(self, config, logger: Optional[logging.Logger] = None, provenance = None):

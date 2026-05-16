@@ -35,6 +35,7 @@ from ...lib.common.bias import BiasCorrectionStep
 from ...lib.common.registration import CoregistrationStep, NonlinearRegistrationStep
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.anat.recon import ReconAllStep, FreeSurferStatsStep
+from ...lib.anat.super_synth import SuperSynthStep
 from ...lib.common.sharpen import SharpeningStep
 from ...lib.common.segmentation import SegmentationStep
 from ...interfaces.mriqc import run_mriqc
@@ -86,12 +87,22 @@ class FreeSurferConfig:
 
 
 @dataclass
+class SuperSynthConfig:
+    enabled: bool = False
+    mode: str = "invivo"
+    sharpen_synths: bool = False
+    device: Optional[str] = None
+    compute_volumes: bool = False
+
+
+@dataclass
 class AnatomicalConfig:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     qc: QCConfig = field(default_factory=QCConfig)
     freesurfer: FreeSurferConfig = field(default_factory=FreeSurferConfig)
+    super_synth: SuperSynthConfig = field(default_factory=SuperSynthConfig)
 
 
 class AnatPreprocessingWorkflow(BaseWorkflow):
@@ -109,6 +120,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         segmentation_cfg = anat_raw_cfg.get("segmentation", {})
         qc_cfg = self.config.get("qc", {}).get("mriqc", {})
         freesurfer_use = preprocessing_cfg.get("use_freesurfer", False) or anat_raw_cfg.get("use_freesurfer", False)
+        ss_cfg = anat_raw_cfg.get("super_synth", {})
         
         self.anat_config = AnatomicalConfig(
             preprocessing=PreprocessingConfig(
@@ -146,7 +158,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             ),
             freesurfer=FreeSurferConfig(
                 enabled=preprocessing_cfg.get("recon_all", {}).get("enabled", False) or freesurfer_use
-            )
+            ),
+            super_synth=SuperSynthConfig(
+                enabled=ss_cfg.get("enabled", False),
+                mode=ss_cfg.get("mode", "invivo"),
+                sharpen_synths=ss_cfg.get("sharpen_synths", False),
+                device=ss_cfg.get("device"),
+                compute_volumes=ss_cfg.get("compute_volumes", False),
+            ),
         )
 
         self.steps = []
@@ -263,6 +282,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 metrics=seg_cfg.metrics,
                 atlas_threshold=seg_cfg.atlas_threshold
             ))
+
+        # 10. SuperSynth segmentation + optional volume extraction
+        if self.anat_config.super_synth.enabled:
+            self.add_step(SuperSynthStep(self.config, self.logger, self.provenance))
 
     def _validate_outputs(self, context: dict, step_metrics: List[dict], reporter=None) -> None:
         """
@@ -1357,6 +1380,60 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         return context, step_metrics
 
+    def _run_super_synth(
+        self,
+        output_dir: Path,
+        context: dict,
+        final_output_dir: Optional[Path],
+        reporter,
+        step_metrics: List[dict],
+    ) -> tuple:
+        """Run SuperSynth segmentation (and optional volume extraction) if enabled."""
+        ss_step = next((s for s in self.steps if isinstance(s, SuperSynthStep)), None)
+        if not ss_step:
+            return context, step_metrics
+
+        # Require a preprocessed T1w (or any current anatomical image).
+        if not context.get("preprocessed_t1w") and not context.get("current_image"):
+            self.logger.info("Skipping SuperSynth (no preprocessed T1w available).")
+            return context, step_metrics
+
+        errors = context.setdefault("errors", [])
+
+        try:
+            self.logger.info("Running SuperSynth segmentation...")
+            ss_step(context, output_dir=output_dir)
+
+            # Log volumes to the study tracker when computed.
+            volumes = context.get("super_synth_volumes")
+            if volumes:
+                tracker = self.config.tracker
+                subject = context.get("subject")
+                session = context.get("session")
+                study = self.config.get("study_name")
+                if tracker and subject and session:
+                    tracker.log_volume_statistics(
+                        subject, session, volumes,
+                        method="supersynth", study=study,
+                    )
+                    tracker.save()
+
+            if reporter:
+                details = {"Status": "Complete", "Regions": len(context.get("super_synth_volumes", {}))}
+                csv = context.get("super_synth_volumes_csv")
+                if csv:
+                    details["Volumes_CSV"] = str(csv)
+                self._add_anat_step(reporter, "SuperSynth", details)
+
+        except Exception as e:
+            err_msg = f"SuperSynth failed: {e}"
+            self.logger.error(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(reporter, "SuperSynth", {"Status": "Failed", "error": str(e)})
+
+        return context, step_metrics
+
     def _run_segmentation(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, step_metrics: List[dict]) -> (dict, List[dict]):
         """
         Run segmentation step if enabled.
@@ -1708,6 +1785,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             final_output_dir,
             reporter,
             step_metrics
+        )
+
+        context, step_metrics = self._run_super_synth(
+            output_dir,
+            context,
+            final_output_dir,
+            reporter,
+            step_metrics,
         )
 
         context, step_metrics = self._run_segmentation(
