@@ -164,7 +164,7 @@ def validate_required_arguments(config: PipelineConfig) -> None:
         ConfigurationError: If required arguments are missing
     """
     import_dicom_dir = config.get("import.dicom_dir")
-    auto_import = bool(import_dicom_dir) and config.get("import.auto_run", True) is not False
+    auto_import = bool(import_dicom_dir) and bool(config.get("import.auto_run", True))
 
     required_fields = {
         'bids_dir': 'Input BIDS dataset directory',
@@ -763,7 +763,7 @@ def main(
                 "omp_nthreads": omp_nthreads,
             }
             auto_import_dicom_dir = config.get("import.dicom_dir")
-            auto_import_enabled = bool(auto_import_dicom_dir) and config.get("import.auto_run", True) is not False
+            auto_import_enabled = bool(auto_import_dicom_dir) and bool(config.get("import.auto_run", True))
             if auto_import_enabled:
                 import_subject, import_session = _resolve_auto_import_subject_session(config)
                 extra_args.update({
@@ -810,7 +810,7 @@ def main(
 
             import_dicom_dir = config.get("import.dicom_dir")
             import_note = ""
-            if config.get("import.auto_run", True) and not import_dicom_dir:
+            if bool(config.get("import.auto_run", True)) and not import_dicom_dir:
                 import_note = (
                     " Auto-import is enabled in the config, but `import.dicom_dir` is not set, "
                     "so no DICOM import was run before subject discovery."
@@ -955,8 +955,10 @@ def main(
                             if live_obj and live_obj.is_started:
                                  try:
                                        live_obj.update(ui_state.get_layout())
-                                 except: pass
-                       except: break
+                                 except Exception:
+                                       pass
+                       except Exception:
+                            break
 
              results = []
              # Use screen=True for maximum stability (own terminal buffer)
@@ -1125,7 +1127,8 @@ def _run_parallel_worker(
             try:
                  sys.stdout.flush()
                  sys.stderr.flush()
-            except: pass
+            except Exception:
+                 pass
             
             # Redirect FD 1 and 2 (stdout/stderr) to pipe
             os.dup2(pipe_in, 1)
@@ -1207,13 +1210,13 @@ def _run_parallel_worker(
         # 4. Initialize Pipeline
         if pipeline_name == 'dmri':
             from qmri_neuropipe.workflows.pipelines.dmri import DMRIPipeline
-            pipeline_obj = DMRIPipeline(config)
+            pipeline_obj = DMRIPipeline(config, logger=worker_logger)
         elif pipeline_name == 'anat':
             from qmri_neuropipe.workflows.pipelines.anat import AnatPipeline
-            pipeline_obj = AnatPipeline(config)
+            pipeline_obj = AnatPipeline(config, logger=worker_logger)
         elif pipeline_name == 'relaxometry':
             from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryPipeline
-            pipeline_obj = RelaxometryPipeline(config)
+            pipeline_obj = RelaxometryPipeline(config, logger=worker_logger)
         elif pipeline_name == 'fmri':
             from qmri_neuropipe.workflows.pipelines.fmri_workflow import FmriWorkflow
             pipeline_obj = FmriWorkflow(config, logger=worker_logger)
@@ -1272,7 +1275,8 @@ def _run_parallel_worker(
          if pipe_in is not None:
               try:
                    os.close(pipe_in)
-              except: pass
+              except OSError:
+                   pass
          
          # Release worker slot
          if slot_queue:

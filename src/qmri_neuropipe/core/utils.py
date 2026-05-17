@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 from .types import ImageLike, DWIFile, ImageFile
 
 def ensure_path(path_like: Union[str, Path, None]) -> Union[Path, None]:
@@ -16,25 +16,22 @@ def ensure_path(path_like: Union[str, Path, None]) -> Union[Path, None]:
         return None
     return Path(path_like)
 
-def ensure_dir(path_like: Union[str, Path]) -> Path:
+def ensure_dir(path_like: Union[str, Path], is_file: Optional[bool] = None) -> Path:
     """
     Ensure the directory for the given file path exists.
-    If path_like is a directory (no suffix), creates it.
-    If path_like is a file (has suffix), creates its parent.
-    
+
     Args:
         path_like: File or directory path.
-        
+        is_file: If True, creates the parent directory. If False, creates the path itself
+                 as a directory. If None (default), infers from the presence of a suffix.
+
     Returns:
         The Path object.
     """
     p = Path(path_like)
-    # Heuristic: if it has a suffix, it's a file, so create parent.
-    # If no suffix, assume directory and create it.
-    # Note: This heuristic might fail for files without extensions, 
-    # but in neuroimaging standard extensions are pervasive.
-    # Better approach might be explicit 'is_file' arg, but for "out_file" use cases:
-    if p.suffix:
+    if is_file is None:
+        is_file = bool(p.suffix)
+    if is_file:
         p.parent.mkdir(parents=True, exist_ok=True)
     else:
         p.mkdir(parents=True, exist_ok=True)
@@ -79,19 +76,12 @@ def check_nifti_integrity(file_path: Union[str, Path]) -> bool:
     # 1. Gzip Check (most robust for truncated files)
     if p.suffix == '.gz':
         import subprocess
-        # Check if gzip is available
         try:
-            # -t = test integrity, -q = quiet
             subprocess.run(["gzip", "-t", "-q", str(p)], check=True, capture_output=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # If gzip command fails (integrity error) or not found
-            # If not found, we skip this check (fallback to nibabel)
-            # But usually it means corrupt.
-            # We assume gzip exists in this env (standard linux/mac)
-            if subprocess.call(["which", "gzip"], stdout=subprocess.DEVNULL) == 0:
-                 return False
-            # If gzip tool missing, proceed to nibabel check
-            pass
+        except subprocess.CalledProcessError:
+            return False  # gzip ran but file failed integrity check
+        except FileNotFoundError:
+            pass  # gzip not installed; fall through to nibabel check
 
     # 2. Nibabel Header Check
     try:

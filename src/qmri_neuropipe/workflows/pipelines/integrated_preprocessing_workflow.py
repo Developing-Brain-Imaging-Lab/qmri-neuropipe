@@ -385,7 +385,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         if do_bias is None:
             do_bias = self.config.get("do_bias_correction", False)
              
-        if do_bias and bias_cfg.get('enabled') is not False:
+        if do_bias and bool(bias_cfg.get('enabled', True)):
             method = bias_cfg.get('method') or self.config.get("bias_method", "ants")
             self.logger.info(f"Adding BiasCorrectionStep (method={method})")
             self.add_step(BiasCorrectionStep(

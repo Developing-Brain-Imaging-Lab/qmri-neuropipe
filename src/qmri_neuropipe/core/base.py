@@ -760,17 +760,18 @@ class BasePipeline(ABC):
         ...         pass
     """
     
-    def __init__(self, config: PipelineConfig):
+    def __init__(self, config: PipelineConfig, logger: Optional[logging.Logger] = None):
         """
         Initialize pipeline.
-        
+
         Args:
             config: Pipeline configuration
+            logger: Optional external logger (e.g. from parallel worker); falls back to _setup_logging()
         """
         self.config = config
-        
+
         # Set up logging infrastructure
-        self.logger = self._setup_logging()
+        self.logger = logger or self._setup_logging()
         
         # Set up provenance tracking
         self.provenance = ProvenanceTracker(
