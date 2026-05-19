@@ -297,6 +297,8 @@ class CoregistrationStep(BaseProcessingStep):
         # Usually entities are clean.
         
         output_img = output_dir / build_bids_name({**entities, "desc": new_desc})
+        output_bvec = output_img.with_suffix("").with_suffix(".bvec")
+        output_bval = output_img.with_suffix("").with_suffix(".bval")
         
         # For transform filename:
         transform_name_full = build_bids_name({**entities, "desc": "coreg", "suffix": "transform"})
@@ -385,6 +387,12 @@ class CoregistrationStep(BaseProcessingStep):
              # 0. Check Integrity
              if not check_nifti_integrity(output_img):
                   self.logger.warning(f"Output file corrupted: {output_img}. Re-running.")
+                  should_run = True
+             elif is_dwi and getattr(input_image, "bvec", None) and input_image.bvec.exists() and not output_bvec.exists():
+                  self.logger.info(f"Coregistered DWI exists but rotated bvec is missing: {output_bvec}. Re-running.")
+                  should_run = True
+             elif is_dwi and getattr(input_image, "bval", None) and input_image.bval.exists() and not output_bval.exists():
+                  self.logger.info(f"Coregistered DWI exists but bval sidecar is missing: {output_bval}. Re-running.")
                   should_run = True
              else:
                  # Check timestamps: if input is newer than output, we MUST re-run
@@ -602,8 +610,8 @@ class CoregistrationStep(BaseProcessingStep):
                     mrtrix.mrtransform(**mt_kwargs)
                     
                     # Export to NIfTI
-                    out_bvec = output_img.with_suffix("").with_suffix(".bvec")
-                    out_bval = output_img.with_suffix("").with_suffix(".bval")
+                    out_bvec = output_bvec
+                    out_bval = output_bval
                     
                     mrtrix.mrconvert(
                         in_file=temp_mif_out,
@@ -737,10 +745,10 @@ class CoregistrationStep(BaseProcessingStep):
                                  if not ref_moving: ref_moving = output_dir / "temp_b0_ref.nii.gz" if is_dwi else in_path
                                  
                                  if ref_moving.exists():
-                                     if not fsl_mat.exists():
-                                         c3d.ants2fsl(target, ref_moving, ants_affine, fsl_mat)
+                                     if not c3d.is_valid_fsl_affine(fsl_mat):
+                                         c3d.ants2fsl(registration_target, ref_moving, ants_affine, fsl_mat)
                                      
-                                     if fsl_mat.exists() and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
+                                     if c3d.is_valid_fsl_affine(fsl_mat) and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
                                          new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
                                          fsl.rotate_bvecs(input_image.bvec, fsl_mat, new_bvec_path)
                                          rotated_bvecs = new_bvec_path

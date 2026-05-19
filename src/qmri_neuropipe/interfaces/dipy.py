@@ -423,7 +423,113 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     
     return vol_params
 
+
+def _serial_fit_driver(data, mask, gtab, worker_func, worker_kwargs=None):
+    """Run a parallel-driver compatible worker in-process and reassemble output."""
+    import numpy as np
+
+    if worker_kwargs is None:
+        worker_kwargs = {}
+
+    if mask is None:
+        mask = np.ones(data.shape[:3], dtype=bool)
+    if data.ndim < 4:
+        raise RuntimeError(f"Serial fit driver received {data.ndim}D data (shape: {data.shape}). "
+                           f"Diffusion models require a 4D volume series.")
+    if mask.ndim == 4:
+        print(f"  - WARNING: 4D mask detected (shape {mask.shape}). Using first volume.")
+        mask = mask[..., 0]
+    mask = mask.astype(bool)
+    if data.shape[:3] != mask.shape[:3]:
+        raise RuntimeError(f"Dimension mismatch between data {data.shape[:3]} and mask {mask.shape[:3]}.")
+
+    data_flat = data[mask]
+    if data_flat.shape[0] == 0:
+        raise ValueError("No voxels found in the provided mask (mask is empty). Cannot perform fitting.")
+
+    all_params = worker_func(0, data_flat, gtab, worker_kwargs)
+    if all_params.ndim == 1:
+        out_shape = mask.shape
+    else:
+        out_shape = mask.shape + all_params.shape[1:]
+
+    vol_params = np.zeros(out_shape, dtype=all_params.dtype)
+    vol_params[mask] = all_params
+    return vol_params
+
+
 # --- Worker Functions ---
+
+
+def _default_model_param_shape(model_name):
+    param_sizes = {
+        "TensorModel": (12,),
+        "DiffusionKurtosisModel": (27,),
+        "MeanDiffusionKurtosisModel": (2,),
+        "FreeWaterTensorModel": (13,),
+    }
+    return param_sizes.get(model_name)
+
+
+def _fit_model_params_with_voxel_fallback(model, data_chunk, chunk_id, model_name, *, reshape_4d=False):
+    """Fit a chunk, falling back to per-voxel NaNs if isolated voxels fail."""
+    import numpy as np
+    model_class_name = model.__class__.__name__
+
+    def _fit_params(voxels):
+        fit_data = voxels
+        if reshape_4d:
+            fit_data = voxels.reshape(voxels.shape[0], 1, 1, voxels.shape[1])
+        fit = model.fit(fit_data)
+        params = np.asarray(fit.model_params)
+        if params.shape[0] == voxels.shape[0]:
+            return params.reshape(voxels.shape[0], -1)
+        if voxels.shape[0] == 1:
+            return params.reshape(1, -1)
+        return params.squeeze()
+
+    try:
+        return _fit_params(data_chunk)
+    except Exception:
+        pass
+
+    rows = []
+    pending_failed = 0
+    param_shape = None
+    failed = 0
+
+    for vox_data in data_chunk:
+        try:
+            if not np.all(np.isfinite(vox_data)) or np.all(vox_data <= 0):
+                raise ValueError("invalid signal vector")
+
+            params = np.asarray(_fit_params(vox_data[None, :]))
+            if params.ndim > 1 and params.shape[0] == 1:
+                params = params[0]
+            params = np.squeeze(params)
+            if param_shape is None:
+                param_shape = params.shape
+                rows.extend(np.full(param_shape, np.nan, dtype=np.float32) for _ in range(pending_failed))
+                pending_failed = 0
+            rows.append(params)
+        except Exception:
+            failed += 1
+            if param_shape is None:
+                pending_failed += 1
+            else:
+                rows.append(np.full(param_shape, np.nan, dtype=np.float32))
+
+    if param_shape is None:
+        param_shape = _default_model_param_shape(model_class_name)
+        if param_shape is None:
+            raise RuntimeError(f"{model_name} worker {chunk_id} could not fit any voxels in its chunk.")
+        rows.extend(np.full(param_shape, np.nan, dtype=np.float32) for _ in range(pending_failed))
+
+    if failed:
+        print(f"  - WARNING: {model_name} worker {chunk_id} failed on {failed}/{data_chunk.shape[0]} voxels; writing NaN for those voxels.")
+
+    return np.asarray(rows)
+
 
 def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dti as dipy_dti
@@ -458,10 +564,13 @@ def _dti_worker(chunk_id, data_chunk, gtab, kwargs):
     # Reshape to (N, 1, 1, B)
     data_4d = data_chunk.reshape(n_vox, 1, 1, n_vols)
     
-    fit = model.fit(data_4d)
-    
-    # params will be (N, 1, 1, 7) -> squeeze to (N, 7)
-    return fit.model_params.squeeze()
+    return _fit_model_params_with_voxel_fallback(
+        model,
+        data_chunk,
+        chunk_id,
+        "DTI",
+        reshape_4d=True,
+    )
 
 def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.dki as dipy_dki
@@ -497,8 +606,13 @@ def _dki_worker(chunk_id, data_chunk, gtab, kwargs):
     n_vols = data_chunk.shape[1]
     data_4d = data_chunk.reshape(n_vox, 1, 1, n_vols)
     
-    fit = model.fit(data_4d)
-    return fit.model_params.squeeze()
+    return _fit_model_params_with_voxel_fallback(
+        model,
+        data_chunk,
+        chunk_id,
+        "DKI",
+        reshape_4d=True,
+    )
 
 def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     import dipy.reconst.mapmri as mapmri
@@ -514,33 +628,64 @@ def _mapmri_worker(chunk_id, data_chunk, gtab, kwargs):
     
     # Check if metrics requested
     metrics = fit_kwargs.pop('metrics', None)
+    peak_npeaks = int(fit_kwargs.pop('peak_npeaks', 3))
+    peak_relative_threshold = float(fit_kwargs.pop('peak_relative_threshold', 0.5))
+    peak_min_separation_angle = float(fit_kwargs.pop('peak_min_separation_angle', 25.0))
     
     model = mapmri.MapmriModel(gtab, **fit_kwargs)
-    fit = model.fit(data_chunk)
     
     if metrics:
-        res = []
-        for m in metrics:
-            if m == 'rtop': res.append(fit.rtop())
-            elif m == 'rtap': res.append(fit.rtap())
-            elif m == 'rtpp': res.append(fit.rtpp())
-            elif m == 'qiv': res.append(fit.qiv())
-            elif m == 'msd': res.append(fit.msd())
-            elif m == 'ng': res.append(fit.ng())
-            elif m == 'peaks':
-                res.append(_mapmri_peaks_from_fit(
-                    fit,
-                    n_peaks=fit_kwargs.get('peak_npeaks', 3),
-                    relative_peak_threshold=fit_kwargs.get('peak_relative_threshold', 0.5),
-                    min_separation_angle=fit_kwargs.get('peak_min_separation_angle', 25.0),
-                ))
-            elif m == 'ng_par': res.append(fit.ng_parallel())
-            elif m == 'ng_perp': res.append(fit.ng_perpendicular())
-            # Add more if needed
-        # Stack results: (N, n_metrics)
-        if len(res) == 1:
-            return np.asarray(res[0])
-        return np.stack(res, axis=-1)
+        failed = 0
+        rows = []
+        for vox_data in data_chunk:
+            try:
+                if not np.all(np.isfinite(vox_data)) or np.all(vox_data <= 0):
+                    raise ValueError("invalid MAPMRI signal vector")
+
+                fit = model.fit(vox_data[None, :])
+                row = []
+                for m in metrics:
+                    if m == 'rtop': val = fit.rtop()
+                    elif m == 'rtap': val = fit.rtap()
+                    elif m == 'rtpp': val = fit.rtpp()
+                    elif m == 'qiv': val = fit.qiv()
+                    elif m == 'msd': val = fit.msd()
+                    elif m == 'ng': val = fit.ng()
+                    elif m == 'peaks':
+                        val = _mapmri_peaks_from_fit(
+                            fit,
+                            n_peaks=peak_npeaks,
+                            relative_peak_threshold=peak_relative_threshold,
+                            min_separation_angle=peak_min_separation_angle,
+                        )[0]
+                    elif m == 'ng_par': val = fit.ng_parallel()
+                    elif m == 'ng_perp': val = fit.ng_perpendicular()
+                    else: val = np.nan
+
+                    val = np.asarray(val)
+                    if val.size == 1:
+                        row.append(val.item())
+                    else:
+                        row.append(val.reshape(-1))
+            except Exception:
+                failed += 1
+                row = []
+                for m in metrics:
+                    if m == 'peaks':
+                        row.append(np.full(peak_npeaks * 3, np.nan, dtype=np.float32))
+                    else:
+                        row.append(np.nan)
+
+            if len(row) == 1:
+                rows.append(row[0])
+            else:
+                rows.append(row)
+
+        if failed:
+            print(f"  - WARNING: MAPMRI worker {chunk_id} failed on {failed}/{data_chunk.shape[0]} voxels; writing NaN for those voxels.")
+        return np.asarray(rows)
+
+    fit = model.fit(data_chunk)
     
     if hasattr(fit, 'mapmri_params'):
         return fit.mapmri_params
@@ -636,8 +781,12 @@ def _fwe_dti_worker(chunk_id, data_chunk, gtab, kwargs):
     
     model = fwdti.FreeWaterTensorModel(gtab, fit_method=fit_method, **fwe_kwargs)
     
-    fit = model.fit(data_chunk)
-    return fit.model_params
+    return _fit_model_params_with_voxel_fallback(
+        model,
+        data_chunk,
+        chunk_id,
+        "FWE-DTI",
+    )
 
 # --- Generic GNL Voxel-wise Driver ---
 
@@ -664,8 +813,14 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     # Copy model_kwargs so we can safely modify
     full_kwargs = kwargs.get('model_kwargs', {}).copy()
     metrics = full_kwargs.pop('metrics', None)
+    peak_npeaks = int(full_kwargs.pop('peak_npeaks', 3))
+    peak_relative_threshold = float(full_kwargs.pop('peak_relative_threshold', 0.5))
+    peak_min_separation_angle = float(full_kwargs.pop('peak_min_separation_angle', 25.0))
     
     res_params = []
+    pending_failed = 0
+    param_shape = None
+    failed = 0
     
     for i in range(chunk_data.shape[0]):
         vox_data = chunk_data[i]
@@ -715,7 +870,33 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
         # Fit
         # Force 2D input (1, N_grads) to avoid indexing errors in some DIPY models (e.g. DKI iterative fit)
         # when processing single voxels.
-        fit = model.fit(vox_data[None, :])
+        try:
+            if model_name == 'MapmriModel' and (not np.all(np.isfinite(vox_data)) or np.all(vox_data <= 0)):
+                raise ValueError("invalid MAPMRI signal vector")
+            fit = model.fit(vox_data[None, :])
+        except Exception:
+            failed += 1
+            if model_name != 'MapmriModel' and metrics:
+                raise
+
+            if metrics:
+                failed_row = []
+                for m in metrics:
+                     if m == 'peaks':
+                         failed_row.append(np.full(peak_npeaks * 3, np.nan, dtype=np.float32))
+                     else:
+                         failed_row.append(np.nan)
+
+                if len(failed_row) == 1 and np.asarray(failed_row[0]).ndim > 0:
+                    res_params.append(np.asarray(failed_row[0]))
+                else:
+                    res_params.append(failed_row)
+            else:
+                if param_shape is None:
+                    pending_failed += 1
+                else:
+                    res_params.append(np.full(param_shape, np.nan, dtype=np.float32))
+            continue
         
         # Check if Metrics requested
         # metrics extracted earlier
@@ -734,9 +915,9 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
                  elif m == 'ng' and hasattr(fit, 'ng'): val = fit.ng()
                  elif m == 'peaks': val = _mapmri_peaks_from_fit(
                      fit,
-                     n_peaks=full_kwargs.get('peak_npeaks', 3),
-                     relative_peak_threshold=full_kwargs.get('peak_relative_threshold', 0.5),
-                     min_separation_angle=full_kwargs.get('peak_min_separation_angle', 25.0),
+                     n_peaks=peak_npeaks,
+                     relative_peak_threshold=peak_relative_threshold,
+                     min_separation_angle=peak_min_separation_angle,
                  )[0]
                  elif m == 'ng_par' and hasattr(fit, 'ng_parallel'): val = fit.ng_parallel()
                  elif m == 'ng_perp' and hasattr(fit, 'ng_perpendicular'): val = fit.ng_perpendicular()
@@ -770,10 +951,22 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
             # Unwrap (1, P) -> (P,)
             if hasattr(res, 'ndim') and res.ndim > 1 and res.shape[0] == 1:
                 res = res[0]
-            
+
+            res = np.asarray(res)
+            if param_shape is None:
+                param_shape = res.shape
+                res_params.extend(np.full(param_shape, np.nan, dtype=np.float32) for _ in range(pending_failed))
+                pending_failed = 0
             res_params.append(res)
 
-        
+    if pending_failed:
+        param_shape = _default_model_param_shape(model_class.__name__)
+        if param_shape is None:
+            raise RuntimeError(f"{model_class.__name__} GNL worker {chunk_id} could not fit any voxels in its chunk.")
+        res_params.extend(np.full(param_shape, np.nan, dtype=np.float32) for _ in range(pending_failed))
+    if failed:
+        print(f"  - WARNING: {model_class.__name__} GNL worker {chunk_id} failed on {failed}/{chunk_data.shape[0]} voxels; writing NaN for those voxels.")
+
     return np.array(res_params)
 
 def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_kwargs, nthreads=1, big_delta=None, small_delta=None):
@@ -1096,7 +1289,18 @@ def fit_dti(
                 dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
     
             else:
-                 dti_fit = dti_model.fit(data, mask=mask)
+                 worker_kwargs = kwargs.copy()
+                 worker_kwargs['fit_method'] = fit_method
+                 if fit_method != 'RESTORE' and 'return_leverages' not in worker_kwargs:
+                     worker_kwargs['return_leverages'] = True
+                 vol_params = _serial_fit_driver(
+                    data,
+                    mask,
+                    gtab,
+                    _dti_worker,
+                    worker_kwargs=worker_kwargs
+                 )
+                 dti_fit = dipy_dti.TensorFit(dti_model, vol_params)
 
     except Exception as e:
         import traceback
@@ -1358,7 +1562,16 @@ def fit_dki(
 
         else:
             # Serial Fit
-            dkifit = dkimodel.fit(data, mask=mask)
+            worker_kwargs = dki_kwargs.copy()
+            worker_kwargs['use_msdki'] = use_msdki
+            vol_params = _serial_fit_driver(
+                data,
+                mask,
+                gtab,
+                _dki_worker,
+                worker_kwargs=worker_kwargs
+            )
+            dkifit = FitClass(dkimodel, vol_params)
             
     except Exception as e:
         import traceback
@@ -1541,8 +1754,13 @@ def fit_mapmri(
                     worker_kwargs=scalar_kwargs
                  )
             else:
-                 map_model = mapmri.MapmriModel(gtab, **map_model_kwargs)
-                 mapfit = map_model.fit(data, mask=mask)
+                 final_data = _serial_fit_driver(
+                    data,
+                    mask,
+                    gtab,
+                    _mapmri_worker,
+                    worker_kwargs=scalar_kwargs
+                 )
 
         if peaks_requested:
             peak_kwargs = dict(map_model_kwargs)
@@ -1574,14 +1792,12 @@ def fit_mapmri(
                     worker_kwargs=peak_kwargs
                 )
             else:
-                if mapfit is None:
-                    map_model = mapmri.MapmriModel(gtab, **map_model_kwargs)
-                    mapfit = map_model.fit(data, mask=mask)
-                peak_data = _mapmri_peaks_from_fit(
-                    mapfit,
-                    n_peaks=peak_npeaks,
-                    relative_peak_threshold=peak_relative_threshold,
-                    min_separation_angle=peak_min_separation_angle,
+                peak_data = _serial_fit_driver(
+                    data,
+                    mask,
+                    gtab,
+                    _mapmri_worker,
+                    worker_kwargs=peak_kwargs
                 )
 
     except Exception as e:
@@ -1744,7 +1960,16 @@ def fit_fwe_dti(
             )
             fwe_fit = fwdti.FreeWaterTensorFit(fwe_model, vol_params)
         else:
-            fwe_fit = fwe_model.fit(data, mask=mask)
+            worker_kwargs = fwe_kwargs.copy()
+            worker_kwargs['fit_method'] = fit_method
+            vol_params = _serial_fit_driver(
+                data,
+                mask,
+                gtab,
+                _fwe_dti_worker,
+                worker_kwargs=worker_kwargs
+            )
+            fwe_fit = fwdti.FreeWaterTensorFit(fwe_model, vol_params)
             
     except Exception as e:
         import traceback
