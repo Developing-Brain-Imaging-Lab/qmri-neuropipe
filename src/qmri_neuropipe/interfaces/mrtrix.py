@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Union
-from ..core.run import run_cmd
+from ..core.run import run_cmd, _writable_tmpdir
 from ..core.types import ImageLike, DWIFile
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
 
@@ -138,6 +138,7 @@ def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path 
     cmd_parts = [
         "dwigradcheck",
         str(in_p),
+        "-config", "TmpFileDir", _writable_tmpdir(),
         "-nthreads", str(nthreads),
         "-quiet"
     ]

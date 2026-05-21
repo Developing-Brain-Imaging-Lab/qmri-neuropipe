@@ -1,3 +1,4 @@
+import os
 import subprocess, shlex, logging
 from typing import Optional
 
@@ -8,6 +9,20 @@ except ImportError:
     console = None
 
 log = logging.getLogger("qmri-neuropipe")
+
+def _writable_tmpdir() -> str:
+    """Return a writable temp directory that should also exist in containers."""
+    candidates = (
+        os.environ.get("TMPDIR"),
+        os.environ.get("TEMP"),
+        os.environ.get("TMP"),
+        "/tmp",
+    )
+    for candidate in candidates:
+        if candidate and os.path.isdir(candidate) and os.access(candidate, os.W_OK):
+            return candidate
+    return "."
+
 
 def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False, env: dict = None, n_threads: int = None, cwd: str | None = None) -> None:
     """Exec a CLI; log command at DEBUG and emit progress lines at INFO."""
@@ -22,8 +37,8 @@ def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False, env: d
         return
 
     # Prepare environment
-    import os
     cmd_env = os.environ.copy()
+    cmd_env.setdefault("MRTRIX_TMPFILE_DIR", _writable_tmpdir())
     if env:
         log.debug(f"[ENV] Overrides: {env}")
         cmd_env.update(env)
