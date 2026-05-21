@@ -21,6 +21,7 @@ dependencies = [
     "scipy>=1.10",
     "dipy>=1.8",
     "pywavelets",
+    "pydicom>=2.4",
     "threadpoolctl",
     "tqdm",
     "dcm2bids"

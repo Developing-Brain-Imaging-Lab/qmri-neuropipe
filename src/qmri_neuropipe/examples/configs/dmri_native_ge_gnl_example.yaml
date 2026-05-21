@@ -66,6 +66,10 @@ import:
   gnl_metadata:
     enabled: true
     manufacturer: GE
+    # For AP/PA diffusion acquisitions, force BIDS phase encoding to j/j- even
+    # when dcm2niix reports i/i- for sagittal prescriptions.
+    fix_phase_encoding: true
+    phase_from: dir
 
 dmri:
   preprocessing:

@@ -224,15 +224,35 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
     out_reg.parent.mkdir(parents=True, exist_ok=True)
 
     fsl_mat = Path(fsl_mat_out) if fsl_mat_out else None
+    def _valid_fsl_mat(path: Path) -> bool:
+        try:
+            import numpy as np
+            mat = np.loadtxt(path)
+            return mat.shape == (4, 4) and np.all(np.isfinite(mat))
+        except Exception:
+            return False
+
     if out_reg.exists():
         # Reuse existing registration only if all requested outputs are present.
-        if not fsl_mat or fsl_mat.exists():
+        if not fsl_mat or _valid_fsl_mat(fsl_mat):
             return out_reg
+        if fsl_mat.exists():
+            fsl_mat.unlink()
         out_reg.unlink()
     
-    # bbregister expects subject ID via --s
-    # We assume target_file is the subject ID if it's passed here.
+    # bbregister expects a FreeSurfer subject ID via --s, not a structural
+    # image path. Accept a subject directory path as a convenience, but reject
+    # image paths because they make bbregister look in the wrong place.
     subject_id = str(target_file)
+    target_path = Path(subject_id)
+    if target_path.exists() and target_path.is_dir():
+        subjects_dir = subjects_dir or target_path.parent
+        subject_id = target_path.name
+    elif "/" in subject_id or "\\" in subject_id:
+        raise ValueError(
+            "bbregister target_file must be a FreeSurfer subject ID, not a file path. "
+            f"Received: {target_file}"
+        )
     
     cmd = f"bbregister --s {subject_id} --mov {in_p} --reg {out_reg} --{contrast_type}"
     

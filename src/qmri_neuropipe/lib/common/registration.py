@@ -19,6 +19,89 @@ from .json_metadata import copy_json_with_metadata
 from .spatial_transforms import write_transform_chain_to_sidecar
 
 
+def _first_config_value(config, keys, default=None):
+    for key in keys:
+        value = config.get(key) if hasattr(config, "get") else None
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
+    options = options or {}
+    explicit = options.get("subject_id") or options.get("fs_subject_id") or options.get("freesurfer_subject_id")
+    if explicit:
+        yield str(explicit)
+
+    if context:
+        for key in ("freesurfer_subject_id", "fs_subject_id"):
+            if context.get(key):
+                yield str(context[key])
+
+    sub = context.get("subject") if context else None
+    ses = context.get("session") if context else None
+    if not sub and hasattr(input_image, "entities"):
+        sub = input_image.entities.get("sub")
+    if not ses and hasattr(input_image, "entities"):
+        ses = input_image.entities.get("ses")
+
+    if sub:
+        sub = str(sub)
+        values = []
+        if not sub.startswith("sub-"):
+            values.append(f"sub-{sub}")
+        values.append(sub)
+        for value in values:
+            if ses and "_ses-" not in value:
+                yield f"{value}_ses-{ses}"
+            yield value
+
+
+def _resolve_freesurfer_subject(config, context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
+    options = options or {}
+
+    if context and context.get("freesurfer_dir"):
+        fs_subject_dir = Path(context["freesurfer_dir"])
+        return fs_subject_dir.parent, fs_subject_dir.name
+
+    subjects_dir = (
+        options.get("subjects_dir")
+        or options.get("freesurfer_subjects_dir")
+        or _first_config_value(
+            config,
+            (
+                "dmri.preprocessing.coregistration.subjects_dir",
+                "dmri.preprocessing.coregistration.options.subjects_dir",
+                "dmri.preprocessing.coregistration.freesurfer_subjects_dir",
+                "anat.preprocessing.recon_all.subjects_dir",
+                "anat.recon_all.subjects_dir",
+                "freesurfer.subjects_dir",
+            ),
+        )
+    )
+    if subjects_dir:
+        subjects_dir = Path(subjects_dir)
+    else:
+        bids_dir = config.get("bids_dir") if hasattr(config, "get") else None
+        subjects_dir = Path(bids_dir) / "derivatives" / "freesurfer" if bids_dir else None
+
+    if not subjects_dir:
+        return None, None
+
+    seen = set()
+    for subject_id in _candidate_freesurfer_subject_ids(context, input_image, options):
+        if subject_id in seen:
+            continue
+        seen.add(subject_id)
+        if (subjects_dir / subject_id).exists():
+            return subjects_dir, subject_id
+
+    # Return the most specific candidate for a clearer downstream error even if
+    # the directory does not exist yet.
+    candidates = list(_candidate_freesurfer_subject_ids(context, input_image, options))
+    return subjects_dir, candidates[-1] if candidates else None
+
+
 class NonlinearRegistrationStep(BaseProcessingStep):
     """
     Nonlinear registration (SyN) to a template.
@@ -222,53 +305,23 @@ class CoregistrationStep(BaseProcessingStep):
         if not target_path.exists():
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
 
+        options = options or {}
         fs_subjects_dir = None
         fs_subject_id = None
         fs_orig_mgz = None
         fs_registration_target = None
         if self.method == "freesurfer":
-            fs_subject_id = context.get("subject") if context else None
-            if not fs_subject_id:
-                raise ProcessingError("FreeSurfer coregistration requires 'subject' in context.")
-
-            if context and context.get("freesurfer_dir"):
-                fs_rec_path = Path(context["freesurfer_dir"])
-                fs_subjects_dir = fs_rec_path.parent
-                fs_subject_id = fs_rec_path.name
-            else:
-                self.logger.warning(
-                    "Freesurfer directory not found in context. Attempting to reconstruct from BIDS config."
+            fs_subjects_dir, fs_subject_id = _resolve_freesurfer_subject(
+                self.config,
+                context,
+                input_image=input_image,
+                options=options,
+            )
+            if not fs_subjects_dir or not fs_subject_id:
+                raise ProcessingError(
+                    "FreeSurfer coregistration requires a resolvable SUBJECTS_DIR and subject ID. "
+                    "Set dmri.preprocessing.coregistration.options.subjects_dir or run anatomical recon-all first."
                 )
-                bids_dir = self.config.get("bids_dir")
-                if bids_dir:
-                    fs_subjects_dir = Path(bids_dir) / "derivatives" / "freesurfer"
-                    sub = context.get("subject") if context else None
-                    ses = context.get("session") if context else None
-                    if not sub and hasattr(input_image, "entities"):
-                        sub = input_image.entities.get("sub")
-                        if not ses:
-                            ses = input_image.entities.get("ses")
-                    if sub:
-                        candidate_id = f"sub-{sub}"
-                        if ses:
-                            candidate_id += f"_ses-{ses}"
-                        if (fs_subjects_dir / candidate_id).exists():
-                            fs_subject_id = candidate_id
-                            self.logger.info(
-                                f"Found FreeSurfer subject directory: {fs_subjects_dir / fs_subject_id}"
-                            )
-                        else:
-                            self.logger.warning(
-                                f"Constructed FreeSurfer path does not exist: {fs_subjects_dir / candidate_id}"
-                            )
-                    else:
-                        self.logger.warning(
-                            "Could not determine subject/session for FreeSurfer fallback."
-                        )
-                else:
-                    self.logger.warning(
-                        "No 'bids_dir' in config to reconstruct FreeSurfer paths."
-                    )
 
             if fs_subjects_dir and fs_subject_id:
                 fs_orig_mgz = fs_subjects_dir / fs_subject_id / "mri" / "orig.mgz"
@@ -277,10 +330,10 @@ class CoregistrationStep(BaseProcessingStep):
                         f"FreeSurfer orig.mgz not found: {fs_orig_mgz}. Falling back to target image."
                     )
                     fs_orig_mgz = None
+                self.logger.info(f"Using FreeSurfer subject for bbregister: {fs_subject_id} (SUBJECTS_DIR={fs_subjects_dir})")
 
         output_dir = self.get_step_output_dir(output_dir)
         
-        options = options or {}
         apply_method = options.get('apply_method', 'native').lower() # 'native' or 'mrtrix'
         
         from ...core.utils import get_nifti_stem
@@ -691,15 +744,33 @@ class CoregistrationStep(BaseProcessingStep):
                                 fs_contrast = "t2"
                             else:
                                 fs_contrast = "t1"
+                        if not fs_subjects_dir or not fs_subject_id:
+                            raise ProcessingError(
+                                "Unable to resolve FreeSurfer subject directory for bbregister."
+                            )
                         freesurfer.bbregister(
-                            in_file=in_path,
-                            target_file=target,
+                            in_file=moving_for_reg,
+                            target_file=fs_subject_id,
                             out_reg_file=output_dat,
                             contrast_type=fs_contrast,
+                            fsl_mat_out=output_mat,
+                            subjects_dir=fs_subjects_dir,
                         )
-                        import shutil
-                        shutil.copy(in_path, output_img) 
-                        self.logger.warning("Freesurfer bbregister only calculates transform. Image not resampled.")
+                        if is_dwi:
+                            fsl.apply_xfm_4d(
+                                in_file=in_path,
+                                ref_file=registration_target,
+                                out_file=output_img,
+                                mat=output_mat,
+                                interp=options.get("interpolation", "trilinear")
+                            )
+                        else:
+                            fsl.flirt(
+                                in_file=in_path,
+                                ref_file=registration_target,
+                                out_file=output_img,
+                                extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
+                            )
 
                     else:
                          raise ValueError(f"Unknown coregistration method: {self.method}")
@@ -723,6 +794,16 @@ class CoregistrationStep(BaseProcessingStep):
                                  fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
                                  rotated_bvecs = new_bvec_path
                              except Exception: pass
+
+                     elif self.method == 'freesurfer':
+                         mat_file = output_transform.with_suffix(".mat")
+                         if c3d.is_valid_fsl_affine(mat_file) and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
+                             new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                             try:
+                                 fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
+                                 rotated_bvecs = new_bvec_path
+                             except Exception as e:
+                                 self.logger.warning(f"Error during FreeSurfer bvec rotation: {e}")
                      
                      elif self.method == 'ants':
                          # Search for ANTs affine if consistent

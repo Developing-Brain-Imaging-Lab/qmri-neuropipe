@@ -209,6 +209,7 @@ The import workflow will extract those archives into the configured work directo
 - The GE coefficient file must be supplied with `coeff_file`.
 - If native and final grids already match, no rigid mapping step is applied.
 - The rigid mapping is estimated from mean b0 images, not from full nonlinear distortion fields.
+- GE PDB prescription centers are assigned by anatomical letters (`R/L`, `A/P`, `S/I`) rather than assuming `SLOC1/ELOC1`, `FOVCNT1`, and `FOVCNT2` always map to fixed x/y/z axes. Numeric-only FOV center fields are assigned to the remaining unused axis.
 - The import step derives `IsocenterOffsetScannerRASmm` from the converted native NIfTI geometry so it matches the `make-L.py` convention rather than storing raw PDB center coordinates directly.
 - Gradient overrides are best applied during import rather than by manual file edits afterward, because the sidecar provenance records which replacement tables were used.
 - Metadata overrides are also best applied during import, especially for 4D SPGR/SSFP sidecars that need curated `FlipAngle` or `PhaseCycling` arrays, or AFI sidecars that need scalar fields such as `TRRatio`; list-valued fields are validated against the imported image volume count.

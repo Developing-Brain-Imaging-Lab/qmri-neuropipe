@@ -53,12 +53,17 @@ def enrich_gnl_metadata_cli(
     search_root: Optional[Path] = typer.Option(None, "--search-root", help="Root directory under which to find existing *_dwi.json sidecars.", exists=True),
     json_paths: List[Path] = typer.Option([], "--json", help="Specific DWI JSON sidecar(s) or directories containing them."),
     strict: bool = typer.Option(False, "--strict", help="Fail if any target sidecar cannot be matched to a DICOM series."),
+    fix_phase_encoding: bool = typer.Option(False, "--fix-phase-encoding", help="Rewrite AP/PA DWI PhaseEncodingDirection to BIDS j/j-."),
+    phase_from: str = typer.Option("dir", "--phase-from", help="Preferred source for phase sign: dir, existing, or polarity."),
 ):
     """
     Enrich existing DWI JSON sidecars with GE gradient nonlinearity metadata from DICOM headers.
     """
     if not search_root and not json_paths:
         console.print("[bold red]Error:[/bold red] provide either --search-root or at least one --json target.")
+        raise typer.Exit(code=2)
+    if phase_from not in {"dir", "existing", "polarity"}:
+        console.print("[bold red]Error:[/bold red] --phase-from must be one of: dir, existing, polarity.")
         raise typer.Exit(code=2)
 
     try:
@@ -71,11 +76,76 @@ def enrich_gnl_metadata_cli(
             json_paths=json_paths or None,
             logger=logger,
             strict=strict,
+            fix_phase_encoding=fix_phase_encoding,
+            phase_from=phase_from,
         )
         console.print(
             "[bold green]Success![/bold green] "
             f"updated={result['updated']}, unchanged={result['unchanged']}, unmatched={len(result['unmatched'])}"
         )
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("patch-ge-dwi-sidecars")
+def patch_ge_dwi_sidecars_cli(
+    search_root: Optional[Path] = typer.Option(None, "--search-root", help="Root directory under which to find *_dwi.json sidecars.", exists=True),
+    json_paths: List[Path] = typer.Option([], "--json", help="Specific DWI JSON sidecar(s) or directories containing them."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print summary without modifying files."),
+    no_backup: bool = typer.Option(False, "--no-backup", help="Do not create .bak backups before overwriting JSON files."),
+    no_fix_phase_encoding: bool = typer.Option(False, "--no-fix-phase-encoding", help="Do not rewrite PhaseEncodingDirection."),
+    phase_from: str = typer.Option("dir", "--phase-from", help="Preferred source for phase sign: dir, existing, or polarity."),
+    no_update_isocenter_offset: bool = typer.Option(False, "--no-update-isocenter-offset", help="Only update the PDB center, not IsocenterOffsetScannerRASmm."),
+    strict: bool = typer.Option(False, "--strict", help="Fail immediately on the first sidecar error."),
+):
+    """
+    Patch existing GE DWI sidecars from stored RepresentativeDicom/RepresentativeNifti paths.
+    """
+    if not search_root and not json_paths:
+        console.print("[bold red]Error:[/bold red] provide either --search-root or at least one --json target.")
+        raise typer.Exit(code=2)
+    if phase_from not in {"dir", "existing", "polarity"}:
+        console.print("[bold red]Error:[/bold red] --phase-from must be one of: dir, existing, polarity.")
+        raise typer.Exit(code=2)
+
+    try:
+        from qmri_neuropipe.lib.common.gnl_metadata import patch_existing_dwi_sidecars_from_representatives
+        logger = logging.getLogger("qmri_tools.gnl_metadata")
+
+        result = patch_existing_dwi_sidecars_from_representatives(
+            search_root=search_root,
+            json_paths=json_paths or None,
+            logger=logger,
+            dry_run=dry_run,
+            backup=not no_backup,
+            fix_phase_encoding=not no_fix_phase_encoding,
+            phase_from=phase_from,
+            update_isocenter_offset=not no_update_isocenter_offset,
+            strict=strict,
+        )
+        status = "Dry run complete." if dry_run else "Success!"
+        console.print(
+            f"[bold green]{status}[/bold green] "
+            f"updated={result['updated']}, unchanged={result['unchanged']}, failed={len(result['failed'])}"
+        )
+        if dry_run:
+            for item in result["details"]:
+                marker = "would update" if item["changed"] else "unchanged"
+                console.print(
+                    f"  [{marker}] {item['json']} "
+                    f"PhaseEncodingDirection={item['phase']}, "
+                    f"PDBCenter={item['pdb_center']}, "
+                    f"IsocenterOffset={item['isocenter_offset']}"
+                )
+        for failure in result["failed"]:
+            console.print(f"[yellow]Failed:[/yellow] {failure['json']} - {failure['error']}")
+        if result["failed"]:
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         import traceback
