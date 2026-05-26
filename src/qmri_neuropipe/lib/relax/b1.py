@@ -10,6 +10,7 @@ from ...core.types import ImageFile
 from ...core.utils import ensure_dir
 from ...io.bids import build_bids_name
 from ...interfaces import ants, fsl # Assuming existence
+from ...utils.relax_params import _extract_bids_param
 
 class B1MappingStep(BaseProcessingStep):
     """
@@ -288,33 +289,31 @@ class B1MappingStep(BaseProcessingStep):
         import numpy as np
         import scipy.ndimage as nd
         
-        # 1. Get Parameters (TRRatio, TR1, TR2, FA)
-        json_data = afi_image.json or {}
-        
         # Check for explicit TRRatio (n)
-        n_ratio = json_data.get('TRRatio')
+        n_ratio = _extract_bids_param(afi_image, "TRRatio")
         
         if n_ratio:
              self.logger.info(f"Using provided TRRatio from JSON: {n_ratio}")
              n_ratio = float(n_ratio)
         else:
             # Fallback to TR calculation
-            tr = json_data.get('RepetitionTime')
+            tr = _extract_bids_param(afi_image, "RepetitionTime")
             if isinstance(tr, list) and len(tr) == 2:
                 # TR1 is Short, TR2 is Long usually? 
                 # Standards: TR1 = 20ms, TR2 = 100ms -> n=5.
-                tr_sorted = sorted(tr)
+                tr_sorted = sorted(float(value) for value in tr)
                 n_ratio = float(tr_sorted[1] / tr_sorted[0])
             else:
                 self.logger.warning("AFI: RepetitionTime not a list of 2 in JSON and no TRRatio found. Assuming n=5 for testing.")
                 n_ratio = 5.0 # Fallback
         
-        flip_angle_deg = json_data.get('FlipAngle')
+        flip_angle_deg = _extract_bids_param(afi_image, "FlipAngle")
         # If list, take first? Usually same FA.
         if isinstance(flip_angle_deg, list): flip_angle_deg = flip_angle_deg[0]
         if not flip_angle_deg: 
              self.logger.warning("AFI: FlipAngle missing. Assuming 60 degrees.")
              flip_angle_deg = 60.0
+        flip_angle_deg = float(flip_angle_deg)
         
         flip_angle_rad = np.deg2rad(flip_angle_deg)
         

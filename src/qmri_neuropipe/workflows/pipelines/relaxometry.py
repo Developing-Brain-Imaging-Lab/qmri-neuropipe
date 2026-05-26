@@ -360,6 +360,46 @@ class RelaxometryWorkflow(BaseWorkflow):
             )
             fitted_maps.setdefault(str(raw_metric or canonical_metric).lower(), image_file)
 
+    def _candidate_model_dirs(self, primary_fit_out_dir: Path, context: dict) -> List[Path]:
+        """
+        Return model-output directories to inspect for already completed DESPOT fits.
+
+        The active fit directory may be under the work tree or under the final
+        derivatives tree depending on how the workflow was launched. Resume
+        checks need to look at both so a populated final output directory does
+        not trigger another expensive model fit just because work files are
+        absent or stale.
+        """
+        candidates: List[Path] = [Path(primary_fit_out_dir)]
+
+        subj = context.get("subject")
+        sess = context.get("session")
+        output_root = self.config.get("output_dir")
+        if output_root and subj:
+            final_models = Path(output_root) / f"sub-{subj}"
+            if sess:
+                final_models = final_models / f"ses-{sess}"
+            final_models = final_models / "anat" / "models"
+            candidates.append(final_models)
+
+        work_root = self.config.get("work_dir")
+        if work_root and subj:
+            work_models = Path(work_root) / f"sub-{subj}"
+            if sess:
+                work_models = work_models / f"ses-{sess}"
+            work_models = work_models / "anat" / "models"
+            candidates.append(work_models)
+
+        deduped: List[Path] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            resolved = path.resolve() if path.exists() else path.absolute()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            deduped.append(path)
+        return deduped
+
     def _select_analysis_parameters(
         self,
         modeling_results: Dict[str, Dict[str, Path]],
@@ -540,24 +580,15 @@ class RelaxometryWorkflow(BaseWorkflow):
         if not logical_vols:
             raise ValueError("Unable to derive logical SPGR volumes for reference generation.")
 
-        first_img = nib.load(str(logical_vols[0][0].img))
-        first_vol = np.asanyarray(first_img.dataobj[..., logical_vols[0][1]], dtype=np.float32)
-        out_data: np.ndarray
         metadata_source: ImageFile
+        selected_idx: int = logical_vols[0][1]
         generation_details: dict[str, Any] = {"mode": mode}
 
         if mode in {"mean", "average", "avg"}:
-            acc = np.zeros(first_vol.shape, dtype=np.float32)
-            for img_obj, vol_idx in logical_vols:
-                nii = nib.load(str(img_obj.img))
-                acc += np.asanyarray(nii.dataobj[..., vol_idx], dtype=np.float32)
-            out_data = acc / float(len(logical_vols))
             metadata_source = logical_vols[0][0]
             generation_details["num_volumes"] = len(logical_vols)
         elif mode in {"last", "final"}:
             metadata_source, selected_idx = logical_vols[-1]
-            nii = nib.load(str(metadata_source.img))
-            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
             generation_details["selected_volume_index"] = len(logical_vols) - 1
         elif mode in {"index", "volume", "volume_index"}:
             if volume_index is None:
@@ -568,8 +599,6 @@ class RelaxometryWorkflow(BaseWorkflow):
                     f"SPGR reference index {global_idx} out of range for {len(logical_vols)} logical SPGR volume(s)."
                 )
             metadata_source, selected_idx = logical_vols[global_idx]
-            nii = nib.load(str(metadata_source.img))
-            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
             generation_details["selected_volume_index"] = global_idx
         elif mode in {"max_flip", "maxfa", "highest_flip"}:
             ranked = sorted(
@@ -577,8 +606,6 @@ class RelaxometryWorkflow(BaseWorkflow):
                 key=lambda item: item[2],
             )
             metadata_source, selected_idx, selected_fa = ranked[-1]
-            nii = nib.load(str(metadata_source.img))
-            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
             generation_details["selected_flip_angle"] = selected_fa
         else:
             raise ValueError(
@@ -595,6 +622,36 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
         out_json = out_path.with_suffix("").with_suffix(".json")
+
+        if (
+            self.config.get("skip_existing", False)
+            and not self._force_requested()
+            and out_path.exists()
+        ):
+            try:
+                nib.load(str(out_path))
+                self.logger.info("Skipping SPGR reference generation (exists): %s", out_path.name)
+                return ImageFile(
+                    img=out_path,
+                    entities=out_entities,
+                    json=out_json if out_json.exists() else getattr(metadata_source, "json", None),
+                )
+            except Exception as exc:
+                self.logger.warning("Existing SPGR reference is unreadable; regenerating %s (%s)", out_path, exc)
+
+        first_img = nib.load(str(logical_vols[0][0].img))
+        first_vol = np.asanyarray(first_img.dataobj[..., logical_vols[0][1]], dtype=np.float32)
+        out_data: np.ndarray
+
+        if mode in {"mean", "average", "avg"}:
+            acc = np.zeros(first_vol.shape, dtype=np.float32)
+            for img_obj, vol_idx in logical_vols:
+                nii = nib.load(str(img_obj.img))
+                acc += np.asanyarray(nii.dataobj[..., vol_idx], dtype=np.float32)
+            out_data = acc / float(len(logical_vols))
+        else:
+            nii = nib.load(str(metadata_source.img))
+            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
 
         out_img = nib.Nifti1Image(out_data, first_img.affine, first_img.header.copy())
         nib.save(out_img, str(out_path))
@@ -906,6 +963,79 @@ class RelaxometryWorkflow(BaseWorkflow):
         targets = sorted(root.rglob("*chunk-*"), key=lambda path: len(path.parts), reverse=True)
         self._cleanup_paths(targets)
 
+    def _force_requested(self) -> bool:
+        return bool(
+            self.config.get("force", False)
+            or self.config.get("force_run", False)
+            or self.config.get("force_rerun", False)
+        )
+
+    def _find_existing_preprocessed_series(
+        self,
+        anat_out_dir: Path,
+        *,
+        modality_label: str,
+        context: dict,
+    ) -> List[ImageFile]:
+        """
+        Locate final preprocessed relaxometry series that can feed modeling.
+
+        These are the expensive products after reorient/denoise/gibbs/motion,
+        normally named ``desc-SPGRpreproc`` or ``desc-SSFPpreproc`` in the final
+        anat derivatives folder. If present and readable, they let us skip the
+        preprocessing chain even when scratch/work intermediates are absent.
+        """
+        if not self.config.get("skip_existing", False) or self._force_requested():
+            return []
+        if not anat_out_dir.exists():
+            return []
+
+        subj = context.get("subject")
+        sess = context.get("session")
+        base_prefix = f"sub-{subj}" if subj else ""
+        if sess:
+            base_prefix += f"_ses-{sess}"
+
+        label = modality_label.upper()
+        patterns = [
+            f"{base_prefix}_*desc-{label}preproc*_*.nii.gz" if base_prefix else f"*desc-{label}preproc*_*.nii.gz",
+            f"{base_prefix}_desc-{label}preproc*_*.nii.gz" if base_prefix else f"desc-{label}preproc*_*.nii.gz",
+            f"{base_prefix}_*desc-{label}preproc*.nii.gz" if base_prefix else f"*desc-{label}preproc*.nii.gz",
+        ]
+
+        candidates: list[Path] = []
+        seen: set[Path] = set()
+        for pattern in patterns:
+            for path in sorted(anat_out_dir.glob(pattern)):
+                if "chunk-" in path.name or path in seen:
+                    continue
+                seen.add(path)
+                candidates.append(path)
+
+        existing: List[ImageFile] = []
+        for path in candidates:
+            try:
+                nib.load(str(path))
+                entities = get_entities_from_path(path)
+            except Exception as exc:
+                self.logger.warning(
+                    "Ignoring existing %s preprocessed series that could not be read: %s (%s)",
+                    label,
+                    path,
+                    exc,
+                )
+                continue
+            json_path = path.with_suffix("").with_suffix(".json")
+            existing.append(ImageFile(img=path, entities=entities, json=json_path if json_path.exists() else None))
+
+        if existing:
+            self.logger.info(
+                "Skipping %s preprocessing (found existing final preprocessed series: %s).",
+                label,
+                ", ".join(path.img.name for path in existing),
+            )
+        return existing
+
     def _cleanup_exclusion_outputs(self, anat_out_dir: Path) -> None:
         """
         Remove chunked relaxometry outputs and ANTs side-products from the final
@@ -1133,6 +1263,9 @@ class RelaxometryWorkflow(BaseWorkflow):
         """
         params_name = f"{base_prefix}_desc-AcqParams.json"
         params_json = anat_out_dir / params_name
+        if self.config.get("skip_existing", False) and not self._force_requested() and params_json.exists():
+            self.logger.info("Skipping relaxometry acquisition parameter generation (exists): %s", params_json.name)
+            return params_json
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
         return params_json
 
@@ -1148,16 +1281,18 @@ class RelaxometryWorkflow(BaseWorkflow):
         Run B1 mapping if B1 files and step exist, with resume check.
         """
         b1_map = None
-        if b1_files and b1_step:
+        existing_b1 = sorted(fmap_out_dir.glob("*TB1map.nii.gz"))
+        if existing_b1 and self.config.get("skip_existing", False) and not self._force_requested():
+            self.logger.info(f"Skipping B1 Mapping (found existing final B1 map): {existing_b1[0].name}")
+            b1_map = ImageFile(img=existing_b1[0], entities=get_entities_from_path(existing_b1[0]))
+        elif b1_files and b1_step:
             curr_b1 = b1_files[0]
             b1_ref = None
             fmap_inter_dir.mkdir(parents=True, exist_ok=True)
 
-            # Resume check for existing B1 map
-            existing_b1 = list(fmap_out_dir.glob("*TB1map.nii.gz"))
-            if existing_b1 and not self.config.get("force_rerun", False):
+            if existing_b1 and not self._force_requested():
                 self.logger.info(f"Found existing B1 Map: {existing_b1[0].name}")
-                b1_map = ImageFile(img=existing_b1[0], entities={})
+                b1_map = ImageFile(img=existing_b1[0], entities=get_entities_from_path(existing_b1[0]))
             else:
                 b1_map_inter = b1_step(
                     curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref
@@ -1221,6 +1356,9 @@ class RelaxometryWorkflow(BaseWorkflow):
                 mcdespot_cfg.setdefault("enabled", True)
             return mcdespot_cfg
 
+        def _required_model_metrics(model_name: str) -> List[str]:
+            return list(self._relax_model_specs().get(model_name, {}).get("metrics", {}).values())
+
         def _raw_results_from_existing(model_name: str) -> Dict[str, Path]:
             spec = self._relax_model_specs().get(model_name, {})
             reverse_metrics = {canonical: raw for raw, canonical in spec.get("metrics", {}).items()}
@@ -1236,7 +1374,8 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         # Ensure output directory exists
         fit_out_dir.mkdir(parents=True, exist_ok=True)
-        self._backfill_model_results(fit_out_dir, fitted_maps, modeling_results)
+        for existing_model_dir in self._candidate_model_dirs(fit_out_dir, context):
+            self._backfill_model_results(existing_model_dir, fitted_maps, modeling_results)
 
         input_dir = fit_out_dir / "inputs"
         created_temp_inputs = False
@@ -1268,13 +1407,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                 despot1_cfg = dict(modeling_cfg.despot1 or {})
                 use_hifi = despot1_cfg.get("use_hifi", False)
                 model_name = "DESPOT1HIFI" if use_hifi else "DESPOT1"
-                required_metrics = ["T1", "B1"] if use_hifi else ["T1"]
+                required_metrics = _required_model_metrics(model_name)
                 if skip_existing and _model_has_metrics(model_name, required_metrics):
                     self.logger.info(
-                        "Skipping %s fitting (found existing %s map%s).",
+                        "Skipping %s fitting (found complete existing output set: %s).",
                         model_name,
                         ", ".join(required_metrics),
-                        "" if len(required_metrics) == 1 else "s",
                     )
                     despot1_results = _raw_results_from_existing(model_name)
                 else:
@@ -1331,8 +1469,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("DESPOT2 requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                if skip_existing and _model_has_metrics("DESPOT2", ["T2"]):
-                    self.logger.info("Skipping DESPOT2 fitting (found existing T2 map).")
+                required_metrics = _required_model_metrics("DESPOT2")
+                if skip_existing and _model_has_metrics("DESPOT2", required_metrics):
+                    self.logger.info(
+                        "Skipping DESPOT2 fitting (found complete existing output set: %s).",
+                        ", ".join(required_metrics),
+                    )
                 else:
                     self.logger.info("Starting DESPOT2 fitting.")
                     despot2_results = fit_despot2(
@@ -1367,8 +1509,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("DESPOT2FM requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                if skip_existing and _model_has_metrics("DESPOT2FM", ["T2"]):
-                    self.logger.info("Skipping DESPOT2FM fitting (found existing T2 map).")
+                required_metrics = _required_model_metrics("DESPOT2FM")
+                if skip_existing and _model_has_metrics("DESPOT2FM", required_metrics):
+                    self.logger.info(
+                        "Skipping DESPOT2FM fitting (found complete existing output set: %s).",
+                        ", ".join(required_metrics),
+                    )
                 else:
                     self.logger.info("Starting DESPOT2FM fitting.")
                     despot2fm_results = fit_despot2_fm(
@@ -1403,8 +1549,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                     despot_b1_path = b1_path
                 if not despot_b1_path:
                     raise ValueError("mcDESPOT requires a B1 map, but none was available from AFI/external B1 or DESPOT1-HIFI.")
-                if skip_existing and _model_has_metrics("mcDESPOT", ["VFm"]):
-                    self.logger.info("Skipping mcDESPOT fitting (found existing VFm map).")
+                required_metrics = _required_model_metrics("mcDESPOT")
+                if skip_existing and _model_has_metrics("mcDESPOT", required_metrics):
+                    self.logger.info(
+                        "Skipping mcDESPOT fitting (found complete existing output set: %s).",
+                        ", ".join(required_metrics),
+                    )
                 else:
                     self.logger.info("Starting mcDESPOT fitting.")
                     mcdespot_results = fit_mcdespot(
@@ -1432,7 +1582,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             if created_temp_inputs and cleanup_temp_inputs and input_dir.exists():
                 shutil.rmtree(input_dir, ignore_errors=True)
 
-        self._backfill_model_results(fit_out_dir, fitted_maps, modeling_results)
+        for existing_model_dir in self._candidate_model_dirs(fit_out_dir, context):
+            self._backfill_model_results(existing_model_dir, fitted_maps, modeling_results)
         context["fitted_maps"] = fitted_maps
         context["modeling_results"] = modeling_results
         return fitted_maps, modeling_results
@@ -1627,9 +1778,21 @@ class RelaxometryWorkflow(BaseWorkflow):
             len(b1_files),
         )
 
-        # Preprocess images
-        spgr_pre = self._preprocess_images(spgr_files, "SPGR", intermediate_dir)
-        ssfp_pre = self._preprocess_images(ssfp_files, "SSFP", intermediate_dir)
+        existing_spgr_moco = self._find_existing_preprocessed_series(
+            anat_out_dir,
+            modality_label="SPGR",
+            context=context,
+        )
+        existing_ssfp_moco = self._find_existing_preprocessed_series(
+            anat_out_dir,
+            modality_label="SSFP",
+            context=context,
+        )
+
+        # Preprocess images. If final preprocessed derivatives already exist,
+        # use them directly and skip the expensive preprocessing chain for that modality.
+        spgr_pre = existing_spgr_moco or self._preprocess_images(spgr_files, "SPGR", intermediate_dir)
+        ssfp_pre = existing_ssfp_moco or self._preprocess_images(ssfp_files, "SSFP", intermediate_dir)
         ir_pre = self._preprocess_images(irspgr_files, "IRSPGR", intermediate_dir)
 
         # Select reference image
@@ -1637,9 +1800,17 @@ class RelaxometryWorkflow(BaseWorkflow):
         self.logger.info(f"Selected Relaxometry Reference Source: {ref_img.img.name}")
 
         # Motion Correction
-        spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
-            spgr_pre, ssfp_pre, ir_pre, anat_out_dir, intermediate_dir, ref_img
-        )
+        if existing_spgr_moco and (existing_ssfp_moco or not ssfp_files):
+            self.logger.info("Skipping relaxometry motion correction (found existing final preprocessed inputs for modeling).")
+            spgr_moco = existing_spgr_moco
+            ssfp_moco = existing_ssfp_moco
+            ir_moco = None
+        else:
+            spgr_for_moco = existing_spgr_moco or spgr_pre
+            ssfp_for_moco = existing_ssfp_moco or ssfp_pre
+            spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
+                spgr_for_moco, ssfp_for_moco, ir_pre, anat_out_dir, intermediate_dir, ref_img
+            )
         if spgr_exclude:
             spgr_moco = self._collapse_chunked_series(
                 spgr_moco,

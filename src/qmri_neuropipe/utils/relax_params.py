@@ -5,17 +5,66 @@ from typing import List, Dict, Optional, Any
 import nibabel as nib
 from ..core.types import ImageFile
 
+
+NUMERIC_METADATA_KEYS = {
+    "FlipAngle",
+    "RepetitionTime",
+    "EchoTime",
+    "InversionTime",
+    "EchoTrainLength",
+    "PhaseCycling",
+    "TRRatio",
+}
+
+
+def _coerce_numeric_metadata_value(value: Any) -> Any:
+    """
+    Coerce numeric sidecar metadata values into Python numbers.
+
+    dcm2bids configs and hand-edited JSON sometimes encode numeric fields as
+    strings, e.g. ``"55.0"``. Relaxometry fitting expects actual numbers for
+    arithmetic and ordering, so normalize scalar strings and lists recursively.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return value
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, list):
+                return _coerce_numeric_metadata_value(parsed)
+        try:
+            return float(text)
+        except ValueError:
+            return value
+
+    if isinstance(value, list):
+        return [_coerce_numeric_metadata_value(item) for item in value]
+
+    return value
+
+
 def _extract_bids_param(img: ImageFile, key: str, default=None) -> Any:
     """Safely extract parameter from ImageFile sidecar."""
 
+    value = default
     if img.json:
         if isinstance(img.json, dict):
-            return img.json.get(key, default)
+            value = img.json.get(key, default)
         elif hasattr(img.json, 'exists') and img.json.exists():
             with open(img.json) as f:
                 data = json.load(f)
-                return data.get(key, default)
+                value = data.get(key, default)
+        if key in NUMERIC_METADATA_KEYS:
+            return _coerce_numeric_metadata_value(value)
+        return value
+
     # Fallback: check entities? (e.g. TR in filename?) Unlikely for accurate fitting.
+    if key in NUMERIC_METADATA_KEYS:
+        return _coerce_numeric_metadata_value(default)
     return default
 
 
