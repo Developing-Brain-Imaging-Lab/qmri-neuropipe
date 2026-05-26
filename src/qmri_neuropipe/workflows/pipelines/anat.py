@@ -20,7 +20,7 @@ import json
 import time
 from dataclasses import dataclass, field
 
-from ...core import BasePipeline, BaseWorkflow, PipelineConfig
+from ...core import BasePipeline, BaseWorkflow, PipelineConfig, ProcessingError
 from ...core.types import ImageFile
 from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from ...io.bids import build_bids_name
@@ -833,7 +833,104 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     coreg_options.update(sub_opts)
 
             st = time.time()
-            if ref_img == 't2w':
+            if ref_img in {"supersynth", "syntht1w", "synthetic_t1w", "supersynth_multivariate"}:
+                from ...lib.anat.super_synth import ensure_supersynth_outputs_for_image, ensure_supersynth_t1w
+
+                moving = context.get("preprocessed_t2w") or context.get("preprocessed_t1w")
+                if moving is None:
+                    raise ProcessingError("No moving anatomical image available for SuperSynth coregistration.")
+
+                use_multivariate = (
+                    ref_img == "supersynth_multivariate"
+                    or str(coreg_options.get("supersynth_registration", "")).lower() == "multivariate"
+                )
+
+                if use_multivariate:
+                    fixed_source = context.get("preprocessed_t1w")
+                    if fixed_source is None:
+                        raise ProcessingError("SuperSynth multivariate coregistration requires a preprocessed T1w fixed source.")
+
+                    ss_root = output_dir / "coregistration" / "supersynth_multivariate"
+                    fixed_outputs = ensure_supersynth_outputs_for_image(
+                        fixed_source,
+                        ss_root / "fixed",
+                        self.config,
+                        self.logger,
+                        mode=coreg_options.get("supersynth_mode"),
+                        device=coreg_options.get("supersynth_device"),
+                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                        force=bool(coreg_options.get("force", False)),
+                    )
+                    moving_outputs = ensure_supersynth_outputs_for_image(
+                        moving,
+                        ss_root / "moving",
+                        self.config,
+                        self.logger,
+                        mode=coreg_options.get("supersynth_mode"),
+                        device=coreg_options.get("supersynth_device"),
+                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                        force=bool(coreg_options.get("force", False)),
+                    )
+                    required = ("synth_t1w", "synth_t2w")
+                    if not all(k in fixed_outputs and k in moving_outputs for k in required):
+                        raise ProcessingError("SuperSynth multivariate coregistration requires synthetic T1w and T2w outputs for both images.")
+
+                    synth_ref = ImageFile(
+                        entities={**fixed_source.entities, "desc": "synthT1w"},
+                        img=fixed_outputs["synth_t1w"],
+                    )
+                    coreg_options.update({
+                        "registration_fixed": fixed_outputs["synth_t1w"],
+                        "registration_moving": moving_outputs["synth_t1w"],
+                        "registration_fixed_extras": [fixed_outputs["synth_t2w"]],
+                        "registration_moving_extras": [moving_outputs["synth_t2w"]],
+                        "transform_type": coreg_options.get("transform_type", "SyNOnly"),
+                    })
+                    coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method="ants")
+                    self.logger.info(
+                        "Coregistration: SuperSynth multivariate registration "
+                        "(moving synth T1w/T2w -> fixed synth T1w/T2w), applying transform to original anatomical image."
+                    )
+                else:
+                    synth_ref = ensure_supersynth_t1w(
+                        context,
+                        output_dir / "coregistration",
+                        self.config,
+                        self.logger,
+                        input_preference=coreg_options.get("supersynth_input", "auto"),
+                        mode=coreg_options.get("supersynth_mode"),
+                        device=coreg_options.get("supersynth_device"),
+                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                        force=bool(coreg_options.get("force", False)),
+                        subdir="supersynth_reference",
+                    )
+                    if not synth_ref:
+                        raise ProcessingError("SuperSynth anatomical coregistration target could not be generated.")
+                    self.logger.info("Coregistration: Reference=SuperSynth T1w. Registering anatomical image -> synthetic T1w.")
+
+                res_anat = coreg_step(moving, output_dir=output_dir, target=synth_ref.img, options=coreg_options)
+                if isinstance(res_anat, dict):
+                    res_anat = res_anat.get("current_image")
+                context["preprocessed_anat_coreg"] = res_anat
+                context["preprocessed_t1w_synth"] = synth_ref
+
+                if moving is context.get("preprocessed_t2w"):
+                    context["preprocessed_t2w_coreg"] = res_anat
+                else:
+                    context["preprocessed_t1w"] = res_anat
+
+                if reporter:
+                    try:
+                        from ...lib.reporting.viz import plot_comparison
+                        p = figures_dir / "coreg_anat_on_supersynth.png"
+                        plot_comparison(synth_ref.img, res_anat.img, p, title="Coreg Anat -> SuperSynth T1w")
+                        details = {"Method": coreg_step.method, "Reference": "SuperSynth T1w", "Moving": moving.entities.get("suffix", "Anat")}
+                        fig_item = [{"path": str(p), "title": "Coregistration", "caption": "Anatomical image (overlay) on SuperSynth T1w"}]
+                        self._add_anat_step("Coregistration", details, figures=fig_item)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to plot Coregistration report: {e}")
+
+            elif ref_img == 't2w':
                 self.logger.info("Coregistration: Reference=T2w. Registering T1w -> T2w.")
                 res_t1 = coreg_step(context["preprocessed_t1w"], output_dir=output_dir, target=context["preprocessed_t2w"].img, options=coreg_options)
                 if isinstance(res_t1, dict):

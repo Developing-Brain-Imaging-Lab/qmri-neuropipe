@@ -230,7 +230,12 @@ anat:
 | --- | --- | --- | --- |
 | `enabled` | bool | false | Enable step |
 | `method` | str | `ants` (dmri) / `fsl` (anat) | `ants`, `fsl`, `freesurfer` |
-| `reference_image` | str | `t1w` | For anat coreg (`t1w`, `t2w`) |
+| `reference_image` | str | `t1w` | `t1w`, `t2w`, `supersynth`, or `supersynth_multivariate`; SuperSynth modes generate synthetic contrasts for transform estimation |
+| `supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; anatomical contrast used to generate the SuperSynth target when `reference_image: supersynth` |
+| `supersynth_registration` | str | none | Set to `multivariate` with `reference_image: supersynth` to estimate an ANTs transform using synthetic T1w and T2w pairs, then apply it to the original moving image |
+| `multivariate_metric` | str | `Mattes` | ANTs metric for additional SuperSynth contrast channels |
+| `multivariate_weight` | float | `0.5` | ANTs weight for each additional contrast channel |
+| `multivariate_sampling` | int | `32` | ANTs sampling parameter for additional contrast channels |
 | `options.apply_method` | str | `native` | `native`, `mrtrix` |
 | `options.output_resolution` | str | `anatomical` | `anatomical`, `dwi`, `native` |
 | `options.interpolation` | str | `linear` | `linear`, `nearest`, `sinc`, `cubic` |
@@ -382,6 +387,8 @@ dmri:
 | --- | --- | --- | --- |
 | `method` | str | `none` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
 | `fallback` | bool | false | Allow Synb0 fallback |
+| `synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
+| `synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects which anatomical contrast SuperSynth uses when generating the T1w for Synb0 |
 | `config` | path | none | Topup config file |
 | `drbuddi.transform_type` | str | `SyNOnly` | Native DRBUDDI ANTs transform |
 | `drbuddi.interpolator` | str | `linear` | Output resampling interpolator |

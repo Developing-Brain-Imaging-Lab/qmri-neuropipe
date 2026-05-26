@@ -320,6 +320,7 @@ class ExecutionEngine:
             img_ctx['native_dwi_for_gnl'] = native_ref
             img_ctx['gnl_spatial_transform'] = normalize_transform_chain(context.get("gnl_transform_map", {}).get(dwi.img))
             img_ctx['gnl_map'] = context.get("gnl_map_by_image", {}).get(dwi.img)
+            img_ctx['_execution_output_dir'] = output_dir
             
             if dwi.img in topup_map:
                 img_ctx["topup_base"] = topup_map[dwi.img]
@@ -474,8 +475,39 @@ class ExecutionEngine:
             
             target_img = None
             actual_modality = target_modality
+            if str(target_modality).lower() in {"supersynth", "syntht1w", "synthetic_t1w"}:
+                from qmri_neuropipe.lib.anat.super_synth import ensure_supersynth_t1w
+
+                output_dir = context.get("_execution_output_dir")
+                if output_dir:
+                    flat_coreg_cfg = dict(coreg_cfg)
+                    if "options" in flat_coreg_cfg and isinstance(flat_coreg_cfg["options"], dict):
+                        flat_coreg_cfg.update(flat_coreg_cfg["options"])
+                    synth_ref = ensure_supersynth_t1w(
+                        context,
+                        Path(output_dir) / "coregistration",
+                        self.config,
+                        self.logger,
+                        input_preference=flat_coreg_cfg.get("supersynth_input", "auto"),
+                        mode=flat_coreg_cfg.get("supersynth_mode"),
+                        device=flat_coreg_cfg.get("supersynth_device"),
+                        sharpen_synths=flat_coreg_cfg.get("supersynth_sharpen_synths"),
+                        force=bool(self.config.get("dmri", {}).get("force_run", False)),
+                        subdir="supersynth_reference",
+                    )
+                    if synth_ref:
+                        target_img = synth_ref.img
+                        actual_modality = "T1w"
+                        self.logger.info(f"Using SuperSynth T1w as dMRI coregistration target: {target_img}")
+                if not target_img:
+                    self.logger.warning(
+                        "SuperSynth coregistration target requested but could not be generated. "
+                        "Falling back to T1w/T2w target selection."
+                    )
             
-            if target_modality == "T2w":
+            if target_img is not None:
+                pass
+            elif target_modality == "T2w":
                 target_img = t2w_files[0].img if t2w_files else None
                 if not target_img and t1w_files:
                     self.logger.info(

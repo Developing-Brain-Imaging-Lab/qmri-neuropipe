@@ -88,15 +88,99 @@ class Synb0EstimationStep(BaseProcessingStep):
     ):
         super().__init__(config, logger, provenance)
         self.method = 'dipy-dl'
+        self.synb0_cfg = config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
         self.logger.info(f"Initialized Synb0 estimation (Deep Learning).")
+
+    def _select_anatomical_reference(self, context: dict, output_dir: Path, force: bool = False) -> Optional[ImageFile]:
+        """
+        Select the anatomical image used by Synb0.
+
+        Defaults to the existing behavior (first T1w in context). When
+        ``dmri.preprocessing.distcorr.synb0.t1w_source`` is ``supersynth`` or
+        ``prefer_supersynth``, generate or reuse a SuperSynth T1w image from the
+        configured anatomical input.
+        """
+        t1w_files = context.get("t1w_files", [])
+        t2w_files = context.get("t2w_files", [])
+        source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
+
+        def _image_file(path: Path, desc: str = "synthT1w") -> ImageFile:
+            entities = {
+                "sub": context.get("subject"),
+                "ses": context.get("session"),
+                "desc": desc,
+                "suffix": "T1w",
+            }
+            return ImageFile(
+                entities={k: v for k, v in entities.items() if v},
+                img=Path(path),
+                json=None,
+            )
+
+        outputs = context.get("super_synth_outputs", {}) or {}
+        existing_synth = outputs.get("synth_t1w")
+        if source in {"supersynth", "prefer_supersynth"} and existing_synth:
+            synth_path = Path(existing_synth)
+            if synth_path.exists():
+                self.logger.info(f"Using existing SuperSynth T1w for Synb0: {synth_path}")
+                return _image_file(synth_path)
+
+        if source in {"supersynth", "prefer_supersynth"}:
+            preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
+            anat_input = None
+            if preference == "t2w":
+                anat_input = t2w_files[0] if t2w_files else None
+            elif preference == "t1w":
+                anat_input = t1w_files[0] if t1w_files else None
+            else:
+                anat_input = t1w_files[0] if t1w_files else (t2w_files[0] if t2w_files else None)
+
+            if anat_input is None:
+                if source == "supersynth":
+                    return None
+            else:
+                ss_dir = output_dir / "supersynth"
+                synth_path = ss_dir / "T1w.nii.gz"
+                if not synth_path.exists() or force:
+                    self.logger.info(f"Generating SuperSynth T1w for Synb0 from {anat_input.img.name}")
+                    freesurfer.mri_super_synth(
+                        in_file=anat_input.img,
+                        out_dir=ss_dir,
+                        mode=self.synb0_cfg.get(
+                            "supersynth_mode",
+                            self.config.get("anat.super_synth.mode", "invivo"),
+                        ),
+                        threads=getattr(self.config, "n_cpus", -1),
+                        device=self.synb0_cfg.get(
+                            "supersynth_device",
+                            self.config.get("anat.super_synth.device"),
+                        ),
+                        sharpen_synths=bool(self.synb0_cfg.get(
+                            "supersynth_sharpen_synths",
+                            self.config.get("anat.super_synth.sharpen_synths", False),
+                        )),
+                        overwrite=force,
+                    )
+                _validate_nifti(synth_path, self.logger, "SuperSynth T1w")
+                context.setdefault("super_synth_outputs", {})["synth_t1w"] = synth_path
+                context["synb0_t1w_source"] = "supersynth"
+                return _image_file(synth_path)
+
+        if t1w_files:
+            context["synb0_t1w_source"] = "t1w"
+            return t1w_files[0]
+        return None
 
     def validate_inputs(self, first_arg, output_dir: Path, **kwargs) -> None:
         context, _ = self.unpack_input(first_arg)
         if context is None:
              raise ValidationError("Synb0EstimationStep requires pipeline context.")
         
-        if not context.get("t1w_files"):
-            self.logger.warning("Synb0 estimation requires T1w images in context.")
+        has_t1w = bool(context.get("t1w_files"))
+        has_t2w = bool(context.get("t2w_files"))
+        source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
+        if not has_t1w and not (source in {"supersynth", "prefer_supersynth"} and has_t2w):
+            self.logger.warning("Synb0 estimation requires T1w images in context, or T2w with SuperSynth enabled for Synb0.")
         
         dwi_files = context.get("dwi_files", [])
         if not dwi_files:
@@ -110,14 +194,18 @@ class Synb0EstimationStep(BaseProcessingStep):
         if context is None:
             raise ProcessingError("Synb0EstimationStep must run in pipeline context mode.")
         dwi_files: list[DWIFile] = context.get("dwi_files", [])
-        t1w_files = context.get("t1w_files", [])
-        
-        if not t1w_files:
-             self.logger.warning("Skipping Synb0 estimation: No T1w found.")
+        output_dir = self.get_step_output_dir(output_dir)
+
+        t1w_ref = self._select_anatomical_reference(
+            context,
+            output_dir,
+            force=bool(kwargs.get("force", False)),
+        )
+        if t1w_ref is None:
+             self.logger.warning("Skipping Synb0 estimation: No usable anatomical reference found.")
              return context
-             
-        # Use first T1w
-        t1w_path = t1w_files[0].img
+
+        t1w_path = t1w_ref.img
         
         # We need to generate a synthetic b0 for each distinct acquisition group? 
         # Or usually just one per session if they share geometry?
@@ -141,7 +229,6 @@ class Synb0EstimationStep(BaseProcessingStep):
 
         real_json = input_dwi.json
         
-        output_dir = self.get_step_output_dir(output_dir)
         should_skip = False
         # 1. Check if outputs exist
         syn_b0_path = output_dir / "syn_b0_desc-synthetic.nii.gz"
@@ -197,7 +284,7 @@ class Synb0EstimationStep(BaseProcessingStep):
             #Preprocess T1w
             #Normalize T1w
             t1w_mgz = output_dir / "t1w.mgz"
-            freesurfer.mri_convert(in_file=t1w_files[0].img, out_file=t1w_mgz)
+            freesurfer.mri_convert(in_file=t1w_path, out_file=t1w_mgz)
     
             t1w_n3 = output_dir / "t1w_n3.mgz"
             freesurfer.mri_nu_correct(in_file=t1w_mgz, out_file=t1w_n3)

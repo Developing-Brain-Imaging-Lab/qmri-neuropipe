@@ -47,6 +47,9 @@ hdbet = [
 mriqc = [
     "mriqc>=24.0.0; python_version<'3.12'"
 ]
+synb0 = [
+    "tensorflow>=2.15,<2.16; python_version>='3.9' and python_version<'3.12'"
+]
 tracker = [
     "openpyxl",
     "plotly",
@@ -71,7 +74,8 @@ all = [
     "streamlit",
     "weasyprint",
     "dash",
-    "pywebview"
+    "pywebview",
+    "tensorflow>=2.15,<2.16; python_version>='3.9' and python_version<'3.12'"
 ]
 [project.scripts]
 qmri-neuropipe = "qmri_neuropipe.cli:app"

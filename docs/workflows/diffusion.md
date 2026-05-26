@@ -60,6 +60,10 @@ Corrects for susceptibility-induced distortions.
 *   **Combined Topup + DRBUDDI**: Runs Topup before merge, then Eddy, then the native DRBUDDI refinement.
 *   **Method Config**: `dmri.preprocessing.distcorr.method` (`synb0`, `topup`, `drbuddi`, `topup+drbuddi`, `none`).
 
+`synb0` uses DIPY's TensorFlow-backed Synb0 model. Install the `synb0` extra
+for local runs, or rebuild the container from a source tree where `.[all]`
+includes TensorFlow.
+
 **Available tools**
 *   `topup` (FSL)
 *   `synb0` (DIPY Synb0)
@@ -73,6 +77,9 @@ dmri:
     distcorr:
       method: topup+drbuddi   # topup | synb0 | drbuddi | topup+drbuddi | none
       fallback: true  # allow Synb0 fallback when Topup inputs missing
+      synb0:
+        t1w_source: raw  # raw | supersynth | prefer_supersynth
+        supersynth_input: auto  # auto | T1w | T2w
       config: /path/to/topup.cnf
       drbuddi:
         transform_type: SyNOnly
@@ -87,6 +94,8 @@ dmri:
 | --- | --- | --- | --- |
 | `dmri.preprocessing.distcorr.method` | str | `none` | `topup`, `synb0`, `drbuddi`, `topup+drbuddi`, `none` |
 | `dmri.preprocessing.distcorr.fallback` | bool | false | Allow Synb0 fallback when reverse-PE data is missing |
+| `dmri.preprocessing.distcorr.synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
+| `dmri.preprocessing.distcorr.synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects which anatomical contrast SuperSynth uses when generating the T1w for Synb0 |
 | `dmri.preprocessing.distcorr.config` | path | none | Topup config file |
 | `dmri.preprocessing.distcorr.drbuddi.transform_type` | str | `SyNOnly` | ANTs transform type (`SyNOnly`, `SyN`, `Rigid`, `Affine`) |
 | `dmri.preprocessing.distcorr.drbuddi.interpolator` | str | `linear` | Output resampling interpolator (`linear`, `nearest`, `cubic`) |
@@ -269,6 +278,8 @@ dmri:
     coregistration:
       enabled: true
       method: ants
+      reference_image: T1w  # T1w | T2w | supersynth
+      supersynth_input: auto  # auto | T1w | T2w, used when reference_image is supersynth
       options:
         apply_method: native     # native | mrtrix
         output_resolution: anatomical  # anatomical | dwi | native

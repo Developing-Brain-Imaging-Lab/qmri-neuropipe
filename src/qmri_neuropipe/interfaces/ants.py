@@ -198,12 +198,26 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     
     fixed_img = ants.image_read(str(fixed_p))
     moving_img = ants.image_read(str(moving_p))
+
+    multivariate_extras = kwargs.pop("multivariate_extras", None)
+    if multivariate_extras:
+        ants_extras = []
+        for metric, fixed_extra, moving_extra, weight, sampling in multivariate_extras:
+            ants_extras.append((
+                metric,
+                ants.image_read(str(extract_image_path(fixed_extra))),
+                ants.image_read(str(extract_image_path(moving_extra))),
+                weight,
+                sampling,
+            ))
+        kwargs["multivariate_extras"] = ants_extras
     
     # Remove interpolator from kwargs if present to avoid passing it to optimization routine
     if 'interpolator' in kwargs:
         kwargs.pop('interpolator')
 
     mytx = ants.registration(fixed=fixed_img, moving=moving_img, type_of_transform=transform_type, outprefix=str(out_prefix), **kwargs)
+    apply_kwargs = {k: v for k, v in kwargs.items() if k not in {"multivariate_extras"}}
     
     #Apply transforms to moving image (force implementation)
     apply_transforms(fixed_file=fixed_p, 
@@ -211,7 +225,7 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
                      out_file=warped_out, 
                      transforms=mytx['fwdtransforms'], 
                      interpolator=interpolator,
-                     **kwargs)
+                     **apply_kwargs)
     
     return warped_out, mytx['fwdtransforms']
 

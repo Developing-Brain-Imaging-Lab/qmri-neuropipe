@@ -182,9 +182,15 @@ class PreprocessingWorkflow(BaseWorkflow):
         topup_groups = context.get("topup_groups", [])
         has_reverse_pe = len(topup_groups) > 0
         t1w_files = context.get("t1w_files", [])
+        t2w_files = context.get("t2w_files", [])
+        synb0_cfg = distcorr_cfg.get("synb0", {}) or {}
+        synb0_t1w_source = str(synb0_cfg.get("t1w_source", "raw")).lower()
+        has_synb0_anat = bool(t1w_files) or (
+            synb0_t1w_source in {"supersynth", "prefer_supersynth"} and bool(t2w_files)
+        )
 
         if dist_method == 'synb0':
-            if t1w_files:
+            if has_synb0_anat:
                 self.logger.info("Adding Synb0EstimationStep + TopupStep")
                 self.add_step(Synb0EstimationStep(
                     self.config, self.logger, self.provenance
@@ -194,7 +200,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                 ))
                 context['do_topup'] = True
             else:
-                self.logger.warning("Synb0 requested but no T1w files found")
+                self.logger.warning("Synb0 requested but no usable anatomical reference found")
                 
         elif dist_method in {'topup', 'topup+drbuddi'}:
             if has_reverse_pe:
@@ -203,7 +209,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                     self.config, self.logger, self.provenance
                 ))
                 context['do_topup'] = True
-            elif fallback and t1w_files:
+            elif fallback and has_synb0_anat:
                 self.logger.info("Fallback: Adding Synb0EstimationStep + TopupStep")
                 self.add_step(Synb0EstimationStep(
                     self.config, self.logger, self.provenance

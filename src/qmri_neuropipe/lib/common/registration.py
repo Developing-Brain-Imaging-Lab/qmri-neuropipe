@@ -27,6 +27,25 @@ def _first_config_value(config, keys, default=None):
     return default
 
 
+def _build_multivariate_extras(options: Dict[str, Any]) -> Optional[list[tuple]]:
+    fixed_extras = options.get("registration_fixed_extras") or []
+    moving_extras = options.get("registration_moving_extras") or []
+    if not fixed_extras or not moving_extras:
+        return None
+    if len(fixed_extras) != len(moving_extras):
+        raise ProcessingError(
+            "registration_fixed_extras and registration_moving_extras must have the same length."
+        )
+
+    metric = options.get("multivariate_metric", "Mattes")
+    weight = float(options.get("multivariate_weight", 0.5))
+    sampling = int(options.get("multivariate_sampling", 32))
+    return [
+        (metric, fixed, moving, weight, sampling)
+        for fixed, moving in zip(fixed_extras, moving_extras)
+    ]
+
+
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
     options = options or {}
     explicit = options.get("subject_id") or options.get("fs_subject_id") or options.get("freesurfer_subject_id")
@@ -403,6 +422,21 @@ class CoregistrationStep(BaseProcessingStep):
         resampled_target_context = None # To store for context update
         
         registration_target = fs_registration_target or target
+        registration_moving = Path(options["registration_moving"]) if options.get("registration_moving") else None
+        if registration_moving:
+            if not registration_moving.exists():
+                raise ProcessingError(f"Registration moving image not found: {registration_moving}")
+            self.logger.info(f"Using alternate moving image for transform estimation: {registration_moving.name}")
+            moving_for_reg = registration_moving
+
+        registration_fixed = Path(options["registration_fixed"]) if options.get("registration_fixed") else None
+        if registration_fixed:
+            if not registration_fixed.exists():
+                raise ProcessingError(f"Registration fixed image not found: {registration_fixed}")
+            self.logger.info(f"Using alternate fixed image for transform estimation: {registration_fixed.name}")
+            registration_target = registration_fixed
+            target_path = registration_fixed
+            target = registration_fixed
 
         if out_res in ['dwi', 'native'] and self.method != "freesurfer":
              self.logger.info(
@@ -497,7 +531,17 @@ class CoregistrationStep(BaseProcessingStep):
             cost = options.get("cost", "normmi")
             
             # Known args to exclude from extra_opts
-            known_args = ['dof', 'cost', 'extra_args', 'output_resolution', 'interpolation', 'enabled', 'reference_image', 'method', 'wm_seg_method', 'apply_method', 'transform_type']
+            known_args = [
+                'dof', 'cost', 'extra_args', 'output_resolution', 'interpolation',
+                'enabled', 'reference_image', 'method', 'wm_seg_method',
+                'apply_method', 'transform_type', 'registration_fixed',
+                'registration_moving', 'registration_fixed_extras',
+                'registration_moving_extras', 'multivariate_metric',
+                'multivariate_weight', 'multivariate_sampling',
+                'supersynth_registration', 'supersynth_input',
+                'supersynth_mode', 'supersynth_device',
+                'supersynth_sharpen_synths', 'force',
+            ]
             fsl_opts = {k: v for k, v in options.items() if k not in known_args}
 
             # Setup BBR if requested
@@ -689,22 +733,25 @@ class CoregistrationStep(BaseProcessingStep):
                             out_prefix=output_transform, 
                             transform_type=transform_type,
                             nthreads=nthreads,
-                            **{k:v for k,v in options.items() if k not in ['transform_type', 'interpolation', 'apply_method']}
+                            multivariate_extras=_build_multivariate_extras(options),
+                            **{k:v for k,v in options.items() if k not in known_args}
                         )
     
-                        if is_dwi:
-                                 ants.apply_transforms(
-                                 fixed_file=registration_target,
-                                 moving_file=in_path,
-                                 out_file=output_img,
-                                 transforms=prefix, 
-                                 interpolator=options.get("interpolation", "linear"), 
-                                 imagetype=3,
-                                 nthreads=nthreads
-                             )
+                        if is_dwi or registration_moving:
+                             apply_kwargs = {
+                                 "fixed_file": registration_target,
+                                 "moving_file": in_path,
+                                 "out_file": output_img,
+                                 "transforms": prefix,
+                                 "interpolator": options.get("interpolation", "linear"),
+                                 "nthreads": nthreads,
+                             }
+                             if is_dwi:
+                                 apply_kwargs["imagetype"] = 3
+                             ants.apply_transforms(**apply_kwargs)
                         elif warped and Path(warped).exists():
-                               import shutil
-                               shutil.copy(warped, output_img)
+                             import shutil
+                             shutil.copy(warped, output_img)
 
                     elif self.method == 'fsl':
                         output_mat = output_transform.with_suffix(".mat")

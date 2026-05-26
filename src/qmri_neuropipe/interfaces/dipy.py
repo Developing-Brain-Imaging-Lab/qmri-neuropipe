@@ -253,9 +253,21 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
     Returns:
         Path to the generated synthetic b0 file.
     """
+    if out_file.exists():
+        return out_file
+
     import gc
     import nibabel as nib
     import numpy as np
+
+    try:
+        import tensorflow  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            "DIPY Synb0 requires TensorFlow, but TensorFlow is not installed. "
+            "Install qmri-neuropipe with the synb0 extra (`pip install .[synb0]`) "
+            "or rebuild the container after installing `tensorflow>=2.15,<2.16`."
+        ) from e
     
     # Import inside function to avoid heavy TF import if not used
     try:
@@ -268,9 +280,6 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
              synb0 = synb0_module.synb0
         except ImportError:
              raise ImportError("Could not import dipy.nn.tf.synb0. Ensure DIPY and TensorFlow are installed correctly.")
-
-    if out_file.exists():
-        return out_file
 
     # Load images
     b0_img = nib.load(str(in_file))

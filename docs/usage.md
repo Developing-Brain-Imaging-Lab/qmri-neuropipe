@@ -391,6 +391,7 @@ pip install -e .[all]
 pip install -e .[amico]
 pip install -e .[nifreeze]
 pip install -e .[pyafq]
+pip install -e .[synb0]
 pip install -e .[tracker]
 pip install -e .[reporting]
 ```

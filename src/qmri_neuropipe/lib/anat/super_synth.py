@@ -261,3 +261,127 @@ class SuperSynthStep(BaseProcessingStep):
 
         # Standalone (no context) — return the output directory.
         return step_dir
+
+
+def ensure_supersynth_t1w(
+    context: dict,
+    output_dir: Path,
+    config,
+    logger: logging.Logger,
+    *,
+    input_preference: str = "auto",
+    mode: Optional[str] = None,
+    device: Optional[str] = None,
+    sharpen_synths: Optional[bool] = None,
+    force: bool = False,
+    subdir: str = "supersynth",
+) -> Optional[ImageFile]:
+    """
+    Generate or reuse a SuperSynth synthetic T1w image for downstream steps.
+
+    ``input_preference`` selects the anatomical source used by SuperSynth:
+    ``"T1w"``, ``"T2w"``, or ``"auto"`` (T1w first, then T2w).
+    """
+    outputs = context.get("super_synth_outputs", {}) or {}
+    existing = outputs.get("synth_t1w")
+    entities = {
+        k: v for k, v in {
+            "sub": context.get("subject"),
+            "ses": context.get("session"),
+            "desc": "synthT1w",
+            "suffix": "T1w",
+        }.items() if v
+    }
+
+    if existing and Path(existing).exists() and not force:
+        logger.info(f"Using existing SuperSynth T1w: {existing}")
+        return ImageFile(entities=entities, img=Path(existing), json=None)
+
+    t1w_files = [
+        img for img in [context.get("preprocessed_t1w"), *(context.get("t1w_files") or [])]
+        if img is not None
+    ]
+    t2w_files = [
+        img for img in [
+            context.get("preprocessed_t2w_coreg"),
+            context.get("preprocessed_t2w"),
+            *(context.get("t2w_files") or []),
+        ]
+        if img is not None
+    ]
+    preference = str(input_preference or "auto").lower()
+    anat_input = None
+    if preference == "t2w":
+        anat_input = t2w_files[0] if t2w_files else None
+    elif preference == "t1w":
+        anat_input = t1w_files[0] if t1w_files else None
+    else:
+        anat_input = t1w_files[0] if t1w_files else (t2w_files[0] if t2w_files else None)
+
+    if anat_input is None:
+        logger.warning("SuperSynth T1w requested but no anatomical input was available.")
+        return None
+
+    ss_dir = Path(output_dir) / subdir
+    ss_dir.mkdir(parents=True, exist_ok=True)
+    synth_path = ss_dir / _OUTPUT_STEMS["synth_t1w"]
+
+    if not synth_path.exists() or force:
+        logger.info(f"Generating SuperSynth T1w from {Path(anat_input.img).name}")
+        freesurfer.mri_super_synth(
+            in_file=anat_input.img,
+            out_dir=ss_dir,
+            mode=mode or config.get("anat.super_synth.mode", "invivo"),
+            threads=getattr(config, "n_cpus", -1),
+            device=device if device is not None else config.get("anat.super_synth.device"),
+            sharpen_synths=(
+                bool(sharpen_synths)
+                if sharpen_synths is not None
+                else bool(config.get("anat.super_synth.sharpen_synths", False))
+            ),
+            overwrite=force,
+        )
+
+    if not synth_path.exists():
+        logger.warning(f"SuperSynth did not produce expected T1w output: {synth_path}")
+        return None
+
+    context.setdefault("super_synth_outputs", {})["synth_t1w"] = synth_path
+    context["super_synth_dir"] = ss_dir
+    return ImageFile(entities=entities, img=synth_path, json=None)
+
+
+def ensure_supersynth_outputs_for_image(
+    input_image: ImageLike,
+    output_dir: Path,
+    config,
+    logger: logging.Logger,
+    *,
+    mode: Optional[str] = None,
+    device: Optional[str] = None,
+    sharpen_synths: Optional[bool] = None,
+    force: bool = False,
+) -> Dict[str, Path]:
+    """Run SuperSynth for a specific image and return recognized outputs."""
+    in_path = Path(input_image.img if hasattr(input_image, "img") else input_image)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    expected = {key: out_dir / fname for key, fname in _OUTPUT_STEMS.items()}
+    if force or not expected["synth_t1w"].exists() or not expected["synth_t2w"].exists():
+        logger.info(f"Generating SuperSynth contrast set from {in_path.name}")
+        freesurfer.mri_super_synth(
+            in_file=in_path,
+            out_dir=out_dir,
+            mode=mode or config.get("anat.super_synth.mode", "invivo"),
+            threads=getattr(config, "n_cpus", -1),
+            device=device if device is not None else config.get("anat.super_synth.device"),
+            sharpen_synths=(
+                bool(sharpen_synths)
+                if sharpen_synths is not None
+                else bool(config.get("anat.super_synth.sharpen_synths", False))
+            ),
+            overwrite=force,
+        )
+
+    return {key: path for key, path in expected.items() if path.exists()}
