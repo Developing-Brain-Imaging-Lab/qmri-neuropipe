@@ -140,8 +140,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     fi
 
     cd "${REPO_DIR}"
+    rm -rf build dist *.egg-info src/*.egg-info
+    ${CONDA_DIR}/bin/python -m pip uninstall -y qmri-neuropipe || true
     ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
-    ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]"
+    ${CONDA_DIR}/bin/python -m pip install --no-cache-dir --force-reinstall --no-build-isolation --prefer-binary ".[all]"
+
 
 %environment
     export CONDA_DIR=/opt/conda
