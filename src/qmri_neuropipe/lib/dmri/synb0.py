@@ -23,15 +23,19 @@ import multiprocessing
 import sys
 import traceback
 
-def _run_synb0_worker(in_file, t1_file, out_file, gpu_ids=None):
+def _run_synb0_worker(in_file, t1_file, out_file, gpu_ids=None, device="cpu"):
     """
     Worker function to run Synb0 estimation in a separate process.
     This ensures GPU memory is released when the process terminates.
     """
     try:
-        # Set CUDA_VISIBLE_DEVICES if provided
-        if gpu_ids is not None:
-             import os
+        import os
+
+        device = str(device or "cpu").lower()
+        if device == "cpu":
+             os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+             print("Synb0 Worker: Running TensorFlow on CPU (CUDA_VISIBLE_DEVICES=-1)")
+        elif gpu_ids is not None:
              gpus = gpu_ids
              if isinstance(gpus, int):
                  gpus = [gpus]
@@ -391,7 +395,8 @@ class Synb0EstimationStep(BaseProcessingStep):
             # 2. Run Synb0 Estimation (Real b0 + T1w -> Synthetic Reverse b0)
             try:
                 # Prepare arguments
-                gpu_ids = self.config.gpu_ids
+                synb0_device = str(self.synb0_cfg.get("device", "cpu")).lower()
+                gpu_ids = self.synb0_cfg.get("gpu_ids", self.config.gpu_ids)
                 
                 self.logger.info(f"Launching Synb0 estimation in a separate process to manage GPU memory...")
                 
@@ -402,7 +407,8 @@ class Synb0EstimationStep(BaseProcessingStep):
                         'in_file': b0_in_mni,
                         't1_file': t1w_norm_atlas, 
                         'out_file': syn_b0_path,
-                        'gpu_ids': gpu_ids
+                        'gpu_ids': gpu_ids,
+                        'device': synb0_device,
                     }
                 )
                 p.start()
