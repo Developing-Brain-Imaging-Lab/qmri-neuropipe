@@ -48,7 +48,7 @@ mriqc = [
     "mriqc>=24.0.0; python_version<'3.12'"
 ]
 synb0 = [
-    "tensorflow>=2.15,<2.16; python_version>='3.9' and python_version<'3.12'"
+    "tensorflow>=2.21,<2.22; python_version>='3.10' and python_version<'3.14'"
 ]
 tracker = [
     "openpyxl",
@@ -75,7 +75,7 @@ all = [
     "weasyprint",
     "dash",
     "pywebview",
-    "tensorflow>=2.15,<2.16; python_version>='3.9' and python_version<'3.12'"
+    "tensorflow>=2.21,<2.22; python_version>='3.10' and python_version<'3.14'"
 ]
 [project.scripts]
 qmri-neuropipe = "qmri_neuropipe.cli:app"

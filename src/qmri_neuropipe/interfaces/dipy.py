@@ -266,7 +266,7 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
         raise ImportError(
             "DIPY Synb0 requires TensorFlow, but TensorFlow is not installed. "
             "Install qmri-neuropipe with the synb0 extra (`pip install .[synb0]`) "
-            "or rebuild the container after installing `tensorflow>=2.15,<2.16`."
+            "or rebuild the container after installing `tensorflow>=2.21,<2.22`."
         ) from e
     
     # Import inside function to avoid heavy TF import if not used
@@ -294,7 +294,7 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
     if b0_data.ndim == 4:
         b0_data = b0_data[..., 0]
 
-    SyNb0       = Synb0(False)
+    SyNb0       = Synb0(verbose=False)
     rev_b0_data = SyNb0.predict(b0_data, t1_data)
 
     # Release GPU memory
