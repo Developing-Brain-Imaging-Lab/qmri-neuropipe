@@ -13,6 +13,29 @@ from ..core.utils import ensure_path, ensure_dir, extract_image_path
 # Actually, let's redefine _as_path here to be safe and independent.
 
 
+def _mrtrix_config_args() -> list[str]:
+    tmpdir = _writable_tmpdir()
+    return ["-config", "TmpFileDir", tmpdir, "-config", "ScriptScratchDir", tmpdir]
+
+
+def _mrtrix_cmd(parts: list[str]) -> str:
+    if not parts:
+        return ""
+    return " ".join([str(parts[0]), *_mrtrix_config_args(), *map(str, parts[1:])])
+
+
+def _run_mrtrix(parts: list[str], *, label: str) -> None:
+    run_cmd(_mrtrix_cmd(parts), label=label)
+
+
+def _run_mrtrix_str(cmd: str, *, label: str) -> None:
+    parts = cmd.split(maxsplit=1)
+    if not parts:
+        return
+    configured_cmd = " ".join([parts[0], *_mrtrix_config_args(), *(parts[1:] if len(parts) > 1 else [])])
+    run_cmd(configured_cmd, label=label)
+
+
 def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=1, mask: Optional[Path]=None, noise_map: Optional[Path]=None, force: bool=False) -> Tuple[Path, Optional[Path]]:
     in_p = extract_image_path(in_file)
     out_p = ensure_dir(out_file)
@@ -26,8 +49,16 @@ def dwidenoise(in_file: ImageLike | Path, out_file: Path, nthreads: int=1, mask:
     mask_arg  = f"-mask {mask_p}" if mask_p else ""
     noise_arg = f"-noise {noise_map}" if noise_map else ""
     force_arg = f"-force" if force else ""
-    cmd = f"dwidenoise {in_p} {out_p} {mask_arg} {noise_arg} -nthreads {nthreads} {force_arg} -quiet"
-    run_cmd(cmd, label="dwidenoise")
+    cmd = ["dwidenoise", str(in_p), str(out_p)]
+    if mask_p:
+        cmd.extend(["-mask", str(mask_p)])
+    if noise_map:
+        cmd.extend(["-noise", str(noise_map)])
+    cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="dwidenoise")
    
     return out_p, (nm_p if nm_p else None)
     
@@ -52,8 +83,19 @@ def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = No
     mask_arg  = f"-mask {mask_p}" if mask_p else ""
     bias_arg  = f"-bias {bf_p}" if bf_p else ""
     force_arg = f"-force" if force else ""
-    cmd = f"dwibiascorrect {method} {in_p} {diff_arg} {out_p} {mask_arg} {bias_arg} -nthreads {nthreads} {force_arg} -quiet"
-    run_cmd(cmd, label="dwibiascorrect")
+    cmd = ["dwibiascorrect", method, str(in_p)]
+    if in_bvec and in_bval:
+        cmd.extend(["-fslgrad", str(in_bvec), str(in_bval)])
+    cmd.append(str(out_p))
+    if mask_p:
+        cmd.extend(["-mask", str(mask_p)])
+    if bf_p:
+        cmd.extend(["-bias", str(bf_p)])
+    cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="dwibiascorrect")
     
     return out_p
 
@@ -67,8 +109,11 @@ def mrdegibbs(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, forc
         return out_p
 
     force_arg = f"-force" if force else ""
-    cmd = f"mrdegibbs {in_p} {out_p} -nthreads {nthreads} {force_arg} -quiet"
-    run_cmd(cmd, label="mrdegibbs")
+    cmd = ["mrdegibbs", str(in_p), str(out_p), "-nthreads", str(nthreads)]
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="mrdegibbs")
 
     return out_p
 
@@ -77,8 +122,10 @@ def dwi2mask(in_file: ImageLike | Path, out_file: Path, nthreads: int = 1, force
     out_p = ensure_dir(out_file)
     if not force and out_p.exists():
         return out_p
-    cmd = f"dwi2mask {in_p} {out_p} -nthreads {nthreads} -quiet" + (" -force" if force else "")
-    run_cmd(cmd, label="dwi2mask")
+    cmd = ["dwi2mask", str(in_p), str(out_p), "-nthreads", str(nthreads), "-quiet"]
+    if force:
+        cmd.append("-force")
+    _run_mrtrix(cmd, label="dwi2mask")
     return out_p
 
 
@@ -101,11 +148,11 @@ def maskfilter(in_file: ImageLike | Path, out_file: Path, filter_type: str = 'di
     if not force and out_p.exists():
         return out_p
         
-    cmd = f"maskfilter {in_p} {filter_type} {out_p} -npass {npass} -nthreads {nthreads} -quiet"
+    cmd = ["maskfilter", str(in_p), filter_type, str(out_p), "-npass", str(npass), "-nthreads", str(nthreads), "-quiet"]
     if force:
-        cmd += " -force"
+        cmd.append("-force")
         
-    run_cmd(cmd, label=f"maskfilter-{filter_type}")
+    _run_mrtrix(cmd, label=f"maskfilter-{filter_type}")
     return out_p
 
 
@@ -138,7 +185,6 @@ def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path 
     cmd_parts = [
         "dwigradcheck",
         str(in_p),
-        "-config", "TmpFileDir", _writable_tmpdir(),
         "-nthreads", str(nthreads),
         "-quiet"
     ]
@@ -154,7 +200,7 @@ def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path 
         bvec, bval = export_grad_fsl
         cmd_parts.extend(["-export_grad_fsl", str(bvec), str(bval)])
         
-    run_cmd(" ".join(cmd_parts), label="dwigradcheck")
+    _run_mrtrix(cmd_parts, label="dwigradcheck")
 
 
 def fit_dti(
@@ -214,7 +260,7 @@ def fit_dti(
         cmd.extend(["-nthreads", str(nthreads)])
     
     cmd.extend(["-quiet", "-force"])
-    run_cmd(" ".join(cmd), label="dwi2tensor")
+    _run_mrtrix(cmd, label="dwi2tensor")
     
     # Save sidecar for tensor
     sidecar = {
@@ -294,9 +340,9 @@ def fit_dti(
         _write_sidecar(out_path, suffix, extras=extras)
         
     if run_main_metric_cmd:
-        run_cmd(cmd_metric, label="tensor2metric")
+        _run_mrtrix_str(cmd_metric, label="tensor2metric")
     for metric_cmd, metric_name in deferred_metric_cmds:
-        run_cmd(metric_cmd, label=f"tensor2metric_{metric_name}")
+        _run_mrtrix_str(metric_cmd, label=f"tensor2metric_{metric_name}")
 
     if 'tensor_mrtrix' in metrics_norm:
         tensor_mrtrix_out = out_dir / build_bids_name({**ent_base, 'suffix': 'tensorMRTRIX'})
@@ -365,7 +411,7 @@ def mrconvert(
     if force:
         cmd.append("-force")
 
-    run_cmd(" ".join(cmd), label="mrconvert")
+    _run_mrtrix(cmd, label="mrconvert")
     
 def dwi2response(
     in_file: Union[Path, ImageLike],
@@ -422,7 +468,7 @@ def dwi2response(
     if force:
         cmd.append("-force")
     
-    run_cmd(" ".join(cmd), label=f"dwi2response-{algorithm}")
+    _run_mrtrix(cmd, label=f"dwi2response-{algorithm}")
     
     return responses
 
@@ -506,7 +552,7 @@ def dwi2fod(
     # Use shlex.join for robustness if we were using a list, 
     # but run_cmd currently expects a string. 
     # For now, keep " ".join(cmd) but ensure args are sanitized.
-    run_cmd(" ".join(cmd), label=f"dwi2fod-{algorithm}")
+    _run_mrtrix(cmd, label=f"dwi2fod-{algorithm}")
     
     return fods
 
@@ -553,7 +599,7 @@ def transformconvert(
         
     cmd.append("-quiet")
     
-    run_cmd(" ".join(cmd), label="transformconvert")
+    _run_mrtrix(cmd, label="transformconvert")
     return out_p
 
 
@@ -625,7 +671,7 @@ def mrtransform(
     cmd.append("-reorient_fod no")
     cmd.append("-quiet")
     
-    run_cmd(" ".join(cmd), label="mrtransform")
+    _run_mrtrix(cmd, label="mrtransform")
     return out_p
 
 
@@ -812,7 +858,7 @@ def dwiextract(
     if force:
         cmd.append("-force")
         
-    run_cmd(" ".join(cmd), label="dwiextract")
+    _run_mrtrix(cmd, label="dwiextract")
     return out_p
 
 
@@ -875,7 +921,7 @@ def mrcalc(
     if force:
         cmd.append("-force")
         
-    run_cmd(" ".join(cmd), label="mrcalc")
+    _run_mrtrix(cmd, label="mrcalc")
     return out_p
 
 
@@ -908,7 +954,7 @@ def mrmath(
     if force:
         cmd.append("-force")
         
-    run_cmd(" ".join(cmd), label="mrmath")
+    _run_mrtrix(cmd, label="mrmath")
     return out_p
 
 
@@ -945,5 +991,5 @@ def sh2peaks(
     if force:
         cmd.append("-force")
         
-    run_cmd(" ".join(cmd), label="sh2peaks")
+    _run_mrtrix(cmd, label="sh2peaks")
     return out_p
