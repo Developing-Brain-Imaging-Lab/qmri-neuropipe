@@ -31,12 +31,13 @@ def _mrtrix_script_parts(parts: list[str]) -> list[str]:
     return [str(parts[0]), "-scratch", _writable_tmpdir(), *map(str, parts[1:])]
 
 
-def _run_mrtrix(parts: list[str], *, label: str, script: bool = False) -> None:
+def _run_mrtrix(parts: list[str], *, label: str, script: bool = False, n_threads: int = None) -> None:
     cmd_parts = _mrtrix_script_parts(parts) if script else parts
     run_cmd(
         _mrtrix_cmd(cmd_parts),
         label=label,
         cwd=_writable_tmpdir() if script else None,
+        n_threads=n_threads,
     )
 
 
@@ -103,11 +104,12 @@ def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = No
         cmd.extend(["-mask", str(mask_p)])
     if bf_p:
         cmd.extend(["-bias", str(bf_p)])
-    cmd.extend(["-nthreads", str(nthreads)])
+    if str(method).lower() != "ants":
+        cmd.extend(["-nthreads", str(nthreads)])
     if force:
         cmd.append("-force")
     cmd.append("-quiet")
-    _run_mrtrix(cmd, label="dwibiascorrect", script=True)
+    _run_mrtrix(cmd, label="dwibiascorrect", script=True, n_threads=nthreads)
     
     return out_p
 
