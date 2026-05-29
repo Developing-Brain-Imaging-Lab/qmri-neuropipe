@@ -224,7 +224,19 @@ qmri-neuropipe --help
 
 ## Workflow Step Parameters (Quick Reference)
 
-For full per-step defaults and options, see `docs/tool_reference.md`. Below is a compact map of the most commonly used keys.
+For full per-step defaults and options, see `docs/configuration_reference.md` and `docs/tool_reference.md`. Below is a compact map of the most commonly used keys.
+
+## Logs, Reports, and Commands
+
+The pipeline records command-line calls executed through the shared command runner.
+Commands are:
+
+- written to the log at DEBUG level
+- stored per step in `provenance.json`
+- included in the HTML/PDF report command appendix
+- included in individual dMRI step sections when the step is reported by the execution engine
+
+This lets users audit the exact tools and arguments used for each run.
 
 ### Diffusion (dMRI)
 

@@ -488,6 +488,7 @@ class EddyCorrectionStep(BaseProcessingStep):
                 if self.end_time and self.start_time
                 else None
             ),
+            commands=getattr(self, "last_commands", []),
         )
     
 

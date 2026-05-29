@@ -95,18 +95,71 @@ class Synb0EstimationStep(BaseProcessingStep):
         self.synb0_cfg = config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
         self.logger.info(f"Initialized Synb0 estimation (Deep Learning).")
 
-    def _select_anatomical_reference(self, context: dict, output_dir: Path, force: bool = False) -> Optional[ImageFile]:
+    @staticmethod
+    def _is_dwi_supersynth_source(source: str, preference: str) -> bool:
+        return (
+            source in {"dwi_supersynth", "supersynth_dwi", "diffusion_supersynth", "b0_supersynth"}
+            or (source in {"supersynth", "prefer_supersynth"} and preference in {"dwi", "b0", "diffusion", "mean_b0"})
+        )
+
+    def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
+        if b0_path.exists() and not force:
+            return b0_path
+
+        _validate_nifti(input_dwi.img, self.logger, "Input DWI")
+        try:
+            img = nib.load(str(input_dwi.img))
+        except Exception as e:
+            size = input_dwi.img.stat().st_size
+            raise ProcessingError(
+                f"Failed to read input DWI NIfTI: {input_dwi.img} (size={size} bytes). "
+                f"Original error: {e}"
+            )
+
+        data = img.get_fdata()
+        b0_vol = data[..., 0]
+        if input_dwi.bval and input_dwi.bval.exists():
+            try:
+                bvals = np.loadtxt(str(input_dwi.bval))
+                if bvals.ndim == 2:
+                    bvals = bvals[0]
+                b0_indices = np.where(bvals < 50)[0]
+                if len(b0_indices) > 0:
+                    b0_vol = data[..., b0_indices]
+            except Exception as e:
+                self.logger.warning(f"Could not parse bvals for Synb0 b0 extraction; using first volume: {e}")
+
+        if b0_vol.ndim == 4:
+            b0_vol = b0_vol.mean(axis=-1)
+        if as_4d and b0_vol.ndim == 3:
+            b0_vol = b0_vol[..., np.newaxis]
+
+        nib.Nifti1Image(b0_vol, img.affine, img.header).to_filename(b0_path)
+        return b0_path
+
+    def _select_anatomical_reference(
+        self,
+        context: dict,
+        output_dir: Path,
+        *,
+        input_dwi: Optional[DWIFile] = None,
+        b0_path: Optional[Path] = None,
+        force: bool = False,
+    ) -> Optional[ImageFile]:
         """
         Select the anatomical image used by Synb0.
 
         Defaults to the existing behavior (first T1w in context). When
         ``dmri.preprocessing.distcorr.synb0.t1w_source`` is ``supersynth`` or
         ``prefer_supersynth``, generate or reuse a SuperSynth T1w image from the
-        configured anatomical input.
+        configured input. Set ``supersynth_input: dwi`` or
+        ``t1w_source: dwi_supersynth`` to generate that T1w from the extracted
+        diffusion b0 image.
         """
         t1w_files = context.get("t1w_files", [])
         t2w_files = context.get("t2w_files", [])
         source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
+        preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
 
         def _image_file(path: Path, desc: str = "synthT1w") -> ImageFile:
             entities = {
@@ -123,16 +176,30 @@ class Synb0EstimationStep(BaseProcessingStep):
 
         outputs = context.get("super_synth_outputs", {}) or {}
         existing_synth = outputs.get("synth_t1w")
-        if source in {"supersynth", "prefer_supersynth"} and existing_synth:
+        dwi_supersynth_requested = self._is_dwi_supersynth_source(source, preference)
+        if source in {"supersynth", "prefer_supersynth"} and not dwi_supersynth_requested and existing_synth:
             synth_path = Path(existing_synth)
             if synth_path.exists():
                 self.logger.info(f"Using existing SuperSynth T1w for Synb0: {synth_path}")
                 return _image_file(synth_path)
 
-        if source in {"supersynth", "prefer_supersynth"}:
-            preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
+        if source in {"supersynth", "prefer_supersynth"} or dwi_supersynth_requested:
             anat_input = None
-            if preference == "t2w":
+            ss_subdir = "supersynth"
+            if dwi_supersynth_requested:
+                supersynth_b0_path = output_dir / "real_b0_desc-supersynthInput.nii.gz"
+                if input_dwi is not None:
+                    supersynth_b0_path = self._extract_mean_b0(
+                        input_dwi,
+                        supersynth_b0_path,
+                        force=force,
+                        as_4d=False,
+                    )
+                elif b0_path is not None and Path(b0_path).exists():
+                    supersynth_b0_path = Path(b0_path)
+                anat_input = _image_file(supersynth_b0_path, desc="meanB0") if supersynth_b0_path.exists() else None
+                ss_subdir = "supersynth_from_dwi"
+            elif preference == "t2w":
                 anat_input = t2w_files[0] if t2w_files else None
             elif preference == "t1w":
                 anat_input = t1w_files[0] if t1w_files else None
@@ -140,10 +207,10 @@ class Synb0EstimationStep(BaseProcessingStep):
                 anat_input = t1w_files[0] if t1w_files else (t2w_files[0] if t2w_files else None)
 
             if anat_input is None:
-                if source == "supersynth":
+                if source == "supersynth" or dwi_supersynth_requested:
                     return None
             else:
-                ss_dir = output_dir / "supersynth"
+                ss_dir = output_dir / ss_subdir
                 synth_path = ss_dir / "T1w.nii.gz"
                 if not synth_path.exists() or force:
                     self.logger.info(f"Generating SuperSynth T1w for Synb0 from {anat_input.img.name}")
@@ -167,6 +234,7 @@ class Synb0EstimationStep(BaseProcessingStep):
                     )
                 _validate_nifti(synth_path, self.logger, "SuperSynth T1w")
                 context.setdefault("super_synth_outputs", {})["synth_t1w"] = synth_path
+                context["synb0_supersynth_input"] = "dwi" if ss_subdir == "supersynth_from_dwi" else preference
                 context["synb0_t1w_source"] = "supersynth"
                 return _image_file(synth_path)
 
@@ -182,9 +250,15 @@ class Synb0EstimationStep(BaseProcessingStep):
         
         has_t1w = bool(context.get("t1w_files"))
         has_t2w = bool(context.get("t2w_files"))
+        has_dwi = bool(context.get("dwi_files"))
         source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
-        if not has_t1w and not (source in {"supersynth", "prefer_supersynth"} and has_t2w):
-            self.logger.warning("Synb0 estimation requires T1w images in context, or T2w with SuperSynth enabled for Synb0.")
+        preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
+        if not has_t1w and not (
+            source in {"supersynth", "prefer_supersynth"} and (has_t2w or preference in {"dwi", "b0", "diffusion", "mean_b0"})
+        ) and not self._is_dwi_supersynth_source(source, preference):
+            self.logger.warning("Synb0 estimation requires T1w images in context, or T2w/DWI with SuperSynth enabled for Synb0.")
+        if self._is_dwi_supersynth_source(source, preference) and not has_dwi:
+            self.logger.warning("Synb0 SuperSynth-from-DWI requested, but no DWI files are available in context.")
         
         dwi_files = context.get("dwi_files", [])
         if not dwi_files:
@@ -199,17 +273,7 @@ class Synb0EstimationStep(BaseProcessingStep):
             raise ProcessingError("Synb0EstimationStep must run in pipeline context mode.")
         dwi_files: list[DWIFile] = context.get("dwi_files", [])
         output_dir = self.get_step_output_dir(output_dir)
-
-        t1w_ref = self._select_anatomical_reference(
-            context,
-            output_dir,
-            force=bool(kwargs.get("force", False)),
-        )
-        if t1w_ref is None:
-             self.logger.warning("Skipping Synb0 estimation: No usable anatomical reference found.")
-             return context
-
-        t1w_path = t1w_ref.img
+        force = bool(kwargs.get("force", False))
         
         # We need to generate a synthetic b0 for each distinct acquisition group? 
         # Or usually just one per session if they share geometry?
@@ -240,6 +304,21 @@ class Synb0EstimationStep(BaseProcessingStep):
         syn_json_path = syn_b0_path.with_suffix(".json")
         b0_path = output_dir / "real_b0.nii.gz"
         dummy_bval_path = output_dir / "b0.bval"
+
+        self._extract_mean_b0(input_dwi, b0_path, force=force)
+
+        t1w_ref = self._select_anatomical_reference(
+            context,
+            output_dir,
+            input_dwi=input_dwi,
+            b0_path=b0_path,
+            force=force,
+        )
+        if t1w_ref is None:
+             self.logger.warning("Skipping Synb0 estimation: No usable anatomical reference found.")
+             return context
+
+        t1w_path = t1w_ref.img
         
         if syn_b0_path.exists() and b0_path.exists() and syn_b0_native_path.exists() and syn_json_path.exists() and dummy_bval_path.exists() and not kwargs.get('force', False):
             # Check timestamps
@@ -254,37 +333,6 @@ class Synb0EstimationStep(BaseProcessingStep):
                  should_skip = True
         
         if not should_skip:
-            # Extract real b0
-            _validate_nifti(input_dwi.img, self.logger, "Input DWI")
-            try:
-                img = nib.load(str(input_dwi.img))
-            except Exception as e:
-                size = input_dwi.img.stat().st_size
-                raise ProcessingError(
-                    f"Failed to read input DWI NIfTI: {input_dwi.img} (size={size} bytes). "
-                    f"Original error: {e}"
-                )
-            data = img.get_fdata()
-            
-            # Use bvals to find b0
-            b0_vol = data[..., 0] # Default
-            if input_dwi.bval and input_dwi.bval.exists():
-                 try:
-                     bvals = np.loadtxt(str(input_dwi.bval))
-                     if bvals.ndim == 2: bvals = bvals[0]
-                     b0_indices = np.where(bvals < 50)[0]
-                     if len(b0_indices) > 0:
-                         b0_vol = data[..., b0_indices]
-                 except Exception:
-                     pass
-            
-            if b0_vol.ndim == 4:
-                b0_vol = b0_vol.mean(axis=-1)
-            # Force 4D
-            if b0_vol.ndim == 3:
-                b0_vol = b0_vol[..., np.newaxis]
-            nib.Nifti1Image(b0_vol, img.affine, img.header).to_filename(b0_path)
-    
             #Preprocess T1w
             #Normalize T1w
             t1w_mgz = output_dir / "t1w.mgz"

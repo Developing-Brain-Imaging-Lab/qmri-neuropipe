@@ -389,8 +389,8 @@ dmri:
 | `fallback` | bool | false | Allow Synb0 fallback |
 | `synb0.device` | str | `cpu` | `cpu` hides GPUs from TensorFlow; use `gpu` only when TensorFlow/CUDA is compatible with the host driver |
 | `synb0.gpu_ids` | list\|int\|str | global `gpu_ids` | GPU IDs exposed to TensorFlow when `synb0.device: gpu` |
-| `synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
-| `synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects which anatomical contrast SuperSynth uses when generating the T1w for Synb0 |
+| `synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`, `dwi_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
+| `synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`, `dwi`; selects which image SuperSynth uses when generating the T1w for Synb0. `dwi` uses a 3D mean b0 extracted from the diffusion image |
 | `config` | path | none | Topup config file |
 | `drbuddi.transform_type` | str | `SyNOnly` | Native DRBUDDI ANTs transform |
 | `drbuddi.interpolator` | str | `linear` | Output resampling interpolator |

@@ -70,7 +70,8 @@ class ReportGenerator:
                 "steps": [],
                 "summary_table": None,
                 "outputs": []
-            }
+            },
+            "commands": []
         }
         
         # Load existing data if available
@@ -156,7 +157,7 @@ class ReportGenerator:
         self.data["anat"]["inputs"].append(item)
         self._save_data()
 
-    def add_anat_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None):
+    def add_anat_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None, commands: List[Dict[str, Any]] = None):
         """
         Add an anatomical processing step.
         figures: List of dicts with keys 'path', 'title', 'caption'
@@ -176,7 +177,8 @@ class ReportGenerator:
         step = {
             "name": step_name,
             "details": details,
-            "figures": []
+            "figures": [],
+            "commands": commands or []
         }
         if figures:
             for fig in figures:
@@ -214,7 +216,7 @@ class ReportGenerator:
              self.data["dmri"]["inputs"]["figures"].append(self._create_figure_obj(path, "dMRI Input", caption))
         self._save_data()
 
-    def add_dmri_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None, tables: List[Dict[str, Any]] = None):
+    def add_dmri_step(self, step_name: str, details: Dict[str, Any], figures: List[Dict[str, str]] = None, tables: List[Dict[str, Any]] = None, commands: List[Dict[str, Any]] = None):
         """
         Add a dMRI processing step.
         tables: List of dicts {title: str, data: List[Dict]}
@@ -234,7 +236,8 @@ class ReportGenerator:
             "name": step_name,
             "details": details,
             "figures": [],
-            "tables": []
+            "tables": [],
+            "commands": commands or []
         }
         if figures:
             for fig in figures:
@@ -330,6 +333,7 @@ class ReportGenerator:
             
         out_file = self.output_dir / filename
         try:
+            self._refresh_command_history()
             html_content = self.template.render(**self.data)
             out_file.write_text(html_content, encoding='utf-8')
             self.logger.info(f"Report generated: {out_file}")
@@ -346,6 +350,7 @@ class ReportGenerator:
             
         # Re-render to ensure latest data
         if not self.template: return None
+        self._refresh_command_history()
         html_content = self.template.render(**self.data)
         
         out_file = self.output_dir / filename
@@ -356,3 +361,12 @@ class ReportGenerator:
         except Exception as e:
             self.logger.error(f"Failed to generate PDF: {e}")
             return None
+
+    def _refresh_command_history(self):
+        """Attach all commands captured during this process to report data."""
+        try:
+            from qmri_neuropipe.core.run import get_command_history
+            self.data["commands"] = get_command_history()
+            self._save_data()
+        except Exception as e:
+            self.logger.debug(f"Could not refresh command history for report: {e}")

@@ -10,6 +10,7 @@ Welcome to qmri-neuropipe's documentation!
    installation
    data_organization
    usage
+   configuration_reference
    tool_reference
    analysis
    study_tracker

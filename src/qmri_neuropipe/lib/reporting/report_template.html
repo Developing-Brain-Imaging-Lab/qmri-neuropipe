@@ -137,6 +137,17 @@
             border-top: 1px solid #eee;
             padding-top: 20px;
         }
+
+        .command-block {
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #f6f8fa;
+            border: 1px solid #d8dee4;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 0.85em;
+        }
     </style>
 </head>
 
@@ -216,6 +227,28 @@
                     <p class="caption">{{ fig.caption }}</p>
                 </div>
                 {% endfor %}
+                {% endif %}
+
+                {% if step.commands %}
+                <h5>Commands</h5>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Return Code</th>
+                            <th>Command</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cmd in step.commands %}
+                        <tr>
+                            <td>{{ cmd.label }}</td>
+                            <td>{{ cmd.returncode }}</td>
+                            <td><div class="command-block">{{ cmd.command }}</div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 {% endif %}
             </div>
             {% endfor %}
@@ -342,6 +375,28 @@
                 </table>
                 {% endfor %}
                 {% endif %}
+
+                {% if step.commands %}
+                <h5>Commands</h5>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Return Code</th>
+                            <th>Command</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cmd in step.commands %}
+                        <tr>
+                            <td>{{ cmd.label }}</td>
+                            <td>{{ cmd.returncode }}</td>
+                            <td><div class="command-block">{{ cmd.command }}</div></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -398,6 +453,32 @@
         </div>
         {% endif %}
 
+    </div>
+    {% endif %}
+
+    {% if commands %}
+    <div class="section">
+        <h2>Executed Commands</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Label</th>
+                    <th>Return Code</th>
+                    <th>Command</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cmd in commands %}
+                <tr>
+                    <td>{{ cmd.timestamp }}</td>
+                    <td>{{ cmd.label }}</td>
+                    <td>{{ cmd.returncode }}</td>
+                    <td><div class="command-block">{{ cmd.command }}</div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
     {% endif %}
 

@@ -24,8 +24,16 @@ def _mrtrix_cmd(parts: list[str]) -> str:
     return " ".join([str(parts[0]), *_mrtrix_config_args(), *map(str, parts[1:])])
 
 
-def _run_mrtrix(parts: list[str], *, label: str) -> None:
-    run_cmd(_mrtrix_cmd(parts), label=label)
+def _mrtrix_script_parts(parts: list[str]) -> list[str]:
+    """Add MRtrix Python-script scratch directory without affecting compiled tools."""
+    if any(str(part) == "-scratch" for part in parts):
+        return parts
+    return [str(parts[0]), "-scratch", _writable_tmpdir(), *map(str, parts[1:])]
+
+
+def _run_mrtrix(parts: list[str], *, label: str, script: bool = False) -> None:
+    cmd_parts = _mrtrix_script_parts(parts) if script else parts
+    run_cmd(_mrtrix_cmd(cmd_parts), label=label)
 
 
 def _run_mrtrix_str(cmd: str, *, label: str) -> None:
@@ -95,7 +103,7 @@ def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = No
     if force:
         cmd.append("-force")
     cmd.append("-quiet")
-    _run_mrtrix(cmd, label="dwibiascorrect")
+    _run_mrtrix(cmd, label="dwibiascorrect", script=True)
     
     return out_p
 
@@ -200,7 +208,7 @@ def dwigradcheck(in_file: ImageLike | Path, in_bvec: Path = None, in_bval: Path 
         bvec, bval = export_grad_fsl
         cmd_parts.extend(["-export_grad_fsl", str(bvec), str(bval)])
         
-    _run_mrtrix(cmd_parts, label="dwigradcheck")
+    _run_mrtrix(cmd_parts, label="dwigradcheck", script=True)
 
 
 def fit_dti(
@@ -468,7 +476,7 @@ def dwi2response(
     if force:
         cmd.append("-force")
     
-    _run_mrtrix(cmd, label=f"dwi2response-{algorithm}")
+    _run_mrtrix(cmd, label=f"dwi2response-{algorithm}", script=True)
     
     return responses
 
@@ -552,7 +560,7 @@ def dwi2fod(
     # Use shlex.join for robustness if we were using a list, 
     # but run_cmd currently expects a string. 
     # For now, keep " ".join(cmd) but ensure args are sanitized.
-    _run_mrtrix(cmd, label=f"dwi2fod-{algorithm}")
+    _run_mrtrix(cmd, label=f"dwi2fod-{algorithm}", script=True)
     
     return fods
 

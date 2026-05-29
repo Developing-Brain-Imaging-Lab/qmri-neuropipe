@@ -247,7 +247,13 @@ def report_preprocessing_step(
         details = {"Status": "Completed"}
 
     # Add the step to report
-    reporter.add_dmri_step(step_name, details, figures=figures_list, tables=tables)
+    reporter.add_dmri_step(
+        step_name,
+        details,
+        figures=figures_list,
+        tables=tables,
+        commands=getattr(step, "last_commands", []),
+    )
     
     # Check for metrics to report
     if isinstance(current_arg, dict) and ('qc_metrics' in current_arg or 'outlier_stats' in current_arg):

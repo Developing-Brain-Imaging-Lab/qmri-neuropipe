@@ -79,8 +79,8 @@ dmri:
       fallback: true  # allow Synb0 fallback when Topup inputs missing
       synb0:
         device: cpu  # cpu | gpu
-        t1w_source: raw  # raw | supersynth | prefer_supersynth
-        supersynth_input: auto  # auto | T1w | T2w
+        t1w_source: raw  # raw | supersynth | prefer_supersynth | dwi_supersynth
+        supersynth_input: auto  # auto | T1w | T2w | dwi
       config: /path/to/topup.cnf
       drbuddi:
         transform_type: SyNOnly
@@ -97,8 +97,8 @@ dmri:
 | `dmri.preprocessing.distcorr.fallback` | bool | false | Allow Synb0 fallback when reverse-PE data is missing |
 | `dmri.preprocessing.distcorr.synb0.device` | str | `cpu` | `cpu` hides GPUs from TensorFlow; use `gpu` only when the container TensorFlow/CUDA stack is compatible with the host driver |
 | `dmri.preprocessing.distcorr.synb0.gpu_ids` | list\|int\|str | global `gpu_ids` | GPU IDs exposed to TensorFlow when `device: gpu` |
-| `dmri.preprocessing.distcorr.synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
-| `dmri.preprocessing.distcorr.synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects which anatomical contrast SuperSynth uses when generating the T1w for Synb0 |
+| `dmri.preprocessing.distcorr.synb0.t1w_source` | str | `raw` | `raw`, `supersynth`, `prefer_supersynth`, `dwi_supersynth`; controls whether Synb0 uses the anatomical T1w directly or a SuperSynth-generated T1w |
+| `dmri.preprocessing.distcorr.synb0.supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`, `dwi`; selects which image SuperSynth uses when generating the T1w for Synb0. `dwi` uses a 3D mean b0 extracted from the diffusion image |
 | `dmri.preprocessing.distcorr.config` | path | none | Topup config file |
 | `dmri.preprocessing.distcorr.drbuddi.transform_type` | str | `SyNOnly` | ANTs transform type (`SyNOnly`, `SyN`, `Rigid`, `Affine`) |
 | `dmri.preprocessing.distcorr.drbuddi.interpolator` | str | `linear` | Output resampling interpolator (`linear`, `nearest`, `cubic`) |

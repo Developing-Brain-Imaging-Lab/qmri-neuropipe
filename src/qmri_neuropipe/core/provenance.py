@@ -172,7 +172,8 @@ class ProvenanceTracker:
         inputs: Dict[str, Any],
         outputs: Dict[str, Any],
         parameters: Dict[str, Any],
-        duration: Optional[float] = None
+        duration: Optional[float] = None,
+        commands: Optional[list[dict]] = None,
     ) -> None:
         """
         Log a processing step with full provenance.
@@ -183,6 +184,7 @@ class ProvenanceTracker:
             outputs: Dictionary of output files/data
             parameters: Processing parameters used
             duration: Optional execution duration in seconds
+            commands: Optional command records captured during this step
         
         Example:
             >>> tracker.log_step(
@@ -203,6 +205,8 @@ class ProvenanceTracker:
         
         if duration is not None:
             step_record['duration_seconds'] = duration
+        if commands:
+            step_record['commands'] = commands
         
         self.provenance['steps'].append(step_record)
         

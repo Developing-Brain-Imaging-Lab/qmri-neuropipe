@@ -25,6 +25,7 @@ import os
 
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.provenance import ProvenanceTracker
+from qmri_neuropipe.core.run import command_history_len, get_command_history
 from qmri_neuropipe.core.exceptions import (
     ValidationError,
     ProcessingError,
@@ -189,6 +190,8 @@ class BaseProcessingStep(ABC):
         """
         self.logger.info(f"Starting {self.step_name}")
         self.start_time = datetime.now()
+        command_start_idx = command_history_len()
+        self.last_commands = []
         
         # Extract subject/session for tracking if available
         context, _ = self.unpack_input(args[0]) if args else (None, None)
@@ -216,6 +219,7 @@ class BaseProcessingStep(ABC):
             # Record completion time
             self.end_time = datetime.now()
             duration_s = (self.end_time - self.start_time).total_seconds()
+            self.last_commands = get_command_history(command_start_idx)
             
             # Log provenance if tracker is available
             if self.provenance:
@@ -233,6 +237,7 @@ class BaseProcessingStep(ABC):
             return result
             
         except ValidationError as e:
+            self.last_commands = get_command_history(command_start_idx)
             if tracker and subject and session:
                 tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
                 tracker.log_error(subject, session, tracker_module, str(e), study)
@@ -241,6 +246,7 @@ class BaseProcessingStep(ABC):
             raise
             
         except Exception as e:
+            self.last_commands = get_command_history(command_start_idx)
             if tracker and subject and session:
                 tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
                 tracker.log_error(subject, session, tracker_module, str(e), study)
@@ -378,7 +384,8 @@ class BaseProcessingStep(ABC):
                 inputs=inputs,
                 outputs=outputs,
                 parameters=kwargs,
-                duration=(self.end_time - self.start_time).total_seconds()
+                duration=(self.end_time - self.start_time).total_seconds(),
+                commands=getattr(self, "last_commands", []),
             )
 
     def get_step_output_dir(self, output_dir: Path) -> Path:
