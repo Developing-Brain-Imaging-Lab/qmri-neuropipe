@@ -104,6 +104,9 @@ def dwibiascorrect(in_file: ImageLike | Path, out_file: Path, in_bvec: Path = No
         cmd.extend(["-mask", str(mask_p)])
     if bf_p:
         cmd.extend(["-bias", str(bf_p)])
+    # MRtrix passes -nthreads through to N4BiasFieldCorrection as -nt for
+    # the ANTs backend, but some ANTs builds reject that flag. Use env
+    # thread limits via run_cmd(n_threads=...) instead.
     if str(method).lower() != "ants":
         cmd.extend(["-nthreads", str(nthreads)])
     if force:
