@@ -33,7 +33,11 @@ def _mrtrix_script_parts(parts: list[str]) -> list[str]:
 
 def _run_mrtrix(parts: list[str], *, label: str, script: bool = False) -> None:
     cmd_parts = _mrtrix_script_parts(parts) if script else parts
-    run_cmd(_mrtrix_cmd(cmd_parts), label=label)
+    run_cmd(
+        _mrtrix_cmd(cmd_parts),
+        label=label,
+        cwd=_writable_tmpdir() if script else None,
+    )
 
 
 def _run_mrtrix_str(cmd: str, *, label: str) -> None:
