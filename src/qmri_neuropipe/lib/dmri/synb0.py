@@ -211,7 +211,10 @@ class Synb0EstimationStep(BaseProcessingStep):
                     return None
             else:
                 ss_dir = output_dir / ss_subdir
-                synth_path = ss_dir / "T1w.nii.gz"
+                from ..anat.super_synth import expected_supersynth_output, find_supersynth_outputs
+
+                ss_outputs = find_supersynth_outputs(ss_dir)
+                synth_path = ss_outputs.get("synth_t1w", expected_supersynth_output(ss_dir, "synth_t1w"))
                 if not synth_path.exists() or force:
                     self.logger.info(f"Generating SuperSynth T1w for Synb0 from {anat_input.img.name}")
                     freesurfer.mri_super_synth(
@@ -232,8 +235,10 @@ class Synb0EstimationStep(BaseProcessingStep):
                         )),
                         overwrite=force,
                     )
+                    ss_outputs = find_supersynth_outputs(ss_dir)
+                    synth_path = ss_outputs.get("synth_t1w", synth_path)
                 _validate_nifti(synth_path, self.logger, "SuperSynth T1w")
-                context.setdefault("super_synth_outputs", {})["synth_t1w"] = synth_path
+                context.setdefault("super_synth_outputs", {}).update(ss_outputs or {"synth_t1w": synth_path})
                 context["synb0_supersynth_input"] = "dwi" if ss_subdir == "supersynth_from_dwi" else preference
                 context["synb0_t1w_source"] = "supersynth"
                 return _image_file(synth_path)

@@ -60,6 +60,53 @@ def generate_wm_segmentation(
     if wm_mask.exists():
         return wm_mask
 
+    def _generate_with_method(selected_method: str) -> bool:
+        if selected_method == 'fast':
+            fast_base = out_dir / f"{stem}_fast"
+            fast_seg = out_dir / f"{stem}_fast_seg.nii.gz"
+            if not fast_seg.exists():
+                fsl.fast(in_file, fast_base, img_type=1, num_classes=3)
+            if fast_seg.exists():
+                run_cmd(f"fslmaths {fast_seg} -thr 3 -uthr 3 -bin {wm_mask}", label="extract_wm_fast")
+
+        elif selected_method == 'synthseg':
+            synth_seg = out_dir / f"{stem}_synthseg.nii.gz"
+            if not synth_seg.exists():
+                freesurfer.mri_synthseg(in_file, synth_seg, nthreads=nthreads, gpu=gpu)
+            if synth_seg.exists():
+                run_cmd(
+                    f"mri_binarize --i {synth_seg} --match 2 41 7 46 --o {wm_mask}",
+                    label="extract_wm_synthseg",
+                )
+
+        elif selected_method == 'supersynth':
+            supersynth_out = out_dir / f"{stem}_supersynth"
+            from .super_synth import expected_supersynth_output, find_supersynth_outputs
+
+            ss_outputs = find_supersynth_outputs(supersynth_out)
+            seg_file = ss_outputs.get("seg", expected_supersynth_output(supersynth_out, "seg"))
+            if not seg_file.exists():
+                freesurfer.mri_super_synth(
+                    in_file,
+                    supersynth_out,
+                    threads=nthreads,
+                    device=None if gpu else "cpu",
+                )
+                ss_outputs = find_supersynth_outputs(supersynth_out)
+                seg_file = ss_outputs.get("seg", seg_file)
+            if seg_file.exists():
+                # mri_super_synth uses the same FreeSurfer label scheme as SynthSeg:
+                # 2/41 = left/right cerebral WM, 7/46 = left/right cerebellar WM.
+                run_cmd(
+                    f"mri_binarize --i {seg_file} --match 2 41 7 46 --o {wm_mask}",
+                    label="extract_wm_supersynth",
+                )
+
+        else:
+            raise ValueError(f"Unknown segmentation method: {selected_method}. Choose 'fast', 'synthseg', or 'supersynth'.")
+
+        return wm_mask.exists()
+
     if method == 'fast':
         fast_base = out_dir / f"{stem}_fast"
         fast_seg = out_dir / f"{stem}_fast_seg.nii.gz"
@@ -90,22 +137,27 @@ def generate_wm_segmentation(
                 in_file, out_dir, method='synthseg', nthreads=nthreads, gpu=gpu
             )
 
-        supersynth_out = out_dir / f"{stem}_supersynth"
-        seg_file = supersynth_out / "seg.nii.gz"
-        if not seg_file.exists():
-            freesurfer.mri_super_synth(
-                in_file,
-                supersynth_out,
-                threads=nthreads,
-                device=None if gpu else "cpu",
-            )
-        if seg_file.exists():
-            # mri_super_synth uses the same FreeSurfer label scheme as SynthSeg:
-            # 2/41 = left/right cerebral WM, 7/46 = left/right cerebellar WM.
-            run_cmd(
-                f"mri_binarize --i {seg_file} --match 2 41 7 46 --o {wm_mask}",
-                label="extract_wm_supersynth",
-            )
+        errors: list[str] = []
+        for fallback_method in ("supersynth", "synthseg", "fast"):
+            try:
+                if _generate_with_method(fallback_method):
+                    if fallback_method != "supersynth":
+                        _log.warning(
+                            "SuperSynth WM segmentation failed; using %s fallback for BBR.",
+                            fallback_method,
+                        )
+                    return wm_mask
+            except Exception as exc:
+                errors.append(f"{fallback_method}: {exc}")
+                _log.warning(
+                    "WM segmentation with %s failed while setting up BBR: %s",
+                    fallback_method,
+                    exc,
+                )
+        raise RuntimeError(
+            "Failed to generate WM segmentation using method 'supersynth' "
+            "or fallbacks. " + "; ".join(errors)
+        )
 
     else:
         raise ValueError(f"Unknown segmentation method: {method}. Choose 'fast', 'synthseg', or 'supersynth'.")

@@ -16,17 +16,40 @@ from ...core.types import ImageFile, ImageLike
 from ...interfaces import freesurfer
 
 
-# SuperSynth output filenames as produced by mri_super_synth.
-# These follow the naming conventions observed for FreeSurfer Synth tools;
-# adjust if the tool uses different names in your FreeSurfer build.
-_OUTPUT_STEMS = {
-    "seg": "seg.nii.gz",
-    "synth_t1w": "T1w.nii.gz",
-    "synth_t2w": "T2w.nii.gz",
-    "synth_flair": "FLAIR.nii.gz",
+# SuperSynth output filenames vary across FreeSurfer builds. Prefer the current
+# mri_super_synth names first, but keep the older expected names as aliases.
+_OUTPUT_CANDIDATES = {
+    "seg": ("segmentation.mgz", "seg.nii.gz", "seg.mgz", "segmentation.nii.gz"),
+    "synth_t1w": ("SynthT1.mgz", "T1w.nii.gz", "SynthT1.nii.gz", "T1w.mgz"),
+    "synth_t2w": ("SynthT2.mgz", "T2w.nii.gz", "SynthT2.nii.gz", "T2w.mgz"),
+    "synth_flair": ("SynthFLAIR.mgz", "FLAIR.nii.gz", "SynthFLAIR.nii.gz", "FLAIR.mgz"),
+    "ribbon": ("ribbon.mgz", "ribbon.nii.gz"),
+    "input_resampled": ("input_resampled.mgz", "input_resampled.nii.gz"),
+    "mni_deformation": ("mni_deformation.mgz", "mni_deformation.nii.gz"),
+    "mni_affine": ("mni_affine.txt",),
+    "qc_csv": ("qc.csv",),
+    "volumes_csv": ("volumes.csv",),
 }
 
 _log = logging.getLogger(__name__)
+
+
+def find_supersynth_outputs(out_dir: Path) -> dict[str, Path]:
+    """Return recognized SuperSynth outputs for known naming conventions."""
+    out_dir = Path(out_dir)
+    outputs: dict[str, Path] = {}
+    for key, candidates in _OUTPUT_CANDIDATES.items():
+        for fname in candidates:
+            candidate = out_dir / fname
+            if candidate.exists():
+                outputs[key] = candidate
+                break
+    return outputs
+
+
+def expected_supersynth_output(out_dir: Path, key: str) -> Path:
+    """Return the preferred output path for a SuperSynth product."""
+    return Path(out_dir) / _OUTPUT_CANDIDATES[key][0]
 
 
 def _load_freesurfer_lut() -> Dict[int, str]:
@@ -184,11 +207,7 @@ class SuperSynthStep(BaseProcessingStep):
         )
 
         # Collect recognised output files.
-        outputs: dict[str, Path] = {}
-        for key, fname in _OUTPUT_STEMS.items():
-            candidate = step_dir / fname
-            if candidate.exists():
-                outputs[key] = candidate
+        outputs = find_supersynth_outputs(step_dir)
 
         if not outputs:
             self.logger.warning(
@@ -324,7 +343,8 @@ def ensure_supersynth_t1w(
 
     ss_dir = Path(output_dir) / subdir
     ss_dir.mkdir(parents=True, exist_ok=True)
-    synth_path = ss_dir / _OUTPUT_STEMS["synth_t1w"]
+    current_outputs = find_supersynth_outputs(ss_dir)
+    synth_path = current_outputs.get("synth_t1w", expected_supersynth_output(ss_dir, "synth_t1w"))
 
     if not synth_path.exists() or force:
         logger.info(f"Generating SuperSynth T1w from {Path(anat_input.img).name}")
@@ -341,12 +361,18 @@ def ensure_supersynth_t1w(
             ),
             overwrite=force,
         )
+        current_outputs = find_supersynth_outputs(ss_dir)
+        synth_path = current_outputs.get("synth_t1w", synth_path)
 
     if not synth_path.exists():
-        logger.warning(f"SuperSynth did not produce expected T1w output: {synth_path}")
+        found = sorted(path.name for path in ss_dir.glob("*"))
+        logger.warning(
+            f"SuperSynth did not produce a recognized T1w output in {ss_dir}. "
+            f"Found: {found}"
+        )
         return None
 
-    context.setdefault("super_synth_outputs", {})["synth_t1w"] = synth_path
+    context.setdefault("super_synth_outputs", {}).update(current_outputs or {"synth_t1w": synth_path})
     context["super_synth_dir"] = ss_dir
     return ImageFile(entities=entities, img=synth_path, json=None)
 
@@ -367,8 +393,8 @@ def ensure_supersynth_outputs_for_image(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    expected = {key: out_dir / fname for key, fname in _OUTPUT_STEMS.items()}
-    if force or not expected["synth_t1w"].exists() or not expected["synth_t2w"].exists():
+    outputs = find_supersynth_outputs(out_dir)
+    if force or "synth_t1w" not in outputs or "synth_t2w" not in outputs:
         logger.info(f"Generating SuperSynth contrast set from {in_path.name}")
         freesurfer.mri_super_synth(
             in_file=in_path,
@@ -383,5 +409,6 @@ def ensure_supersynth_outputs_for_image(
             ),
             overwrite=force,
         )
+        outputs = find_supersynth_outputs(out_dir)
 
-    return {key: path for key, path in expected.items() if path.exists()}
+    return outputs

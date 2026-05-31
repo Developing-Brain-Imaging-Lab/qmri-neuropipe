@@ -616,6 +616,114 @@ def _match_series(sidecar: dict[str, Any], series_meta: list[GeDicomSeriesMetada
     return None
 
 
+def _normalize_match_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return re.sub(r"\s+", " ", text).casefold()
+
+
+def _series_identity(series_meta: GeDicomSeriesMetadata) -> tuple[str, str]:
+    if series_meta.series_instance_uid:
+        return ("uid", series_meta.series_instance_uid)
+    if series_meta.series_number is not None:
+        return ("number", str(series_meta.series_number))
+    return ("dicom", str(series_meta.dicom_path))
+
+
+def _series_sort_key(series_meta: GeDicomSeriesMetadata) -> tuple[Any, ...]:
+    if series_meta.series_number is not None:
+        return (0, series_meta.series_number, str(series_meta.dicom_path))
+    return (1, series_meta.series_instance_uid or "", str(series_meta.dicom_path))
+
+
+def _natural_sort_key(value: str) -> tuple[Any, ...]:
+    parts = re.split(r"(\d+)", value)
+    return tuple(int(part) if part.isdigit() else part.casefold() for part in parts)
+
+
+def _sidecar_run_order_key(json_path: Path) -> tuple[Any, ...]:
+    text = json_path.name
+    run_match = re.search(r"(?:^|_)run-([0-9]+)(?:_|$)", text, flags=re.IGNORECASE)
+    if run_match:
+        return (0, int(run_match.group(1)), _natural_sort_key(str(json_path)))
+    return (1, _natural_sort_key(str(json_path)))
+
+
+def _sidecar_series_signature(sidecar: dict[str, Any]) -> Optional[tuple[Optional[str], Optional[str]]]:
+    ids = _get_series_identifiers(sidecar)
+    description = _normalize_match_text(ids["SeriesDescription"])
+    protocol = _normalize_match_text(ids["ProtocolName"])
+    if description is None:
+        return None
+    return (description, protocol)
+
+
+def _series_matches_signature(
+    series_meta: GeDicomSeriesMetadata,
+    signature: tuple[Optional[str], Optional[str]],
+) -> bool:
+    description, protocol = signature
+    if description is not None and _normalize_match_text(series_meta.series_description) != description:
+        return False
+    if protocol is not None and _normalize_match_text(series_meta.protocol_name) != protocol:
+        return False
+    return True
+
+
+def _match_unresolved_sidecars_by_order(
+    unresolved: list[tuple[Path, dict[str, Any]]],
+    series_meta: list[GeDicomSeriesMetadata],
+    used_series: set[tuple[str, str]],
+    logger: logging.Logger,
+) -> dict[Path, GeDicomSeriesMetadata]:
+    """
+    Match repeated DWI runs when converted BIDS sidecars lack UID/series number.
+
+    dcm2bids can emit run-01/run-02 sidecars that retain the same
+    SeriesDescription/ProtocolName for each run while omitting SeriesInstanceUID
+    and SeriesNumber. In that case the only unambiguous information left is the
+    ordered set of sidecars and the ordered set of GE DICOM series with the same
+    description/protocol. This fallback is only applied when counts match.
+    """
+    by_signature: dict[tuple[Optional[str], Optional[str]], list[tuple[Path, dict[str, Any]]]] = {}
+    for item in unresolved:
+        signature = _sidecar_series_signature(item[1])
+        if signature is None:
+            continue
+        by_signature.setdefault(signature, []).append(item)
+
+    matches: dict[Path, GeDicomSeriesMetadata] = {}
+    newly_used: set[tuple[str, str]] = set()
+
+    for signature, sidecar_group in by_signature.items():
+        candidates = [
+            meta
+            for meta in series_meta
+            if _series_identity(meta) not in used_series
+            and _series_identity(meta) not in newly_used
+            and _series_matches_signature(meta, signature)
+        ]
+        if len(sidecar_group) <= 1 or len(candidates) != len(sidecar_group):
+            continue
+
+        ordered_sidecars = sorted(sidecar_group, key=lambda item: _sidecar_run_order_key(item[0]))
+        ordered_series = sorted(candidates, key=_series_sort_key)
+        for (json_path, _sidecar), meta in zip(ordered_sidecars, ordered_series):
+            matches[json_path] = meta
+            newly_used.add(_series_identity(meta))
+
+        logger.info(
+            "Matched %d repeated DWI run sidecar(s) to GE DICOM series by ordered "
+            "SeriesDescription/ProtocolName group.",
+            len(ordered_sidecars),
+        )
+
+    return matches
+
+
 def enrich_dwi_sidecar_with_ge_gnl(
     json_path: Path,
     series_meta: GeDicomSeriesMetadata,
@@ -776,14 +884,34 @@ def enrich_existing_dwi_sidecars_with_ge_gnl(
     updated = 0
     unchanged = 0
     unmatched: list[str] = []
+    loaded_sidecars = [(json_path, _load_json(json_path)) for json_path in sidecars]
+    direct_matches: dict[Path, GeDicomSeriesMetadata] = {}
+    unresolved: list[tuple[Path, dict[str, Any]]] = []
+    used_series: set[tuple[str, str]] = set()
 
-    for json_path in sidecars:
-        sidecar = _load_json(json_path)
+    for json_path, sidecar in loaded_sidecars:
         match = _match_series(sidecar, series_meta)
 
         if match is None and len(series_meta) == 1:
             match = series_meta[0]
 
+        if match is None:
+            unresolved.append((json_path, sidecar))
+            continue
+
+        direct_matches[json_path] = match
+        used_series.add(_series_identity(match))
+
+    ordered_matches = _match_unresolved_sidecars_by_order(
+        unresolved,
+        series_meta,
+        used_series,
+        logger,
+    )
+    all_matches = {**direct_matches, **ordered_matches}
+
+    for json_path, _sidecar in loaded_sidecars:
+        match = all_matches.get(json_path)
         if match is None:
             unmatched.append(str(json_path))
             continue

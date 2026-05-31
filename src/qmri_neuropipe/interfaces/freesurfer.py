@@ -2,13 +2,15 @@
 from pathlib import Path
 import json, csv
 from datetime import datetime
+import logging
 from typing import Optional, Union
 
 from ..core.run import run_cmd
 from ..core.types import ImageLike
-from ..core.run import run_cmd
-from ..core.types import ImageLike
 from ..core.utils import extract_image_path
+
+LOGGER = logging.getLogger(__name__)
+
 
 def write_sidecar(target: Path, meta: dict):
     sc = target.with_suffix(target.suffix + ".json")
@@ -71,7 +73,19 @@ def mri_synthstrip(in_file: ImageLike | Path, out_file: Path, nthreads: Optional
     mask_arg = f"-m {mask_out}" if mask_out else ""
     gpu_arg = "--gpu" if gpu else ""
     
-    run_cmd(f"mri_synthstrip -i {in_p} -o {out_file} {thread_arg} {mask_arg} {gpu_arg}")
+    cmd = f"mri_synthstrip -i {in_p} -o {out_file} {thread_arg} {mask_arg} {gpu_arg}"
+    try:
+        run_cmd(cmd)
+    except RuntimeError as exc:
+        if not gpu or "CUDA is not available" not in str(exc):
+            raise
+
+        LOGGER.warning("mri_synthstrip GPU requested but CUDA is unavailable; retrying on CPU.")
+        for path in (out_p, Path(mask_out) if mask_out else None):
+            if path and path.exists():
+                path.unlink()
+        cpu_cmd = f"mri_synthstrip -i {in_p} -o {out_file} {thread_arg} {mask_arg}"
+        run_cmd(cpu_cmd)
     return out_file, mask_out
 
 
@@ -434,9 +448,25 @@ def mri_super_synth(
     out_p = Path(out_dir)
     out_p.mkdir(parents=True, exist_ok=True)
 
-    # Skip if outputs already exist (use segmentation file as sentinel)
-    seg_sentinel = out_p / "seg.nii.gz"
-    if seg_sentinel.exists() and not overwrite:
+    # Skip if outputs already exist. Filenames differ across FreeSurfer
+    # SuperSynth builds, and downstream Synb0/coregistration need SynthT1.
+    seg_sentinels = (
+        out_p / "segmentation.mgz",
+        out_p / "seg.nii.gz",
+        out_p / "seg.mgz",
+        out_p / "segmentation.nii.gz",
+    )
+    synth_t1_sentinels = (
+        out_p / "SynthT1.mgz",
+        out_p / "T1w.nii.gz",
+        out_p / "SynthT1.nii.gz",
+        out_p / "T1w.mgz",
+    )
+    if (
+        any(path.exists() for path in seg_sentinels)
+        and any(path.exists() for path in synth_t1_sentinels)
+        and not overwrite
+    ):
         return out_p
 
     cmd = f"mri_super_synth --i {in_p} --o {out_p} --mode {mode} --threads {threads}"
