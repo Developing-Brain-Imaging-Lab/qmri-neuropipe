@@ -121,6 +121,16 @@ def _resolve_freesurfer_subject(config, context: Optional[dict], input_image=Non
     return subjects_dir, candidates[-1] if candidates else None
 
 
+def _resolve_freesurfer_anatomical_mgz(subject_dir: Path) -> Optional[Path]:
+    """Return the best FreeSurfer anatomical MGZ for registration reference."""
+    mri_dir = Path(subject_dir) / "mri"
+    for name in ("orig.mgz", "native.mgz"):
+        candidate = mri_dir / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 class NonlinearRegistrationStep(BaseProcessingStep):
     """
     Nonlinear registration (SyN) to a template.
@@ -327,7 +337,7 @@ class CoregistrationStep(BaseProcessingStep):
         options = options or {}
         fs_subjects_dir = None
         fs_subject_id = None
-        fs_orig_mgz = None
+        fs_reference_mgz = None
         fs_registration_target = None
         if self.method == "freesurfer":
             fs_subjects_dir, fs_subject_id = _resolve_freesurfer_subject(
@@ -343,12 +353,17 @@ class CoregistrationStep(BaseProcessingStep):
                 )
 
             if fs_subjects_dir and fs_subject_id:
-                fs_orig_mgz = fs_subjects_dir / fs_subject_id / "mri" / "orig.mgz"
-                if not fs_orig_mgz.exists():
+                fs_subject_dir = fs_subjects_dir / fs_subject_id
+                fs_reference_mgz = _resolve_freesurfer_anatomical_mgz(fs_subject_dir)
+                if fs_reference_mgz is None:
                     self.logger.warning(
-                        f"FreeSurfer orig.mgz not found: {fs_orig_mgz}. Falling back to target image."
+                        f"FreeSurfer anatomical reference not found under {fs_subject_dir / 'mri'} "
+                        "(checked orig.mgz, native.mgz). Falling back to target image."
                     )
-                    fs_orig_mgz = None
+                elif fs_reference_mgz.name == "native.mgz":
+                    self.logger.info(
+                        f"FreeSurfer orig.mgz not found for {fs_subject_id}; using recon-all-clinical native.mgz."
+                    )
                 self.logger.info(f"Using FreeSurfer subject for bbregister: {fs_subject_id} (SUBJECTS_DIR={fs_subjects_dir})")
 
         output_dir = self.get_step_output_dir(output_dir)
@@ -386,11 +401,13 @@ class CoregistrationStep(BaseProcessingStep):
         # Determine nthreads
         nthreads = kwargs.get('nthreads', self.config.n_cpus)
 
-        if self.method == "freesurfer" and fs_orig_mgz is not None:
-            fs_registration_target = output_dir / "freesurfer_orig.nii.gz"
+        if self.method == "freesurfer" and fs_reference_mgz is not None:
+            fs_registration_target = output_dir / f"freesurfer_{fs_reference_mgz.stem}.nii.gz"
             if not fs_registration_target.exists() or kwargs.get("force", False):
-                self.logger.info("Converting FreeSurfer orig.mgz to NIfTI for registration reference...")
-                freesurfer.mri_convert(fs_orig_mgz, fs_registration_target)
+                self.logger.info(
+                    f"Converting FreeSurfer {fs_reference_mgz.name} to NIfTI for registration reference..."
+                )
+                freesurfer.mri_convert(fs_reference_mgz, fs_registration_target)
 
         # --- PRE-REGISTRATION: Extract Reference for Calculation/Application ---
         # We extract this even if should_run is False, as it may be needed for mask transform conversion

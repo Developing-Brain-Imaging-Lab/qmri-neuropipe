@@ -49,12 +49,13 @@ def _worker_wrapper(pipeline_cls, config_dict, subject, session):
     Must be top-level for pickle compatibility.
     """
     try:
+        os.environ["QMRI_PARALLEL_WORKER"] = "1"
         # Reconstruct config from dict
         config = PipelineConfig.from_dict(config_dict)
         # Instantiate pipeline
         pipeline = pipeline_cls(config)
         # Process
-        pipeline.process_subject(subject, session)
+        pipeline._process_subject_with_subject_log(subject, session)
         return (subject, session, True, None)
     except Exception as e:
         return (subject, session, False, str(e))
@@ -949,7 +950,7 @@ class BasePipeline(ABC):
                 self.logger.info(f"  PROCESSING: sub-{subject}" + (f" ses-{session}" if session else ""))
                 self.logger.info("="*80 + "\n")
                 
-                self.process_subject(subject, session)
+                self._process_subject_with_subject_log(subject, session)
                 
                 n_success += 1
                 self.logger.info(
@@ -974,6 +975,43 @@ class BasePipeline(ABC):
             'n_failed': n_failed,
             'n_skipped': n_skipped
         }
+
+    def _subject_log_file(self, subject: str, session: Optional[str]) -> Path:
+        """Return a per-subject derivative log path for this pipeline run."""
+        log_dir = self._get_output_dir(subject, session) / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"{self.name}_sub-{subject}"
+        if session:
+            name += f"_ses-{session}"
+        return log_dir / f"{name}_{timestamp}.log"
+
+    def _process_subject_with_subject_log(self, subject: str, session: Optional[str]) -> None:
+        """
+        Process one subject while teeing logs into that subject's derivative folder.
+
+        The top-level run log remains under ``<output_dir>/logs``; this handler
+        makes parallel or split-terminal runs easier to inspect by placing the
+        subject/session-specific log alongside that subject's derivatives.
+        """
+        log_file = self._subject_log_file(subject, session)
+        handler = logging.FileHandler(log_file)
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        ))
+
+        loggers = [self.logger, logging.getLogger("qmri-neuropipe")]
+        for logger in loggers:
+            logger.addHandler(handler)
+
+        try:
+            self.logger.info(f"Subject/session log: {log_file}")
+            self.process_subject(subject, session)
+        finally:
+            for logger in loggers:
+                logger.removeHandler(handler)
+            handler.close()
 
     def _run_parallel(self, data, jobs):
         """Execute pipeline in parallel using ProcessPoolExecutor."""
@@ -1166,11 +1204,16 @@ getenv = True{concurrency_directive}
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         fh.setFormatter(file_formatter)
+        logger.addHandler(fh)
         
         # Console Handler
         # Skip console handler in parallel mode to avoid duplication in TUI
         if os.environ.get('QMRI_PARALLEL_WORKER'):
             logger.info(f"Logging to {log_file} (Console handler suppressed in parallel mode)")
+            lib_logger = logging.getLogger("qmri-neuropipe")
+            lib_logger.setLevel(logging.DEBUG)
+            lib_logger.handlers.clear()
+            lib_logger.addHandler(fh)
             return logger
 
         console_formatter = logging.Formatter('%(levelname)s: %(message)s')
@@ -1197,8 +1240,6 @@ getenv = True{concurrency_directive}
         
         ch.setLevel(getattr(logging, self.config.log_level))
         
-        # Add handlers to pipeline logger
-        logger.addHandler(fh)
         logger.addHandler(ch)
         
         # ALSO configure the 'qmri-neuropipe' logger used by utilities
