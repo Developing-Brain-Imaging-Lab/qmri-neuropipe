@@ -370,7 +370,7 @@ def report_modeling_step(
         If None, uses output_dir
     """
     from qmri_neuropipe.lib.reporting.viz import create_metric_grid
-    from ...lib.dmri.fitting import (
+    from qmri_neuropipe.lib.dmri.fitting import (
         DTIFittingStep,
         DKIFittingStep,
         NODDIFittingStep,

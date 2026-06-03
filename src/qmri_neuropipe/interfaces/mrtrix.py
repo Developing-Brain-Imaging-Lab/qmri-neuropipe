@@ -566,10 +566,9 @@ def dwi2fod(
     if force:
         cmd.append("-force")
     
-    # Use shlex.join for robustness if we were using a list, 
-    # but run_cmd currently expects a string. 
-    # For now, keep " ".join(cmd) but ensure args are sanitized.
-    _run_mrtrix(cmd, label=f"dwi2fod-{algorithm}", script=True)
+    # dwi2fod is a compiled MRtrix binary, not a Python script. It accepts
+    # -config temp-dir settings but not the script-only -scratch option.
+    _run_mrtrix(cmd, label=f"dwi2fod-{algorithm}")
     
     return fods
 
