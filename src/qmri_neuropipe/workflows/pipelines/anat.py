@@ -20,6 +20,9 @@ import json
 import time
 from dataclasses import dataclass, field
 
+import nibabel as nib
+import numpy as np
+
 from ...core import BasePipeline, BaseWorkflow, PipelineConfig, ProcessingError
 from ...core.types import ImageFile
 from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
@@ -59,6 +62,7 @@ class PreprocessingConfig:
     recon_all: Dict[str, Any] = field(default_factory=dict)
     use_freesurfer: bool = False
     force_run: bool = False
+    skull_stripped_outputs: bool = False
 
 @dataclass
 class NormalizationConfig:
@@ -121,6 +125,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         qc_cfg = self.config.get("qc", {}).get("mriqc", {})
         freesurfer_use = preprocessing_cfg.get("use_freesurfer", False) or anat_raw_cfg.get("use_freesurfer", False)
         ss_cfg = anat_raw_cfg.get("super_synth", {})
+        brain_masking_cfg = preprocessing_cfg.get("brain_masking", {})
         
         self.anat_config = AnatomicalConfig(
             preprocessing=PreprocessingConfig(
@@ -131,12 +136,16 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 gibbs=preprocessing_cfg.get("gibbs", {}),
                 bias_correction=preprocessing_cfg.get("bias_correction", {}),
                 sharpen=preprocessing_cfg.get("sharpen", {}),
-                brain_masking=preprocessing_cfg.get("brain_masking", {}),
+                brain_masking=brain_masking_cfg,
                 coregistration=preprocessing_cfg.get("coregistration", {}),
                 normalization=normalization_cfg,
                 recon_all=preprocessing_cfg.get("recon_all", {}),
                 use_freesurfer=freesurfer_use,
                 force_run=preprocessing_cfg.get("force_run", False),
+                skull_stripped_outputs=preprocessing_cfg.get(
+                    "skull_stripped_outputs",
+                    brain_masking_cfg.get("output_skull_stripped", False),
+                ),
             ),
             normalization=NormalizationConfig(
                 enabled=normalization_cfg.get("enabled", False),
@@ -1082,6 +1091,26 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
+        skull_stripped_outputs = bool(self.anat_config.preprocessing.skull_stripped_outputs)
+
+        def _store_skull_stripped_preproc(img_key: str, img_obj: Optional[ImageFile], mask_obj: Optional[ImageFile]) -> None:
+            if not skull_stripped_outputs:
+                return
+            if not img_obj or not mask_obj:
+                return
+            publish_dir = final_output_dir or output_dir
+            brain_obj = self._write_masked_anat_derivative(
+                img_obj,
+                mask_obj,
+                publish_dir,
+                desc="preproc-brain",
+                suffix=img_obj.entities.get("suffix", "T1w"),
+                errors=errors,
+                reporter=reporter,
+                label=f"BrainMasking_{img_obj.entities.get('suffix', img_key)}",
+            )
+            if brain_obj:
+                context[f"{img_key}_brain"] = brain_obj
 
         skipped_mask = False
         if final_output_dir and skip_existing:
@@ -1097,6 +1126,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if m_dest.exists():
                 self.logger.info(f"Skipping Brain Masking (Found existing mask: {m_fname})")
                 context["brain_mask"] = ImageFile(entities=m_ents, img=m_dest)
+                _store_skull_stripped_preproc(ref_img_key, target_img, context["brain_mask"])
                 skipped_mask = True
                 step_metrics.append({"Step": "BrainMasking", "Status": "Skipped (Found)", "Duration": "0s"})
 
@@ -1118,6 +1148,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 step_metrics.append({"Step": "BrainMasking", "Status": "Completed", "Duration": f"{dur:.2f}s"})
 
                 context["brain_mask"] = mask
+                _store_skull_stripped_preproc(ref_img_key, brain_masked, mask)
 
                 # Validate mask output
                 if not (hasattr(mask, 'img') and mask.img.exists()):
@@ -1164,6 +1195,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 if reporter:
                     self._add_anat_step("BrainMasking", {"Status": "Failed to Save Intermediate"}, details={"error": str(e)})
 
+        if skull_stripped_outputs and "brain_mask" in context:
+            _store_skull_stripped_preproc("preprocessed_t1w", context.get("preprocessed_t1w"), context.get("brain_mask"))
+            _store_skull_stripped_preproc(
+                "preprocessed_t2w",
+                context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w"),
+                context.get("brain_mask"),
+            )
+
         # Run QC if enabled on brain mask
         try:
             self._run_mriqc_qc([context.get("brain_mask")], output_dir, context, reporter)
@@ -1184,6 +1223,73 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         self._validate_outputs(context, step_metrics, reporter)
 
         return context, step_metrics
+
+    def _write_masked_anat_derivative(
+        self,
+        img_obj: ImageFile,
+        mask_obj: ImageFile,
+        output_dir: Path,
+        *,
+        desc: str,
+        suffix: str,
+        errors: List[str],
+        reporter=None,
+        label: str = "BrainMaskedImage",
+    ) -> Optional[ImageFile]:
+        """Write an anatomical image with all voxels outside ``mask_obj`` set to zero."""
+        if not (
+            img_obj
+            and hasattr(img_obj, "img")
+            and img_obj.img
+            and Path(img_obj.img).exists()
+            and mask_obj
+            and hasattr(mask_obj, "img")
+            and mask_obj.img
+            and Path(mask_obj.img).exists()
+        ):
+            return None
+
+        ents = dict(getattr(img_obj, "entities", {}) or {})
+        ents["desc"] = desc
+        ents.setdefault("suffix", suffix)
+        dest = output_dir / build_bids_name(ents)
+        if dest.exists() and self.config.get("skip_existing", False):
+            return ImageFile(entities=ents, img=dest, json=getattr(img_obj, "json", None))
+
+        try:
+            img_nii = nib.load(str(img_obj.img))
+            mask_nii = nib.load(str(mask_obj.img))
+            img_data = img_nii.get_fdata()
+            mask_data = mask_nii.get_fdata() > 0.5
+
+            if img_data.shape[:3] != mask_data.shape[:3]:
+                msg = (
+                    f"Cannot create {desc} derivative for {Path(img_obj.img).name}: "
+                    f"image shape {img_data.shape[:3]} does not match mask shape {mask_data.shape[:3]}."
+                )
+                self.logger.warning(msg)
+                errors.append(msg)
+                return None
+
+            if img_data.ndim == 4 and mask_data.ndim == 3:
+                mask_data = mask_data[..., np.newaxis]
+
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            masked_data = img_data * mask_data
+            masked_nii = nib.Nifti1Image(masked_data.astype(img_nii.get_data_dtype()), img_nii.affine, img_nii.header)
+            nib.save(masked_nii, str(dest))
+
+            if img_obj.json and img_obj.json.exists():
+                shutil.copy2(img_obj.json, dest.with_suffix("").with_suffix(".json"))
+
+            return ImageFile(entities=ents, img=dest, json=getattr(img_obj, "json", None))
+        except Exception as e:
+            msg = f"Failed to create {desc} derivative for {Path(img_obj.img).name}: {e}"
+            self.logger.warning(msg)
+            errors.append(msg)
+            if reporter:
+                self._add_anat_step(label, {"Status": "Failed"}, details={"error": str(e), "desc": desc})
+            return None
 
     def _run_normalization(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, figures_dir: Path, step_metrics: List[dict]) -> (dict, List[dict]):
         """
@@ -1321,7 +1427,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                                 self._add_anat_step("Normalization_T2w", {"Status": "Template Missing"})
                     else:
                         self.logger.info(f"Skipping T2w Normalization (Exists): {norm_t2_path}")
-                        context["preprocessed_t2w"] = ImageFile(norm_t2_path, self.config.bids_dir, entities=ents)
+                        context["preprocessed_t2w"] = ImageFile(entities=ents, img=norm_t2_path)
 
                         tracker = self.config.tracker
                         if tracker and context.get('subject') and context.get('session'):
@@ -1335,6 +1441,80 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     errors.append(err_msg)
                     if reporter:
                         self._add_anat_step("Normalization_T2w", {"Status": "Failed"}, details={"error": str(e)})
+
+        def _normalize_brain_img(img_obj, suffix: str):
+            if not (img_obj and hasattr(img_obj, 'entities') and hasattr(img_obj, 'img') and img_obj.img.exists()):
+                return None
+
+            transform = context.get("template_transform")
+            template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
+            if not (transform and template):
+                return None
+
+            ents = dict(img_obj.entities)
+            ents['space'] = norm_space
+            ents['desc'] = 'norm-brain'
+            if 'suffix' not in ents:
+                ents['suffix'] = suffix
+
+            publish_dir = final_output_dir or output_dir
+            norm_brain_path = publish_dir / build_bids_name(ents)
+            if norm_brain_path.exists() and skip_existing:
+                return ImageFile(entities=ents, img=norm_brain_path, json=getattr(img_obj, "json", None))
+
+            try:
+                transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
+                if transform_type == "fsl" or Path(transform).suffix == ".mat":
+                    if not Path(transform).exists():
+                        return None
+                    interp = (
+                        self.anat_config.preprocessing.normalization.get("options", {}).get("interpolation")
+                        or "trilinear"
+                    )
+                    fsl.applywarp(
+                        in_file=img_obj.img,
+                        ref_file=Path(template),
+                        out_file=norm_brain_path,
+                        premat=Path(transform),
+                        interp=interp,
+                        force=True,
+                    )
+                else:
+                    prefix = Path(transform)
+                    warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
+                    affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
+                    if not (warp.exists() and affine.exists()):
+                        self.logger.warning(
+                            f"Could not create normalized skull-stripped {suffix}: missing {warp.name} or {affine.name}."
+                        )
+                        return None
+                    ants.apply_transforms(
+                        fixed_file=Path(template),
+                        moving_file=img_obj.img,
+                        out_file=norm_brain_path,
+                        transforms=[warp, affine],
+                        interpolator='linear'
+                    )
+
+                if img_obj.json and img_obj.json.exists():
+                    shutil.copy2(img_obj.json, norm_brain_path.with_suffix("").with_suffix(".json"))
+                return ImageFile(entities=ents, img=norm_brain_path, json=getattr(img_obj, "json", None))
+            except Exception as e:
+                err_msg = f"Failed to create normalized skull-stripped {suffix}: {e}"
+                self.logger.warning(err_msg)
+                errors.append(err_msg)
+                if reporter:
+                    self._add_anat_step(f"Normalization_{suffix}_Brain", {"Status": "Failed"}, details={"error": str(e)})
+                return None
+
+        if self.anat_config.preprocessing.skull_stripped_outputs:
+            norm_t1_brain = _normalize_brain_img(context.get("preprocessed_t1w_brain"), "T1w")
+            if norm_t1_brain:
+                context["normalized_t1w_brain"] = norm_t1_brain
+
+            norm_t2_brain = _normalize_brain_img(context.get("preprocessed_t2w_brain"), "T2w")
+            if norm_t2_brain:
+                context["normalized_t2w_brain"] = norm_t2_brain
 
         if reporter:
             try:
@@ -1661,6 +1841,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             t1_path = final_output_dir / build_bids_name(ents)
             anat_outputs["Final Preprocessed Images"].append({"key": "Preprocessed T1w", "path": str(t1_path)})
 
+        pre_t1_brain = context.get("preprocessed_t1w_brain")
+        if pre_t1_brain:
+            anat_outputs["Final Preprocessed Images"].append({
+                "key": "Skull-stripped Preprocessed T1w",
+                "path": str(pre_t1_brain.img),
+            })
+
         # T2w Path
         pre_t2 = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
         if pre_t2:
@@ -1670,6 +1857,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 ents['suffix'] = 'T2w'
             t2_path = final_output_dir / build_bids_name(ents)
             anat_outputs["Final Preprocessed Images"].append({"key": "Preprocessed T2w", "path": str(t2_path)})
+
+        pre_t2_brain = context.get("preprocessed_t2w_brain")
+        if pre_t2_brain:
+            anat_outputs["Final Preprocessed Images"].append({
+                "key": "Skull-stripped Preprocessed T2w",
+                "path": str(pre_t2_brain.img),
+            })
 
         # Mask Path
         mask_img = context.get("brain_mask")
@@ -1712,6 +1906,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         preprocessed_t1w = None
         preprocessed_t2w = None
+        preprocessed_t1w_brain = None
+        preprocessed_t2w_brain = None
+        normalized_t1w_brain = None
+        normalized_t2w_brain = None
         brain_mask = None
 
         if t1w_files:
@@ -1751,9 +1949,54 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if mask_path.exists():
             brain_mask = ImageFile(entities=mask_entities, img=mask_path, json=None)
 
+        if brain_mask and self.anat_config.preprocessing.skull_stripped_outputs:
+            if preprocessed_t1w:
+                t1_brain_entities = dict(preprocessed_t1w.entities)
+                t1_brain_entities["desc"] = "preproc-brain"
+                t1_brain_name = build_bids_name(t1_brain_entities)
+                t1_brain_path = final_output_dir / t1_brain_name
+                if not t1_brain_path.exists():
+                    return None
+                preprocessed_t1w_brain = ImageFile(entities=t1_brain_entities, img=t1_brain_path, json=None)
+
+            if preprocessed_t2w:
+                t2_brain_entities = dict(preprocessed_t2w.entities)
+                t2_brain_entities["desc"] = "preproc-brain"
+                t2_brain_name = build_bids_name(t2_brain_entities)
+                t2_brain_path = final_output_dir / t2_brain_name
+                if not t2_brain_path.exists():
+                    return None
+                preprocessed_t2w_brain = ImageFile(entities=t2_brain_entities, img=t2_brain_path, json=None)
+
+        norm_cfg = self.anat_config.preprocessing.normalization or {}
+        if self.anat_config.preprocessing.skull_stripped_outputs and norm_cfg.get("enabled"):
+            norm_space = norm_cfg.get("space_entity", norm_cfg.get("space_name", norm_cfg.get("space", "Standard")))
+
+            if preprocessed_t1w_brain:
+                norm_t1_entities = dict(preprocessed_t1w_brain.entities)
+                norm_t1_entities["space"] = norm_space
+                norm_t1_entities["desc"] = "norm-brain"
+                norm_t1_path = final_output_dir / build_bids_name(norm_t1_entities)
+                if not norm_t1_path.exists():
+                    return None
+                normalized_t1w_brain = ImageFile(entities=norm_t1_entities, img=norm_t1_path, json=None)
+
+            if preprocessed_t2w_brain:
+                norm_t2_entities = dict(preprocessed_t2w_brain.entities)
+                norm_t2_entities["space"] = norm_space
+                norm_t2_entities["desc"] = "norm-brain"
+                norm_t2_path = final_output_dir / build_bids_name(norm_t2_entities)
+                if not norm_t2_path.exists():
+                    return None
+                normalized_t2w_brain = ImageFile(entities=norm_t2_entities, img=norm_t2_path, json=None)
+
         return {
             "preprocessed_t1w": preprocessed_t1w,
             "preprocessed_t2w": preprocessed_t2w,
+            "preprocessed_t1w_brain": preprocessed_t1w_brain,
+            "preprocessed_t2w_brain": preprocessed_t2w_brain,
+            "normalized_t1w_brain": normalized_t1w_brain,
+            "normalized_t2w_brain": normalized_t2w_brain,
             "brain_mask": brain_mask
         }
 
