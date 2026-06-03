@@ -7,6 +7,7 @@ Supports coregistration of any two images using ANTs, FSL, or FreeSurfer.
 from pathlib import Path
 from typing import Optional, Literal, Tuple, Dict, Any
 import logging
+import shutil
 import nibabel as nib
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
@@ -129,6 +130,27 @@ def _resolve_freesurfer_anatomical_mgz(subject_dir: Path) -> Optional[Path]:
         if candidate.exists():
             return candidate
     return None
+
+
+def _ensure_freesurfer_orig_mgz(subject_dir: Path, logger: logging.Logger) -> Optional[Path]:
+    """Ensure bbregister can read mri/orig.mgz for recon-all-clinical subjects."""
+    mri_dir = Path(subject_dir) / "mri"
+    orig = mri_dir / "orig.mgz"
+    native = mri_dir / "native.mgz"
+    if orig.exists():
+        return orig
+    if not native.exists():
+        return None
+
+    try:
+        orig.symlink_to(native.name)
+        logger.info(f"Created FreeSurfer orig.mgz symlink to native.mgz for {subject_dir.name}.")
+    except Exception as e:
+        logger.warning(
+            f"Could not symlink FreeSurfer orig.mgz to native.mgz ({e}); copying native.mgz instead."
+        )
+        shutil.copy2(native, orig)
+    return orig
 
 
 class NonlinearRegistrationStep(BaseProcessingStep):
@@ -594,6 +616,12 @@ class CoregistrationStep(BaseProcessingStep):
                          if not fs_subjects_dir or not fs_subject_id:
                              raise ProcessingError(
                                  "Unable to resolve FreeSurfer subject directory for bbregister."
+                             )
+                         fs_subject_dir = fs_subjects_dir / fs_subject_id
+                         if not _ensure_freesurfer_orig_mgz(fs_subject_dir, self.logger):
+                             raise ProcessingError(
+                                 f"FreeSurfer bbregister requires {fs_subject_dir / 'mri' / 'orig.mgz'} "
+                                 "or recon-all-clinical native.mgz."
                              )
 
                          fs_contrast = options.get("contrast_type")

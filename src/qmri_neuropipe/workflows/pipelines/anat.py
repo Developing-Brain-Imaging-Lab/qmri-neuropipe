@@ -530,7 +530,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if not skipped:
                 st = time.time()
                 try:
-                    processed_t1 = step(processed_t1, output_dir=output_dir, force=force_run)
+                    if isinstance(step, ReconAllStep):
+                        context["current_image"] = processed_t1
+                        processed_t1 = step(context, output_dir=output_dir, force=force_run)
+                    else:
+                        processed_t1 = step(processed_t1, output_dir=output_dir, force=force_run)
                 except Exception as e:
                     err_msg = f"Error during T1w {step_name}: {e}"
                     self.logger.error(err_msg)
@@ -2032,7 +2036,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             fs_sub_id += f"_ses-{session}"
 
         subj_dir = fs_dir / fs_sub_id
-        if ReconAllStep.has_complete_recon(subj_dir):
+        if ReconAllStep.has_complete_recon(subj_dir, method=recon_cfg.get("method")):
             return True
 
         self.logger.info(

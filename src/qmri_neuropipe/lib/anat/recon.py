@@ -78,8 +78,27 @@ class ReconAllStep(BaseProcessingStep):
         ]
 
     @classmethod
-    def has_complete_recon(cls, subj_dir: Path) -> bool:
-        return all(path.exists() for path in cls.critical_outputs(subj_dir))
+    def clinical_outputs(cls, subj_dir: Path) -> list[Path]:
+        return [
+            subj_dir / "mri" / "brainmask.mgz",
+            cls._aparc_aseg_path(subj_dir),
+            subj_dir / "surf" / "lh.white",
+            subj_dir / "surf" / "rh.white",
+        ]
+
+    @classmethod
+    def has_complete_recon(cls, subj_dir: Path, method: Optional[str] = None) -> bool:
+        method = str(method or "").lower()
+        standard_complete = all(path.exists() for path in cls.critical_outputs(subj_dir))
+        clinical_complete = (
+            all(path.exists() for path in cls.clinical_outputs(subj_dir))
+            and ((subj_dir / "mri" / "native.mgz").exists() or (subj_dir / "mri" / "brain.mgz").exists())
+        )
+        if method == "clinical":
+            return clinical_complete
+        if method == "standard":
+            return standard_complete
+        return standard_complete or clinical_complete
 
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer
@@ -117,7 +136,7 @@ class ReconAllStep(BaseProcessingStep):
         t1w_nii = output_dir / out_name
         mask_nii = output_dir / out_name.replace('T1w', 'mask')
         aparc_aseg = self._aparc_aseg_path(subj_dir)
-        fs_complete = self.has_complete_recon(subj_dir)
+        fs_complete = self.has_complete_recon(subj_dir, method=self.method)
         
         # If skip_existing enabled and final outputs exist, skip entirely
         if self.config.skip_existing and not kwargs.get('force', False):
@@ -161,7 +180,7 @@ class ReconAllStep(BaseProcessingStep):
         fs_dir.mkdir(parents=True, exist_ok=True)
         
         # Check integrity of key FS outputs, including aparc+aseg.mgz as a completion sentinel.
-        fs_complete = self.has_complete_recon(subj_dir)
+        fs_complete = self.has_complete_recon(subj_dir, method=self.method)
         
         if not fs_complete:
              if not recon_input:
@@ -227,8 +246,12 @@ class ReconAllStep(BaseProcessingStep):
                  # Convert brain.mgz
                  self.logger.info(f"Converting FS brain.mgz to {t1w_nii.name}")
                  
-                 # Ensure brain_mgz is defined (from critical_files check)
                  brain_mgz = subj_dir / "mri" / "brain.mgz"
+                 if not brain_mgz.exists() and self.method == "clinical":
+                     native_mgz = subj_dir / "mri" / "native.mgz"
+                     if native_mgz.exists():
+                         self.logger.info("FreeSurfer brain.mgz not found; using recon-all-clinical native.mgz.")
+                         brain_mgz = native_mgz
                  
                  freesurfer.mri_convert(brain_mgz, t1w_nii)
                  
