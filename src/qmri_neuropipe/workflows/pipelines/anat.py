@@ -24,6 +24,7 @@ import nibabel as nib
 import numpy as np
 
 from ...core import BasePipeline, BaseWorkflow, PipelineConfig, ProcessingError
+from ...core.step_control import get_rerun_from_step, step_force_active, step_matches, any_step_matches
 from ...core.types import ImageFile
 from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from ...io.bids import build_bids_name
@@ -441,10 +442,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         current_t1 = t1w_files[0]
         context["current_image"] = current_t1
         processed_t1 = current_t1
+        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+        force_from_step_active = bool(getattr(self, "_anat_force_from_step_active", False))
 
         for step in self.steps:
             if isinstance(step, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep, FreeSurferStatsStep)):
                 continue
+            force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
+            self._anat_force_from_step_active = force_from_step_active
 
             # If using FS, skip standard T1w preproc steps
             if use_fs and isinstance(step, (ResampleStep, ReorientStep, DenoisingStep, GibbsUnringingStep, BiasCorrectionStep, SharpeningStep)):
@@ -479,7 +484,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 step_desc = 'normalize'
 
             skipped = False
-            if final_output_dir and step_desc:
+            if final_output_dir and step_desc and not force_from_step_active:
                 ents = dict(processed_t1.entities)
                 ents['desc'] = step_desc
                 if 'suffix' not in ents:
@@ -530,11 +535,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if not skipped:
                 st = time.time()
                 try:
+                    step_force = force_run or force_from_step_active
+                    if force_from_step_active:
+                        self.logger.info(f"Forcing T1w {step_name} because rerun_from_step has been reached.")
                     if isinstance(step, ReconAllStep):
                         context["current_image"] = processed_t1
-                        processed_t1 = step(context, output_dir=output_dir, force=force_run)
+                        processed_t1 = step(context, output_dir=output_dir, force=step_force)
                     else:
-                        processed_t1 = step(processed_t1, output_dir=output_dir, force=force_run)
+                        processed_t1 = step(processed_t1, output_dir=output_dir, force=step_force)
                 except Exception as e:
                     err_msg = f"Error during T1w {step_name}: {e}"
                     self.logger.error(err_msg)
@@ -645,13 +653,18 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
+        force_run = self.anat_config.preprocessing.force_run
 
         current_t2 = t2w_files[0]
         processed_t2 = current_t2
+        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+        force_from_step_active = bool(getattr(self, "_anat_force_from_step_active", False))
 
         for step in self.steps:
             if isinstance(step, (ReconAllStep, NonlinearRegistrationStep, BrainMaskingStep, CoregistrationStep, SegmentationStep, FreeSurferStatsStep)):
                 continue
+            force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
+            self._anat_force_from_step_active = force_from_step_active
 
             step_name = step.__class__.__name__
             self.logger.info(f"Running T2w step: {step_name}")
@@ -672,7 +685,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 step_desc = 'sharpen'
 
             skipped = False
-            if final_output_dir and step_desc:
+            if final_output_dir and step_desc and not force_from_step_active:
                 ents = dict(processed_t2.entities)
                 ents['desc'] = step_desc
                 if 'suffix' not in ents:
@@ -704,7 +717,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if not skipped:
                 st = time.time()
                 try:
-                    processed_t2 = step(processed_t2, output_dir=output_dir)
+                    step_force = force_run or force_from_step_active
+                    if force_from_step_active:
+                        self.logger.info(f"Forcing T2w {step_name} because rerun_from_step has been reached.")
+                    processed_t2 = step(processed_t2, output_dir=output_dir, force=step_force)
                 except Exception as e:
                     err_msg = f"Error during T2w {step_name}: {e}"
                     self.logger.error(err_msg)
@@ -835,6 +851,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         try:
             coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method=coreg_cfg_run.get("method", "fsl"))
             coreg_step.modality = "Anatomical"
+            rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+            force_coreg = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(coreg_step, rerun_from_step)
+            self._anat_force_from_step_active = force_coreg
+            if force_coreg:
+                self.logger.info("Forcing Coregistration because rerun_from_step has been reached.")
 
             ref_img = coreg_cfg_run.get("reference_image", "t1w").lower()
 
@@ -872,7 +893,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         mode=coreg_options.get("supersynth_mode"),
                         device=coreg_options.get("supersynth_device"),
                         sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)),
+                        force=bool(coreg_options.get("force", False)) or force_coreg,
                     )
                     moving_outputs = ensure_supersynth_outputs_for_image(
                         moving,
@@ -882,7 +903,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         mode=coreg_options.get("supersynth_mode"),
                         device=coreg_options.get("supersynth_device"),
                         sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)),
+                        force=bool(coreg_options.get("force", False)) or force_coreg,
                     )
                     required = ("synth_t1w", "synth_t2w")
                     if not all(k in fixed_outputs and k in moving_outputs for k in required):
@@ -914,14 +935,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         mode=coreg_options.get("supersynth_mode"),
                         device=coreg_options.get("supersynth_device"),
                         sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)),
+                        force=bool(coreg_options.get("force", False)) or force_coreg,
                         subdir="supersynth_reference",
                     )
                     if not synth_ref:
                         raise ProcessingError("SuperSynth anatomical coregistration target could not be generated.")
                     self.logger.info("Coregistration: Reference=SuperSynth T1w. Registering anatomical image -> synthetic T1w.")
 
-                res_anat = coreg_step(moving, output_dir=output_dir, target=synth_ref.img, options=coreg_options)
+                res_anat = coreg_step(moving, output_dir=output_dir, target=synth_ref.img, options=coreg_options, force=force_coreg)
                 if isinstance(res_anat, dict):
                     res_anat = res_anat.get("current_image")
                 context["preprocessed_anat_coreg"] = res_anat
@@ -945,7 +966,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             elif ref_img == 't2w':
                 self.logger.info("Coregistration: Reference=T2w. Registering T1w -> T2w.")
-                res_t1 = coreg_step(context["preprocessed_t1w"], output_dir=output_dir, target=context["preprocessed_t2w"].img, options=coreg_options)
+                res_t1 = coreg_step(context["preprocessed_t1w"], output_dir=output_dir, target=context["preprocessed_t2w"].img, options=coreg_options, force=force_coreg)
                 if isinstance(res_t1, dict):
                     res_t1 = res_t1.get("current_image")
                 context["preprocessed_t1w"] = res_t1
@@ -964,7 +985,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             else:
                 self.logger.info("Coregistration: Reference=T1w. Registering T2w -> T1w.")
                 moving_t2 = _prepare_t2w_for_freesurfer_coreg()
-                res_t2 = coreg_step(moving_t2, output_dir=output_dir, target=context["preprocessed_t1w"].img, options=coreg_options)
+                res_t2 = coreg_step(moving_t2, output_dir=output_dir, target=context["preprocessed_t1w"].img, options=coreg_options, force=force_coreg)
                 if isinstance(res_t2, dict):
                     res_t2 = res_t2.get("current_image")
                 context["preprocessed_t2w_coreg"] = res_t2
@@ -1096,6 +1117,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
         skull_stripped_outputs = bool(self.anat_config.preprocessing.skull_stripped_outputs)
+        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+        force_masking = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(mask_step, rerun_from_step)
+        self._anat_force_from_step_active = force_masking
+        if force_masking:
+            self.logger.info("Forcing Brain Masking because rerun_from_step has been reached.")
 
         def _store_skull_stripped_preproc(img_key: str, img_obj: Optional[ImageFile], mask_obj: Optional[ImageFile]) -> None:
             if not skull_stripped_outputs:
@@ -1112,12 +1138,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 errors=errors,
                 reporter=reporter,
                 label=f"BrainMasking_{img_obj.entities.get('suffix', img_key)}",
+                force=force_masking,
             )
             if brain_obj:
                 context[f"{img_key}_brain"] = brain_obj
 
         skipped_mask = False
-        if final_output_dir and skip_existing:
+        if final_output_dir and skip_existing and not force_masking:
             m_ents = dict(target_img.entities)
             m_ents['desc'] = 'preproc'
             m_ents['suffix'] = 'mask'
@@ -1147,7 +1174,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if not skipped_mask:
             st = time.time()
             try:
-                brain_masked, mask = mask_step(target_img, output_dir=output_dir, return_mask=True)
+                brain_masked, mask = mask_step(target_img, output_dir=output_dir, return_mask=True, force=force_masking)
                 dur = time.time() - st
                 step_metrics.append({"Step": "BrainMasking", "Status": "Completed", "Duration": f"{dur:.2f}s"})
 
@@ -1239,6 +1266,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         errors: List[str],
         reporter=None,
         label: str = "BrainMaskedImage",
+        force: bool = False,
     ) -> Optional[ImageFile]:
         """Write an anatomical image with all voxels outside ``mask_obj`` set to zero."""
         if not (
@@ -1257,7 +1285,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         ents["desc"] = desc
         ents.setdefault("suffix", suffix)
         dest = output_dir / build_bids_name(ents)
-        if dest.exists() and self.config.get("skip_existing", False):
+        if dest.exists() and self.config.get("skip_existing", False) and not force:
             return ImageFile(entities=ents, img=dest, json=getattr(img_obj, "json", None))
 
         try:
@@ -1310,6 +1338,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
         errors = context.setdefault('errors', [])
+        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+        force_norm = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(norm_step, rerun_from_step)
+        self._anat_force_from_step_active = force_norm
+        if force_norm:
+            self.logger.info("Forcing Normalization because rerun_from_step has been reached.")
 
         if reporter:
             try:
@@ -1332,7 +1365,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             self.logger.info(f"Running Normalization on {primary_suffix}...")
             try:
                 context["current_image"] = primary_img
-                norm_step(context, output_dir=output_dir)
+                norm_step(context, output_dir=output_dir, force=force_norm)
             except Exception as e:
                 err_msg = f"Normalization step failed: {e}"
                 self.logger.error(err_msg)
@@ -1369,7 +1402,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 norm_t2_path = output_dir / build_bids_name(ents)
 
                 try:
-                    if not norm_t2_path.exists() or not skip_existing:
+                    if not norm_t2_path.exists() or not skip_existing or force_norm:
                         template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
 
                         if template:
@@ -1463,7 +1496,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             publish_dir = final_output_dir or output_dir
             norm_brain_path = publish_dir / build_bids_name(ents)
-            if norm_brain_path.exists() and skip_existing:
+            if norm_brain_path.exists() and skip_existing and not force_norm:
                 return ImageFile(entities=ents, img=norm_brain_path, json=getattr(img_obj, "json", None))
 
             try:
@@ -1635,7 +1668,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         try:
             self.logger.info("Parsing FreeSurfer Stats...")
-            fs_stats_step(context, output_dir=output_dir)
+            rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+            force_fs_stats = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(fs_stats_step, rerun_from_step)
+            self._anat_force_from_step_active = force_fs_stats
+            if force_fs_stats:
+                self.logger.info("Forcing FreeSurfer Stats because rerun_from_step has been reached.")
+            fs_stats_step(context, output_dir=output_dir, force=force_fs_stats)
         except Exception as e:
             err_msg = f"FreeSurfer stats extraction failed: {e}"
             self.logger.error(err_msg)
@@ -1683,7 +1721,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         try:
             self.logger.info("Running SuperSynth segmentation...")
-            ss_step(context, output_dir=output_dir)
+            rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+            force_super_synth = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(ss_step, rerun_from_step)
+            self._anat_force_from_step_active = force_super_synth
+            if force_super_synth:
+                self.logger.info("Forcing SuperSynth because rerun_from_step has been reached.")
+            ss_step(context, output_dir=output_dir, force=force_super_synth)
 
             # Log volumes to the study tracker when computed.
             volumes = context.get("super_synth_volumes")
@@ -1738,7 +1781,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         try:
             self.logger.info("Running Segmentation...")
-            seg_step(context, output_dir=output_dir)
+            rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+            force_segmentation = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(seg_step, rerun_from_step)
+            self._anat_force_from_step_active = force_segmentation
+            if force_segmentation:
+                self.logger.info("Forcing Segmentation because rerun_from_step has been reached.")
+            seg_step(context, output_dir=output_dir, force=force_segmentation)
         except Exception as e:
             err_msg = f"Segmentation step failed: {e}"
             self.logger.error(err_msg)
@@ -2055,7 +2103,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if final_output_dir:
             final_output_dir.mkdir(parents=True, exist_ok=True)
 
-        if self.config.get("skip_existing", True) and not self.config.get("force", False):
+        rerun_from_step = get_rerun_from_step(self.config, "anat.preprocessing", "anat")
+        self._anat_rerun_from_step = rerun_from_step
+        self._anat_force_from_step_active = False
+        rerun_hits_anat = any_step_matches(self.steps, rerun_from_step)
+        if self.config.get("skip_existing", True) and not self.config.get("force", False) and not rerun_hits_anat:
             cached = self._load_preprocessed_from_output(context, final_output_dir)
             if cached and self._recon_all_finished(context):
                 self.logger.info(

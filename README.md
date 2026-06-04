@@ -76,3 +76,8 @@ pip install -e .[reporting]
 ## Documentation
 
 Full documentation is available in the [docs/](docs/) directory.
+
+For cached reruns, set `rerun_from_step` under the relevant workflow scope
+(`dmri.preprocessing`, `dmri.modeling`, `anat.preprocessing`, or
+`relaxometry.preprocessing`) to force that step and all later steps while
+leaving earlier cached outputs intact.

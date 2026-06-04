@@ -68,6 +68,26 @@ The pipeline will automatically assign each parallel worker a specific GPU ID in
 
 This ensures optimal utilization of multi-GPU resources.
 
+## Resuming From a Step
+
+With `skip_existing: true`, existing derivatives are reused. Set `rerun_from_step` in the relevant workflow block to force that step and all later steps while keeping earlier cached outputs.
+
+```yaml
+dmri:
+  preprocessing:
+    rerun_from_step: eddy
+
+anat:
+  preprocessing:
+    rerun_from_step: normalization
+
+relaxometry:
+  preprocessing:
+    rerun_from_step: motion_correction
+```
+
+The aliases `force_from_step`, `start_at_step`, and `resume_from_step` are also accepted. See the configuration reference for the full list of common step aliases.
+
 ## Optional Extras
 
 Install optional features via extras:

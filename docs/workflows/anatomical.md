@@ -72,6 +72,18 @@ Matching is strict:
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
 
+## Resume From a Step
+
+With `skip_existing: true`, anatomical outputs are reused when the expected derivatives already exist. Use `rerun_from_step` to keep earlier cached outputs but force the selected anatomical step and every later anatomical stage to run again.
+
+```yaml
+anat:
+  preprocessing:
+    rerun_from_step: brain_masking
+```
+
+Accepted aliases include `force_from_step`, `start_at_step`, and `resume_from_step`. Common anatomical step names include `resample`, `reorient`, `denoise`, `degibbs`, `gibbs`, `bias`, `sharpen`, `coregistration`, `brain_masking`, `normalization`, `freesurfer`, `recon_all`, `supersynth`, and `segmentation`.
+
 ## Steps
 
 ### 0. QC (Optional)

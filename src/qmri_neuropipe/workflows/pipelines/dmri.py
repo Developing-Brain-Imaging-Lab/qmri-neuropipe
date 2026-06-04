@@ -32,6 +32,7 @@ from qmri_neuropipe.interfaces.mriqc import run_mriqc
 from qmri_neuropipe.lib.reporting.report import ReportGenerator
 from qmri_neuropipe.lib.common.tracking import TrackingStep
 from qmri_neuropipe.utils.data_io import DataIOManager
+from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_matches
 
 # Anatomical workflow
 from .anat import AnatPreprocessingWorkflow
@@ -326,8 +327,12 @@ class DMRIPipeline(BasePipeline):
         self.logger.info("="*60)
         self.logger.info("  RUNNING DIFFUSION PREPROCESSING   ")
         self.logger.info("="*60)
+
+        self.preprocessing.build_pipeline(context)
         
-        if self.config.get("skip_existing", True) and not self.config.get("force", False):
+        rerun_from_step = get_rerun_from_step(self.config, "dmri.preprocessing", "preprocessing")
+        rerun_hits_preprocessing = any_step_matches(self.preprocessing.steps, rerun_from_step) if self.preprocessing.steps else False
+        if self.config.get("skip_existing", True) and not self.config.get("force", False) and not rerun_hits_preprocessing:
             cached = self._load_preprocessed_from_output(context, output_dir)
             if cached:
                 self.logger.info(
@@ -338,7 +343,6 @@ class DMRIPipeline(BasePipeline):
                 context["preprocessing_skipped"] = True
                 return context
 
-        self.preprocessing.build_pipeline(context)
         return self.preprocessing.run(work_dir, context, reporter=reporter)
 
     def _run_modeling(self, context: dict, work_dir: Path, output_dir: Path, reporter):

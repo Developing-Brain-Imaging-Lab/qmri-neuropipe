@@ -20,6 +20,32 @@ Most processing steps follow this structure:
 
 Many steps also accept step-specific keys directly under the step block. When both direct keys and `options` or `parameters` are supported, nested values are flattened by the workflow builder before the step is created.
 
+## Resume and Step-Level Reruns
+
+When `skip_existing: true`, the pipeline normally reuses existing derivative files and skips completed steps. To rerun from a specific step while still allowing earlier steps to use cached outputs, set `rerun_from_step` at the relevant workflow scope. The selected step and every subsequent step in that workflow are forced to run even if their intermediate outputs already exist.
+
+Accepted key aliases are `rerun_from_step`, `force_from_step`, `start_at_step`, and `resume_from_step`.
+
+```yaml
+dmri:
+  preprocessing:
+    rerun_from_step: eddy
+
+dmri:
+  modeling:
+    rerun_from_step: dti
+
+anat:
+  preprocessing:
+    rerun_from_step: brain_masking
+
+relaxometry:
+  preprocessing:
+    rerun_from_step: motion_correction
+```
+
+Common step aliases include `merge`, `reorient`, `denoise`, `gibbs`/`degibbs`, `topup`/`distcorr`, `eddy`, `bias`, `coregistration`, `brain_masking`, `normalization`, `freesurfer`/`recon_all`, `supersynth`, `segmentation`, `motion_correction`, `b1`, `modeling`, `atlas`, `stats`, and `acqparams`.
+
 ## Command and Provenance Reporting
 
 Every command executed through `qmri_neuropipe.core.run.run_cmd()` is recorded with:
@@ -40,6 +66,7 @@ Root key: `anat`
 ```yaml
 anat:
   preprocessing:
+    rerun_from_step: null
     reorient:
       enabled: true
     denoising:
@@ -135,6 +162,7 @@ Root key: `dmri.preprocessing`
 ```yaml
 dmri:
   preprocessing:
+    rerun_from_step: null
     reorient:
       enabled: true
     distcorr:
@@ -246,6 +274,7 @@ Root key: `dmri.modeling`
 ```yaml
 dmri:
   modeling:
+    rerun_from_step: null
     dti:
       enabled: true
       method: dipy
@@ -298,6 +327,7 @@ Root key: `relaxometry`
 ```yaml
 relaxometry:
   preprocessing:
+    rerun_from_step: null
     reorient:
       enabled: true
     denoising:
@@ -400,4 +430,3 @@ brain_masking:
 | Coregistration | `ants`, `fsl`, `freesurfer` | Linear/cross-modal alignment |
 | Nonlinear normalization | `ants`, `fsl` | ANTs is the primary nonlinear option |
 | dMRI normalization | `ants`, `synthmorph`, `robust_iterative` | Used by dMRI normalization workflow where enabled |
-

@@ -110,6 +110,12 @@ tracker:
 dmri:
   # Preprocessing steps
   preprocessing:
+    # Optional: rerun this step and all later preprocessing steps even when
+    # skip_existing is true. Aliases: force_from_step, start_at_step,
+    # resume_from_step. Examples: denoise, gibbs, distcorr, eddy, bias,
+    # coregistration, brain_masking.
+    rerun_from_step: null
+
     # Denoising
     denoising:
       enabled: true
@@ -245,6 +251,9 @@ dmri:
 # ============================================================================
 # relaxometry:
 #   preprocessing:
+#     # Optional: rerun this step and all later relaxometry preprocessing steps.
+#     # Examples: reorient, denoise, gibbs, motion_correction, brain_masking, b1.
+#     rerun_from_step: null
 #     motion_correction:
 #       enabled: true
 #       method: ants
@@ -255,6 +264,8 @@ dmri:
 #     b1:
 #       method: afi
 #   modeling:
+#     # Optional: rerun model fitting and all later relaxometry stages.
+#     # rerun_from_step: modeling
 #     despot1:
 #       enabled: true
 #     mcdespot:
@@ -313,6 +324,10 @@ dmri:
 #       entities:
 #         acq: space
 #   preprocessing:
+#     # Optional: rerun this step and all later anatomical stages.
+#     # Examples: resample, reorient, denoise, gibbs, bias, coregistration,
+#     # brain_masking, normalization, freesurfer, supersynth, segmentation.
+#     rerun_from_step: null
 #     brain_extraction:
 #       enabled: true
 #       method: synthstrip

@@ -8,6 +8,7 @@ with progress tracking, error handling, and state management.
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Callable
 import time
+from ..core.step_control import get_rerun_from_step, step_force_active
 from ..lib.common.spatial_transforms import normalize_transform_chain, append_transform
 
 
@@ -81,8 +82,11 @@ class ExecutionEngine:
             current_masks.extend([None] * (len(current_dwis) - len(current_masks)))
         
         # Execute each step
+        rerun_from_step = get_rerun_from_step(self.config, "dmri.preprocessing", "preprocessing")
+        force_from_step_active = False
         for step_idx, step in enumerate(steps):
             step_name = step.__class__.__name__
+            force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
             
             if isinstance(step, GLOBAL_STEPS):
                 # Execute as global step
@@ -92,7 +96,8 @@ class ExecutionEngine:
                     current_dwis,
                     output_dir,
                     reporter,
-                    progress_callback
+                    progress_callback,
+                    force_from_step=force_from_step_active,
                 )
                 
                 # Update current state
@@ -111,7 +116,8 @@ class ExecutionEngine:
                     current_masks,
                     output_dir,
                     reporter,
-                    progress_callback
+                    progress_callback,
+                    force_from_step=force_from_step_active,
                 )
         
         # Finalize context
@@ -227,7 +233,8 @@ class ExecutionEngine:
         current_dwis: List,
         output_dir: Path,
         reporter=None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        force_from_step: bool = False,
     ) -> Dict:
         """Execute a global step (operates on all files at once)."""
         step_name = step.__class__.__name__
@@ -243,7 +250,9 @@ class ExecutionEngine:
         old_topup_groups = context.get("topup_groups", [])
         
         # Run step
-        force_run = self.config.get("dmri", {}).get("force_run", False)
+        force_run = self.config.get("dmri", {}).get("force_run", False) or force_from_step
+        if force_from_step:
+            self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")
         new_ctx = step(context, output_dir=output_dir, force=force_run)
         
         if new_ctx is not context:
@@ -297,7 +306,8 @@ class ExecutionEngine:
         current_masks: List,
         output_dir: Path,
         reporter=None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        force_from_step: bool = False,
     ) -> tuple:
         """Execute a per-image step (processes each file separately)."""
         step_name = step.__class__.__name__
@@ -337,7 +347,9 @@ class ExecutionEngine:
             # Run step
             try:
                 start_time = time.time()
-                force_run = self.config.get("dmri", {}).get("force_run", False)
+                force_run = self.config.get("dmri", {}).get("force_run", False) or force_from_step
+                if force_from_step:
+                    self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")
                 result = step(img_ctx, output_dir=output_dir, force=force_run, **step_kwargs)
                 duration = time.time() - start_time
                 

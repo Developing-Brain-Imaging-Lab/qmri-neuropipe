@@ -21,6 +21,7 @@ from qmri_neuropipe.lib.dmri.fitting import (
     MicrogliaFittingStep
 )
 from qmri_neuropipe.lib.dmri.tractography import TractSegStep, PyAFQStep
+from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_matches, step_force_active
 
 
 class ModelingWorkflow(BaseWorkflow):
@@ -352,7 +353,9 @@ class ModelingWorkflow(BaseWorkflow):
             )
         
         # === FAST-PATH: Batch validation ===
-        if self.config.skip_existing and not self.config.get('force', False):
+        rerun_from_step = get_rerun_from_step(self.config, "dmri.modeling", "modeling")
+        rerun_hits_modeling = any_step_matches(self.steps, rerun_from_step)
+        if self.config.skip_existing and not self.config.get('force', False) and not rerun_hits_modeling:
             all_exist = self._check_all_outputs_exist(
                 preprocessed_dwis,
                 final_dest
@@ -542,11 +545,15 @@ class ModelingWorkflow(BaseWorkflow):
                 else:
                     context.pop('gnl_map', None)
             
+            rerun_from_step = get_rerun_from_step(self.config, "dmri.modeling", "modeling")
+            force_from_step_active = False
             for step in self.steps:
                 step_name = step.__class__.__name__
+                force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
                 
                 # Check skip
                 skipping = (
+                    not force_from_step_active and
                     hasattr(step, 'should_skip') and
                     step.should_skip(context, final_dir or staging_dir)
                 )
@@ -578,7 +585,9 @@ class ModelingWorkflow(BaseWorkflow):
                     )
                 
                 try:
-                    step(context, output_dir=staging_dir, mask=mask)
+                    if force_from_step_active:
+                        self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")
+                    step(context, output_dir=staging_dir, mask=mask, force=force_from_step_active)
                     
                     # Copy to final
                     if final_dir:

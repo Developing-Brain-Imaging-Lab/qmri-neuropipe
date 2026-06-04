@@ -296,6 +296,30 @@ dmri:
       method: mrtrix
 ```
 
+### Resuming From a Specific Step
+
+When `skip_existing: true`, completed outputs are reused. To regenerate a step and every later step while still using cached outputs before that point, set `rerun_from_step` in the relevant workflow section.
+
+```yaml
+dmri:
+  preprocessing:
+    rerun_from_step: eddy
+
+dmri:
+  modeling:
+    rerun_from_step: dti
+
+anat:
+  preprocessing:
+    rerun_from_step: brain_masking
+
+relaxometry:
+  preprocessing:
+    rerun_from_step: motion_correction
+```
+
+The aliases `force_from_step`, `start_at_step`, and `resume_from_step` are also accepted. Step names can use common aliases such as `denoise`, `gibbs`, `distcorr`, `eddy`, `coregistration`, `brain_masking`, `normalization`, `freesurfer`, `motion_correction`, `b1`, `modeling`, `atlas`, and `stats`.
+
 ### Anatomical (anat)
 
 | Step | Key |

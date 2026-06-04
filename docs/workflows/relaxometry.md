@@ -493,6 +493,16 @@ The pipeline includes smart resume logic to avoid re-running completed steps:
 - **Model Fitting**: Each model is skipped independently if its output maps are already present in the output directory.
 - **Normalization**: Skipped if normalized outputs already exist.
 
+Use `rerun_from_step` to keep earlier cached outputs but force a selected step and all later relaxometry stages to run again.
+
+```yaml
+relaxometry:
+  preprocessing:
+    rerun_from_step: motion_correction
+```
+
+You can also set the option under `relaxometry.modeling`, `relaxometry.normalization`, or `relaxometry.analysis` when the rerun point is in those stages. Accepted aliases include `force_from_step`, `start_at_step`, and `resume_from_step`. Common relaxometry step names include `reorient`, `denoise`, `degibbs`, `gibbs`, `motion_correction`, `brain_masking`, `acqparams`, `b1`, `modeling`, `normalization`, `atlas`, and `stats`.
+
 ## Naming Conventions
 
 All outputs follow BIDS-derivative naming conventions:

@@ -15,6 +15,7 @@ Welcome to qmri-neuropipe's documentation!
    analysis
    study_tracker
    source/user_guide/cli_tools
+   source/user_guide/advanced_usage
    workflows/anatomical
    workflows/diffusion
    workflows/relaxometry

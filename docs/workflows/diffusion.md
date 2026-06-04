@@ -32,6 +32,26 @@ See [Tool Reference](../tool_reference.md) for the full list of tools and config
 ## Anatomical Integration
 If an `anat` directory exists for the subject, the pipeline can optionally run the full **Anatomical Workflow** first (see [Anatomical Workflow](anatomical.md)) and use the resulting T1w/T2w images as references for coregistration.
 
+## Resume From a Step
+
+With `skip_existing: true`, completed dMRI derivatives are reused by default. Use `rerun_from_step` when you want earlier steps to remain cached but the selected step and every later step to be regenerated.
+
+```yaml
+dmri:
+  preprocessing:
+    rerun_from_step: eddy
+```
+
+For modeling-only reruns:
+
+```yaml
+dmri:
+  modeling:
+    rerun_from_step: dti
+```
+
+Accepted aliases include `force_from_step`, `start_at_step`, and `resume_from_step`. Common dMRI step names include `merge`, `reorient`, `topup`, `distcorr`, `denoise`, `degibbs`, `gibbs`, `eddy`, `bias`, `coregistration`, `brain_masking`, `modeling`, and model names such as `dti`, `dki`, `noddi`, `sandi`, `mapmri`, `csd`, `fwe_dti`, `tractseg`, and `pyafq`.
+
 ## Steps
 
 ### 1. QC & Audit

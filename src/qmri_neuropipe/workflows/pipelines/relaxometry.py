@@ -9,6 +9,7 @@ import nibabel as nib
 import numpy as np
 
 from ...core import BaseWorkflow, PipelineConfig
+from ...core.step_control import get_rerun_from_step, step_force_active, step_matches
 from ...core.types import ImageFile
 from ...io.bids import build_bids_name, get_entities_from_path
 from ...core.utils import get_nifti_stem
@@ -123,6 +124,8 @@ class RelaxometryWorkflow(BaseWorkflow):
         self.relax_config = relax_config or RelaxometryConfig()
         super().__init__(config, logger, provenance)
         self.modality = "Relaxometry"
+        self._rerun_from_step: Optional[str] = None
+        self._force_from_step_active = False
 
     def _initialize_steps(self):
         preproc_cfg = self.relax_config.preprocessing
@@ -963,12 +966,35 @@ class RelaxometryWorkflow(BaseWorkflow):
         targets = sorted(root.rglob("*chunk-*"), key=lambda path: len(path.parts), reverse=True)
         self._cleanup_paths(targets)
 
-    def _force_requested(self) -> bool:
+    def _force_requested(self, step: Optional[Any] = None) -> bool:
+        if step is not None:
+            was_active = self._force_from_step_active
+            self._force_from_step_active = step_force_active(
+                self._force_from_step_active,
+                step,
+                self._rerun_from_step,
+            )
+            if self._force_from_step_active and not was_active:
+                step_name = step if isinstance(step, str) else step.__class__.__name__
+                self.logger.info(f"Forcing relaxometry from {step_name} because rerun_from_step has been reached.")
         return bool(
             self.config.get("force", False)
             or self.config.get("force_run", False)
             or self.config.get("force_rerun", False)
+            or self._force_from_step_active
         )
+
+    def _rerun_targets_final_preproc(self) -> bool:
+        if not self._rerun_from_step:
+            return False
+        final_preproc_steps = [
+            "ReorientStep",
+            "DenoisingStep",
+            "GibbsUnringingStep",
+            "SPGRMotionCorrectionStep",
+            "motion_correction",
+        ]
+        return any(step_matches(step, self._rerun_from_step) for step in final_preproc_steps)
 
     def _find_existing_preprocessed_series(
         self,
@@ -985,7 +1011,11 @@ class RelaxometryWorkflow(BaseWorkflow):
         anat derivatives folder. If present and readable, they let us skip the
         preprocessing chain even when scratch/work intermediates are absent.
         """
-        if not self.config.get("skip_existing", False) or self._force_requested():
+        if (
+            not self.config.get("skip_existing", False)
+            or self._force_requested()
+            or self._rerun_targets_final_preproc()
+        ):
             return []
         if not anat_out_dir.exists():
             return []
@@ -1142,7 +1172,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             curr = img
             for step in self.steps:
                 if isinstance(step, (DenoisingStep, GibbsUnringingStep, ReorientStep)):
-                    curr = step(curr, output_dir=output_dir)
+                    force_step = self._force_requested(step)
+                    curr = step(curr, output_dir=output_dir, force=force_step)
             processed_images.append(curr)
         return processed_images
 
@@ -1182,11 +1213,12 @@ class RelaxometryWorkflow(BaseWorkflow):
         ir_moco = None
 
         if moco_step:
-            spgr_moco = moco_step(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR")
+            force_moco = self._force_requested(moco_step)
+            spgr_moco = moco_step(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR", force=force_moco)
             if ssfp_pre:
-                ssfp_moco = moco_step(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP")
+                ssfp_moco = moco_step(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP", force=force_moco)
             if ir_pre:
-                ir_moco = moco_step(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR")
+                ir_moco = moco_step(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR", force=force_moco)
         return spgr_moco, ssfp_moco, ir_moco
 
     def _update_study_tracker(self, context: dict, output_dir: Path) -> None:
@@ -1228,7 +1260,8 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         target_mask_name = anat_out_dir / f"{base_prefix}_desc-brain-mask.nii.gz"
 
-        if target_mask_name.exists():
+        force_masking = self._force_requested(mask_step)
+        if target_mask_name.exists() and not force_masking:
             self.logger.info(f"Skipping Brain Masking (Exists): {target_mask_name}")
             mask_file = target_mask_name
             # Fix any pre-existing 4D mask so downstream tools see a 3D binary volume.
@@ -1241,7 +1274,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             context["brain_mask"] = mask_file
         else:
             self.logger.info(f"Running Brain Masking on Reference: {ref_img.img.name}")
-            masked_ref, mask_obj = mask_step(ref_img, output_dir=intermediate_dir, return_mask=True)
+            masked_ref, mask_obj = mask_step(ref_img, output_dir=intermediate_dir, return_mask=True, force=force_masking)
             if mask_obj.img != target_mask_name:
                 shutil.move(mask_obj.img, target_mask_name)
                 mask_file = target_mask_name
@@ -1263,7 +1296,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         """
         params_name = f"{base_prefix}_desc-AcqParams.json"
         params_json = anat_out_dir / params_name
-        if self.config.get("skip_existing", False) and not self._force_requested() and params_json.exists():
+        if self.config.get("skip_existing", False) and not self._force_requested("acqparams") and params_json.exists():
             self.logger.info("Skipping relaxometry acquisition parameter generation (exists): %s", params_json.name)
             return params_json
         generate_acq_params(spgr_moco, ssfp_moco, ir_final, output_path=params_json)
@@ -1281,8 +1314,9 @@ class RelaxometryWorkflow(BaseWorkflow):
         Run B1 mapping if B1 files and step exist, with resume check.
         """
         b1_map = None
+        force_b1 = self._force_requested(b1_step or "b1mapping")
         existing_b1 = sorted(fmap_out_dir.glob("*TB1map.nii.gz"))
-        if existing_b1 and self.config.get("skip_existing", False) and not self._force_requested():
+        if existing_b1 and self.config.get("skip_existing", False) and not force_b1:
             self.logger.info(f"Skipping B1 Mapping (found existing final B1 map): {existing_b1[0].name}")
             b1_map = ImageFile(img=existing_b1[0], entities=get_entities_from_path(existing_b1[0]))
         elif b1_files and b1_step:
@@ -1290,12 +1324,12 @@ class RelaxometryWorkflow(BaseWorkflow):
             b1_ref = None
             fmap_inter_dir.mkdir(parents=True, exist_ok=True)
 
-            if existing_b1 and not self._force_requested():
+            if existing_b1 and not force_b1:
                 self.logger.info(f"Found existing B1 Map: {existing_b1[0].name}")
                 b1_map = ImageFile(img=existing_b1[0], entities=get_entities_from_path(existing_b1[0]))
             else:
                 b1_map_inter = b1_step(
-                    curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref
+                    curr_b1, reference_image=ref_img, output_dir=fmap_inter_dir, b1_ref_image=b1_ref, force=force_b1
                 )
                 final_path = fmap_out_dir / b1_map_inter.img.name
                 shutil.move(b1_map_inter.img, final_path)
@@ -1329,6 +1363,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             self.config.get("force", False)
             or self.config.get("force_run", False)
             or self.config.get("force_rerun", False)
+            or self._force_requested("modeling")
         )
         skip_existing = bool(self.config.get("skip_existing", False)) and not force_modeling
 
@@ -1652,8 +1687,16 @@ class RelaxometryWorkflow(BaseWorkflow):
                 self.logger.info("Running relaxometry atlas registration and ROI statistics extraction.")
                 # Use analysis_out_dir (anat root) so atlases/ and statistics/ land
                 # alongside models/ and normalization/, matching the diffusion layout.
-                atlas_reg_step.run(analysis_context, analysis_out_dir)
-                stats_extract_step.run(analysis_context, analysis_out_dir)
+                atlas_reg_step.run(
+                    analysis_context,
+                    analysis_out_dir,
+                    force=self._force_requested(atlas_reg_step),
+                )
+                stats_extract_step.run(
+                    analysis_context,
+                    analysis_out_dir,
+                    force=self._force_requested(stats_extract_step),
+                )
                 stats_results.update(analysis_context.get("roi_stats_files", {}))
                 context["segmentations"] = analysis_context.get("segmentations", {})
                 context["roi_stats_files"] = analysis_context.get("roi_stats_files", {})
@@ -1697,7 +1740,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             return context
 
         self.logger.info("Running relaxometry normalization to standard space.")
-        return norm_step.run(context, model_output_dir)
+        force_norm = self._force_requested(norm_step)
+        return norm_step.run(context, model_output_dir, force=force_norm)
 
     def run(
         self,
@@ -1713,6 +1757,15 @@ class RelaxometryWorkflow(BaseWorkflow):
         Run the Relaxometry workflow for a given subject/session.
         """
         self.logger.info(f"Starting RelaxometryWorkflow for sub-{subject} ses-{session or 'n/a'}")
+        self._rerun_from_step = get_rerun_from_step(
+            self.config,
+            "relaxometry.preprocessing",
+            "relaxometry.modeling",
+            "relaxometry.normalization",
+            "relaxometry.analysis",
+            "relaxometry",
+        )
+        self._force_from_step_active = False
 
         if context is None:
             context = {}
@@ -1800,7 +1853,9 @@ class RelaxometryWorkflow(BaseWorkflow):
         self.logger.info(f"Selected Relaxometry Reference Source: {ref_img.img.name}")
 
         # Motion Correction
-        if existing_spgr_moco and (existing_ssfp_moco or not ssfp_files):
+        moco_step = next((s for s in self.steps if isinstance(s, SPGRMotionCorrectionStep)), None)
+        force_moco = self._force_requested(moco_step or "motion_correction")
+        if existing_spgr_moco and (existing_ssfp_moco or not ssfp_files) and not force_moco:
             self.logger.info("Skipping relaxometry motion correction (found existing final preprocessed inputs for modeling).")
             spgr_moco = existing_spgr_moco
             ssfp_moco = existing_ssfp_moco

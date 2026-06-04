@@ -548,6 +548,32 @@ anat:
 - Threads default to `-1` (all available cores); override via `n_cpus` in the
   top-level config.
 
+## Step-Level Reruns
+
+When `skip_existing: true`, the workflow normally skips steps whose expected outputs already exist. Set `rerun_from_step` at the relevant scope to force that step and all later steps while still allowing earlier steps to use cached derivatives.
+
+```yaml
+dmri:
+  preprocessing:
+    rerun_from_step: eddy
+
+dmri:
+  modeling:
+    rerun_from_step: dti
+
+anat:
+  preprocessing:
+    rerun_from_step: normalization
+
+relaxometry:
+  preprocessing:
+    rerun_from_step: motion_correction
+```
+
+Accepted key aliases: `force_from_step`, `start_at_step`, `resume_from_step`.
+
+Common step aliases: `merge`, `reorient`, `denoise`, `gibbs`, `degibbs`, `topup`, `distcorr`, `eddy`, `bias`, `coregistration`, `brain_masking`, `normalization`, `freesurfer`, `recon_all`, `supersynth`, `segmentation`, `motion_correction`, `b1`, `modeling`, `atlas`, `stats`, and `acqparams`.
+
 ## B1 Mapping (Relaxometry)
 
 **Tools**

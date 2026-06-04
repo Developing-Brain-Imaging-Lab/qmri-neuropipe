@@ -234,11 +234,12 @@ class NormalizationStep(BaseProcessingStep):
         ref_path: Path,
         norm_out: Path,
         nthreads: int,
+        force: bool = False,
     ) -> dict:
         from ...interfaces import ants as ants_iface
         from ...interfaces.freesurfer import lta_to_itk, mri_synthmorph_register, mri_warp_convert_to_itk
 
-        skip = self.config.get('skip_existing', False)
+        skip = self.config.get('skip_existing', False) and not force
         predicted_outputs = self._predicted_normalized_outputs(metrics_to_norm, norm_out)
         manifest_path = self._robust_manifest_path(ref_path, norm_out)
 
@@ -581,7 +582,8 @@ class NormalizationStep(BaseProcessingStep):
         self.logger.info(f"Driving metric: {ref_path.name}")
         
         # Check for existing outputs (Skip Logic)
-        skip = self.config.get('skip_existing', False)
+        force = bool(kwargs.get('force', False))
+        skip = self.config.get('skip_existing', False) and not force
         # Predict outputs.
         from ...io.bids import build_bids_name, get_entities_from_path
 
@@ -654,6 +656,7 @@ class NormalizationStep(BaseProcessingStep):
                 ref_path=Path(ref_path),
                 norm_out=norm_out,
                 nthreads=nthreads,
+                force=force,
             )
         
         # 2. Registration
