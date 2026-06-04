@@ -401,8 +401,10 @@ class DMRIPipeline(BasePipeline):
         gnl_maps = []
         missing = 0
         stale_gnl = False
+        expect_merged = self._should_expect_merged_preprocessed_dwi(context)
+        expected_dwis = [dwi_files[0]] if expect_merged else dwi_files
 
-        for dwi in dwi_files:
+        for dwi in expected_dwis:
             ents = (dwi.entities or {}).copy()
             if subject:
                 ents["sub"] = subject
@@ -411,6 +413,8 @@ class DMRIPipeline(BasePipeline):
 
             ents["desc"] = "preproc"
             ents["suffix"] = "dwi"
+            if expect_merged:
+                ents.pop("dir", None)
             fname = build_bids_name(ents)
             if not fname.endswith(".nii.gz"):
                 fname += ".nii.gz"
@@ -454,6 +458,8 @@ class DMRIPipeline(BasePipeline):
             return None
 
         if not preprocessed_dwis:
+            if expect_merged:
+                return None
             candidates = sorted(output_dir.glob("*desc-preproc*_dwi.nii*"))
             for candidate in candidates:
                 try:
@@ -511,6 +517,30 @@ class DMRIPipeline(BasePipeline):
             cached["gnl_maps"] = gnl_maps
             cached["gnl_map"] = current_gnl or gnl_maps[0]
         return cached
+
+    def _should_expect_merged_preprocessed_dwi(self, context: dict) -> bool:
+        dwi_files = context.get("dwi_files", [])
+        if len(dwi_files) <= 1:
+            return False
+
+        dmri_cfg = (self.config.get("dmri") or {}).get("preprocessing", {})
+        merge_cfg = dmri_cfg.get("merging", {}) or {}
+        if merge_cfg.get("enabled", True):
+            return True
+
+        distcorr_cfg = dmri_cfg.get("distcorr", {}) or {}
+        dist_method = distcorr_cfg.get("method", "none")
+        fallback = distcorr_cfg.get("fallback", False)
+        has_topup_groups = bool(context.get("topup_groups"))
+        has_t1w = bool(context.get("t1w_files"))
+
+        if dist_method in {"topup", "topup+drbuddi"}:
+            return has_topup_groups or (fallback and has_t1w)
+        if dist_method == "drbuddi":
+            return has_topup_groups
+        if dist_method == "synb0":
+            return has_t1w
+        return False
 
     def _find_saved_gnl_tensor(self, dwi_img: Path, entities: Optional[dict] = None) -> Optional[Path]:
         """Find the canonical saved GNL tensor that corresponds to a cached preprocessed DWI."""

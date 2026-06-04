@@ -25,6 +25,29 @@ from dataclasses import dataclass, field, asdict
 logger = logging.getLogger(__name__)
 
 
+class UniqueKeyYamlLoader(yaml.SafeLoader):
+    """YAML loader that rejects duplicate mapping keys instead of overwriting them."""
+
+
+def _construct_mapping_without_duplicate_keys(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(
+                f"Duplicate YAML key '{key}' at line {key_node.start_mark.line + 1}, "
+                f"column {key_node.start_mark.column + 1}. Merge repeated sections instead."
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+UniqueKeyYamlLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_without_duplicate_keys,
+)
+
+
 @dataclass
 class PipelineConfig:
     """
@@ -414,7 +437,7 @@ class ConfigLoader:
         
         with open(config_file) as f:
             if suffix in ['.yaml', '.yml']:
-                config = yaml.safe_load(f)
+                config = yaml.load(f, Loader=UniqueKeyYamlLoader)
             elif suffix == '.json':
                 config = json.load(f)
             else:

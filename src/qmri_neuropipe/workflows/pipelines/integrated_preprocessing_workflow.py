@@ -247,7 +247,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         do_merge = False
         if len(dwi_files) > 1:
-            if merge_cfg.get('enabled', False) or self._should_merge_for_distcorr(dmri_cfg, context):
+            if merge_cfg.get('enabled', True) or self._should_merge_for_distcorr(dmri_cfg, context):
                 do_merge = True
             
         if do_merge:
