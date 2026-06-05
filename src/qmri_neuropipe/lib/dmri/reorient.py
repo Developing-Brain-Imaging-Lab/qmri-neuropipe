@@ -3,13 +3,23 @@ dMRI Reorientation step.
 """
 from pathlib import Path
 from typing import Any
+import json
 import shutil
 import nibabel as nib
+import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
 from ...io.bids import build_bids_name, get_entities_from_path
+from ...io.dmri.bids import (
+    infer_phase_encoding_direction,
+    phase_encoding_direction_to_vector,
+    phase_encoding_transform_matrix,
+    phase_encoding_vector_to_direction,
+    transform_acqparams_file,
+    transform_phase_encoding_direction,
+)
 from ..common.json_metadata import copy_json_with_metadata, write_sanitized_json_copy
 from ..common.spatial_transforms import write_transform_chain_to_sidecar
 
@@ -36,7 +46,12 @@ class DMRIReorientStep(BaseProcessingStep):
             for dwi in dwi_files:
                 res = self._process_single(dwi, step_output_dir, **kwargs)
                 processed_files.append(res)
-                
+
+            self._update_context_phase_encoding(
+                context,
+                processed_files,
+                step_output_dir,
+            )
             context["dwi_files"] = processed_files
             return context
             
@@ -98,6 +113,7 @@ class DMRIReorientStep(BaseProcessingStep):
                      json=out_path.with_suffix("").with_suffix(".json"),
                      entities=entities
                  )
+                 self._update_output_phase_encoding(input_image, result)
                  return result
         
         sanitized_json_import = None
@@ -140,4 +156,95 @@ class DMRIReorientStep(BaseProcessingStep):
         }
         write_transform_chain_to_sidecar(result.json, [spatial_transform])
         setattr(result, "spatial_transform", spatial_transform)
+        self._update_output_phase_encoding(input_image, result)
         return result
+
+    def _update_output_phase_encoding(self, source: DWIFile, target: DWIFile) -> None:
+        """Update the target sidecar and retain the voxel-axis transform for context files."""
+        source_image = nib.load(str(source.img))
+        target_image = nib.load(str(target.img))
+        transform = phase_encoding_transform_matrix(source_image.affine, target_image.affine)
+        setattr(target, "phase_encoding_transform", transform)
+
+        direction = infer_phase_encoding_direction(source)
+        if not direction:
+            return
+
+        transformed_direction = transform_phase_encoding_direction(
+            direction,
+            source_image.affine,
+            target_image.affine,
+        )
+        target_json = Path(target.json) if target.json else target.img.with_suffix("").with_suffix(".json")
+        payload = {}
+        if target_json.exists():
+            payload = json.loads(target_json.read_text())
+        payload["PhaseEncodingDirection"] = transformed_direction
+        target_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        target.json = target_json
+        self.logger.info(
+            f"Updated PhaseEncodingDirection for {target.img.name}: "
+            f"{direction} -> {transformed_direction}"
+        )
+
+    def _update_context_phase_encoding(
+        self,
+        context: dict,
+        target_dwis: list[DWIFile],
+        output_dir: Path,
+    ) -> None:
+        transforms = [
+            getattr(target, "phase_encoding_transform", None)
+            for target in target_dwis
+        ]
+        transforms = [transform for transform in transforms if transform is not None]
+        if not transforms:
+            return
+
+        transform = transforms[0]
+        if any(not np.array_equal(transform, candidate) for candidate in transforms[1:]):
+            if context.get("acqp") or context.get("merged_acqp"):
+                raise ValidationError(
+                    "Cannot transform one shared acqparams file because DWI inputs were "
+                    "reoriented with different axis permutations. Merge the inputs first."
+                )
+            return
+
+        acqp_sources = []
+        for key in ("acqp", "merged_acqp"):
+            value = context.get(key)
+            if value and Path(value) not in acqp_sources:
+                acqp_sources.append(Path(value))
+        for group in context.get("topup_groups", []):
+            if isinstance(group, dict) and group.get("acqp"):
+                path = Path(group["acqp"])
+                if path not in acqp_sources:
+                    acqp_sources.append(path)
+
+        transformed_paths = {}
+        for index, source in enumerate(acqp_sources):
+            suffix = "" if index == 0 else f"_{index + 1}"
+            destination = output_dir / f"acqparams{suffix}.txt"
+            transformed_paths[source] = transform_acqparams_file(
+                source,
+                destination,
+                transform,
+            )
+            self.logger.info(f"Reoriented acquisition parameters: {source} -> {destination}")
+
+        for key in ("acqp", "merged_acqp"):
+            value = context.get(key)
+            if value and Path(value) in transformed_paths:
+                context[key] = transformed_paths[Path(value)]
+        for group in context.get("topup_groups", []):
+            if isinstance(group, dict) and group.get("acqp"):
+                source = Path(group["acqp"])
+                if source in transformed_paths:
+                    group["acqp"] = transformed_paths[source]
+
+        source_info = context.get("merge_source_info", [])
+        for item in source_info:
+            direction = item.get("phase_encoding_direction")
+            if direction:
+                vector = transform @ phase_encoding_direction_to_vector(direction)
+                item["phase_encoding_direction"] = phase_encoding_vector_to_direction(vector)

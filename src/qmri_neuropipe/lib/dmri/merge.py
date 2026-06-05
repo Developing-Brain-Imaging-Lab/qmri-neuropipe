@@ -16,7 +16,10 @@ from ...core import BaseProcessingStep, ProcessingError, ValidationError
 from ...core.types import DWIFile
 from ...interfaces import fsl
 from ...io.bids import build_bids_name, _load_json_field
-from ...io.dmri.bids import infer_phase_encoding_direction
+from ...io.dmri.bids import (
+    infer_phase_encoding_direction,
+    phase_encoding_direction_to_vector,
+)
 
 class MergeStep(BaseProcessingStep):
     """
@@ -195,14 +198,9 @@ class MergeStep(BaseProcessingStep):
                 
                 # FSL format: x y z time
                 # x,y,z derived from PE dir (i, i-, j, j-, k, k-)
-                vec = [0, 0, 0]
-                if pe_dir == 'i': vec = [1, 0, 0]
-                elif pe_dir == 'i-': vec = [-1, 0, 0]
-                elif pe_dir == 'j': vec = [0, 1, 0]
-                elif pe_dir == 'j-': vec = [0, -1, 0]
-                elif pe_dir == 'k': vec = [0, 0, 1]
-                elif pe_dir == 'k-': vec = [0, 0, -1]
-                else:
+                try:
+                    vec = phase_encoding_direction_to_vector(pe_dir).astype(int).tolist()
+                except ValueError:
                     self.logger.warning(f"Unknown or missing PhaseEncodingDirection '{pe_dir}' for {d.img.name}. Defaulting to [0,1,0].")
                     vec = [0, 1, 0]
                 

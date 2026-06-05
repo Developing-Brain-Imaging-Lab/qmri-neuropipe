@@ -6,6 +6,7 @@ from typing import Optional, Tuple, Dict, Iterable
 import json
 import tempfile
 import nibabel as nib
+import numpy as np
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 from qmri_neuropipe.core.utils import get_nifti_stem
@@ -18,6 +19,15 @@ _DIR_ENTITY_TO_PED = {
     "PA": "j-",
     "SI": "k",
     "IS": "k-",
+}
+
+_PED_TO_VECTOR = {
+    "i": np.array([1.0, 0.0, 0.0]),
+    "i-": np.array([-1.0, 0.0, 0.0]),
+    "j": np.array([0.0, 1.0, 0.0]),
+    "j-": np.array([0.0, -1.0, 0.0]),
+    "k": np.array([0.0, 0.0, 1.0]),
+    "k-": np.array([0.0, 0.0, -1.0]),
 }
 
 # def load_dwi_from_bids(sub_dir: Path) -> Dict[Path, Path, Path, Path, Optional[Path], Optional[Path]]:
@@ -109,6 +119,99 @@ def infer_phase_encoding_direction(dwi: DWIFile | None = None, json_path: Path |
     return None
 
 
+def phase_encoding_direction_to_vector(direction: str) -> np.ndarray:
+    """Convert a BIDS phase-encoding direction to a voxel-axis vector."""
+    try:
+        return _PED_TO_VECTOR[str(direction)].copy()
+    except KeyError as exc:
+        raise ValueError(f"Unsupported PhaseEncodingDirection: {direction!r}") from exc
+
+
+def phase_encoding_vector_to_direction(vector: Iterable[float], atol: float = 1e-5) -> str:
+    """Convert a cardinal voxel-axis vector to a BIDS phase-encoding direction."""
+    vec = np.asarray(tuple(vector), dtype=float)
+    if vec.shape != (3,) or not np.all(np.isfinite(vec)):
+        raise ValueError(f"Invalid phase-encoding vector: {vector!r}")
+
+    nonzero = np.flatnonzero(np.abs(vec) > atol)
+    if len(nonzero) != 1:
+        raise ValueError(f"Phase-encoding vector is not cardinal: {vec.tolist()}")
+
+    axis = int(nonzero[0])
+    label = "ijk"[axis]
+    return f"{label}-" if vec[axis] < 0 else label
+
+
+def phase_encoding_transform_matrix(
+    source_affine: np.ndarray,
+    target_affine: np.ndarray,
+    atol: float = 1e-4,
+) -> np.ndarray:
+    """Return the signed permutation mapping source voxel vectors to target voxels."""
+    source_linear = np.asarray(source_affine, dtype=float)[:3, :3]
+    target_linear = np.asarray(target_affine, dtype=float)[:3, :3]
+    transform = np.linalg.solve(target_linear, source_linear)
+    rounded = np.rint(transform)
+
+    is_signed_permutation = (
+        np.allclose(transform, rounded, atol=atol)
+        and np.all(np.sum(np.abs(rounded), axis=0) == 1)
+        and np.all(np.sum(np.abs(rounded), axis=1) == 1)
+    )
+    if not is_signed_permutation:
+        raise ValueError(
+            "Image change is not a pure axis permutation/flip; cannot safely "
+            f"transform phase encoding. Matrix: {transform.tolist()}"
+        )
+    return rounded.astype(int)
+
+
+def transform_phase_encoding_direction(
+    direction: str,
+    source_affine: np.ndarray,
+    target_affine: np.ndarray,
+) -> str:
+    """Express a BIDS phase-encoding direction in a reoriented image grid."""
+    transform = phase_encoding_transform_matrix(source_affine, target_affine)
+    vector = transform @ phase_encoding_direction_to_vector(direction)
+    return phase_encoding_vector_to_direction(vector)
+
+
+def transform_acqparams_file(
+    source: Path,
+    destination: Path,
+    transform: np.ndarray,
+) -> Path:
+    """Transform the direction columns of an FSL acquisition-parameters file."""
+    matrix = np.asarray(transform, dtype=float)
+    if matrix.shape != (3, 3):
+        raise ValueError(f"Expected a 3x3 phase-encoding transform, got {matrix.shape}")
+
+    output_lines = []
+    for line_number, raw_line in enumerate(Path(source).read_text().splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        fields = stripped.split()
+        if len(fields) < 4:
+            raise ValueError(f"Invalid acqparams row {line_number} in {source}: {raw_line!r}")
+        try:
+            direction = np.asarray([float(value) for value in fields[:3]])
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid direction in acqparams row {line_number} of {source}: {raw_line!r}"
+            ) from exc
+        transformed = matrix @ direction
+        transformed[np.isclose(transformed, 0.0, atol=1e-8)] = 0.0
+        direction_fields = [f"{value:g}" for value in transformed]
+        output_lines.append(" ".join([*direction_fields, *fields[3:]]))
+
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
+    return destination
+
+
 def build_acqp_index(
     json_path: Path | None,
     dwi_path: Path,
@@ -144,14 +247,11 @@ def build_acqp_index(
 
     # Map BIDS PE to FSL acqp (i/j/k with +/-). Using j as default example:
     # Columns are: dx dy dz readout_time
-    line = {
-        "i":  "1 0 0",
-        "i-": "-1 0 0",
-        "j":  "0 1 0",
-        "j-": "0 -1 0",
-        "k":  "0 0 1",
-        "k-": "0 0 -1",
-    }.get(ped, "0 1 0")
+    try:
+        vector = phase_encoding_direction_to_vector(ped).astype(int)
+    except ValueError:
+        vector = phase_encoding_direction_to_vector("j").astype(int)
+    line = " ".join(str(value) for value in vector)
 
     acqp.write_text(f"{line} {trt:.6f}\n", encoding="utf-8")
 
@@ -224,4 +324,3 @@ def find_reversed_phase_groups(dwi_files: list[DWIFile], group_by: tuple[str, ..
             combined_groups.append(combined)
 
     return combined_groups
-
