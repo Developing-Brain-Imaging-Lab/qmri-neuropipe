@@ -419,13 +419,19 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         if do_coreg:
             method = coreg_cfg.get('method') or self.config.get("coreg_method", "ants")
+            coreg_options = dict(coreg_cfg)
+            nested_options = coreg_options.pop("options", None)
+            if isinstance(nested_options, dict):
+                merged_options = dict(nested_options)
+                merged_options.update(coreg_options)
+                coreg_options = merged_options
             self.logger.info(f"Adding CoregistrationStep (method={method})")
             self.add_step(CoregistrationStep(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
                 method=method,
-                options={k: v for k, v in coreg_cfg.items() if k not in {"enabled", "method"}},
+                options={k: v for k, v in coreg_options.items() if k not in {"enabled", "method"}},
             ))
 
     def _add_gradient_nonlinearity_step(self, dmri_cfg: dict):

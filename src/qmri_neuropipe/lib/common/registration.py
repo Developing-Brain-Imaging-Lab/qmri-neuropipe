@@ -48,6 +48,30 @@ def _normalize_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _normalize_skull_strip_method(method: Any) -> str:
+    value = str(method or "fsl").strip().lower()
+    aliases = {
+        "bet": "fsl",
+        "fsl-bet": "fsl",
+        "fsl_bet": "fsl",
+        "hdbet": "hd-bet",
+        "hd_bet": "hd-bet",
+        "synth-strip": "synthstrip",
+        "mri_synthstrip": "synthstrip",
+    }
+    return aliases.get(value, value)
+
+
+def _flatten_registration_options(options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    flattened = dict(options or {})
+    nested = flattened.pop("options", None)
+    if isinstance(nested, dict):
+        merged = dict(nested)
+        merged.update(flattened)
+        return merged
+    return flattened
+
+
 def _first_config_value(config, keys, default=None):
     for key in keys:
         value = config.get(key) if hasattr(config, "get") else None
@@ -76,7 +100,7 @@ def _build_multivariate_extras(options: Dict[str, Any]) -> Optional[list[tuple]]
 
 
 def _registration_skull_strip_config(options: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    options = options or {}
+    options = _flatten_registration_options(options)
     raw = None
     for key in _SKULL_STRIP_OPTION_KEYS:
         if key in options:
@@ -108,7 +132,7 @@ def _registration_skull_strip_config(options: Optional[Dict[str, Any]]) -> Optio
         or options.get("brain_extraction_method")
         or "fsl"
     )
-    cfg["method"] = str(method)
+    cfg["method"] = _normalize_skull_strip_method(method)
     cfg["strip_moving"] = _normalize_bool(cfg.get("strip_moving", options.get("skull_strip_moving", True)))
     cfg["strip_fixed"] = _normalize_bool(cfg.get("strip_fixed", options.get("skull_strip_fixed", True)))
     cfg["use_gpu"] = cfg.get("use_gpu", options.get("skull_strip_use_gpu", options.get("use_gpu", False)))
@@ -320,7 +344,7 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         self.template = template # If None, must be in config or passed in run
         self.method = str(method or "ants").lower()
-        self.options = dict(options or {})
+        self.options = _flatten_registration_options(options)
         self.save_transforms = save_transforms
         self.space_entity = str(space_entity or "Standard")
 
@@ -357,7 +381,7 @@ class NonlinearRegistrationStep(BaseProcessingStep):
         output_transform = output_dir / build_bids_name({**entities, "desc": "norm", "suffix": "transform"})
         method = str(kwargs.get("method", self.method) or "ants").lower()
         options = dict(self.options)
-        options.update(kwargs.get("options", {}) or {})
+        options.update(_flatten_registration_options(kwargs.get("options", {}) or {}))
         nthreads = kwargs.get("nthreads", getattr(self.config, "n_cpus", 1))
 
         transform_ref: Optional[Path] = None
@@ -487,7 +511,7 @@ class CoregistrationStep(BaseProcessingStep):
     ):
         super().__init__(config, logger, provenance)
         self.method = method
-        self.options = dict(options or {})
+        self.options = _flatten_registration_options(options)
         self.logger.info(f"Initialized CoregistrationStep with method: {method}")
 
     def validate_inputs(self, first_arg, **kwargs) -> None:
@@ -543,7 +567,7 @@ class CoregistrationStep(BaseProcessingStep):
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
 
         merged_options = dict(self.options)
-        merged_options.update(options or {})
+        merged_options.update(_flatten_registration_options(options))
         options = merged_options
         fs_subjects_dir = None
         fs_subject_id = None
