@@ -11,6 +11,7 @@ from ...core.utils import ensure_dir
 from ...io.bids import build_bids_name
 from ...interfaces import ants, fsl # Assuming existence
 from ...utils.relax_params import _extract_bids_param
+from ..common.registration import prepare_registration_images, _ALL_SKULL_STRIP_OPTION_KEYS
 
 class B1MappingStep(BaseProcessingStep):
     """
@@ -57,7 +58,7 @@ class B1MappingStep(BaseProcessingStep):
         return mapping.get(value.lower(), value)
 
     def _ants_registration_kwargs(self) -> Dict:
-        reserved = {"method", "transform_type", "interpolation", "interpolator", "dof", "cost"}
+        reserved = {"method", "transform_type", "interpolation", "interpolator", "dof", "cost"} | _ALL_SKULL_STRIP_OPTION_KEYS
         return {k: v for k, v in self.registration.items() if k not in reserved}
 
     def _ensure_3d_registration_image(self, image_path: Path, output_dir: Path, label: str) -> Path:
@@ -90,16 +91,26 @@ class B1MappingStep(BaseProcessingStep):
             out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
         moving_3d = self._ensure_3d_registration_image(moving, output_dir, "moving")
         reference_3d = self._ensure_3d_registration_image(reference, output_dir, "fixed")
+        moving_for_reg, reference_for_reg, _ = prepare_registration_images(
+            self.config,
+            self.logger,
+            moving_3d,
+            reference_3d,
+            output_dir,
+            self.registration,
+            nthreads,
+            force=True,
+        )
         warped, transforms = ants.registration(
-            fixed_file=reference_3d,
-            moving_file=moving_3d,
+            fixed_file=reference_for_reg,
+            moving_file=moving_for_reg,
             out_prefix=out_prefix,
             transform_type=self._ants_transform_type(),
             interpolator=self._registration_interpolator(),
             nthreads=nthreads,
             **self._ants_registration_kwargs(),
         )
-        return warped, transforms, reference_3d
+        return warped, transforms, reference_for_reg
         
     def run(self, 
             b1_image: ImageFile, 
@@ -250,10 +261,24 @@ class B1MappingStep(BaseProcessingStep):
                       )
                  elif registration_method == "fsl":
                       # Calculate transform
+                      nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
+                      moving_for_reg, reference_for_reg, registration_inputs_stripped = prepare_registration_images(
+                          self.config,
+                          self.logger,
+                          Path(moving),
+                          Path(reference_image.img),
+                          output_dir,
+                          self.registration,
+                          nthreads,
+                          force=True,
+                      )
+                      estimate_out = output_dir / "b1_ref_aligned.nii.gz"
+                      if registration_inputs_stripped:
+                          estimate_out = output_dir / "b1_ref_aligned_registration_estimate.nii.gz"
                       fsl.flirt(
-                          in_file=moving,
-                          ref_file=reference_image.img,
-                          out_file=output_dir / "b1_ref_aligned.nii.gz",
+                          in_file=moving_for_reg,
+                          ref_file=reference_for_reg,
+                          out_file=estimate_out,
                           omat=mat_file,
                           dof=int(self.registration.get("dof", 6)),
                           cost=str(self.registration.get("cost", "normmi")),
@@ -261,7 +286,7 @@ class B1MappingStep(BaseProcessingStep):
                       
                       # Apply to B1 Map
                       self.logger.info("Applying transform to B1 Map")
-                      cmd = f"flirt -in {b1_map_path} -ref {reference_image.img} -out {out_path} -init {mat_file} -applyxfm"
+                      cmd = f"flirt -in {b1_map_path} -ref {reference_for_reg} -out {out_path} -init {mat_file} -applyxfm"
                       from ...core.run import run_cmd
                       run_cmd(cmd, label="apply_b1_transform")
                  else:

@@ -849,7 +849,20 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             return masked_t2w
 
         try:
-            coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method=coreg_cfg_run.get("method", "fsl"))
+            # Flatten options logic (Top-level + Nested 'options')
+            coreg_options = dict(coreg_cfg_run)
+            if "options" in coreg_options:
+                sub_opts = coreg_options.pop("options")
+                if isinstance(sub_opts, dict):
+                    coreg_options.update(sub_opts)
+
+            coreg_step = CoregistrationStep(
+                self.config,
+                self.logger,
+                self.provenance,
+                method=coreg_cfg_run.get("method", "fsl"),
+                options={k: v for k, v in coreg_options.items() if k not in {"enabled", "method"}},
+            )
             coreg_step.modality = "Anatomical"
             rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
             force_coreg = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(coreg_step, rerun_from_step)
@@ -858,13 +871,6 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 self.logger.info("Forcing Coregistration because rerun_from_step has been reached.")
 
             ref_img = coreg_cfg_run.get("reference_image", "t1w").lower()
-
-            # Flatten options logic (Top-level + Nested 'options')
-            coreg_options = dict(coreg_cfg_run)
-            if "options" in coreg_options:
-                sub_opts = coreg_options.pop("options")
-                if isinstance(sub_opts, dict):
-                    coreg_options.update(sub_opts)
 
             st = time.time()
             if ref_img in {"supersynth", "syntht1w", "synthetic_t1w", "supersynth_multivariate"}:
@@ -920,7 +926,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         "registration_moving_extras": [moving_outputs["synth_t2w"]],
                         "transform_type": coreg_options.get("transform_type", "SyNOnly"),
                     })
-                    coreg_step = CoregistrationStep(self.config, self.logger, self.provenance, method="ants")
+                    coreg_step = CoregistrationStep(
+                        self.config,
+                        self.logger,
+                        self.provenance,
+                        method="ants",
+                        options={k: v for k, v in coreg_options.items() if k not in {"enabled", "method"}},
+                    )
                     self.logger.info(
                         "Coregistration: SuperSynth multivariate registration "
                         "(moving synth T1w/T2w -> fixed synth T1w/T2w), applying transform to original anatomical image."

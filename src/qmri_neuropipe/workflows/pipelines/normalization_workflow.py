@@ -45,6 +45,11 @@ class NormalizationWorkflow(BaseWorkflow):
             synthmorph_register_args=cfg.get("synthmorph_register_args", ""),
             synthmorph_apply_args=cfg.get("synthmorph_apply_args", ""),
             robust_iterative=cfg.get("robust_iterative", {}),
+            skull_strip=cfg.get("skull_strip", cfg.get("skull_strip_registration")),
+            skull_strip_method=cfg.get("skull_strip_method", cfg.get("brain_extraction_method")),
+            skull_strip_moving=cfg.get("skull_strip_moving", True),
+            skull_strip_fixed=cfg.get("skull_strip_fixed", True),
+            skull_strip_use_gpu=cfg.get("skull_strip_use_gpu", cfg.get("use_gpu", False)),
         )
         self.add_step(step)
 

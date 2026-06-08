@@ -424,7 +424,8 @@ class PreprocessingWorkflow(BaseWorkflow):
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
-                method=method
+                method=method,
+                options={k: v for k, v in coreg_cfg.items() if k not in {"enabled", "method"}},
             ))
 
     def _add_gradient_nonlinearity_step(self, dmri_cfg: dict):

@@ -197,6 +197,11 @@ class RelaxometryWorkflow(BaseWorkflow):
                     synthmorph_register_args=norm_cfg.get("synthmorph_register_args", ""),
                     synthmorph_apply_args=norm_cfg.get("synthmorph_apply_args", ""),
                     robust_iterative=norm_cfg.get("robust_iterative", {}),
+                    skull_strip=norm_cfg.get("skull_strip", norm_cfg.get("skull_strip_registration")),
+                    skull_strip_method=norm_cfg.get("skull_strip_method", norm_cfg.get("brain_extraction_method")),
+                    skull_strip_moving=norm_cfg.get("skull_strip_moving", True),
+                    skull_strip_fixed=norm_cfg.get("skull_strip_fixed", True),
+                    skull_strip_use_gpu=norm_cfg.get("skull_strip_use_gpu", norm_cfg.get("use_gpu", False)),
                 )
             )
 

@@ -20,6 +20,34 @@ from .json_metadata import copy_json_with_metadata
 from .spatial_transforms import write_transform_chain_to_sidecar
 
 
+_SKULL_STRIP_OPTION_KEYS = {
+    "skull_strip",
+    "skull_strip_registration",
+    "skullstrip",
+    "skullstrip_registration",
+    "brain_extract_registration",
+    "brain_extraction",
+}
+_SKULL_STRIP_AUX_OPTION_KEYS = {
+    "skull_strip_enabled",
+    "skullstrip_enabled",
+    "skull_strip_method",
+    "skullstrip_method",
+    "brain_extraction_method",
+    "skull_strip_moving",
+    "skull_strip_fixed",
+    "skull_strip_use_gpu",
+    "skull_strip_mask_input",
+}
+_ALL_SKULL_STRIP_OPTION_KEYS = _SKULL_STRIP_OPTION_KEYS | _SKULL_STRIP_AUX_OPTION_KEYS
+
+
+def _normalize_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    return bool(value)
+
+
 def _first_config_value(config, keys, default=None):
     for key in keys:
         value = config.get(key) if hasattr(config, "get") else None
@@ -45,6 +73,125 @@ def _build_multivariate_extras(options: Dict[str, Any]) -> Optional[list[tuple]]
         (metric, fixed, moving, weight, sampling)
         for fixed, moving in zip(fixed_extras, moving_extras)
     ]
+
+
+def _registration_skull_strip_config(options: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    options = options or {}
+    raw = None
+    for key in _SKULL_STRIP_OPTION_KEYS:
+        if key in options:
+            raw = options.get(key)
+            break
+
+    if raw is None:
+        enabled = options.get("skull_strip_enabled")
+        if enabled is None:
+            enabled = options.get("skullstrip_enabled")
+        if enabled is None:
+            return None
+        raw = enabled
+
+    if isinstance(raw, dict):
+        cfg = dict(raw)
+        enabled = cfg.get("enabled", True)
+    else:
+        enabled = raw
+        cfg = {}
+
+    if not _normalize_bool(enabled):
+        return None
+
+    method = (
+        cfg.get("method")
+        or options.get("skull_strip_method")
+        or options.get("skullstrip_method")
+        or options.get("brain_extraction_method")
+        or "fsl"
+    )
+    cfg["method"] = str(method)
+    cfg["strip_moving"] = _normalize_bool(cfg.get("strip_moving", options.get("skull_strip_moving", True)))
+    cfg["strip_fixed"] = _normalize_bool(cfg.get("strip_fixed", options.get("skull_strip_fixed", True)))
+    cfg["use_gpu"] = cfg.get("use_gpu", options.get("skull_strip_use_gpu", options.get("use_gpu", False)))
+    cfg["mask_input"] = cfg.get("mask_input", options.get("skull_strip_mask_input", "b0"))
+    return cfg
+
+
+def _strip_for_registration(
+    config,
+    logger: logging.Logger,
+    image_path: Path,
+    output_dir: Path,
+    label: str,
+    skull_cfg: Dict[str, Any],
+    nthreads: int,
+    force: bool = False,
+) -> Path:
+    """Return a skull-stripped copy for transform estimation only."""
+    from .mask import BrainMaskingStep
+
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise ProcessingError(f"Cannot skull-strip missing registration {label} image: {image_path}")
+
+    strip_dir = output_dir / "registration_skullstrip" / label
+    strip_dir.mkdir(parents=True, exist_ok=True)
+    method = str(skull_cfg.get("method", "fsl"))
+    logger.info(
+        f"Skull-stripping registration {label} image with {method}: {image_path.name}"
+    )
+    step = BrainMaskingStep(
+        config=config,
+        logger=logger,
+        provenance=None,
+        method=method,
+        nthreads=nthreads,
+        apply_mask=True,
+        mask_input=str(skull_cfg.get("mask_input", "b0")),
+        use_gpu=skull_cfg.get("use_gpu"),
+    )
+    result = step.run(image_path, strip_dir, force=force, nthreads=nthreads)
+    stripped_path = Path(result.img if hasattr(result, "img") else result)
+    if not stripped_path.exists():
+        raise ProcessingError(
+            f"Skull stripping did not produce a registration {label} image: {stripped_path}"
+        )
+    return stripped_path
+
+
+def prepare_registration_images(
+    config,
+    logger: logging.Logger,
+    moving: Path,
+    fixed: Path,
+    output_dir: Path,
+    options: Optional[Dict[str, Any]],
+    nthreads: int,
+    force: bool = False,
+) -> tuple[Path, Path, bool]:
+    """
+    Optionally skull-strip moving/fixed images for transform estimation.
+
+    The returned paths must only be used to estimate the transform. Downstream
+    transform application should still use the original moving image.
+    """
+    skull_cfg = _registration_skull_strip_config(options)
+    moving_for_reg = Path(moving)
+    fixed_for_reg = Path(fixed)
+    if not skull_cfg:
+        return moving_for_reg, fixed_for_reg, False
+
+    changed = False
+    if skull_cfg.get("strip_moving", True):
+        moving_for_reg = _strip_for_registration(
+            config, logger, moving_for_reg, output_dir, "moving", skull_cfg, nthreads, force=force
+        )
+        changed = True
+    if skull_cfg.get("strip_fixed", True):
+        fixed_for_reg = _strip_for_registration(
+            config, logger, fixed_for_reg, output_dir, "fixed", skull_cfg, nthreads, force=force
+        )
+        changed = True
+    return moving_for_reg, fixed_for_reg, changed
 
 
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
@@ -227,48 +374,85 @@ class NonlinearRegistrationStep(BaseProcessingStep):
              self.logger.info(f"Skipping nonlinear registration (exists): {output_img}")
         else:
              in_p = self._extract_path(input_image)
+             moving_for_reg = in_p
+             fixed_for_reg = target
+             moving_for_reg, fixed_for_reg, registration_inputs_stripped = prepare_registration_images(
+                 self.config,
+                 self.logger,
+                 moving_for_reg,
+                 fixed_for_reg,
+                 output_dir,
+                 options,
+                 nthreads,
+                 force=kwargs.get("force", False),
+             )
              if method == "ants":
                  transform_type = str(options.get("transform_type", "SyN"))
                  interpolator = str(options.get("interpolation", "linear"))
-                 ants.registration(
-                     fixed_file=target,
-                     moving_file=in_p,
+                 warped, transforms = ants.registration(
+                     fixed_file=fixed_for_reg,
+                     moving_file=moving_for_reg,
                      out_prefix=output_transform,
                      transform_type=transform_type,
                      interpolator=interpolator,
                      nthreads=nthreads,
-                     **{k: v for k, v in options.items() if k not in {"transform_type", "interpolation"}}
+                     **{
+                         k: v for k, v in options.items()
+                         if k not in {"transform_type", "interpolation"} | _ALL_SKULL_STRIP_OPTION_KEYS
+                     }
                  )
 
-                 # ANTs outputs:
-                 # prefixWarped.nii.gz -> output_img
-                 # prefix1Warp.nii.gz -> forward warp
-                 # prefix0GenericAffine.mat -> affine
-                 import shutil
-                 warped = output_transform.with_suffix("").parent / (output_transform.name + "Warped.nii.gz")
-                 if warped.exists():
-                     shutil.copy(warped, output_img)
+                 if registration_inputs_stripped:
+                     ants.apply_transforms(
+                         fixed_file=fixed_for_reg,
+                         moving_file=in_p,
+                         out_file=output_img,
+                         transforms=transforms,
+                         interpolator=interpolator,
+                         nthreads=nthreads,
+                     )
                  else:
-                     self.logger.warning("ANTs SyN completed but warped image not found?")
+                     # ANTs outputs:
+                     # prefixWarped.nii.gz -> output_img
+                     # prefix1Warp.nii.gz -> forward warp
+                     # prefix0GenericAffine.mat -> affine
+                     import shutil
+                     warped = output_transform.with_suffix("").parent / (output_transform.name + "Warped.nii.gz")
+                     if warped.exists():
+                         shutil.copy(warped, output_img)
+                     elif warped and Path(warped).exists():
+                         shutil.copy(warped, output_img)
+                     else:
+                         self.logger.warning("ANTs SyN completed but warped image not found?")
              elif method == "fsl":
                  output_mat = expected_transform
+                 flirt_out = output_img
+                 if registration_inputs_stripped:
+                     flirt_out = output_dir / f"{output_img.stem}_registration_estimate.nii.gz"
                  flirt_opts: Dict[str, Any] = {}
                  if "interpolation" in options:
                      flirt_opts["interp"] = options["interpolation"]
                  for key, value in options.items():
-                     if key in {"dof", "cost", "interpolation", "output_resolution"}:
+                     if key in {"dof", "cost", "interpolation", "output_resolution"} | _ALL_SKULL_STRIP_OPTION_KEYS:
                          continue
                      flirt_opts[key] = value
 
                  fsl.flirt(
-                     in_file=in_p,
-                     ref_file=target,
-                     out_file=output_img,
+                     in_file=moving_for_reg,
+                     ref_file=fixed_for_reg,
+                     out_file=flirt_out,
                      omat=output_mat,
                      dof=int(options.get("dof", 6)),
                      cost=str(options.get("cost", "normmi")),
                      extra_opts=flirt_opts or None,
                  )
+                 if registration_inputs_stripped:
+                     fsl.flirt(
+                         in_file=in_p,
+                         ref_file=fixed_for_reg,
+                         out_file=output_img,
+                         extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
+                     )
              else:
                  raise ValidationError(f"Unsupported normalization method: {method}")
 
@@ -298,10 +482,12 @@ class CoregistrationStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
-        method: Literal['ants', 'fsl', 'freesurfer'] = 'ants'
+        method: Literal['ants', 'fsl', 'freesurfer'] = 'ants',
+        options: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(config, logger, provenance)
         self.method = method
+        self.options = dict(options or {})
         self.logger.info(f"Initialized CoregistrationStep with method: {method}")
 
     def validate_inputs(self, first_arg, **kwargs) -> None:
@@ -356,7 +542,9 @@ class CoregistrationStep(BaseProcessingStep):
         if not target_path.exists():
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
 
-        options = options or {}
+        merged_options = dict(self.options)
+        merged_options.update(options or {})
+        options = merged_options
         fs_subjects_dir = None
         fs_subject_id = None
         fs_reference_mgz = None
@@ -565,6 +753,19 @@ class CoregistrationStep(BaseProcessingStep):
             self.logger.info(f"Running {self.method} coregistration with {nthreads} threads...")
             self.logger.info(f"Application method: {apply_method}")
 
+            registration_inputs_stripped = False
+            if self.method in {"ants", "fsl"}:
+                moving_for_reg, registration_target, registration_inputs_stripped = prepare_registration_images(
+                    self.config,
+                    self.logger,
+                    moving_for_reg,
+                    registration_target,
+                    output_dir,
+                    options,
+                    nthreads,
+                    force=kwargs.get("force", False),
+                )
+
             # --- Registration Options Processing ---
             dof = options.get("dof", 6)
             cost = options.get("cost", "normmi")
@@ -580,7 +781,7 @@ class CoregistrationStep(BaseProcessingStep):
                 'supersynth_registration', 'supersynth_input',
                 'supersynth_mode', 'supersynth_device',
                 'supersynth_sharpen_synths', 'force',
-            ]
+            ] + list(_ALL_SKULL_STRIP_OPTION_KEYS)
             fsl_opts = {k: v for k, v in options.items() if k not in known_args}
 
             # Setup BBR if requested
@@ -782,7 +983,7 @@ class CoregistrationStep(BaseProcessingStep):
                             **{k:v for k,v in options.items() if k not in known_args}
                         )
     
-                        if is_dwi or registration_moving:
+                        if is_dwi or registration_moving or registration_inputs_stripped:
                              apply_kwargs = {
                                  "fixed_file": registration_target,
                                  "moving_file": in_path,
@@ -800,6 +1001,9 @@ class CoregistrationStep(BaseProcessingStep):
 
                     elif self.method == 'fsl':
                         output_mat = output_transform.with_suffix(".mat")
+                        flirt_out = output_img
+                        if registration_inputs_stripped and not is_dwi:
+                            flirt_out = output_dir / "temp_flirt_calc.nii.gz"
                         
                         # Ensure we clean up before running to force execution
                         if output_img.exists(): output_img.unlink()
@@ -809,7 +1013,7 @@ class CoregistrationStep(BaseProcessingStep):
                         fsl.flirt(
                             in_file=moving_for_reg, 
                             ref_file=registration_target, 
-                            out_file=output_img, 
+                            out_file=flirt_out, 
                             omat=output_mat, 
                             dof=dof, 
                             cost=cost, 
@@ -824,6 +1028,13 @@ class CoregistrationStep(BaseProcessingStep):
                                 out_file=output_img, 
                                 mat=output_mat,
                                 interp=options.get("interpolation", "trilinear")
+                            )
+                        elif registration_inputs_stripped:
+                            fsl.flirt(
+                                in_file=in_path,
+                                ref_file=registration_target,
+                                out_file=output_img,
+                                extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
                             )
                     
                     elif self.method == 'freesurfer':

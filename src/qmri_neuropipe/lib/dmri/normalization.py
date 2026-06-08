@@ -9,6 +9,7 @@ import nibabel as nib
 
 from ...core import BaseProcessingStep, ProcessingError
 from ...core.utils import ensure_dir
+from ..common.registration import prepare_registration_images, _ALL_SKULL_STRIP_OPTION_KEYS
 
 
 def _is_reference_target(value: Any) -> bool:
@@ -580,6 +581,9 @@ class NormalizationStep(BaseProcessingStep):
         
         self.logger.info(f"Normalizing metrics to space-{self.space_name} (Template: {self.template.name}) using {self.tool}")
         self.logger.info(f"Driving metric: {ref_path.name}")
+        ref_for_reg = Path(ref_path)
+        template_for_reg = self.template
+        registration_inputs_stripped = False
         
         # Check for existing outputs (Skip Logic)
         force = bool(kwargs.get('force', False))
@@ -663,14 +667,26 @@ class NormalizationStep(BaseProcessingStep):
         tx_forward = []
         tx_inverse = []
         synthmorph_tx = None
+
+        if self.tool in {'ants', 'synthmorph'}:
+            ref_for_reg, template_for_reg, registration_inputs_stripped = prepare_registration_images(
+                self.config,
+                self.logger,
+                Path(ref_path),
+                self.template,
+                norm_out,
+                self.kwargs,
+                nthreads,
+                force=force,
+            )
         
         if self.tool == 'ants':
             try:
                 import ants
-                mov_raw = ants.image_read(str(ref_path))
+                mov_raw = ants.image_read(str(ref_for_reg))
                 mov, _ = self._ensure_3d(mov_raw, is_driving=True)
                 
-                fix = ants.image_read(str(self.template))
+                fix = ants.image_read(str(template_for_reg))
                 # Fix should also be 3D
                 if fix.dimension == 4:
                     fix = ants.slice_image(fix, axis=3, idx=0)
@@ -685,7 +701,18 @@ class NormalizationStep(BaseProcessingStep):
                 
                 # ...
                 
-                reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type)
+                registration_kwargs = {
+                    k: v for k, v in self.kwargs.items()
+                    if k not in {
+                        'save_transforms', 'include_all_metrics', 'space_entity',
+                        'synthmorph_args', 'synthmorph_moving_flag',
+                        'synthmorph_target_flag', 'synthmorph_output_flag',
+                        'synthmorph_transform_ext', 'synthmorph_register_args',
+                        'synthmorph_apply_args', 'robust_iterative',
+                        'transform_type',
+                    } | _ALL_SKULL_STRIP_OPTION_KEYS
+                }
+                reg = ants.registration(fixed=fix, moving=mov, type_of_transform=tf_type, **registration_kwargs)
                 tx_forward = reg['fwdtransforms']
                 
                 # Save transforms if requested
@@ -727,9 +754,11 @@ class NormalizationStep(BaseProcessingStep):
                     driving_ents['model'] = 'Unknown'
                 driving_out = norm_out / build_bids_name(driving_ents)
                 try:
+                    driving_raw = ants.image_read(str(ref_path))
+                    driving_mov, _ = self._ensure_3d(driving_raw, is_driving=True)
                     warped_driving = ants.apply_transforms(
                         fixed=fix,
-                        moving=mov,
+                        moving=driving_mov,
                         transformlist=tx_forward,
                         imagetype=0
                     )
@@ -764,10 +793,10 @@ class NormalizationStep(BaseProcessingStep):
 
             try:
                 mri_synthmorph_register(
-                    moving=ref_path,
-                    target=self.template,
+                    moving=ref_for_reg,
+                    target=template_for_reg,
                     transform_out=synthmorph_tx,
-                    output_image=driving_out,
+                    output_image=None if registration_inputs_stripped else driving_out,
                     model=self.kwargs.get('synthmorph_model', None),
                     extra_args=self.kwargs.get('synthmorph_register_args', ''),
                     overwrite=not skip
@@ -777,11 +806,11 @@ class NormalizationStep(BaseProcessingStep):
                 return context
 
             # Fallback: if register didn't produce the warped driving image, apply the transform.
-            if not driving_out.exists():
+            if registration_inputs_stripped or not driving_out.exists():
                 try:
                     mri_synthmorph_apply(
                         moving=ref_path,
-                        target=self.template,
+                        target=template_for_reg,
                         transform_in=synthmorph_tx,
                         out_file=driving_out,
                         extra_args=self.kwargs.get('synthmorph_apply_args', ''),
@@ -833,7 +862,7 @@ class NormalizationStep(BaseProcessingStep):
                       try:
                           mri_synthmorph_apply(
                               moving=path,
-                              target=self.template,
+                              target=template_for_reg,
                               transform_in=synthmorph_tx,
                               out_file=out_path,
                               extra_args=self.kwargs.get('synthmorph_apply_args', ''),

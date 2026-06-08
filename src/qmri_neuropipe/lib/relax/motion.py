@@ -9,6 +9,7 @@ from ...io.bids import build_bids_name
 from ...interfaces import ants
 from ...utils.relax_params import _extract_bids_param
 from ..common.json_metadata import copy_json_with_metadata
+from ..common.registration import prepare_registration_images, _ALL_SKULL_STRIP_OPTION_KEYS
 
 class SPGRMotionCorrectionStep(BaseProcessingStep):
     """
@@ -189,8 +190,18 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
 
     def _register(self, in_file, ref_file, out_file):
         """Helper to run registration."""
+        nthreads = int(self.options.get('nthreads', self.options.get('threads', 4)))
+        moving_for_reg, ref_for_reg, registration_inputs_stripped = prepare_registration_images(
+            self.config,
+            self.logger,
+            Path(in_file),
+            Path(ref_file),
+            Path(out_file).parent,
+            self.options,
+            nthreads,
+            force=True,
+        )
         if self.method == 'ants':
-             nthreads = int(self.options.get('nthreads', self.options.get('threads', 4)))
              transform_type = self._normalize_ants_transform(
                  self.options.get('transform_type', self.options.get('type_of_transform', 'Rigid'))
              )
@@ -201,7 +212,7 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                  if k not in {
                      'transform_type', 'type_of_transform', 'threads', 'nthreads',
                      'interpolation', 'interpolator', 'args', 'extra_args'
-                 }
+                 } | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              ignored_shell_args = self.options.get('args') or self.options.get('extra_args')
              if ignored_shell_args:
@@ -210,25 +221,39 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                      ignored_shell_args,
                  )
 
-             warped, _ = ants.registration(
-                 fixed_file=ref_file,
-                 moving_file=in_file,
+             warped, transforms = ants.registration(
+                 fixed_file=ref_for_reg,
+                 moving_file=moving_for_reg,
                  out_prefix=out_prefix,
                  transform_type=transform_type,
                  interpolator=interpolator,
                  nthreads=nthreads,
                  **registration_kwargs,
              )
-             warped_path = Path(warped)
-             if warped_path != Path(out_file):
-                 warped_path.replace(out_file)
+             if registration_inputs_stripped:
+                 ants.apply_transforms(
+                     fixed_file=ref_for_reg,
+                     moving_file=in_file,
+                     out_file=out_file,
+                     transforms=transforms,
+                     interpolator=interpolator,
+                     nthreads=nthreads,
+                 )
+             else:
+                 warped_path = Path(warped)
+                 if warped_path != Path(out_file):
+                     warped_path.replace(out_file)
              self._cleanup_ants_outputs(out_prefix)
 
         elif self.method == 'fsl':
              from ...interfaces.fsl import flirt
+             mat_file = Path(out_file).parent / f"{get_nifti_stem(out_file)}.mat"
+             flirt_out = Path(out_file)
+             if registration_inputs_stripped:
+                 flirt_out = Path(out_file).parent / f"{get_nifti_stem(out_file)}_registration_estimate.nii.gz"
              flirt_kwargs = {
-                 'in_file': in_file, 'ref_file': ref_file, 'out_file': out_file,
-                 'dof': self.options.get('dof', 6)
+                 'in_file': moving_for_reg, 'ref_file': ref_for_reg, 'out_file': flirt_out,
+                 'omat': mat_file, 'dof': self.options.get('dof', 6)
              }
              if 'cost' in self.options:
                  flirt_kwargs['cost'] = self.options['cost']
@@ -239,8 +264,15 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
 
              extra_opts = {
                  k: v for k, v in self.options.items()
-                 if k not in {'dof', 'cost', 'extra_args', 'args'}
+                 if k not in {'dof', 'cost', 'extra_args', 'args'} | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              if extra_opts:
                  flirt_kwargs['extra_opts'] = extra_opts
              flirt(**flirt_kwargs)
+             if registration_inputs_stripped:
+                 flirt(
+                     in_file=in_file,
+                     ref_file=ref_for_reg,
+                     out_file=out_file,
+                     extra_args=f"-applyxfm -init {mat_file} -interp {self.options.get('interpolation', 'trilinear')}",
+                 )
