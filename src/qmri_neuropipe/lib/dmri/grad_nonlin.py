@@ -398,7 +398,9 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
                     if "gnl_tensor_native_tmp" in gnl_map.name:
                         gnl_map.unlink(missing_ok=True)
                 context["gnl_map"] = mapped_map
-                context.setdefault("gnl_map_by_image", {})[str(final_dwi)] = mapped_map
+                gnl_map_by_image = context.setdefault("gnl_map_by_image", {})
+                gnl_map_by_image[final_dwi] = mapped_map
+                gnl_map_by_image[str(final_dwi)] = mapped_map
                 return context
         except Exception:
             self.logger.warning("Could not compare GNL and final DWI grids; forcing remap.")
@@ -416,7 +418,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
             )
 
             ants.apply_transforms(
-                fixed_file=final_dwi,
+                fixed_file=final_ref,
                 moving_file=gnl_map,
                 out_file=mapped_map,
                 transforms=transform_list,
@@ -437,5 +439,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
 
         # Update context to guarantee modeling uses this final-space map.
         context["gnl_map"] = mapped_map
-        context.setdefault("gnl_map_by_image", {})[str(final_dwi)] = mapped_map
+        gnl_map_by_image = context.setdefault("gnl_map_by_image", {})
+        gnl_map_by_image[final_dwi] = mapped_map
+        gnl_map_by_image[str(final_dwi)] = mapped_map
         return context

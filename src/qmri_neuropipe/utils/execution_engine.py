@@ -388,6 +388,10 @@ class ExecutionEngine:
 
                 new_dwis.append(out_dwi)
                 new_masks.append(out_mask if out_mask is not None else mask)
+                prior_gnl_map = context.get("gnl_map_by_image", {}).get(
+                    dwi.img,
+                    context.get("gnl_map"),
+                )
                 if getattr(out_dwi, "img", None):
                     context.setdefault("gnl_native_reference_map", {})[out_dwi.img] = native_ref
                     prev_transform = context.setdefault("gnl_transform_map", {}).get(dwi.img)
@@ -412,11 +416,10 @@ class ExecutionEngine:
                     if "gnl_maps" not in context:
                         context["gnl_maps"] = []
                     gnl_path = result["gnl_map"]
-                    prior_map = context.get("gnl_map_by_image", {}).get(dwi.img)
-                    if prior_map is not None:
+                    if prior_gnl_map is not None:
                         context["gnl_maps"] = [
                             existing for existing in context["gnl_maps"]
-                            if existing != prior_map
+                            if existing != prior_gnl_map
                         ]
                     if gnl_path not in context["gnl_maps"]:
                         context["gnl_maps"].append(gnl_path)
