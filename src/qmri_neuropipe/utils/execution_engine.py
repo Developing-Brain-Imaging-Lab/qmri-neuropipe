@@ -326,10 +326,25 @@ class ExecutionEngine:
             img_ctx = dict(context)
             img_ctx['current_image'] = dwi
             img_ctx['current_mask'] = mask
-            native_ref = context.get("gnl_native_reference_map", {}).get(dwi.img, dwi)
+            image_key = getattr(dwi, "img", None)
+            image_key_str = str(image_key) if image_key is not None else None
+            native_ref_map = context.get("gnl_native_reference_map", {})
+            transform_map = context.get("gnl_transform_map", {})
+            gnl_map_by_image = context.get("gnl_map_by_image", {})
+
+            native_ref = (
+                native_ref_map.get(image_key)
+                or native_ref_map.get(image_key_str)
+                or dwi
+            )
             img_ctx['native_dwi_for_gnl'] = native_ref
-            img_ctx['gnl_spatial_transform'] = normalize_transform_chain(context.get("gnl_transform_map", {}).get(dwi.img))
-            img_ctx['gnl_map'] = context.get("gnl_map_by_image", {}).get(dwi.img)
+            img_ctx['gnl_spatial_transform'] = normalize_transform_chain(
+                transform_map.get(image_key) or transform_map.get(image_key_str)
+            )
+            img_ctx['gnl_map'] = (
+                gnl_map_by_image.get(image_key)
+                or gnl_map_by_image.get(image_key_str)
+            )
             img_ctx['_execution_output_dir'] = output_dir
             
             if dwi.img in topup_map:
@@ -352,6 +367,12 @@ class ExecutionEngine:
                     self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")
                 result = step(img_ctx, output_dir=output_dir, force=force_run, **step_kwargs)
                 duration = time.time() - start_time
+
+                if isinstance(result, dict):
+                    for map_name in ("gnl_source_map", "gnl_native_reference_map", "gnl_transform_map"):
+                        result_map = result.get(map_name)
+                        if isinstance(result_map, dict):
+                            context.setdefault(map_name, {}).update(result_map)
                 
                 # Extract outputs
                 out_dwi = result.get("current_image") if isinstance(result, dict) else result
@@ -388,25 +409,41 @@ class ExecutionEngine:
 
                 new_dwis.append(out_dwi)
                 new_masks.append(out_mask if out_mask is not None else mask)
-                prior_gnl_map = context.get("gnl_map_by_image", {}).get(
-                    dwi.img,
-                    context.get("gnl_map"),
+                prior_gnl_map = (
+                    context.get("gnl_map_by_image", {}).get(image_key)
+                    or context.get("gnl_map_by_image", {}).get(image_key_str)
+                    or context.get("gnl_map")
                 )
                 if getattr(out_dwi, "img", None):
-                    context.setdefault("gnl_native_reference_map", {})[out_dwi.img] = native_ref
-                    prev_transform = context.setdefault("gnl_transform_map", {}).get(dwi.img)
+                    out_key = out_dwi.img
+                    out_key_str = str(out_key)
+                    context.setdefault("gnl_native_reference_map", {})[out_key] = native_ref
+                    context["gnl_native_reference_map"][out_key_str] = native_ref
+                    prev_transform = (
+                        context.setdefault("gnl_transform_map", {}).get(image_key)
+                        or context["gnl_transform_map"].get(image_key_str)
+                    )
                     new_transform = result.get("spatial_transform") if isinstance(result, dict) else getattr(out_dwi, "spatial_transform", None)
                     if new_transform is not None:
-                        context["gnl_transform_map"][out_dwi.img] = append_transform(prev_transform, new_transform)
+                        chained_transform = append_transform(prev_transform, new_transform)
+                        context["gnl_transform_map"][out_key] = chained_transform
+                        context["gnl_transform_map"][out_key_str] = chained_transform
                     elif prev_transform is not None:
-                        context["gnl_transform_map"][out_dwi.img] = normalize_transform_chain(prev_transform)
+                        chained_transform = normalize_transform_chain(prev_transform)
+                        context["gnl_transform_map"][out_key] = chained_transform
+                        context["gnl_transform_map"][out_key_str] = chained_transform
 
                     if isinstance(result, dict) and "gnl_map" in result:
-                        context.setdefault("gnl_map_by_image", {})[out_dwi.img] = result["gnl_map"]
+                        context.setdefault("gnl_map_by_image", {})[out_key] = result["gnl_map"]
+                        context["gnl_map_by_image"][out_key_str] = result["gnl_map"]
                     else:
-                        context.setdefault("gnl_map_by_image", {})[out_dwi.img] = context.get(
-                            "gnl_map_by_image", {}
-                        ).get(dwi.img, context.get("gnl_map"))
+                        carried_gnl = (
+                            context.get("gnl_map_by_image", {}).get(image_key)
+                            or context.get("gnl_map_by_image", {}).get(image_key_str)
+                            or context.get("gnl_map")
+                        )
+                        context.setdefault("gnl_map_by_image", {})[out_key] = carried_gnl
+                        context["gnl_map_by_image"][out_key_str] = carried_gnl
                 
                 # Update QC metrics registry
                 self._update_qc_metrics(context, result, out_dwi)

@@ -343,6 +343,7 @@ class AlignFinalGNLTensorStep(BaseProcessingStep):
         native_ref = (
             context.get("gnl_source_map", {}).get(str(gnl_map))
             or context.get("gnl_native_reference_map", {}).get(str(gnl_map))
+            or context.get("native_dwi_for_gnl")
             or dwi_image
         )
         native_ref_img = Path(getattr(native_ref, "img", native_ref))
