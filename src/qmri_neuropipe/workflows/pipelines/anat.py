@@ -72,6 +72,7 @@ class NormalizationConfig:
     method: str = "ants"
     options: Dict[str, Any] = field(default_factory=dict)
     save_transforms: bool = True
+    skull_stripped_outputs: bool = False
 
 @dataclass
 class SegmentationConfig:
@@ -153,7 +154,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 template=normalization_cfg.get("template"),
                 method=normalization_cfg.get("method", "ants"),
                 options=normalization_cfg.get("options", {}),
-                save_transforms=normalization_cfg.get("save_transforms", True),
+                save_transforms=normalization_cfg.get(
+                    "save_transforms",
+                    normalization_cfg.get("save_transform", True),
+                ),
+                skull_stripped_outputs=normalization_cfg.get(
+                    "skull_stripped_outputs",
+                    preprocessing_cfg.get(
+                        "skull_stripped_outputs",
+                        brain_masking_cfg.get("output_skull_stripped", False),
+                    ),
+                ),
             ),
             segmentation=SegmentationConfig(
                 enabled=segmentation_cfg.get("enabled", False),
@@ -277,7 +288,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     template=norm_cfg.get("template"),
                     method=norm_cfg.get("method", "ants"),
                     options=norm_cfg.get("options", {}),
-                    save_transforms=norm_cfg.get("save_transforms", True),
+                    save_transforms=norm_cfg.get(
+                        "save_transforms",
+                        norm_cfg.get("save_transform", True),
+                    ),
                     space_entity=norm_cfg.get("space_entity", norm_cfg.get("space_name", norm_cfg.get("space", "Standard"))),
                 )
             )
@@ -1367,6 +1381,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         primary_img = context.get("preprocessed_t1w")
         primary_key = "preprocessed_t1w"
         primary_suffix = "T1w"
+        normalization_brain_inputs = {
+            "T1w": context.get("preprocessed_t1w_brain"),
+            "T2w": context.get("preprocessed_t2w_brain"),
+        }
 
         if primary_img is None:
             primary_img = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
@@ -1374,6 +1392,33 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             primary_suffix = "T2w"
 
         if primary_img:
+            if self.anat_config.normalization.skull_stripped_outputs:
+                mask_obj = context.get("brain_mask")
+                native_brain_inputs = (
+                    ("preprocessed_t1w", context.get("preprocessed_t1w"), "T1w"),
+                    (
+                        "preprocessed_t2w",
+                        context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w"),
+                        "T2w",
+                    ),
+                )
+                for _, native_img, suffix in native_brain_inputs:
+                    if normalization_brain_inputs[suffix] or not native_img or not mask_obj:
+                        continue
+                    brain_obj = self._write_masked_anat_derivative(
+                        native_img,
+                        mask_obj,
+                        output_dir,
+                        desc="preproc-brain",
+                        suffix=suffix,
+                        errors=errors,
+                        reporter=reporter,
+                        label=f"Normalization_{suffix}_BrainInput",
+                        force=force_norm,
+                    )
+                    if brain_obj:
+                        normalization_brain_inputs[suffix] = brain_obj
+
             self.logger.info(f"Running Normalization on {primary_suffix}...")
             try:
                 context["current_image"] = primary_img
@@ -1556,12 +1601,12 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     self._add_anat_step(f"Normalization_{suffix}_Brain", {"Status": "Failed"}, details={"error": str(e)})
                 return None
 
-        if self.anat_config.preprocessing.skull_stripped_outputs:
-            norm_t1_brain = _normalize_brain_img(context.get("preprocessed_t1w_brain"), "T1w")
+        if self.anat_config.normalization.skull_stripped_outputs:
+            norm_t1_brain = _normalize_brain_img(normalization_brain_inputs["T1w"], "T1w")
             if norm_t1_brain:
                 context["normalized_t1w_brain"] = norm_t1_brain
 
-            norm_t2_brain = _normalize_brain_img(context.get("preprocessed_t2w_brain"), "T2w")
+            norm_t2_brain = _normalize_brain_img(normalization_brain_inputs["T2w"], "T2w")
             if norm_t2_brain:
                 context["normalized_t2w_brain"] = norm_t2_brain
 
@@ -2033,11 +2078,11 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 preprocessed_t2w_brain = ImageFile(entities=t2_brain_entities, img=t2_brain_path, json=None)
 
         norm_cfg = self.anat_config.preprocessing.normalization or {}
-        if self.anat_config.preprocessing.skull_stripped_outputs and norm_cfg.get("enabled"):
+        if self.anat_config.normalization.skull_stripped_outputs and norm_cfg.get("enabled"):
             norm_space = norm_cfg.get("space_entity", norm_cfg.get("space_name", norm_cfg.get("space", "Standard")))
 
-            if preprocessed_t1w_brain:
-                norm_t1_entities = dict(preprocessed_t1w_brain.entities)
+            if preprocessed_t1w:
+                norm_t1_entities = dict(preprocessed_t1w.entities)
                 norm_t1_entities["space"] = norm_space
                 norm_t1_entities["desc"] = "norm-brain"
                 norm_t1_path = final_output_dir / build_bids_name(norm_t1_entities)
@@ -2045,8 +2090,8 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     return None
                 normalized_t1w_brain = ImageFile(entities=norm_t1_entities, img=norm_t1_path, json=None)
 
-            if preprocessed_t2w_brain:
-                norm_t2_entities = dict(preprocessed_t2w_brain.entities)
+            if preprocessed_t2w:
+                norm_t2_entities = dict(preprocessed_t2w.entities)
                 norm_t2_entities["space"] = norm_space
                 norm_t2_entities["desc"] = "norm-brain"
                 norm_t2_path = final_output_dir / build_bids_name(norm_t2_entities)

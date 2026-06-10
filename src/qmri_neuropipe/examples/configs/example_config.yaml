@@ -338,6 +338,9 @@ dmri:
 #       template: /path/to/MNI152_T1_1mm.nii.gz
 #       # Optional BIDS `space` entity for normalized outputs.
 #       space_entity: MNI152NLin2009cAsym
+#       # Publish a skull-stripped anatomical image in template space.
+#       # Requires brain_masking to be enabled.
+#       skull_stripped_outputs: true
 #     segmentation:
 #       enabled: true
 #       method: fast
