@@ -511,6 +511,11 @@ def main(
         "--stop-on-error/--continue-on-error",
         help="Stop pipeline on first error"
     ),
+    rerun_from_step: Optional[str] = typer.Option(
+        None,
+        "--rerun-from-step",
+        help="Rerun the selected pipeline from this processing step onward (e.g., normalization)",
+    ),
     skip_bids_validation: bool = typer.Option(
         False, 
         "--skip-bids-validation",
@@ -649,6 +654,7 @@ def main(
             'omp_nthreads': omp_nthreads,
             'skip_existing': skip_existing,
             'stop_on_error': stop_on_error,
+            'rerun_from_step': rerun_from_step,
             'log_level': log_level,
             'debug': debug,
             'jobs': jobs,
