@@ -1381,10 +1381,6 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         primary_img = context.get("preprocessed_t1w")
         primary_key = "preprocessed_t1w"
         primary_suffix = "T1w"
-        normalization_brain_inputs = {
-            "T1w": context.get("preprocessed_t1w_brain"),
-            "T2w": context.get("preprocessed_t2w_brain"),
-        }
 
         if primary_img is None:
             primary_img = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
@@ -1392,33 +1388,6 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             primary_suffix = "T2w"
 
         if primary_img:
-            if self.anat_config.normalization.skull_stripped_outputs:
-                mask_obj = context.get("brain_mask")
-                native_brain_inputs = (
-                    ("preprocessed_t1w", context.get("preprocessed_t1w"), "T1w"),
-                    (
-                        "preprocessed_t2w",
-                        context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w"),
-                        "T2w",
-                    ),
-                )
-                for _, native_img, suffix in native_brain_inputs:
-                    if normalization_brain_inputs[suffix] or not native_img or not mask_obj:
-                        continue
-                    brain_obj = self._write_masked_anat_derivative(
-                        native_img,
-                        mask_obj,
-                        output_dir,
-                        desc="preproc-brain",
-                        suffix=suffix,
-                        errors=errors,
-                        reporter=reporter,
-                        label=f"Normalization_{suffix}_BrainInput",
-                        force=force_norm,
-                    )
-                    if brain_obj:
-                        normalization_brain_inputs[suffix] = brain_obj
-
             self.logger.info(f"Running Normalization on {primary_suffix}...")
             try:
                 context["current_image"] = primary_img
@@ -1536,41 +1505,50 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     if reporter:
                         self._add_anat_step("Normalization_T2w", {"Status": "Failed"}, details={"error": str(e)})
 
-        def _normalize_brain_img(img_obj, suffix: str):
-            if not (img_obj and hasattr(img_obj, 'entities') and hasattr(img_obj, 'img') and img_obj.img.exists()):
+        def _normalize_brain_mask():
+            mask_obj = context.get("brain_mask")
+            if not (mask_obj and hasattr(mask_obj, "img") and Path(mask_obj.img).exists()):
+                warn_msg = (
+                    "Normalized skull-stripped output was requested, but no brain mask is available. "
+                    "Enable anat.preprocessing.brain_masking and verify that it completes successfully."
+                )
+                self.logger.warning(warn_msg)
+                errors.append(warn_msg)
                 return None
-
             transform = context.get("template_transform")
             template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
             if not (transform and template):
+                warn_msg = (
+                    "Normalized skull-stripped output was requested, but the normalization transform "
+                    "or template is unavailable."
+                )
+                self.logger.warning(warn_msg)
+                errors.append(warn_msg)
                 return None
 
-            ents = dict(img_obj.entities)
+            ents = dict(mask_obj.entities)
             ents['space'] = norm_space
-            ents['desc'] = 'norm-brain'
-            if 'suffix' not in ents:
-                ents['suffix'] = suffix
+            ents['desc'] = 'norm'
+            ents['suffix'] = 'mask'
 
-            publish_dir = final_output_dir or output_dir
-            norm_brain_path = publish_dir / build_bids_name(ents)
-            if norm_brain_path.exists() and skip_existing and not force_norm:
-                return ImageFile(entities=ents, img=norm_brain_path, json=getattr(img_obj, "json", None))
+            norm_mask_path = output_dir / build_bids_name(ents)
+            if norm_mask_path.exists() and skip_existing and not force_norm:
+                return ImageFile(entities=ents, img=norm_mask_path)
 
             try:
                 transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
                 if transform_type == "fsl" or Path(transform).suffix == ".mat":
                     if not Path(transform).exists():
+                        warn_msg = f"Normalization transform does not exist: {transform}"
+                        self.logger.warning(warn_msg)
+                        errors.append(warn_msg)
                         return None
-                    interp = (
-                        self.anat_config.preprocessing.normalization.get("options", {}).get("interpolation")
-                        or "trilinear"
-                    )
                     fsl.applywarp(
-                        in_file=img_obj.img,
+                        in_file=mask_obj.img,
                         ref_file=Path(template),
-                        out_file=norm_brain_path,
+                        out_file=norm_mask_path,
                         premat=Path(transform),
-                        interp=interp,
+                        interp="nn",
                         force=True,
                     )
                 else:
@@ -1578,37 +1556,64 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                     warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
                     affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
                     if not (warp.exists() and affine.exists()):
-                        self.logger.warning(
-                            f"Could not create normalized skull-stripped {suffix}: missing {warp.name} or {affine.name}."
+                        warn_msg = (
+                            "Could not normalize the brain mask: "
+                            f"missing {warp.name} or {affine.name}."
                         )
+                        self.logger.warning(warn_msg)
+                        errors.append(warn_msg)
                         return None
                     ants.apply_transforms(
                         fixed_file=Path(template),
-                        moving_file=img_obj.img,
-                        out_file=norm_brain_path,
+                        moving_file=mask_obj.img,
+                        out_file=norm_mask_path,
                         transforms=[warp, affine],
-                        interpolator='linear'
+                        interpolator='nearestNeighbor'
                     )
 
-                if img_obj.json and img_obj.json.exists():
-                    shutil.copy2(img_obj.json, norm_brain_path.with_suffix("").with_suffix(".json"))
-                return ImageFile(entities=ents, img=norm_brain_path, json=getattr(img_obj, "json", None))
+                if not norm_mask_path.exists():
+                    raise ProcessingError(f"Normalized brain mask was not created: {norm_mask_path}")
+                return ImageFile(entities=ents, img=norm_mask_path)
             except Exception as e:
-                err_msg = f"Failed to create normalized skull-stripped {suffix}: {e}"
+                err_msg = f"Failed to normalize the anatomical brain mask: {e}"
                 self.logger.warning(err_msg)
                 errors.append(err_msg)
                 if reporter:
-                    self._add_anat_step(f"Normalization_{suffix}_Brain", {"Status": "Failed"}, details={"error": str(e)})
+                    self._add_anat_step(
+                        "Normalization_BrainMask",
+                        {"Status": "Failed"},
+                        details={"error": str(e)},
+                    )
                 return None
 
         if self.anat_config.normalization.skull_stripped_outputs:
-            norm_t1_brain = _normalize_brain_img(normalization_brain_inputs["T1w"], "T1w")
-            if norm_t1_brain:
-                context["normalized_t1w_brain"] = norm_t1_brain
-
-            norm_t2_brain = _normalize_brain_img(normalization_brain_inputs["T2w"], "T2w")
-            if norm_t2_brain:
-                context["normalized_t2w_brain"] = norm_t2_brain
+            normalized_mask = _normalize_brain_mask()
+            if normalized_mask:
+                normalized_images = (
+                    ("normalized_t1w_brain", context.get("preprocessed_t1w"), "T1w"),
+                    ("normalized_t2w_brain", context.get("preprocessed_t2w"), "T2w"),
+                )
+                for context_key, normalized_img, suffix in normalized_images:
+                    if not (
+                        normalized_img
+                        and hasattr(normalized_img, "entities")
+                        and normalized_img.entities.get("space")
+                    ):
+                        continue
+                    brain_obj = self._write_masked_anat_derivative(
+                        normalized_img,
+                        normalized_mask,
+                        final_output_dir or output_dir,
+                        desc="norm-brain",
+                        suffix=suffix,
+                        errors=errors,
+                        reporter=reporter,
+                        label=f"Normalization_{suffix}_Brain",
+                        force=force_norm,
+                    )
+                    if brain_obj:
+                        context[context_key] = brain_obj
+                        self.logger.info(f"Saved normalized skull-stripped {suffix}: {brain_obj.img}")
 
         if reporter:
             try:
