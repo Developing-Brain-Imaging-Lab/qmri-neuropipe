@@ -1391,7 +1391,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             self.logger.info(f"Running Normalization on {primary_suffix}...")
             try:
                 context["current_image"] = primary_img
-                norm_step(context, output_dir=output_dir, force=force_norm)
+                normalization_result = norm_step(
+                    context,
+                    output_dir=output_dir,
+                    force=force_norm,
+                )
+                if isinstance(normalization_result, dict):
+                    context = normalization_result
             except Exception as e:
                 err_msg = f"Normalization step failed: {e}"
                 self.logger.error(err_msg)
