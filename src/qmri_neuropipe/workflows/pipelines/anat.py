@@ -1610,7 +1610,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         normalized_img,
                         normalized_mask,
                         final_output_dir or output_dir,
-                        desc="norm-brain",
+                        desc="brain",
                         suffix=suffix,
                         errors=errors,
                         reporter=reporter,
@@ -1998,6 +1998,9 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         for f in final_output_dir.glob("*desc-norm*.nii.gz"):
             anat_outputs["Normalized Derivatives"].append({"key": f.name, "path": str(f)})
 
+        for f in final_output_dir.glob("*space-*_desc-brain_*.nii.gz"):
+            anat_outputs["Normalized Derivatives"].append({"key": f.name, "path": str(f)})
+
         for f in final_output_dir.glob("*dseg*.nii.gz"):
             anat_outputs["Segmentation Outputs"].append({"key": f.name, "path": str(f)})
 
@@ -2095,7 +2098,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if preprocessed_t1w:
                 norm_t1_entities = dict(preprocessed_t1w.entities)
                 norm_t1_entities["space"] = norm_space
-                norm_t1_entities["desc"] = "norm-brain"
+                norm_t1_entities["desc"] = "brain"
                 norm_t1_path = final_output_dir / build_bids_name(norm_t1_entities)
                 if not norm_t1_path.exists():
                     return None
@@ -2104,7 +2107,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if preprocessed_t2w:
                 norm_t2_entities = dict(preprocessed_t2w.entities)
                 norm_t2_entities["space"] = norm_space
-                norm_t2_entities["desc"] = "norm-brain"
+                norm_t2_entities["desc"] = "brain"
                 norm_t2_path = final_output_dir / build_bids_name(norm_t2_entities)
                 if not norm_t2_path.exists():
                     return None

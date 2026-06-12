@@ -89,7 +89,7 @@ def test_cached_normalized_brain_does_not_require_native_brain_output(tmp_path: 
 
     normalized_brain_entities = dict(preproc_entities)
     normalized_brain_entities["space"] = "InfantTemplate"
-    normalized_brain_entities["desc"] = "norm-brain"
+    normalized_brain_entities["desc"] = "brain"
     normalized_brain_path = tmp_path / build_bids_name(normalized_brain_entities)
     normalized_brain_path.touch()
 
@@ -181,7 +181,8 @@ def test_fsl_normalization_writes_skull_stripped_derivative(tmp_path: Path):
     brain = result["normalized_t1w_brain"]
     assert brain.img.exists()
     assert brain.img.parent == final_output_dir
-    assert brain.entities["desc"] == "norm-brain"
+    assert brain.entities["desc"] == "brain"
+    assert brain.img.name == "sub-01_space-InfantTemplate_desc-brain_T1w.nii.gz"
     brain_data = nib.load(brain.img).get_fdata()
     assert brain_data[1, 1, 1] == 2.0
     assert np.count_nonzero(brain_data) == 1
