@@ -485,6 +485,7 @@ class DataIOManager:
 
         ordered_sources = []
         seen_sources = set()
+        selected_targets = {}
 
         for dwi in context.get("preprocessed_dwis", []) or []:
             img_path = getattr(dwi, "img", None)
@@ -498,6 +499,26 @@ class DataIOManager:
             if gnl_path and gnl_path not in seen_sources:
                 ordered_sources.append(gnl_path)
                 seen_sources.add(gnl_path)
+            if not gnl_path or not gnl_path.exists():
+                continue
+
+            dwi_entities = dict(getattr(dwi, "entities", {}) or {})
+            sub_g = dwi_entities.get("sub") or context.get("subject", "unknown")
+            ses_g = dwi_entities.get("ses") or context.get("session")
+            dwi_entities["sub"] = sub_g
+            if ses_g:
+                dwi_entities["ses"] = ses_g
+            dwi_entities["desc"] = "gnl_tensor"
+            dwi_entities["suffix"] = "dwi"
+
+            target_dir = base_out / f"sub-{sub_g}"
+            if ses_g:
+                target_dir /= f"ses-{ses_g}"
+            target_dir /= "dwi"
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            target_gnl = target_dir / build_bids_name(dwi_entities)
+            selected_targets[target_gnl] = gnl_path
 
         for gnl_map in context.get("gnl_maps", []) or []:
             gnl_path = Path(gnl_map) if gnl_map else None
@@ -510,14 +531,15 @@ class DataIOManager:
         if gnl_path and gnl_path not in seen_sources:
             ordered_sources.append(gnl_path)
 
-        selected_targets = {}
         for gnl_map in ordered_sources:
             if not isinstance(gnl_map, Path) or not gnl_map.exists():
+                continue
+            if gnl_map in selected_targets.values():
                 continue
 
             g_ents = get_entities_from_path(gnl_map)
             sub_g = g_ents.get("sub") or context.get("subject", "unknown")
-            ses_g = g_ents.get("ses")
+            ses_g = g_ents.get("ses") or context.get("session")
 
             t_dir = base_out / f"sub-{sub_g}"
             if ses_g:
