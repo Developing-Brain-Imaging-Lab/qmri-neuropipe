@@ -573,7 +573,10 @@ class CoregistrationStep(BaseProcessingStep):
         fs_subject_id = None
         fs_reference_mgz = None
         fs_registration_target = None
-        if self.method == "freesurfer":
+        uses_arbitrary_registration_pair = bool(
+            options.get("registration_moving") and options.get("registration_fixed")
+        )
+        if self.method == "freesurfer" and not uses_arbitrary_registration_pair:
             fs_subjects_dir, fs_subject_id = _resolve_freesurfer_subject(
                 self.config,
                 context,
@@ -646,7 +649,7 @@ class CoregistrationStep(BaseProcessingStep):
         # --- PRE-REGISTRATION: Extract Reference for Calculation/Application ---
         # We extract this even if should_run is False, as it may be needed for mask transform conversion
         moving_for_reg = in_path
-        if is_dwi:
+        if is_dwi and not options.get("registration_moving"):
             # Modality-specific reference extraction
             if target_modality in ["T1w", "T2w"]:
                 self.logger.info(f"Target is {target_modality}: Extracting and averaging non-b0 volumes for coregistration reference...")
@@ -673,6 +676,9 @@ class CoregistrationStep(BaseProcessingStep):
         resampled_target_context = None # To store for context update
         
         registration_target = fs_registration_target or target
+        application_fixed = Path(options["application_fixed"]) if options.get("application_fixed") else None
+        if application_fixed and not application_fixed.exists():
+            raise ProcessingError(f"Transform application reference not found: {application_fixed}")
         registration_moving = Path(options["registration_moving"]) if options.get("registration_moving") else None
         if registration_moving:
             if not registration_moving.exists():
@@ -689,7 +695,11 @@ class CoregistrationStep(BaseProcessingStep):
             target_path = registration_fixed
             target = registration_fixed
 
-        if out_res in ['dwi', 'native'] and self.method != "freesurfer":
+        if (
+            out_res in ['dwi', 'native']
+            and self.method != "freesurfer"
+            and registration_fixed is None
+        ):
              self.logger.info(
                  f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration..."
              )
@@ -799,12 +809,12 @@ class CoregistrationStep(BaseProcessingStep):
                 'dof', 'cost', 'extra_args', 'output_resolution', 'interpolation',
                 'enabled', 'reference_image', 'method', 'wm_seg_method',
                 'apply_method', 'transform_type', 'registration_fixed',
-                'registration_moving', 'registration_fixed_extras',
+                'registration_moving', 'application_fixed', 'registration_fixed_extras',
                 'registration_moving_extras', 'multivariate_metric',
                 'multivariate_weight', 'multivariate_sampling',
                 'supersynth_registration', 'supersynth_input',
                 'supersynth_mode', 'supersynth_device',
-                'supersynth_sharpen_synths', 'force',
+                'supersynth_sharpen_synths', 'supersynth_b0_threshold', 'force',
             ] + list(_ALL_SKULL_STRIP_OPTION_KEYS)
             fsl_opts = {k: v for k, v in options.items() if k not in known_args}
 
@@ -838,39 +848,56 @@ class CoregistrationStep(BaseProcessingStep):
                     
                     if self.method == 'freesurfer':
                          transform_file = output_mat
-                         if not fs_subjects_dir or not fs_subject_id:
-                             raise ProcessingError(
-                                 "Unable to resolve FreeSurfer subject directory for bbregister."
+                         if registration_moving and registration_fixed:
+                             freesurfer.mri_coreg(
+                                 moving_file=moving_for_reg,
+                                 reference_file=registration_target,
+                                 out_lta=reg_lta,
+                                 dof=int(dof),
+                                 nthreads=nthreads,
+                                 force=bool(kwargs.get("force", False)),
                              )
-                         fs_subject_dir = fs_subjects_dir / fs_subject_id
-                         if not _ensure_freesurfer_orig_mgz(fs_subject_dir, self.logger):
-                             raise ProcessingError(
-                                 f"FreeSurfer bbregister requires {fs_subject_dir / 'mri' / 'orig.mgz'} "
-                                 "or recon-all-clinical native.mgz."
+                             freesurfer.lta_to_fsl(
+                                 reg_lta,
+                                 transform_file,
+                                 src=moving_for_reg,
+                                 trg=registration_target,
+                                 force=bool(kwargs.get("force", False)),
+                             )
+                         else:
+                             if not fs_subjects_dir or not fs_subject_id:
+                                 raise ProcessingError(
+                                     "Unable to resolve FreeSurfer subject directory for bbregister."
+                                 )
+                             fs_subject_dir = fs_subjects_dir / fs_subject_id
+                             if not _ensure_freesurfer_orig_mgz(fs_subject_dir, self.logger):
+                                 raise ProcessingError(
+                                     f"FreeSurfer bbregister requires {fs_subject_dir / 'mri' / 'orig.mgz'} "
+                                     "or recon-all-clinical native.mgz."
+                                 )
+
+                             fs_contrast = options.get("contrast_type")
+                             if not fs_contrast:
+                                 if target_modality == "T1w":
+                                     fs_contrast = "t1"
+                                 elif target_modality == "T2w":
+                                     fs_contrast = "t2"
+                                 else:
+                                     fs_contrast = "t1"
+
+                             freesurfer.bbregister(
+                                 in_file=moving_for_reg,
+                                 target_file=fs_subject_id,
+                                 out_reg_file=reg_lta,
+                                 contrast_type=fs_contrast,
+                                 fsl_mat_out=transform_file,
+                                 subjects_dir=fs_subjects_dir
                              )
 
-                         fs_contrast = options.get("contrast_type")
-                         if not fs_contrast:
-                             if target_modality == "T1w":
-                                 fs_contrast = "t1"
-                             elif target_modality == "T2w":
-                                 fs_contrast = "t2"
-                             else:
-                                 fs_contrast = "t1"
-
-                         freesurfer.bbregister(
-                             in_file=moving_for_reg,
-                             target_file=fs_subject_id,
-                             out_reg_file=reg_lta,
-                             contrast_type=fs_contrast,
-                             fsl_mat_out=transform_file,
-                             subjects_dir=fs_subjects_dir
-                         )
-
-                         if not transform_file.exists():
-                              raise ProcessingError(
-                                   f"FreeSurfer bbregister did not produce FSL matrix transform: {transform_file}"
-                              )
+                             if not transform_file.exists():
+                                  raise ProcessingError(
+                                       f"FreeSurfer bbregister did not produce FSL matrix transform: {transform_file}"
+                                  )
                          
                     elif self.method == 'ants':
                          transform_file = output_dir / "coreg_dwi_to_anat_0GenericAffine.mat"
@@ -956,7 +983,9 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
                     output_grid_ref = registration_target
-                    if out_res in ['native', 'dwi']:
+                    if application_fixed is not None and out_res == "anatomical":
+                        output_grid_ref = application_fixed
+                    elif out_res in ['native', 'dwi']:
                         output_grid_ref = in_path
 
                     mt_kwargs = {
@@ -1008,8 +1037,13 @@ class CoregistrationStep(BaseProcessingStep):
                         )
     
                         if is_dwi or registration_moving or registration_inputs_stripped:
+                             apply_fixed = registration_target
+                             if application_fixed is not None and out_res == "anatomical":
+                                 apply_fixed = application_fixed
+                             elif out_res in {"dwi", "native"}:
+                                 apply_fixed = in_path
                              apply_kwargs = {
-                                 "fixed_file": registration_target,
+                                 "fixed_file": apply_fixed,
                                  "moving_file": in_path,
                                  "out_file": output_img,
                                  "transforms": prefix,
@@ -1025,30 +1059,55 @@ class CoregistrationStep(BaseProcessingStep):
 
                     elif self.method == 'fsl':
                         output_mat = output_transform.with_suffix(".mat")
+                        estimate_mat = output_mat
                         flirt_out = output_img
+                        if registration_moving:
+                            estimate_mat = output_dir / f"{output_transform.name}_synthetic.mat"
+                            flirt_out = output_dir / f"{output_transform.name}_synthetic.nii.gz"
                         if registration_inputs_stripped and not is_dwi:
                             flirt_out = output_dir / "temp_flirt_calc.nii.gz"
                         
                         # Ensure we clean up before running to force execution
                         if output_img.exists(): output_img.unlink()
                         if output_mat.exists(): output_mat.unlink()
+                        if estimate_mat != output_mat and estimate_mat.exists():
+                            estimate_mat.unlink()
                         
                         self.logger.info(f"DEBUG: Calling fsl.flirt with in={moving_for_reg}, ref={target}, out={output_img}, cost={cost}, dof={dof}")
                         fsl.flirt(
                             in_file=moving_for_reg, 
                             ref_file=registration_target, 
                             out_file=flirt_out, 
-                            omat=output_mat, 
+                            omat=estimate_mat,
                             dof=dof, 
                             cost=cost, 
                             extra_opts=fsl_opts
                         )
                         
                         if is_dwi:
+                            apply_ref = registration_target
+                            if application_fixed is not None and out_res == "anatomical":
+                                apply_ref = application_fixed
+                            elif out_res in {"dwi", "native"}:
+                                apply_ref = in_path
+                            if estimate_mat != output_mat:
+                                itk_transform = output_dir / f"{output_transform.name}_synthetic_itk.txt"
+                                c3d.fsl2ants(
+                                    registration_target,
+                                    moving_for_reg,
+                                    estimate_mat,
+                                    itk_transform,
+                                )
+                                c3d.ants2fsl(
+                                    apply_ref,
+                                    in_path,
+                                    itk_transform,
+                                    output_mat,
+                                )
                             self.logger.info(f"Applying 4D transform to full DWI series using FSL (interp={options.get('interpolation', 'trilinear')})...")
                             fsl.apply_xfm_4d(
                                 in_file=in_path, 
-                                ref_file=registration_target, 
+                                ref_file=apply_ref,
                                 out_file=output_img, 
                                 mat=output_mat,
                                 interp=options.get("interpolation", "trilinear")
@@ -1063,30 +1122,55 @@ class CoregistrationStep(BaseProcessingStep):
                     
                     elif self.method == 'freesurfer':
                         output_dat = output_transform.with_suffix(".dat")
-                        fs_contrast = options.get("contrast_type")
-                        if not fs_contrast:
-                            if target_modality == "T1w":
-                                fs_contrast = "t1"
-                            elif target_modality == "T2w":
-                                fs_contrast = "t2"
-                            else:
-                                fs_contrast = "t1"
-                        if not fs_subjects_dir or not fs_subject_id:
-                            raise ProcessingError(
-                                "Unable to resolve FreeSurfer subject directory for bbregister."
+                        if registration_moving and registration_fixed:
+                            freesurfer.mri_coreg(
+                                moving_file=moving_for_reg,
+                                reference_file=registration_target,
+                                out_lta=reg_lta,
+                                dof=int(dof),
+                                nthreads=nthreads,
+                                force=bool(kwargs.get("force", False)),
                             )
-                        freesurfer.bbregister(
-                            in_file=moving_for_reg,
-                            target_file=fs_subject_id,
-                            out_reg_file=output_dat,
-                            contrast_type=fs_contrast,
-                            fsl_mat_out=output_mat,
-                            subjects_dir=fs_subjects_dir,
-                        )
+                            apply_ref = application_fixed or registration_target
+                            if out_res in {"dwi", "native"}:
+                                apply_ref = in_path
+                            freesurfer.lta_to_fsl(
+                                reg_lta,
+                                output_mat,
+                                src=in_path,
+                                trg=apply_ref,
+                                force=bool(kwargs.get("force", False)),
+                            )
+                        else:
+                            fs_contrast = options.get("contrast_type")
+                            if not fs_contrast:
+                                if target_modality == "T1w":
+                                    fs_contrast = "t1"
+                                elif target_modality == "T2w":
+                                    fs_contrast = "t2"
+                                else:
+                                    fs_contrast = "t1"
+                            if not fs_subjects_dir or not fs_subject_id:
+                                raise ProcessingError(
+                                    "Unable to resolve FreeSurfer subject directory for bbregister."
+                                )
+                            freesurfer.bbregister(
+                                in_file=moving_for_reg,
+                                target_file=fs_subject_id,
+                                out_reg_file=output_dat,
+                                contrast_type=fs_contrast,
+                                fsl_mat_out=output_mat,
+                                subjects_dir=fs_subjects_dir,
+                            )
                         if is_dwi:
+                            apply_ref = registration_target
+                            if application_fixed is not None and out_res == "anatomical":
+                                apply_ref = application_fixed
+                            elif out_res in {"dwi", "native"}:
+                                apply_ref = in_path
                             fsl.apply_xfm_4d(
                                 in_file=in_path,
-                                ref_file=registration_target,
+                                ref_file=apply_ref,
                                 out_file=output_img,
                                 mat=output_mat,
                                 interp=options.get("interpolation", "trilinear")
@@ -1154,7 +1238,20 @@ class CoregistrationStep(BaseProcessingStep):
                                  
                                  if ref_moving.exists():
                                      if not c3d.is_valid_fsl_affine(fsl_mat):
-                                         c3d.ants2fsl(registration_target, ref_moving, ants_affine, fsl_mat)
+                                         rotation_ref = registration_target
+                                         rotation_src = ref_moving
+                                         if application_fixed is not None and out_res == "anatomical":
+                                             rotation_ref = application_fixed
+                                             rotation_src = in_path
+                                         elif out_res in {"dwi", "native"}:
+                                             rotation_ref = in_path
+                                             rotation_src = in_path
+                                         c3d.ants2fsl(
+                                             rotation_ref,
+                                             rotation_src,
+                                             ants_affine,
+                                             fsl_mat,
+                                         )
                                      
                                      if c3d.is_valid_fsl_affine(fsl_mat) and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
                                          new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ...core import BaseProcessingStep, ValidationError
-from ...core.types import ImageFile, ImageLike
+from ...core.types import DWIFile, ImageFile, ImageLike
 from ...interfaces import freesurfer
 
 
@@ -50,6 +50,52 @@ def find_supersynth_outputs(out_dir: Path) -> dict[str, Path]:
 def expected_supersynth_output(out_dir: Path, key: str) -> Path:
     """Return the preferred output path for a SuperSynth product."""
     return Path(out_dir) / _OUTPUT_CANDIDATES[key][0]
+
+
+def extract_mean_b0_for_supersynth(
+    input_dwi: DWIFile,
+    output_path: Path,
+    logger: logging.Logger,
+    *,
+    b0_threshold: float = 50.0,
+    force: bool = False,
+) -> Path:
+    """Extract a 3D mean b0 image suitable for ``mri_super_synth``."""
+    output_path = Path(output_path)
+    if output_path.exists() and not force:
+        return output_path
+
+    dwi_path = Path(input_dwi.img)
+    img = nib.load(str(dwi_path))
+    data = np.asarray(img.dataobj)
+    if data.ndim < 4:
+        mean_b0 = data
+    else:
+        indices = np.array([0], dtype=int)
+        bval_path = getattr(input_dwi, "bval", None)
+        if bval_path and Path(bval_path).exists():
+            try:
+                bvals = np.asarray(np.loadtxt(str(bval_path))).reshape(-1)
+                valid = np.where(bvals < b0_threshold)[0]
+                valid = valid[valid < data.shape[3]]
+                if valid.size:
+                    indices = valid
+            except Exception as exc:
+                logger.warning(
+                    f"Could not parse b-values for SuperSynth b0 extraction; "
+                    f"using the first volume: {exc}"
+                )
+        mean_b0 = np.mean(data[..., indices], axis=3)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    header = img.header.copy()
+    header.set_data_shape(mean_b0.shape)
+    header.set_data_dtype(np.float32)
+    nib.save(
+        nib.Nifti1Image(mean_b0.astype(np.float32), img.affine, header),
+        str(output_path),
+    )
+    return output_path
 
 
 def _load_freesurfer_lut() -> Dict[int, str]:

@@ -136,6 +136,15 @@ anat:
 | `cost` | FSL cost names such as `normmi`, `mutualinfo`, `corratio` | Used by FSL paths |
 | `dof` | integer | Used by FSL paths |
 
+For dMRI coregistration, `reference_image: supersynth` extracts a mean b0,
+runs SuperSynth separately on that image and the selected anatomical image,
+registers the synthetic T1w pair with the configured ANTs, FSL, or FreeSurfer
+backend, and applies the transform to the original 4D DWI. FreeSurfer uses
+`mri_coreg` for this arbitrary-volume registration. Use
+`reference_image: supersynth_multivariate` or
+`supersynth_registration: multivariate` to add the synthetic T2w pair when
+using ANTs. Other backends fall back to the synthetic T1w pair.
+
 ### SuperSynth Options
 
 ```yaml

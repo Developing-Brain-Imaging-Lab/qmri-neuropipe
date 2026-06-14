@@ -230,9 +230,10 @@ anat:
 | --- | --- | --- | --- |
 | `enabled` | bool | false | Enable step |
 | `method` | str | `ants` (dmri) / `fsl` (anat) | `ants`, `fsl`, `freesurfer` |
-| `reference_image` | str | `t1w` | `t1w`, `t2w`, `supersynth`, or `supersynth_multivariate`; SuperSynth modes generate synthetic contrasts for transform estimation |
-| `supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; anatomical contrast used to generate the SuperSynth target when `reference_image: supersynth` |
-| `supersynth_registration` | str | none | Set to `multivariate` with `reference_image: supersynth` to estimate an ANTs transform using synthetic T1w and T2w pairs, then apply it to the original moving image |
+| `reference_image` | str | `t1w` | `t1w`, `t2w`, `supersynth`, or `supersynth_multivariate`; dMRI SuperSynth modes synthesize matching contrasts from a mean b0 and the anatomical input |
+| `supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects the anatomical source. The dMRI source is an automatically extracted mean b0 |
+| `supersynth_registration` | str | none | Set to `multivariate` with `reference_image: supersynth` to use synthetic T1w and T2w pairs with ANTs. FSL and FreeSurfer use the synthetic T1w pair |
+| `supersynth_b0_threshold` | float | `50` | Maximum b-value included in the mean b0 used by SuperSynth |
 | `multivariate_metric` | str | `Mattes` | ANTs metric for additional SuperSynth contrast channels |
 | `multivariate_weight` | float | `0.5` | ANTs weight for each additional contrast channel |
 | `multivariate_sampling` | int | `32` | ANTs sampling parameter for additional contrast channels |

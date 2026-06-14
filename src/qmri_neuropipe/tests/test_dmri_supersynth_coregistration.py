@@ -1,0 +1,196 @@
+import logging
+from pathlib import Path
+from unittest.mock import patch
+
+import nibabel as nib
+import numpy as np
+
+from qmri_neuropipe.core.config import PipelineConfig
+from qmri_neuropipe.core.types import DWIFile, ImageFile
+from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
+from qmri_neuropipe.lib.common.registration import CoregistrationStep
+from qmri_neuropipe.utils.execution_engine import ExecutionEngine
+from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
+    PreprocessingWorkflow,
+)
+
+
+def _config(
+    tmp_path: Path,
+    reference_image: str,
+    method: str = "fsl",
+    **coreg_options,
+) -> PipelineConfig:
+    return PipelineConfig(
+        bids_dir=tmp_path / "bids",
+        output_dir=tmp_path / "derivatives",
+        config_data={
+            "dmri": {
+                "preprocessing": {
+                    "coregistration": {
+                        "enabled": True,
+                        "method": method,
+                        "reference_image": reference_image,
+                        **coreg_options,
+                    }
+                }
+            }
+        },
+    )
+
+
+def _context(tmp_path: Path) -> tuple[dict, DWIFile, ImageFile]:
+    dwi_path = tmp_path / "sub-01_dwi.nii.gz"
+    bval_path = tmp_path / "sub-01_dwi.bval"
+    anat_path = tmp_path / "sub-01_T1w.nii.gz"
+    for path in (dwi_path, bval_path, anat_path):
+        path.touch()
+
+    dwi = DWIFile(
+        img=dwi_path,
+        bval=bval_path,
+        entities={"sub": "01", "suffix": "dwi"},
+    )
+    anat = ImageFile(
+        img=anat_path,
+        entities={"sub": "01", "suffix": "T1w"},
+    )
+    return {
+        "current_image": dwi,
+        "dwi_files": [dwi],
+        "t1w_files": [anat],
+        "t2w_files": [],
+        "_execution_output_dir": tmp_path / "work",
+    }, dwi, anat
+
+
+def _fake_supersynth_outputs(input_image, output_dir, *args, **kwargs):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    synth_t1w = output_dir / "SynthT1.mgz"
+    synth_t2w = output_dir / "SynthT2.mgz"
+    synth_t1w.touch()
+    synth_t2w.touch()
+    return {"synth_t1w": synth_t1w, "synth_t2w": synth_t2w}
+
+
+def _fake_mean_b0(input_dwi, output_path, *args, **kwargs):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.touch()
+    return output_path
+
+
+def test_dmri_supersynth_coregistration_prepares_synthetic_pair(tmp_path: Path):
+    config = _config(tmp_path, "supersynth")
+    context, _, anat = _context(tmp_path)
+    engine = ExecutionEngine(config, logging.getLogger(__name__))
+    step = CoregistrationStep(config, logging.getLogger(__name__), method="ants")
+
+    with patch(
+        "qmri_neuropipe.lib.anat.super_synth.extract_mean_b0_for_supersynth",
+        side_effect=_fake_mean_b0,
+    ), patch(
+        "qmri_neuropipe.lib.anat.super_synth.ensure_supersynth_outputs_for_image",
+        side_effect=_fake_supersynth_outputs,
+    ):
+        kwargs = engine._prepare_step_kwargs(step, context)
+
+    assert kwargs["target"] == anat.img
+    assert kwargs["target_modality"] == "T1w"
+    assert kwargs["options"]["registration_fixed"].name == "SynthT1.mgz"
+    assert kwargs["options"]["registration_moving"].name == "SynthT1.mgz"
+    assert kwargs["options"]["application_fixed"] == anat.img
+    assert "registration_fixed_extras" not in kwargs["options"]
+
+
+def test_dmri_supersynth_multivariate_adds_t2w_channel(tmp_path: Path):
+    config = _config(tmp_path, "supersynth_multivariate")
+    context, _, _ = _context(tmp_path)
+    engine = ExecutionEngine(config, logging.getLogger(__name__))
+    step = CoregistrationStep(config, logging.getLogger(__name__), method="ants")
+
+    with patch(
+        "qmri_neuropipe.lib.anat.super_synth.extract_mean_b0_for_supersynth",
+        side_effect=_fake_mean_b0,
+    ), patch(
+        "qmri_neuropipe.lib.anat.super_synth.ensure_supersynth_outputs_for_image",
+        side_effect=_fake_supersynth_outputs,
+    ):
+        kwargs = engine._prepare_step_kwargs(step, context)
+
+    assert kwargs["options"]["registration_fixed_extras"][0].name == "SynthT2.mgz"
+    assert kwargs["options"]["registration_moving_extras"][0].name == "SynthT2.mgz"
+
+
+def test_dmri_supersynth_coregistration_preserves_fsl_backend(tmp_path: Path):
+    config = _config(tmp_path, "supersynth")
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+
+    workflow._add_coregistration_step(
+        config.get("dmri.preprocessing"),
+        {},
+    )
+
+    assert len(workflow.steps) == 1
+    assert workflow.steps[0].method == "fsl"
+
+
+def test_fsl_multivariate_request_falls_back_to_single_synthetic_pair(tmp_path: Path):
+    config = _config(tmp_path, "supersynth_multivariate")
+    context, _, _ = _context(tmp_path)
+    engine = ExecutionEngine(config, logging.getLogger(__name__))
+    step = CoregistrationStep(config, logging.getLogger(__name__), method="fsl")
+
+    with patch(
+        "qmri_neuropipe.lib.anat.super_synth.extract_mean_b0_for_supersynth",
+        side_effect=_fake_mean_b0,
+    ), patch(
+        "qmri_neuropipe.lib.anat.super_synth.ensure_supersynth_outputs_for_image",
+        side_effect=_fake_supersynth_outputs,
+    ):
+        kwargs = engine._prepare_step_kwargs(step, context)
+
+    assert "registration_fixed_extras" not in kwargs["options"]
+    assert "registration_moving_extras" not in kwargs["options"]
+
+
+def test_dmri_supersynth_coregistration_preserves_freesurfer_backend(tmp_path: Path):
+    config = _config(tmp_path, "supersynth", method="freesurfer")
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+
+    workflow._add_coregistration_step(
+        config.get("dmri.preprocessing"),
+        {},
+    )
+
+    assert len(workflow.steps) == 1
+    assert workflow.steps[0].method == "freesurfer"
+
+
+def test_supersynth_mean_b0_uses_all_low_b_volumes(tmp_path: Path):
+    dwi_path = tmp_path / "sub-01_dwi.nii.gz"
+    bval_path = tmp_path / "sub-01_dwi.bval"
+    output_path = tmp_path / "mean_b0.nii.gz"
+    data = np.stack([
+        np.full((2, 2, 2), 2.0),
+        np.full((2, 2, 2), 8.0),
+        np.full((2, 2, 2), 100.0),
+    ], axis=3)
+    nib.save(nib.Nifti1Image(data, np.eye(4)), str(dwi_path))
+    np.savetxt(bval_path, np.array([[0, 25, 1000]]), fmt="%g")
+    dwi = DWIFile(
+        img=dwi_path,
+        bval=bval_path,
+        entities={"sub": "01", "suffix": "dwi"},
+    )
+
+    result = extract_mean_b0_for_supersynth(
+        dwi,
+        output_path,
+        logging.getLogger(__name__),
+    )
+
+    mean_b0 = np.asarray(nib.load(str(result)).dataobj)
+    assert mean_b0.shape == (2, 2, 2)
+    assert np.allclose(mean_b0, 5.0)

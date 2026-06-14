@@ -52,9 +52,15 @@ The following options apply regardless of the backend:
 | :--- | :--- | :--- |
 | `apply_method` | Strategy for applying the transform to DWI data. `"native"` (direct) or `"mrtrix"` (handles gradient rotation). | `"native"` |
 | `output_resolution` | Resolution of the transformed image. `"anatomical"` (match structural reference) or `"dwi"` (original DWI resolution). | `"anatomical"` |
-| `reference_image` | The target image for coregistration (`"T1w"`, `"T2w"`, `"supersynth"`, or `"supersynth_multivariate"`). SuperSynth modes generate synthetic contrasts for transform estimation. | `"T1w"` |
-| `supersynth_input` | Anatomical contrast used to generate the SuperSynth target when `reference_image: "supersynth"` (`"auto"`, `"T1w"`, `"T2w"`). | `"auto"` |
-| `supersynth_registration` | Set to `"multivariate"` with `reference_image: "supersynth"` to estimate an ANTs transform using synthetic T1w and T2w pairs, then apply it to the original moving image. | unset |
+| `reference_image` | The target image for coregistration (`"T1w"`, `"T2w"`, `"supersynth"`, or `"supersynth_multivariate"`). For dMRI, SuperSynth modes synthesize matching contrasts from a mean b0 and the anatomical input, estimate their transform with the configured backend, then apply it to the original 4D DWI. | `"T1w"` |
+| `supersynth_input` | Anatomical source used for dMRI SuperSynth registration (`"auto"`, `"T1w"`, `"T2w"`). The DWI source is an automatically extracted mean b0. | `"auto"` |
+| `supersynth_registration` | Set to `"multivariate"` with `reference_image: "supersynth"` to use synthetic T1w and T2w pairs. `reference_image: "supersynth_multivariate"` is equivalent. | unset |
+| `supersynth_b0_threshold` | Maximum b-value included in the mean b0 supplied to SuperSynth. | `50` |
 | `multivariate_metric` | ANTs metric for additional SuperSynth contrast channels. | `"Mattes"` |
 | `multivariate_weight` | ANTs weight for each additional contrast channel. | `0.5` |
 | `multivariate_sampling` | ANTs sampling parameter for additional contrast channels. | `32` |
+
+Single-contrast SuperSynth registration supports the ANTs, FSL, and FreeSurfer
+coregistration backends. FreeSurfer uses `mri_coreg` for the arbitrary
+synthetic image pair. Multivariate synthetic T1w+T2w estimation uses ANTs;
+other backends log a warning and use the synthetic T1w pair.

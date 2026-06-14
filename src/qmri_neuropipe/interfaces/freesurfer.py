@@ -221,6 +221,63 @@ def lta_to_itk(in_lta: Path, out_file: Path, src: ImageLike | Path, trg: ImageLi
     return out_p
 
 
+def lta_to_fsl(
+    in_lta: Path,
+    out_file: Path,
+    src: ImageLike | Path,
+    trg: ImageLike | Path,
+    invert: bool = False,
+    force: bool = False,
+) -> Path:
+    """Convert an LTA to an FSL matrix for the requested source/target grids."""
+    in_p = Path(in_lta)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        if not force:
+            return out_p
+        out_p.unlink()
+
+    invert_arg = "--invert" if invert else ""
+    src_p = extract_image_path(src)
+    trg_p = extract_image_path(trg)
+    cmd = (
+        f"lta_convert --inlta {in_p} --outfsl {out_p} "
+        f"--src {src_p} --trg {trg_p} {invert_arg}"
+    ).strip()
+    run_cmd(cmd, label="lta_convert")
+    return out_p
+
+
+def mri_coreg(
+    moving_file: ImageLike | Path,
+    reference_file: ImageLike | Path,
+    out_lta: Path,
+    *,
+    dof: int = 6,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Estimate a linear FreeSurfer registration between arbitrary volumes."""
+    moving_p = extract_image_path(moving_file)
+    reference_p = extract_image_path(reference_file)
+    out_p = Path(out_lta)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        if not force:
+            return out_p
+        out_p.unlink()
+
+    cmd = (
+        f"mri_coreg --mov {moving_p} --ref {reference_p} "
+        f"--reg {out_p} --dof {int(dof)} --threads {int(nthreads)}"
+    )
+    run_cmd(cmd, label="mri_coreg")
+    return out_p
+
+
 def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg_file: Path, contrast_type: str = "t1", fsl_mat_out: Path = None, subjects_dir: Path = None):
     """
     Run FreeSurfer bbregister.

@@ -527,35 +527,31 @@ class ExecutionEngine:
             
             target_img = None
             actual_modality = target_modality
-            if str(target_modality).lower() in {"supersynth", "syntht1w", "synthetic_t1w"}:
-                from qmri_neuropipe.lib.anat.super_synth import ensure_supersynth_t1w
+            flat_opts = dict(coreg_cfg)
+            if "options" in flat_opts and isinstance(flat_opts["options"], dict):
+                nested_opts = dict(flat_opts.pop("options"))
+                nested_opts.update(flat_opts)
+                flat_opts = nested_opts
 
-                output_dir = context.get("_execution_output_dir")
-                if output_dir:
-                    flat_coreg_cfg = dict(coreg_cfg)
-                    if "options" in flat_coreg_cfg and isinstance(flat_coreg_cfg["options"], dict):
-                        flat_coreg_cfg.update(flat_coreg_cfg["options"])
-                    synth_ref = ensure_supersynth_t1w(
-                        context,
-                        Path(output_dir) / "coregistration",
-                        self.config,
-                        self.logger,
-                        input_preference=flat_coreg_cfg.get("supersynth_input", "auto"),
-                        mode=flat_coreg_cfg.get("supersynth_mode"),
-                        device=flat_coreg_cfg.get("supersynth_device"),
-                        sharpen_synths=flat_coreg_cfg.get("supersynth_sharpen_synths"),
-                        force=bool(self.config.get("dmri", {}).get("force_run", False)),
-                        subdir="supersynth_reference",
-                    )
-                    if synth_ref:
-                        target_img = synth_ref.img
-                        actual_modality = "T1w"
-                        self.logger.info(f"Using SuperSynth T1w as dMRI coregistration target: {target_img}")
-                if not target_img:
-                    self.logger.warning(
-                        "SuperSynth coregistration target requested but could not be generated. "
-                        "Falling back to T1w/T2w target selection."
-                    )
+            supersynth_mode = str(target_modality).lower() in {
+                "supersynth",
+                "syntht1w",
+                "synthetic_t1w",
+                "supersynth_multivariate",
+            }
+            if supersynth_mode:
+                prepared = self._prepare_dmri_supersynth_coregistration(
+                    context,
+                    flat_opts,
+                    backend=step.method,
+                    multivariate=(
+                        str(target_modality).lower() == "supersynth_multivariate"
+                        or str(flat_opts.get("supersynth_registration", "")).lower() == "multivariate"
+                    ),
+                )
+                if prepared is None:
+                    return None
+                target_img, actual_modality, flat_opts = prepared
             
             if target_img is not None:
                 pass
@@ -582,9 +578,6 @@ class ExecutionEngine:
                 return None  # Skip this step
             
             step_kwargs["target"] = target_img
-            flat_opts = dict(coreg_cfg)
-            if "options" in flat_opts:
-                flat_opts.update(flat_opts.pop("options"))
             step_kwargs["options"] = flat_opts
             step_kwargs["target_modality"] = actual_modality
             
@@ -607,6 +600,119 @@ class ExecutionEngine:
                 step_kwargs["structural_mask"] = self._find_structural_mask(context)
         
         return step_kwargs
+
+    def _prepare_dmri_supersynth_coregistration(
+        self,
+        context: Dict,
+        options: Dict,
+        *,
+        backend: str,
+        multivariate: bool,
+    ) -> Optional[tuple[Path, str, Dict]]:
+        """Prepare synthetic fixed/moving contrasts for dMRI coregistration."""
+        from qmri_neuropipe.core.utils import get_nifti_stem
+        from qmri_neuropipe.lib.anat.super_synth import (
+            ensure_supersynth_outputs_for_image,
+            extract_mean_b0_for_supersynth,
+        )
+
+        dwi = context.get("current_image")
+        output_dir = context.get("_execution_output_dir")
+        if dwi is None or output_dir is None:
+            self.logger.warning("SuperSynth dMRI coregistration is missing the current DWI or output directory.")
+            return None
+
+        preference = str(options.get("supersynth_input", "auto")).lower()
+        t1w_files = context.get("t1w_files", [])
+        t2w_files = context.get("t2w_files", [])
+        if preference == "t2w":
+            anatomical = t2w_files[0] if t2w_files else None
+            modality = "T2w"
+        elif preference == "t1w":
+            anatomical = t1w_files[0] if t1w_files else None
+            modality = "T1w"
+        else:
+            anatomical = t1w_files[0] if t1w_files else (t2w_files[0] if t2w_files else None)
+            modality = "T1w" if t1w_files else "T2w"
+
+        if anatomical is None:
+            self.logger.warning("SuperSynth dMRI coregistration requires a T1w or T2w anatomical image.")
+            return None
+
+        force = bool(
+            self.config.get("dmri", {}).get("force_run", False)
+            or options.get("force", False)
+        )
+        stem = get_nifti_stem(Path(dwi.img))
+        synth_root = Path(output_dir) / "coregistration" / "supersynth_dwi" / stem
+        mean_b0 = extract_mean_b0_for_supersynth(
+            dwi,
+            synth_root / "mean_b0.nii.gz",
+            self.logger,
+            b0_threshold=float(options.get("supersynth_b0_threshold", 50.0)),
+            force=force,
+        )
+
+        helper_kwargs = {
+            "mode": options.get("supersynth_mode"),
+            "device": options.get("supersynth_device"),
+            "sharpen_synths": options.get("supersynth_sharpen_synths"),
+            "force": force,
+        }
+        fixed_outputs = ensure_supersynth_outputs_for_image(
+            anatomical,
+            synth_root / "fixed_anatomical",
+            self.config,
+            self.logger,
+            **helper_kwargs,
+        )
+        moving_outputs = ensure_supersynth_outputs_for_image(
+            mean_b0,
+            synth_root / "moving_dwi",
+            self.config,
+            self.logger,
+            **helper_kwargs,
+        )
+
+        use_multivariate = multivariate and backend == "ants"
+        if multivariate and not use_multivariate:
+            self.logger.warning(
+                f"SuperSynth multivariate registration is not supported by the "
+                f"'{backend}' backend; using the synthetic T1w pair only."
+            )
+
+        required = ("synth_t1w", "synth_t2w") if use_multivariate else ("synth_t1w",)
+        if not all(key in fixed_outputs and key in moving_outputs for key in required):
+            self.logger.warning(
+                "SuperSynth dMRI coregistration did not produce all required "
+                f"synthetic contrasts: {', '.join(required)}"
+            )
+            return None
+
+        prepared_options = dict(options)
+        prepared_options.update({
+            "registration_fixed": fixed_outputs["synth_t1w"],
+            "registration_moving": moving_outputs["synth_t1w"],
+            "application_fixed": Path(anatomical.img),
+            "transform_type": prepared_options.get("transform_type", "Rigid"),
+        })
+        if use_multivariate:
+            prepared_options.update({
+                "registration_fixed_extras": [fixed_outputs["synth_t2w"]],
+                "registration_moving_extras": [moving_outputs["synth_t2w"]],
+            })
+
+        context.setdefault("dmri_supersynth_coregistration", {})[str(dwi.img)] = {
+            "mean_b0": mean_b0,
+            "fixed_outputs": fixed_outputs,
+            "moving_outputs": moving_outputs,
+        }
+        self.logger.info(
+            "Using SuperSynth dMRI coregistration "
+            f"with {backend} ({'T1w+T2w' if use_multivariate else 'T1w'} synthetic contrasts); "
+            "the resulting transform will be applied to the original DWI."
+        )
+        return Path(anatomical.img), modality, prepared_options
     
     def _find_structural_mask(self, context: Dict) -> Optional[Path]:
         """Find structural brain mask if available."""
