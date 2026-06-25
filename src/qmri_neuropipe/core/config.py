@@ -19,10 +19,33 @@ import os
 import yaml
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 
 
 logger = logging.getLogger(__name__)
+
+
+_UNSET = object()
+_STANDARD_CONFIG_DEFAULTS = {
+    "bids_dir": None,
+    "output_dir": None,
+    "work_dir": None,
+    "participant_label": None,
+    "session_label": None,
+    "subjects_file": None,
+    "n_cpus": 1,
+    "memory_gb": 8.0,
+    "use_gpu": False,
+    "skip_existing": True,
+    "stop_on_error": False,
+    "log_level": "INFO",
+    "debug": False,
+    "verbose": False,
+    "gpu_ids": None,
+    "anat_input": None,
+    "tracker": None,
+}
+_PATH_CONFIG_FIELDS = {"bids_dir", "output_dir", "work_dir", "subjects_file"}
 
 
 class UniqueKeyYamlLoader(yaml.SafeLoader):
@@ -48,7 +71,7 @@ UniqueKeyYamlLoader.add_constructor(
 )
 
 
-@dataclass
+@dataclass(init=False)
 class PipelineConfig:
     """
     Configuration container for pipeline execution.
@@ -91,55 +114,205 @@ class PipelineConfig:
     """
     
     # Core paths
-    bids_dir: Optional[Path] = None
-    output_dir: Optional[Path] = None
-    work_dir: Optional[Path] = None
+    bids_dir: Optional[Path]
+    output_dir: Optional[Path]
+    work_dir: Optional[Path]
     
     # Subject/session selection
-    participant_label: Optional[List[str]] = None
-    session_label: Optional[List[str]] = None
-    subjects_file: Optional[Path] = None
+    participant_label: Optional[List[str]]
+    session_label: Optional[List[str]]
+    subjects_file: Optional[Path]
     
     # Computational resources
-    n_cpus: int = 1
-    memory_gb: float = 8.0
-    use_gpu: bool = False
+    n_cpus: int
+    memory_gb: float
+    use_gpu: bool
     
     # Execution control
-    skip_existing: bool = True
-    stop_on_error: bool = False
+    skip_existing: bool
+    stop_on_error: bool
     
     # Logging
-    log_level: str = 'INFO'
-    debug: bool = False
-    verbose: bool = False
+    log_level: str
+    debug: bool
+    verbose: bool
     
     # GPU Configuration
-    gpu_ids: Optional[List[int]] = None
+    gpu_ids: Optional[List[int]]
     
     # Custom Input Configuration (e.g. non-standard Anatomical)
-    anat_input: Optional[Dict[str, Any]] = None
+    anat_input: Optional[Dict[str, Any]]
 
     # Tracker instance (to avoid circular imports, type is Any)
-    tracker: Optional[Any] = None
+    tracker: Optional[Any]
 
     # Additional configuration
-    config_data: Dict[str, Any] = field(default_factory=dict)
-    
-    def __post_init__(self):
-        """Convert string paths to Path objects."""
-        if self.bids_dir and not isinstance(self.bids_dir, Path):
-            self.bids_dir = Path(self.bids_dir)
-        if self.output_dir and not isinstance(self.output_dir, Path):
-            self.output_dir = Path(self.output_dir)
-        if self.work_dir and not isinstance(self.work_dir, Path):
-            self.work_dir = Path(self.work_dir)
-        if self.subjects_file and not isinstance(self.subjects_file, Path):
-            self.subjects_file = Path(self.subjects_file)
-        
-        # Set work_dir to output_dir/work if not specified
-        if self.work_dir is None and self.output_dir:
-            self.work_dir = self.output_dir / 'work'
+    config_data: Dict[str, Any]
+
+    def __init__(
+        self,
+        bids_dir=_UNSET,
+        output_dir=_UNSET,
+        work_dir=_UNSET,
+        participant_label=_UNSET,
+        session_label=_UNSET,
+        subjects_file=_UNSET,
+        n_cpus=_UNSET,
+        memory_gb=_UNSET,
+        use_gpu=_UNSET,
+        skip_existing=_UNSET,
+        stop_on_error=_UNSET,
+        log_level=_UNSET,
+        debug=_UNSET,
+        verbose=_UNSET,
+        gpu_ids=_UNSET,
+        anat_input=_UNSET,
+        tracker=_UNSET,
+        config_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Build typed attribute views over one canonical configuration store."""
+        data = dict(config_data or {})
+        for key, default in _STANDARD_CONFIG_DEFAULTS.items():
+            data.setdefault(key, default)
+
+        explicit_values = {
+            "bids_dir": bids_dir,
+            "output_dir": output_dir,
+            "work_dir": work_dir,
+            "participant_label": participant_label,
+            "session_label": session_label,
+            "subjects_file": subjects_file,
+            "n_cpus": n_cpus,
+            "memory_gb": memory_gb,
+            "use_gpu": use_gpu,
+            "skip_existing": skip_existing,
+            "stop_on_error": stop_on_error,
+            "log_level": log_level,
+            "debug": debug,
+            "verbose": verbose,
+            "gpu_ids": gpu_ids,
+            "anat_input": anat_input,
+            "tracker": tracker,
+        }
+        for key, value in explicit_values.items():
+            if value is not _UNSET:
+                data[key] = value
+
+        object.__setattr__(self, "_data", data)
+        self._normalize_store()
+
+    def _get_standard_field(self, name: str) -> Any:
+        """Shared getter body for every standard-field property below."""
+        return self._data[name]
+
+    def _set_standard_field(self, name: str, value: Any) -> None:
+        """Shared setter body for every standard-field property below.
+
+        Path-typed fields are coerced to ``Path`` on assignment, matching the
+        coercion ``_normalize_store`` applies at construction time.
+        """
+        if name in _PATH_CONFIG_FIELDS and value is not None:
+            value = Path(value)
+        self._data[name] = value
+
+    # Explicit properties (rather than a generic __getattribute__/__setattr__
+    # override) keep attribute access on PipelineConfig instances behaving
+    # exactly like normal Python attributes for every tool that introspects
+    # objects generically (debuggers, copy.deepcopy, dataclasses.fields,
+    # pickling, etc.), while still reading/writing the single canonical
+    # ``_data`` store underneath. Each property is a thin, identical wrapper
+    # around the shared get/set helpers above; the duplication here is the
+    # deliberate, low-risk kind (17 one-line properties) rather than the kind
+    # that hides a behavior difference.
+    bids_dir = property(
+        lambda self: self._get_standard_field("bids_dir"),
+        lambda self, value: self._set_standard_field("bids_dir", value),
+    )
+    output_dir = property(
+        lambda self: self._get_standard_field("output_dir"),
+        lambda self, value: self._set_standard_field("output_dir", value),
+    )
+    work_dir = property(
+        lambda self: self._get_standard_field("work_dir"),
+        lambda self, value: self._set_standard_field("work_dir", value),
+    )
+    participant_label = property(
+        lambda self: self._get_standard_field("participant_label"),
+        lambda self, value: self._set_standard_field("participant_label", value),
+    )
+    session_label = property(
+        lambda self: self._get_standard_field("session_label"),
+        lambda self, value: self._set_standard_field("session_label", value),
+    )
+    subjects_file = property(
+        lambda self: self._get_standard_field("subjects_file"),
+        lambda self, value: self._set_standard_field("subjects_file", value),
+    )
+    n_cpus = property(
+        lambda self: self._get_standard_field("n_cpus"),
+        lambda self, value: self._set_standard_field("n_cpus", value),
+    )
+    memory_gb = property(
+        lambda self: self._get_standard_field("memory_gb"),
+        lambda self, value: self._set_standard_field("memory_gb", value),
+    )
+    use_gpu = property(
+        lambda self: self._get_standard_field("use_gpu"),
+        lambda self, value: self._set_standard_field("use_gpu", value),
+    )
+    skip_existing = property(
+        lambda self: self._get_standard_field("skip_existing"),
+        lambda self, value: self._set_standard_field("skip_existing", value),
+    )
+    stop_on_error = property(
+        lambda self: self._get_standard_field("stop_on_error"),
+        lambda self, value: self._set_standard_field("stop_on_error", value),
+    )
+    log_level = property(
+        lambda self: self._get_standard_field("log_level"),
+        lambda self, value: self._set_standard_field("log_level", value),
+    )
+    debug = property(
+        lambda self: self._get_standard_field("debug"),
+        lambda self, value: self._set_standard_field("debug", value),
+    )
+    verbose = property(
+        lambda self: self._get_standard_field("verbose"),
+        lambda self, value: self._set_standard_field("verbose", value),
+    )
+    gpu_ids = property(
+        lambda self: self._get_standard_field("gpu_ids"),
+        lambda self, value: self._set_standard_field("gpu_ids", value),
+    )
+    anat_input = property(
+        lambda self: self._get_standard_field("anat_input"),
+        lambda self, value: self._set_standard_field("anat_input", value),
+    )
+    tracker = property(
+        lambda self: self._get_standard_field("tracker"),
+        lambda self, value: self._set_standard_field("tracker", value),
+    )
+
+    @property
+    def config_data(self) -> Dict[str, Any]:
+        """Live compatibility view of the canonical configuration store."""
+        return self._data
+
+    @config_data.setter
+    def config_data(self, value: Optional[Dict[str, Any]]) -> None:
+        data = dict(value or {})
+        for key, default in _STANDARD_CONFIG_DEFAULTS.items():
+            data.setdefault(key, default)
+        object.__setattr__(self, "_data", data)
+        self._normalize_store()
+
+    def _normalize_store(self) -> None:
+        for key in _PATH_CONFIG_FIELDS:
+            value = self._data.get(key)
+            if value is not None and not isinstance(value, Path):
+                self._data[key] = Path(value)
+        if self._data["work_dir"] is None and self._data["output_dir"]:
+            self._data["work_dir"] = self._data["output_dir"] / "work"
     
     @classmethod
     def from_file(
@@ -186,28 +359,7 @@ class PipelineConfig:
         if overrides:
             config_data = loader.merge_configs(config_data, overrides)
         
-        # Extract standard fields
-        standard_fields = {
-            'bids_dir': config_data.get('bids_dir'),
-            'output_dir': config_data.get('output_dir'),
-            'work_dir': config_data.get('work_dir'),
-            'participant_label': config_data.get('participant_label'),
-            'session_label': config_data.get('session_label'),
-            'subjects_file': config_data.get('subjects_file'),
-            'n_cpus': config_data.get('n_cpus', 1),
-            'memory_gb': config_data.get('memory_gb', 8.0),
-            'use_gpu': config_data.get('use_gpu', False),
-            'skip_existing': config_data.get('skip_existing', True),
-            'stop_on_error': config_data.get('stop_on_error', False),
-            'log_level': config_data.get('log_level', 'INFO'),
-            'debug': config_data.get('debug', False),
-            'verbose': config_data.get('verbose', False),
-            'gpu_ids': config_data.get('gpu_ids'),
-            'anat_input': config_data.get('anat_input'),
-        }
-        
-        # Store everything in config_data
-        config = cls(**standard_fields, config_data=config_data)
+        config = cls(config_data=config_data)
         
         # Validate
         config.validate()
@@ -253,12 +405,9 @@ class PipelineConfig:
             >>> config.get('nonexistent', 'default_value')
             'default_value'
         """
-        # Check standard fields first
-        if '.' not in key and hasattr(self, key):
-            return getattr(self, key)
-        
-        # Search in config_data
-        return self._get_nested(self.config_data, key, default)
+        if key == "config_data":
+            return self._data
+        return self._get_nested(self._data, key, default)
     
     def set(self, key: str, value: Any) -> None:
         """
@@ -272,10 +421,12 @@ class PipelineConfig:
             >>> config.set('n_cpus', 16)
             >>> config.set('dmri.preprocessing.denoising.enabled', True)
         """
-        if '.' not in key and hasattr(self, key):
+        if key == "config_data":
+            self.config_data = value
+        elif '.' not in key and key in _STANDARD_CONFIG_DEFAULTS:
             setattr(self, key, value)
         else:
-            self._set_nested(self.config_data, key, value)
+            self._set_nested(self._data, key, value)
     
     def _get_nested(self, d: Dict, key: str, default: Any = None) -> Any:
         """Get nested dictionary value using dot notation."""
@@ -355,29 +506,11 @@ class PipelineConfig:
         Returns:
             Dictionary representation of configuration
         """
-        # Start with standard fields
-        result = {
-            'bids_dir': str(self.bids_dir) if self.bids_dir else None,
-            'output_dir': str(self.output_dir) if self.output_dir else None,
-            'work_dir': str(self.work_dir) if self.work_dir else None,
-            'participant_label': self.participant_label,
-            'session_label': self.session_label,
-            'subjects_file': str(self.subjects_file) if self.subjects_file else None,
-            'n_cpus': self.n_cpus,
-            'memory_gb': self.memory_gb,
-            'use_gpu': self.use_gpu,
-            'skip_existing': self.skip_existing,
-            'stop_on_error': self.stop_on_error,
-            'log_level': self.log_level,
-            'debug': self.debug,
-            'verbose': self.verbose,
-            'gpu_ids': self.gpu_ids,
-            'anat_input': self.anat_input,
-        }
-        
-        # Merge with config_data
-        result.update(self.config_data)
-        
+        result = dict(self._data)
+        result.pop("tracker", None)
+        for key in _PATH_CONFIG_FIELDS:
+            if result.get(key) is not None:
+                result[key] = str(result[key])
         return result
     
     def save(self, output_file: Union[str, Path], format: str = 'yaml') -> None:

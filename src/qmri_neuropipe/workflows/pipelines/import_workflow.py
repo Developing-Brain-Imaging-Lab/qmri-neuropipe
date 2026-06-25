@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Optional
 import tarfile
-from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.lib.common.importing import (
     Dcm2NiixStep,
@@ -285,10 +285,10 @@ class ImportWorkflow(BaseWorkflow):
 
         return sorted(self._snapshot_import_outputs(root).keys())
             
-    def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> dict:
+    def run(self, dicom_dir: Path, output_dir: Path, context: dict) -> PipelineContext:
         self.logger.info("Starting Import Workflow")
         resolved_dicom_dir = self._resolve_import_source(Path(dicom_dir), context)
-        context = dict(context)
+        context = PipelineContext(context)
         context["dicom_dir"] = resolved_dicom_dir
         step_context = {k: v for k, v in context.items() if k != "dicom_dir"}
         outputs_before = self._snapshot_import_outputs(output_dir)
@@ -361,4 +361,4 @@ class ImportWorkflow(BaseWorkflow):
                 if isinstance(result, dict):
                     context.update(result)
                 
-        return context
+        return PipelineContext.ensure(context)

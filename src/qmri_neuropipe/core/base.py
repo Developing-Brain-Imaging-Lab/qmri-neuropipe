@@ -20,12 +20,14 @@ from typing import Any, List, Optional, Union, Type, Tuple, Dict
 import logging
 from datetime import datetime
 from dataclasses import dataclass, field
-import concurrent.futures
 import os
+import re
 
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.provenance import ProvenanceTracker
+from qmri_neuropipe.core.parallel import run_parallel as run_parallel_tasks
 from qmri_neuropipe.core.run import command_history_len, get_command_history
+from qmri_neuropipe.core.tracking import flush_tracker, update_step_status
 from qmri_neuropipe.core.exceptions import (
     ValidationError,
     ProcessingError,
@@ -42,23 +44,7 @@ except ImportError:
     Progress = None
 
 from qmri_neuropipe.io import DataLoader
-
-def _worker_wrapper(pipeline_cls, config_dict, subject, session):
-    """
-    Worker function for parallel execution.
-    Must be top-level for pickle compatibility.
-    """
-    try:
-        os.environ["QMRI_PARALLEL_WORKER"] = "1"
-        # Reconstruct config from dict
-        config = PipelineConfig.from_dict(config_dict)
-        # Instantiate pipeline
-        pipeline = pipeline_cls(config)
-        # Process
-        pipeline._process_subject_with_subject_log(subject, session)
-        return (subject, session, True, None)
-    except Exception as e:
-        return (subject, session, False, str(e))
+from qmri_neuropipe.io.bids import select_participants_sessions
 
 class BaseProcessingStep(ABC):
     """
@@ -127,7 +113,6 @@ class BaseProcessingStep(ABC):
         Returns:
             Normalized column name (e.g. Brain_Masking)
         """
-        import re
         step_base = step_name.replace("Step", "")
         # Robust CamelCase/Prefix to Snake_Case conversion
         # Handles: EddyCorrection -> Eddy_Correction, Synb0Estimation -> Synb0_Estimation, DMRIReorient -> DMRI_Reorient
@@ -204,8 +189,7 @@ class BaseProcessingStep(ABC):
         tracker_module = self.normalize_tracker_module(self.step_name)
         
         tracker = self.config.tracker
-        if tracker and subject and session:
-            tracker.update_status(subject, session, tracker_module, "running", study, modality=self.modality)
+        update_step_status(self.config, context, self, "running")
 
         try:
             # Validate inputs before processing
@@ -226,10 +210,13 @@ class BaseProcessingStep(ABC):
             if self.provenance:
                 self._log_provenance(*args, result=result, **kwargs)
             
-            if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "completed", study, modality=self.modality)
+            if update_step_status(
+                self.config,
+                context,
+                self,
+                "completed",
+            ):
                 tracker.log_time(subject, session, tracker_module, duration_s / 60.0, study)
-                tracker.save() # Auto-save if enabled
             
             self.logger.info(
                 f"{self.step_name} completed successfully in {duration_s:.1f}s"
@@ -239,19 +226,27 @@ class BaseProcessingStep(ABC):
             
         except ValidationError as e:
             self.last_commands = get_command_history(command_start_idx)
-            if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
+            if update_step_status(
+                self.config,
+                context,
+                self,
+                "failed",
+            ):
                 tracker.log_error(subject, session, tracker_module, str(e), study)
-                tracker.save()
+                flush_tracker(self.config, force=True)
             self.logger.error(f"{self.step_name} validation failed: {e}")
             raise
             
         except Exception as e:
             self.last_commands = get_command_history(command_start_idx)
-            if tracker and subject and session:
-                tracker.update_status(subject, session, tracker_module, "failed", study, modality=self.modality)
+            if update_step_status(
+                self.config,
+                context,
+                self,
+                "failed",
+            ):
                 tracker.log_error(subject, session, tracker_module, str(e), study)
-                tracker.save()
+                flush_tracker(self.config, force=True)
             self.logger.error(
                 f"{self.step_name} processing failed: {e}",
                 exc_info=True
@@ -878,7 +873,7 @@ class BasePipeline(ABC):
         subjects: Optional[List[str]] = None,
         sessions: Optional[List[str]] = None,
         pairs: Optional[List[Tuple[str, Optional[str]]]] = None
-    ) -> None:
+    ) -> Dict[str, Any]:
         """
         Run pipeline on specified subjects.
         
@@ -896,6 +891,9 @@ class BasePipeline(ABC):
             sessions: List of session IDs (None = all sessions)
             pairs: Optional list of explicit (subject, session) pairs. 
                   If provided, subjects and sessions args are ignored.
+
+        Returns:
+            Execution counts and per-subject failure details.
         """
         self.logger.info(f"Starting {self.name} v{self.version}")
         
@@ -926,13 +924,17 @@ class BasePipeline(ABC):
         # Check for submit mode
         if self.config.get('submit', False):
             self._generate_htcondor_submission(data)
-            return
+            return {
+                'n_success': 0,
+                'n_failed': 0,
+                'n_skipped': 0,
+                'failures': [],
+            }
 
         # Check for parallel execution
         jobs = self.config.get('jobs', 1)
         if jobs > 1:
-            self._run_parallel(data, jobs)
-            return
+            return self._run_parallel(data, jobs)
 
         for subject, session in data:
             try:
@@ -959,7 +961,11 @@ class BasePipeline(ABC):
                 
             except Exception as e:
                 n_failed += 1
-                failed_subjects.append(f"{subject} {session}")
+                failed_subjects.append({
+                    'subject': subject,
+                    'session': session,
+                    'error': str(e),
+                })
                 self.logger.error(
                     f"Failed to process {subject} {session}: {e}",
                     exc_info=self.config.get('debug', False)
@@ -973,7 +979,8 @@ class BasePipeline(ABC):
         return {
             'n_success': n_success,
             'n_failed': n_failed,
-            'n_skipped': n_skipped
+            'n_skipped': n_skipped,
+            'failures': failed_subjects,
         }
 
     def _subject_log_file(self, subject: str, session: Optional[str]) -> Path:
@@ -1009,43 +1016,22 @@ class BasePipeline(ABC):
             self.logger.info(f"Subject/session log: {log_file}")
             self.process_subject(subject, session)
         finally:
+            flush_tracker(self.config, force=True)
             for logger in loggers:
                 logger.removeHandler(handler)
             handler.close()
 
     def _run_parallel(self, data, jobs):
-        """Execute pipeline in parallel using ProcessPoolExecutor."""
+        """Execute pipeline through the shared parallel runner."""
         self.logger.info(f"Running parallel execution with {jobs} jobs...")
-        config_dict = self.config.to_dict()
-        
-        n_success = 0
-        n_failed = 0
-        
-        with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
-            futures = {
-                executor.submit(_worker_wrapper, self.__class__, config_dict, sub, ses): (sub, ses)
-                for sub, ses in data
-            }
-            
-            for future in concurrent.futures.as_completed(futures):
-                sub, ses = futures[future]
-                try:
-                    res_sub, res_ses, success, error = future.result()
-                    if success:
-                        n_success += 1
-                        self.logger.info(f"Successfully processed {res_sub} {res_ses}")
-                    else:
-                        n_failed += 1
-                        self.logger.error(f"Failed to process {res_sub} {res_ses}: {error}")
-                except Exception as e:
-                    n_failed += 1
-                    self.logger.error(f"Job execution failed for {sub} {ses}: {e}")
-                    
-        return {
-            'n_success': n_success,
-            'n_failed': n_failed,
-            'n_skipped': 0 # Parallel runner doesn't check skip before dispatch usually, or detailed stats are lost
-        }
+        return run_parallel_tasks(
+            self.__class__,
+            self.config,
+            data,
+            jobs,
+            should_skip=self._should_skip,
+            logger=self.logger,
+        )
 
     def _generate_htcondor_submission(self, data):
         """Generate HTCondor submit file and subjects list."""
@@ -1260,30 +1246,11 @@ getenv = True{concurrency_directive}
         Returns:
             List of subject IDs
         """
-        from qmri_neuropipe.io.bids import select_participants_sessions
         # Get all pairs (subject, session)
         pairs = select_participants_sessions(Path(self.config.get('bids_dir')), None, None)
         # Extract unique subjects
         subjects = sorted(list(set(p[0] for p in pairs)))
         return subjects
-    
-    # def _get_subject_sessions(self, subject: str) -> List[Optional[str]]:
-    #     """
-    #     Get all sessions for a subject.
-        
-    #     Args:
-    #         subject: Subject ID
-        
-    #     Returns:
-    #         List of session IDs (or [None] for single-session datasets)
-    #     """
-    #     from bids import BIDSLayout
-        
-    #     bids = BIDSLayout(self.config.get('bids_dir'))
-    #     sessions = bids.get_sessions(subject)
-        
-    #     # Return [None] for single-session datasets
-    #     return sessions if sessions else [None]
     
     def _should_skip(self, subject: str, session: Optional[str]) -> bool:
         """
@@ -1308,7 +1275,7 @@ getenv = True{concurrency_directive}
             return False
         
         # Check if directory has any files (not just empty)
-        return any(output_dir.rglob('*.*'))
+        return next(output_dir.rglob('*.*'), None) is not None
     
     def _get_output_dir(
         self,

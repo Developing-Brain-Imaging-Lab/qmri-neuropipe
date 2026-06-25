@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.lib.dmri.normalization import NormalizationStep
 
 
@@ -59,7 +59,8 @@ class NormalizationWorkflow(BaseWorkflow):
         context: dict,
         reporter=None,
         final_output_dir: Optional[Path] = None,
-    ) -> dict:
+    ) -> PipelineContext:
+        context = PipelineContext.ensure(context)
         if not self.steps:
             return context
 
@@ -68,4 +69,4 @@ class NormalizationWorkflow(BaseWorkflow):
 
         # Only one step for now, keep it explicit for clarity.
         result = self.steps[0].run(context, out_dir)
-        return result
+        return PipelineContext.ensure(result)

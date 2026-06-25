@@ -6,6 +6,7 @@ import numpy as np
 import nibabel as nib
 
 from ...core import BaseProcessingStep
+from ...core.tracking import flush_tracker, mark_tracker_dirty
 from ...core.types import ImageFile
 from .tracker import NeuroimagingTracker
 
@@ -63,6 +64,7 @@ class TrackingStep(BaseProcessingStep):
                 self.logger.warning("No tracker file specified and no active tracker in config. Skipping TrackingStep.")
                 return context
             tracker = NeuroimagingTracker(self.tracker_path, logger=self.logger)
+            self.config.tracker = tracker
 
         try:
             self.logger.info(f"Tracker update target: {tracker.excel_path}")
@@ -76,8 +78,7 @@ class TrackingStep(BaseProcessingStep):
             self.config.get('study_name') or
             self.config.get('study.name') or
             self.config.get('tracker.study_name') or
-            self.config.get('tracker.study') or
-            getattr(self.config, 'config_data', {}).get('study_name')
+            self.config.get('tracker.study')
         )
         if study is not None and str(study).strip().lower() == 'nan':
             study = None
@@ -538,8 +539,9 @@ class TrackingStep(BaseProcessingStep):
         for atlas_name, tsv_path in roi_files.items():
             tracker.add_roi_stats(subject, session, Path(tsv_path), atlas_name, study)
 
-        # 5. Save the tracker (Force save at the end of subject)
-        tracker.save(force=True)
+        # 5. Save the tracker (force save at the end of subject).
+        mark_tracker_dirty(self.config)
+        flush_tracker(self.config, force=True)
         
         return context
 

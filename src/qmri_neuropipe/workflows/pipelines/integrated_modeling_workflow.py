@@ -5,10 +5,13 @@ This module contains the ModelingWorkflow class with integrated
 batch validation and ExecutionEngine support.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import shutil
 
-from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import BaseWorkflow, PipelineContext
+from qmri_neuropipe.io.bids import build_bids_name
 from qmri_neuropipe.lib.dmri.fitting import (
     DTIFittingStep,
     DKIFittingStep,
@@ -21,7 +24,60 @@ from qmri_neuropipe.lib.dmri.fitting import (
     MicrogliaFittingStep
 )
 from qmri_neuropipe.lib.dmri.tractography import TractSegStep, PyAFQStep
+from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
 from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_matches, step_force_active
+from qmri_neuropipe.core.tracking import flush_tracker, update_step_status
+from qmri_neuropipe.utils.data_io import DataIOManager
+from qmri_neuropipe.utils.reporting import report_modeling_step
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """Behavior-preserving construction policy for one diffusion model step."""
+
+    step_cls: type
+    cfg_keys: tuple[str, ...]
+    default_method: str
+    flatten: tuple[str, ...] = ("parameters",)
+    retain_flattened: bool = False
+    flatten_dicts_only: bool = False
+    parameters_only: bool = False
+    pop_controls_before_flatten: bool = False
+
+
+MODEL_REGISTRY = (
+    ModelSpec(DTIFittingStep, ("dti", "tensor"), "dipy", ("parameters", "options")),
+    ModelSpec(DKIFittingStep, ("dki",), "dipy"),
+    ModelSpec(
+        CSDFittingStep,
+        ("csd",),
+        "msmt_csd",
+        ("parameters", "options"),
+        retain_flattened=True,
+    ),
+    ModelSpec(
+        NODDIFittingStep,
+        ("noddi",),
+        "dmipy",
+        flatten_dicts_only=True,
+        pop_controls_before_flatten=True,
+    ),
+    ModelSpec(SANDIFittingStep, ("sandi",), "amico", parameters_only=True),
+    ModelSpec(
+        MicrogliaFittingStep,
+        ("microglia",),
+        "dmipy",
+        pop_controls_before_flatten=True,
+    ),
+    ModelSpec(NEXIFittingStep, ("nexi",), "nexi", ("parameters", "options")),
+    ModelSpec(MAPMRIFittingStep, ("mapmri",), "dipy"),
+    ModelSpec(
+        FWDTIFittingStep,
+        ("fwe_dti", "fwdti"),
+        "dipy",
+        pop_controls_before_flatten=True,
+    ),
+)
 
 
 class ModelingWorkflow(BaseWorkflow):
@@ -44,15 +100,7 @@ class ModelingWorkflow(BaseWorkflow):
         self._check_dependencies(modeling_cfg)
         
         # Add model fitting steps
-        self._add_dti_step(modeling_cfg)
-        self._add_dki_step(modeling_cfg)
-        self._add_csd_step(modeling_cfg)
-        self._add_noddi_step(modeling_cfg)
-        self._add_sandi_step(modeling_cfg)
-        self._add_microglia_step(modeling_cfg)
-        self._add_nexi_step(modeling_cfg)
-        self._add_mapmri_step(modeling_cfg)
-        self._add_fwdti_step(modeling_cfg)
+        self._add_model_steps(modeling_cfg)
         
         # Add tractography steps
         self._add_tractography_steps(modeling_cfg)
@@ -73,205 +121,48 @@ class ModelingWorkflow(BaseWorkflow):
                 )
                 modeling_cfg.setdefault('csd', {})['enabled'] = True
 
-    def _add_dti_step(self, modeling_cfg: dict):
-        """Add DTI fitting step if enabled."""
-        dti_cfg = modeling_cfg.get('dti', {}) or modeling_cfg.get('tensor', {})
-        if dti_cfg.get('enabled', False):
-            method = dti_cfg.get('method', 'dipy')
-            self.logger.info(f"Adding DTIFittingStep (method={method})")
-            
-            dti_kwargs = dict(dti_cfg)
-            if 'parameters' in dti_kwargs:
-                dti_kwargs.update(dti_kwargs.pop('parameters'))
-            if 'options' in dti_kwargs:
-                dti_kwargs.update(dti_kwargs.pop('options'))
-            dti_kwargs.pop('enabled', None)
-            dti_kwargs.pop('method', None)
+    def _add_model_steps(self, modeling_cfg: dict) -> None:
+        """Add enabled fitting steps in the stable registry order."""
+        for spec in MODEL_REGISTRY:
+            model_cfg = next(
+                (modeling_cfg[key] for key in spec.cfg_keys if modeling_cfg.get(key)),
+                None,
+            )
+            if not model_cfg or not model_cfg.get("enabled", False):
+                continue
 
-            self.add_step(DTIFittingStep(
+            method = model_cfg.get("method", spec.default_method)
+            self.logger.info(f"Adding {spec.step_cls.__name__} (method={method})")
+
+            if spec.parameters_only:
+                step_kwargs = model_cfg.get("parameters", {})
+            else:
+                step_kwargs = dict(model_cfg)
+                if spec.pop_controls_before_flatten:
+                    step_kwargs.pop("enabled", None)
+                    step_kwargs.pop("method", None)
+                for nested_key in spec.flatten:
+                    if nested_key not in step_kwargs:
+                        continue
+                    nested = (
+                        step_kwargs[nested_key]
+                        if spec.retain_flattened
+                        else step_kwargs.pop(nested_key)
+                    )
+                    if spec.flatten_dicts_only and not isinstance(nested, dict):
+                        continue
+                    step_kwargs.update(nested)
+                if not spec.pop_controls_before_flatten:
+                    step_kwargs.pop("enabled", None)
+                    step_kwargs.pop("method", None)
+
+            self.add_step(spec.step_cls(
                 config=self.config,
                 logger=self.logger,
                 provenance=self.provenance,
                 method=method,
                 n_cpus=self.config.n_cpus,
-                **dti_kwargs
-            ))
-
-    def _add_dki_step(self, modeling_cfg: dict):
-        """Add DKI fitting step if enabled."""
-        dki_cfg = modeling_cfg.get('dki', {})
-        if dki_cfg.get('enabled', False):
-            method = dki_cfg.get('method', 'dipy')
-            self.logger.info(f"Adding DKIFittingStep (method={method})")
-            
-            dki_kwargs = dict(dki_cfg)
-            if 'parameters' in dki_kwargs:
-                dki_kwargs.update(dki_kwargs.pop('parameters'))
-            dki_kwargs.pop('enabled', None)
-            dki_kwargs.pop('method', None)
-
-            self.add_step(DKIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **dki_kwargs
-            ))
-
-    def _add_csd_step(self, modeling_cfg: dict):
-        """Add CSD fitting step if enabled."""
-        csd_cfg = modeling_cfg.get('csd', {})
-        if csd_cfg.get('enabled', False):
-            method = csd_cfg.get('method', 'msmt_csd')
-            self.logger.info(f"Adding CSDFittingStep (method={method})")
-            
-            csd_kwargs = dict(csd_cfg)
-            if 'parameters' in csd_cfg:
-                csd_kwargs.update(csd_cfg['parameters'])
-            if 'options' in csd_cfg:
-                csd_kwargs.update(csd_cfg['options'])
-            
-            csd_kwargs.pop('enabled', None)
-            csd_kwargs.pop('method', None)
-            
-            self.add_step(CSDFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **csd_kwargs
-            ))
-
-    def _add_noddi_step(self, modeling_cfg: dict):
-        """Add NODDI fitting step if enabled."""
-        noddi_cfg = modeling_cfg.get('noddi', {})
-        if noddi_cfg.get('enabled', False):
-            method = noddi_cfg.get('method', 'dmipy')
-            self.logger.info(f"Adding NODDIFittingStep (method={method})")
-            
-            step_kwargs = noddi_cfg.copy()
-            step_kwargs.pop('method', None) 
-            step_kwargs.pop('enabled', None)
-            
-            if 'parameters' in step_kwargs:
-                nested_params = step_kwargs.pop('parameters')
-                if isinstance(nested_params, dict):
-                    step_kwargs.update(nested_params)
-
-            self.add_step(NODDIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **step_kwargs
-            ))
-
-    def _add_sandi_step(self, modeling_cfg: dict):
-        """Add SANDI fitting step if enabled."""
-        sandi_cfg = modeling_cfg.get('sandi', {})
-        if sandi_cfg.get('enabled', False):
-            method = sandi_cfg.get('method', 'amico')
-            self.logger.info(f"Adding SANDIFittingStep (method={method})")
-            self.add_step(SANDIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **sandi_cfg.get('parameters', {})
-            ))
-
-    def _add_microglia_step(self, modeling_cfg: dict):
-        """Add Microglia (4-Compartment) fitting step if enabled."""
-        microglia_cfg = modeling_cfg.get('microglia', {})
-        if microglia_cfg.get('enabled', False):
-            method = microglia_cfg.get('method', 'dmipy')
-            self.logger.info(f"Adding MicrogliaFittingStep (method={method})")
-            
-            step_kwargs = microglia_cfg.copy()
-            step_kwargs.pop('method', None)
-            step_kwargs.pop('enabled', None)
-            if 'parameters' in step_kwargs:
-                step_kwargs.update(step_kwargs.pop('parameters'))
-            
-            self.add_step(MicrogliaFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **step_kwargs
-            ))
-
-    def _add_nexi_step(self, modeling_cfg: dict):
-        """Add NEXI fitting step if enabled."""
-        nexi_cfg = modeling_cfg.get('nexi', {})
-        if nexi_cfg.get('enabled', False):
-            method = nexi_cfg.get('method', 'nexi')
-            self.logger.info(f"Adding NEXIFittingStep (method={method})")
-
-            nexi_kwargs = dict(nexi_cfg)
-            if 'parameters' in nexi_kwargs:
-                nexi_kwargs.update(nexi_kwargs.pop('parameters'))
-            if 'options' in nexi_kwargs:
-                nexi_kwargs.update(nexi_kwargs.pop('options'))
-            nexi_kwargs.pop('enabled', None)
-            nexi_kwargs.pop('method', None)
-
-            self.add_step(NEXIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **nexi_kwargs
-            ))
-
-    def _add_mapmri_step(self, modeling_cfg: dict):
-        """Add MAPMRI fitting step if enabled."""
-        map_cfg = modeling_cfg.get('mapmri', {})
-        if map_cfg.get('enabled', False):
-            method = map_cfg.get('method', 'dipy')
-            self.logger.info(f"Adding MAPMRIFittingStep (method={method})")
-            
-            map_kwargs = dict(map_cfg)
-            if 'parameters' in map_kwargs:
-                map_kwargs.update(map_kwargs.pop('parameters'))
-            map_kwargs.pop('enabled', None)
-            map_kwargs.pop('method', None)
-
-            self.add_step(MAPMRIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **map_kwargs
-            ))
-
-    def _add_fwdti_step(self, modeling_cfg: dict):
-        """Add Free-Water DTI fitting step if enabled."""
-        fwe_dti_cfg = modeling_cfg.get('fwe_dti', {}) or modeling_cfg.get('fwdti', {})
-        if fwe_dti_cfg.get('enabled', False):
-            method = fwe_dti_cfg.get('method', 'dipy')
-            self.logger.info(f"Adding FWDTIFittingStep (method={method})")
-            
-            step_kwargs = fwe_dti_cfg.copy()
-            step_kwargs.pop('method', None)
-            step_kwargs.pop('enabled', None)
-            if 'parameters' in step_kwargs:
-                step_kwargs.update(step_kwargs.pop('parameters'))
-            
-            self.add_step(FWDTIFittingStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                method=method,
-                n_cpus=self.config.n_cpus,
-                **step_kwargs
+                **step_kwargs,
             ))
 
     def _add_tractography_steps(self, modeling_cfg: dict):
@@ -307,7 +198,7 @@ class ModelingWorkflow(BaseWorkflow):
         context: dict,
         reporter=None,
         final_output_dir: Optional[Path] = None
-    ) -> dict:
+    ) -> PipelineContext:
         """
         Run the modeling workflow with batch validation.
         
@@ -327,9 +218,7 @@ class ModelingWorkflow(BaseWorkflow):
         dict
             Updated context
         """
-        from ...utils.data_io import DataIOManager
-        from ...utils.reporting import report_modeling_step
-        
+        context = PipelineContext.ensure(context)
         self.logger.info("Starting Modeling Workflow")
         
         staging_dir = work_dir / "modeling"
@@ -392,7 +281,6 @@ class ModelingWorkflow(BaseWorkflow):
         except ImportError:
             has_rich = False
             
-        import shutil
         total_steps = len(preprocessed_dwis) * len(self.steps)
         
         if has_rich and getattr(console, "is_terminal", True):
@@ -427,7 +315,7 @@ class ModelingWorkflow(BaseWorkflow):
             )
         
         self.logger.info("Modeling Workflow complete")
-        return context
+        return PipelineContext.ensure(context)
     
     def _execute_modeling(
         self,
@@ -436,15 +324,10 @@ class ModelingWorkflow(BaseWorkflow):
         reporter, progress=None, task_id=None
     ):
         """Execute modeling steps with progress tracking."""
-        import shutil
-        from pathlib import Path
-        from ...utils.reporting import report_modeling_step
-        from qmri_neuropipe.io.bids import build_bids_name
-        from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
-        
         for i, (dwi, mask) in enumerate(zip(dwis, masks)):
             img_name = dwi.img.name
             context['current_image'] = dwi
+            staging_changed = False
             
             # Optional GNL map usage (enabled in preprocessing or modeling config).
             modeling_gnl_cfg = (self.config.get('dmri', {}).get('modeling') or {}).get('grad_nonlin', {})
@@ -588,14 +471,7 @@ class ModelingWorkflow(BaseWorkflow):
                     if force_from_step_active:
                         self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")
                     step(context, output_dir=staging_dir, mask=mask, force=force_from_step_active)
-                    
-                    # Copy to final
-                    if final_dir:
-                        shutil.copytree(
-                            staging_dir, final_dir,
-                            dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns("figures")
-                        )
+                    staging_changed = True
                     
                     if progress:
                         progress.advance(task_id)
@@ -612,6 +488,15 @@ class ModelingWorkflow(BaseWorkflow):
                         )
                     except Exception as e:
                         self.logger.warning(f"Reporting failed: {e}")
+
+            # Synchronize once after all model steps for this DWI. Copying inside
+            # the step loop repeatedly traversed the complete staging tree.
+            if final_dir and staging_changed:
+                shutil.copytree(
+                    staging_dir, final_dir,
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("figures")
+                )
     
     def _check_all_outputs_exist(self, dwis, output_dir):
         """Check if all modeling outputs exist."""
@@ -651,8 +536,6 @@ class ModelingWorkflow(BaseWorkflow):
 
     def _populate_modeling_results_from_cache(self, dwis, output_dir, context):
         """Populate modeling_results in context when outputs are already cached."""
-        from qmri_neuropipe.io.bids import build_bids_name
-
         modeling_results = context.setdefault('modeling_results', {})
 
         # Use first DWI for naming; modeling results are per-subject/session here.
@@ -704,42 +587,17 @@ class ModelingWorkflow(BaseWorkflow):
     
     def _update_tracker_for_cache(self, context):
         """Update tracker for all cached steps."""
-        tracker = self.config.tracker
-        if not tracker:
-            return
-        
-        subject = context.get('subject')
-        session = context.get('session')
-        study = context.get('study_name', self.config.get('study_name'))
-        
-        if subject and session:
-            for step in self.steps:
-                tracker_module = step.normalize_tracker_module(
-                    step.__class__.__name__
-                )
-                tracker.update_status(
-                    subject, session, tracker_module,
-                    "completed (cached)", study,
-                    modality=step.modality
-                )
-            tracker.save()
+        updated = False
+        for step in self.steps:
+            updated = update_step_status(
+                self.config,
+                context,
+                step,
+                "completed (cached)",
+            ) or updated
+        if updated:
+            flush_tracker(self.config)
     
     def _update_tracker_step(self, context, step, status):
         """Update tracker for single step."""
-        tracker = self.config.tracker
-        if not tracker:
-            return
-        
-        subject = context.get('subject')
-        session = context.get('session')
-        study = context.get('study_name', self.config.get('study_name'))
-        
-        if subject and session:
-            tracker_module = step.normalize_tracker_module(
-                step.__class__.__name__
-            )
-            tracker.update_status(
-                subject, session, tracker_module,
-                status, study, modality=step.modality
-            )
-            tracker.save()
+        update_step_status(self.config, context, step, status)

@@ -23,8 +23,21 @@ from dataclasses import dataclass, field
 import nibabel as nib
 import numpy as np
 
-from ...core import BasePipeline, BaseWorkflow, PipelineConfig, ProcessingError
+try:
+    from rich.progress import Progress
+except ImportError:  # Rich is optional for programmatic workflow use.
+    Progress = None
+
+from ...core import (
+    BasePipeline,
+    BaseWorkflow,
+    PipelineConfig,
+    PipelineContext,
+    ProcessingError,
+)
+from ...core.caching import reuse_if_exists, reuse_path_if_exists
 from ...core.step_control import get_rerun_from_step, step_force_active, step_matches, any_step_matches
+from ...core.tracking import flush_tracker, mark_tracker_dirty, update_step_status
 from ...core.types import ImageFile
 from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from ...io.bids import build_bids_name
@@ -46,7 +59,49 @@ from ...interfaces.mriqc import run_mriqc
 from ...interfaces import ants, fsl  # For manual apply_transforms
 from ...lib.reporting.report import ReportGenerator
 
-# Rich and Viz imports moved to local scope below
+
+def _update_progress(reporter, *, description: Optional[str] = None, advance: bool = False) -> None:
+    """Update a Rich progress reporter without hiding reporter failures."""
+    if Progress is None or not isinstance(reporter, Progress):
+        return
+    if description is not None:
+        reporter.update(description=description)
+    if advance:
+        reporter.advance()
+
+STEP_DESC = {
+    ResampleStep: "resample",
+    ReorientStep: "reorient",
+    DenoisingStep: "denoise",
+    GibbsUnringingStep: "gibbs",
+    BiasCorrectionStep: "bias",
+    SharpeningStep: "sharpen",
+    NonlinearRegistrationStep: "normalize",
+}
+
+T1W_SKIP = (
+    CoregistrationStep,
+    BrainMaskingStep,
+    NonlinearRegistrationStep,
+    SegmentationStep,
+    FreeSurferStatsStep,
+)
+T2W_SKIP = (
+    ReconAllStep,
+    NonlinearRegistrationStep,
+    BrainMaskingStep,
+    CoregistrationStep,
+    SegmentationStep,
+    FreeSurferStatsStep,
+)
+FREESURFER_T1W_SKIP = (
+    ResampleStep,
+    ReorientStep,
+    DenoisingStep,
+    GibbsUnringingStep,
+    BiasCorrectionStep,
+    SharpeningStep,
+)
 
 @dataclass
 class PreprocessingConfig:
@@ -193,20 +248,27 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         self._initialize_steps()
 
     def _add_anat_step(self, *args, **kwargs) -> None:
+        """Forward one anatomical processing step to the reporter.
+
+        Canonical call shape: ``self._add_anat_step(step_name, details, figures=...)``.
+        ``self.reporter`` (set once per run() in ``run()``) is used unless an
+        explicit ``reporter=`` keyword override is supplied. No other positional
+        call shape is supported — passing a reporter positionally as the first
+        argument is no longer accepted, since it silently produced wrong results
+        when ``reporter`` was falsy.
+        """
         figures = kwargs.pop("figures", None)
         extra_details = kwargs.pop("details", None)
+        reporter = kwargs.pop("reporter", None) or getattr(self, "reporter", None)
 
-        reporter = None
-        step_name = None
-        base_details = None
-
-        if len(args) >= 3 and hasattr(args[0], "add_anat_step"):
-            reporter, step_name, base_details = args[:3]
-        elif len(args) >= 2:
-            step_name, base_details = args[:2]
-            reporter = kwargs.pop("reporter", None) or getattr(self, "reporter", None)
-        else:
-            return
+        if len(args) != 2:
+            raise TypeError(
+                "_add_anat_step expects exactly two positional arguments "
+                "(step_name, details); got "
+                f"{len(args)}. Pass the reporter via the 'reporter' keyword "
+                "if an override is needed."
+            )
+        step_name, base_details = args
 
         if not reporter:
             return
@@ -426,394 +488,670 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if reporter:
                 self._add_anat_step("MRIQC", {"Status": "Failed"}, details={"error": str(e)})
 
-    def _preprocess_t1w(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, figures_dir: Path, step_metrics: Optional[List[dict]] = None) -> (dict, List[dict]):
-        """
-        Preprocess T1w images with the configured steps.
+    def _preprocess_t1w(
+        self,
+        output_dir: Path,
+        context: dict,
+        final_output_dir: Optional[Path],
+        reporter,
+        figures_dir: Path,
+        step_metrics: Optional[List[dict]] = None,
+    ) -> tuple[dict, List[dict]]:
+        """Preprocess the required T1w input using the shared modality engine."""
+        return self._preprocess_modality(
+            "T1w",
+            T1W_SKIP,
+            output_dir,
+            context,
+            final_output_dir,
+            reporter,
+            figures_dir,
+            step_metrics,
+            required=True,
+        )
 
-        Returns:
-            Updated context and metrics list.
-        """
+    def _preprocess_t2w(
+        self,
+        output_dir: Path,
+        context: dict,
+        final_output_dir: Optional[Path],
+        reporter,
+        figures_dir: Path,
+        step_metrics: Optional[List[dict]] = None,
+    ) -> tuple[dict, List[dict]]:
+        """Preprocess optional T2w input using the shared modality engine."""
+        return self._preprocess_modality(
+            "T2w",
+            T2W_SKIP,
+            output_dir,
+            context,
+            final_output_dir,
+            reporter,
+            figures_dir,
+            step_metrics,
+            required=False,
+        )
+
+    def _preprocess_modality(
+        self,
+        suffix: str,
+        skip_types: tuple[type, ...],
+        output_dir: Path,
+        context: dict,
+        final_output_dir: Optional[Path],
+        reporter,
+        figures_dir: Path,
+        step_metrics: Optional[List[dict]],
+        *,
+        required: bool,
+    ) -> tuple[dict, List[dict]]:
+        """Run the behavior-compatible anatomical preprocessing loop."""
         if step_metrics is None:
             step_metrics = []
 
-        errors = context.setdefault('errors', [])
-
-        t1w_files = context.get('t1w_files', [])
-        if not t1w_files:
-            msg = "No T1w image found."
-            self.logger.error(msg)
-            errors.append(msg)
-            raise ValueError(msg)
-
-        use_fs = self.anat_config.preprocessing.use_freesurfer
-        save_inter = self.config.get("save_intermediate", False)
-        skip_existing = self.config.get("skip_existing", False)
-        force_run = self.anat_config.preprocessing.force_run
-        if force_run:
-            self.logger.info("Anatomical force_run enabled: Ignoring existing outputs.")
-            skip_existing = False
-
-        current_t1 = t1w_files[0]
-        context["current_image"] = current_t1
-        processed_t1 = current_t1
-        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
-        force_from_step_active = bool(getattr(self, "_anat_force_from_step_active", False))
-
-        for step in self.steps:
-            if isinstance(step, (CoregistrationStep, BrainMaskingStep, NonlinearRegistrationStep, SegmentationStep, FreeSurferStatsStep)):
-                continue
-            force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
-            self._anat_force_from_step_active = force_from_step_active
-
-            # If using FS, skip standard T1w preproc steps
-            if use_fs and isinstance(step, (ResampleStep, ReorientStep, DenoisingStep, GibbsUnringingStep, BiasCorrectionStep, SharpeningStep)):
-                tracker = self.config.tracker
-                if tracker and context.get('subject') and context.get('session'):
-                    tracker_module = step.normalize_tracker_module(step.__class__.__name__)
-                    study = context.get('study_name', self.config.get('study_name'))
-                    tracker.update_status(context['subject'], context['session'], tracker_module,
-                                          "completed (FreeSurfer)", study=study, modality="Anatomical")
-                continue
-
-            step_name = step.__class__.__name__
-            self.logger.info(f"Running T1w step: {step_name}")
-
-            # Determine descriptor for this step
-            step_desc = None
-            if isinstance(step, ResampleStep):
-                step_desc = 'resample'
-            elif isinstance(step, ReorientStep):
-                step_desc = 'reorient'
-            elif isinstance(step, DenoisingStep):
-                step_desc = 'denoise'
-            elif isinstance(step, GibbsUnringingStep):
-                step_desc = 'gibbs'
-            elif isinstance(step, BiasCorrectionStep):
-                step_desc = 'bias'
-            elif isinstance(step, SharpeningStep):
-                step_desc = 'sharpen'
-            elif isinstance(step, ReconAllStep):
-                step_desc = None  # Saved differently
-            elif isinstance(step, NonlinearRegistrationStep):
-                step_desc = 'normalize'
-
-            skipped = False
-            if final_output_dir and step_desc and not force_from_step_active:
-                ents = dict(processed_t1.entities)
-                ents['desc'] = step_desc
-                if 'suffix' not in ents:
-                    ents['suffix'] = 'T1w'
-
-                fname = build_bids_name(ents)
-                expected_path = final_output_dir / fname
-
-                # Check for existence (standard or final preproc fallback)
-                if not expected_path.exists() and skip_existing and step == self.steps[-1]:
-                    p_ents = dict(processed_t1.entities)
-                    p_ents['desc'] = 'preproc'
-                    if 'suffix' not in p_ents:
-                        p_ents['suffix'] = 'T1w'
-                    p_fname = build_bids_name(p_ents)
-                    p_dest = final_output_dir / p_fname
-                    if p_dest.exists():
-                        expected_path = p_dest
-                        fname = p_fname
-
-                if expected_path.exists() and (skip_existing or save_inter):
-                    self.logger.info(f"Skipping {step_name} (Found existing output: {fname})")
-                    try:
-                        # Wrap as ImageFile
-                        img_obj = ImageFile(entities=ents, img=expected_path)
-                        processed_t1 = img_obj
-                        skipped = True
-
-                        step_metrics.append({
-                            "Step": f"T1w_{step_name}",
-                            "Status": "Skipped (Found)",
-                            "Duration": "0s"
-                        })
-
-                        tracker_module = step.normalize_tracker_module(step_name)
-                        tracker = self.config.tracker
-                        subject = context.get('subject')
-                        session = context.get('session')
-                        study = context.get('study_name', self.config.get('study_name'))
-
-                        if tracker and subject and session:
-                            tracker.update_status(subject, session, tracker_module, "completed (cached)",
-                                                  study=study, modality="Anatomical")
-                            tracker.save()
-                    except Exception as e:
-                        self.logger.warning(f"Failed to load existing intermediate {fname}: {e}. Re-running.")
-
-            if not skipped:
-                st = time.time()
-                try:
-                    step_force = force_run or force_from_step_active
-                    if force_from_step_active:
-                        self.logger.info(f"Forcing T1w {step_name} because rerun_from_step has been reached.")
-                    if isinstance(step, ReconAllStep):
-                        context["current_image"] = processed_t1
-                        processed_t1 = step(context, output_dir=output_dir, force=step_force)
-                    else:
-                        processed_t1 = step(processed_t1, output_dir=output_dir, force=step_force)
-                except Exception as e:
-                    err_msg = f"Error during T1w {step_name}: {e}"
-                    self.logger.error(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step(f"T1w_{step_name}", {"Status": "Failed"}, details={"error": str(e)})
-                    continue
-
-                dur = time.time() - st
-
-                step_metrics.append({
-                    "Step": f"T1w_{step_name}",
-                    "Status": "Completed",
-                    "Duration": f"{dur:.2f}s"
-                })
-
-                if isinstance(processed_t1, dict):
-                    context.update(processed_t1)
-                    processed_t1 = context.get("current_image")
-
-                # Validate output file existence after step
-                if hasattr(processed_t1, 'img') and not processed_t1.img.exists():
-                    err_msg = f"Output file missing after T1w {step_name}: {processed_t1.img}"
-                    self.logger.warning(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step(f"T1w_{step_name}", {"Status": "Output Missing"}, details={"path": str(processed_t1.img)})
-
-            # Save intermediate results
-            if save_inter and not skipped and final_output_dir and step_desc:
-                try:
-                    ents = dict(processed_t1.entities)
-                    ents['desc'] = step_desc
-                    if 'suffix' not in ents:
-                        ents['suffix'] = 'T1w'
-                    fname = build_bids_name(ents)
-                    dest = final_output_dir / fname
-
-                    if not dest.exists():
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy(processed_t1.img, dest)
-                        if processed_t1.json and processed_t1.json.exists():
-                            shutil.copy(processed_t1.json, dest.with_suffix("").with_suffix(".json"))
-                except Exception as e:
-                    self.logger.warning(f"Failed to save intermediate T1w {step_name} output: {e}")
-
-            # Reporting: T1w
-            if reporter and not skipped:
-                try:
-                    from ...lib.reporting.viz import create_ortho_view
-
-                    fig_list = []
-
-                    if isinstance(step, DenoisingStep):
-                        p = figures_dir / "t1w_denoised.png"
-                        create_ortho_view(processed_t1.img, p, title="Denoised T1w")
-                        fig_list.append({"path": str(p), "title": "Denoising", "caption": "Denoised T1w"})
-
-                    elif isinstance(step, GibbsUnringingStep):
-                        p = figures_dir / "t1w_gibbs.png"
-                        create_ortho_view(processed_t1.img, p, title="Gibbs Corrected T1w")
-                        fig_list.append({"path": str(p), "title": "Gibbs", "caption": "Gibbs Corrected T1w"})
-
-                    details = {"Modality": "T1w"}
-                    if hasattr(step, "method"):
-                        details["Method"] = step.method
-                    if hasattr(step, "patch_radius"):
-                        details["Patch Radius"] = step.patch_radius
-
-                    self._add_anat_step(step_name, details, figures=fig_list)
-
-                except ImportError:
-                    pass
-                except Exception as e:
-                    self.logger.warning(f"Failed to plot T1w report figure: {e}")
-
-        context["preprocessed_t1w"] = processed_t1
-        self.logger.info(f"T1w processing complete: {processed_t1.img}")
-
-        # Run QC if enabled on T1w
-        try:
-            self._run_mriqc_qc([processed_t1], output_dir, context, reporter)
-        except Exception as e:
-            err_msg = f"T1w QC step failed: {e}"
-            self.logger.warning(err_msg)
-            context.setdefault('errors', []).append(err_msg)
-
-        # Validate outputs after all steps
-        self._validate_outputs(context, step_metrics, reporter)
-
-        return context, step_metrics
-
-    def _preprocess_t2w(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, figures_dir: Path, step_metrics: Optional[List[dict]] = None) -> (dict, List[dict]):
-        """
-        Preprocess T2w images with the configured steps.
-
-        Returns:
-            Updated context and metrics list.
-        """
-        if step_metrics is None:
-            step_metrics = []
-
-        errors = context.setdefault('errors', [])
-
-        t2w_files = context.get('t2w_files', [])
-        if not t2w_files:
+        errors = context.setdefault("errors", [])
+        modality_key = suffix.lower()
+        image_files = context.get(f"{modality_key}_files", [])
+        if not image_files:
+            if required:
+                msg = f"No {suffix} image found."
+                self.logger.error(msg)
+                errors.append(msg)
+                raise ValueError(msg)
             return context, step_metrics
 
+        is_t1w = suffix == "T1w"
+        use_freesurfer = (
+            is_t1w and self.anat_config.preprocessing.use_freesurfer
+        )
         save_inter = self.config.get("save_intermediate", False)
         skip_existing = self.config.get("skip_existing", False)
         force_run = self.anat_config.preprocessing.force_run
+        if is_t1w and force_run:
+            self.logger.info(
+                "Anatomical force_run enabled: Ignoring existing outputs."
+            )
+            skip_existing = False
 
-        current_t2 = t2w_files[0]
-        processed_t2 = current_t2
-        rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
-        force_from_step_active = bool(getattr(self, "_anat_force_from_step_active", False))
+        processed = image_files[0]
+        if is_t1w:
+            context["current_image"] = processed
+
+        rerun_from_step = (
+            getattr(self, "_anat_rerun_from_step", None)
+            or get_rerun_from_step(
+                self.config,
+                "anat.preprocessing",
+                "anat",
+            )
+        )
+        force_from_step_active = bool(
+            getattr(self, "_anat_force_from_step_active", False)
+        )
 
         for step in self.steps:
-            if isinstance(step, (ReconAllStep, NonlinearRegistrationStep, BrainMaskingStep, CoregistrationStep, SegmentationStep, FreeSurferStatsStep)):
+            if isinstance(step, skip_types):
                 continue
-            force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)
+
+            force_from_step_active = step_force_active(
+                force_from_step_active,
+                step,
+                rerun_from_step,
+            )
             self._anat_force_from_step_active = force_from_step_active
 
-            step_name = step.__class__.__name__
-            self.logger.info(f"Running T2w step: {step_name}")
+            if use_freesurfer and isinstance(step, FREESURFER_T1W_SKIP):
+                update_step_status(
+                    self.config,
+                    context,
+                    step,
+                    "completed (FreeSurfer)",
+                    modality="Anatomical",
+                )
+                continue
 
-            # Determine descriptor for this step
-            step_desc = None
-            if isinstance(step, ResampleStep):
-                step_desc = 'resample'
-            elif isinstance(step, ReorientStep):
-                step_desc = 'reorient'
-            elif isinstance(step, DenoisingStep):
-                step_desc = 'denoise'
-            elif isinstance(step, GibbsUnringingStep):
-                step_desc = 'gibbs'
-            elif isinstance(step, BiasCorrectionStep):
-                step_desc = 'bias'
-            elif isinstance(step, SharpeningStep):
-                step_desc = 'sharpen'
+            processed = self._run_one_anat_step(
+                suffix=suffix,
+                step=step,
+                processed=processed,
+                output_dir=output_dir,
+                context=context,
+                final_output_dir=final_output_dir,
+                reporter=reporter,
+                figures_dir=figures_dir,
+                step_metrics=step_metrics,
+                errors=errors,
+                save_inter=save_inter,
+                skip_existing=skip_existing,
+                force_run=force_run,
+                force_from_step_active=force_from_step_active,
+            )
 
-            skipped = False
-            if final_output_dir and step_desc and not force_from_step_active:
-                ents = dict(processed_t2.entities)
-                ents['desc'] = step_desc
-                if 'suffix' not in ents:
-                    ents['suffix'] = 'T2w'
+        context[f"preprocessed_{modality_key}"] = processed
+        self.logger.info(f"{suffix} processing complete: {processed.img}")
 
-                fname = build_bids_name(ents)
-                expected_path = final_output_dir / fname
+        try:
+            self._run_mriqc_qc(
+                [processed],
+                output_dir,
+                context,
+                reporter,
+            )
+        except Exception as exc:
+            err_msg = f"{suffix} QC step failed: {exc}"
+            self.logger.warning(err_msg)
+            context.setdefault("errors", []).append(err_msg)
 
-                if expected_path.exists() and (skip_existing or save_inter):
-                    self.logger.info(f"Skipping {step_name} (Found existing output: {fname})")
-                    try:
-                        img_obj = ImageFile(expected_path, self.config.bids_dir)
-                        processed_t2 = img_obj
-                        skipped = True
-                        step_metrics.append({"Step": f"T2w_{step_name}", "Status": "Skipped (Found)", "Duration": "0s"})
+        self._validate_outputs(context, step_metrics, reporter)
+        return context, step_metrics
 
-                        tracker_module = step.normalize_tracker_module(step_name)
-                        tracker = self.config.tracker
-                        subject = context.get('subject')
-                        session = context.get('session')
-                        study = context.get('study_name', self.config.get('study_name'))
+    def _run_one_anat_step(
+        self,
+        *,
+        suffix: str,
+        step,
+        processed: ImageFile,
+        output_dir: Path,
+        context: dict,
+        final_output_dir: Optional[Path],
+        reporter,
+        figures_dir: Path,
+        step_metrics: List[dict],
+        errors: List[str],
+        save_inter: bool,
+        skip_existing: bool,
+        force_run: bool,
+        force_from_step_active: bool,
+    ) -> ImageFile:
+        """Run, reuse, publish, and report one modality preprocessing step."""
+        is_t1w = suffix == "T1w"
+        step_name = step.__class__.__name__
+        self.logger.info(f"Running {suffix} step: {step_name}")
+        step_desc = next(
+            (
+                desc
+                for step_type, desc in STEP_DESC.items()
+                if isinstance(step, step_type)
+            ),
+            None,
+        )
 
-                        if tracker and subject and session:
-                            tracker.update_status(subject, session, tracker_module, "completed (cached)", study=study, modality="Anatomical")
-                            tracker.save()
-                    except Exception:
-                        pass
+        skipped = False
+        if final_output_dir and step_desc and not force_from_step_active:
+            entities = dict(processed.entities)
+            entities["desc"] = step_desc
+            if "suffix" not in entities:
+                entities["suffix"] = suffix
 
-            if not skipped:
-                st = time.time()
+            filename = build_bids_name(entities)
+            expected_path = final_output_dir / filename
+            cached_image = reuse_path_if_exists(expected_path, entities)
+
+            if (
+                is_t1w
+                and cached_image is None
+                and skip_existing
+                and step == self.steps[-1]
+            ):
+                preproc_entities = dict(processed.entities)
+                preproc_entities["desc"] = "preproc"
+                if "suffix" not in preproc_entities:
+                    preproc_entities["suffix"] = suffix
+                preproc_name = build_bids_name(preproc_entities)
+                preproc_path = final_output_dir / preproc_name
+                if preproc_path.exists():
+                    expected_path = preproc_path
+                    filename = preproc_name
+                    cached_image = reuse_path_if_exists(
+                        expected_path,
+                        entities,
+                    )
+
+            if cached_image is not None and (skip_existing or save_inter):
+                self.logger.info(
+                    f"Skipping {step_name} "
+                    f"(Found existing output: {filename})"
+                )
                 try:
-                    step_force = force_run or force_from_step_active
-                    if force_from_step_active:
-                        self.logger.info(f"Forcing T2w {step_name} because rerun_from_step has been reached.")
-                    processed_t2 = step(processed_t2, output_dir=output_dir, force=step_force)
-                except Exception as e:
-                    err_msg = f"Error during T2w {step_name}: {e}"
-                    self.logger.error(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step(f"T2w_{step_name}", {"Status": "Failed"}, details={"error": str(e)})
-                    continue
-                dur = time.time() - st
+                    processed = cached_image
+                    skipped = True
+                    step_metrics.append({
+                        "Step": f"{suffix}_{step_name}",
+                        "Status": "Skipped (Found)",
+                        "Duration": "0s",
+                    })
 
-                step_metrics.append({
-                    "Step": f"T2w_{step_name}",
-                    "Status": "Completed",
-                    "Duration": f"{dur:.2f}s"
+                    update_step_status(
+                        self.config,
+                        context,
+                        step,
+                        "completed (cached)",
+                        modality="Anatomical",
+                    )
+                except Exception as exc:
+                    if is_t1w:
+                        self.logger.warning(
+                            "Failed to load existing intermediate "
+                            f"{filename}: {exc}. Re-running."
+                        )
+
+        if not skipped:
+            started = time.time()
+            try:
+                step_force = force_run or force_from_step_active
+                if force_from_step_active:
+                    self.logger.info(
+                        f"Forcing {suffix} {step_name} because "
+                        "rerun_from_step has been reached."
+                    )
+                if is_t1w and isinstance(step, ReconAllStep):
+                    context["current_image"] = processed
+                    processed = step(
+                        context,
+                        output_dir=output_dir,
+                        force=step_force,
+                    )
+                else:
+                    processed = step(
+                        processed,
+                        output_dir=output_dir,
+                        force=step_force,
+                    )
+            except Exception as exc:
+                err_msg = f"Error during {suffix} {step_name}: {exc}"
+                self.logger.error(err_msg)
+                errors.append(err_msg)
+                if reporter:
+                    self._add_anat_step(
+                        f"{suffix}_{step_name}",
+                        {"Status": "Failed"},
+                        details={"error": str(exc)},
+                    )
+                return processed
+
+            duration = time.time() - started
+            step_metrics.append({
+                "Step": f"{suffix}_{step_name}",
+                "Status": "Completed",
+                "Duration": f"{duration:.2f}s",
+            })
+
+            if isinstance(processed, dict):
+                if is_t1w:
+                    context.update(processed)
+                    processed = context.get("current_image")
+                else:
+                    processed = processed.get("current_image", processed)
+
+            if (
+                hasattr(processed, "img")
+                and not processed.img.exists()
+            ):
+                err_msg = (
+                    f"Output file missing after {suffix} {step_name}: "
+                    f"{processed.img}"
+                )
+                self.logger.warning(err_msg)
+                errors.append(err_msg)
+                if reporter:
+                    self._add_anat_step(
+                        f"{suffix}_{step_name}",
+                        {"Status": "Output Missing"},
+                        details={"path": str(processed.img)},
+                    )
+
+        if (
+            save_inter
+            and not skipped
+            and final_output_dir
+            and step_desc
+        ):
+            try:
+                entities = dict(processed.entities)
+                entities["desc"] = step_desc
+                if "suffix" not in entities:
+                    entities["suffix"] = suffix
+                destination = final_output_dir / build_bids_name(entities)
+
+                if not destination.exists():
+                    destination.parent.mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
+                    shutil.copy(processed.img, destination)
+                    if processed.json and processed.json.exists():
+                        shutil.copy(
+                            processed.json,
+                            destination.with_suffix("")
+                            .with_suffix(".json"),
+                        )
+            except Exception as exc:
+                self.logger.warning(
+                    f"Failed to save intermediate {suffix} "
+                    f"{step_name} output: {exc}"
+                )
+
+        if reporter and (not is_t1w or not skipped):
+            self._report_anat_preprocessing_step(
+                suffix,
+                step,
+                processed,
+                figures_dir,
+            )
+
+        return processed
+
+    def _report_anat_preprocessing_step(
+        self,
+        suffix: str,
+        step,
+        processed: ImageFile,
+        figures_dir: Path,
+    ) -> None:
+        """Add the existing modality-specific preprocessing report content."""
+        is_t1w = suffix == "T1w"
+        step_name = step.__class__.__name__
+        try:
+            from ...lib.reporting.viz import create_ortho_view
+
+            figures = []
+            if isinstance(step, DenoisingStep):
+                figure_path = (
+                    figures_dir / f"{suffix.lower()}_denoised.png"
+                )
+                create_ortho_view(
+                    processed.img,
+                    figure_path,
+                    title=f"Denoised {suffix}",
+                )
+                figures.append({
+                    "path": str(figure_path),
+                    "title": "Denoising",
+                    "caption": f"Denoised {suffix}",
+                })
+            elif is_t1w and isinstance(step, GibbsUnringingStep):
+                figure_path = figures_dir / "t1w_gibbs.png"
+                create_ortho_view(
+                    processed.img,
+                    figure_path,
+                    title="Gibbs Corrected T1w",
+                )
+                figures.append({
+                    "path": str(figure_path),
+                    "title": "Gibbs",
+                    "caption": "Gibbs Corrected T1w",
                 })
 
-                if isinstance(processed_t2, dict):
-                    processed_t2 = processed_t2.get("current_image", processed_t2)
+            details = {"Modality": suffix}
+            if hasattr(step, "method"):
+                details["Method"] = step.method
+            if is_t1w and hasattr(step, "patch_radius"):
+                details["Patch Radius"] = step.patch_radius
 
-                # Validate output file existence after step
-                if hasattr(processed_t2, 'img') and not processed_t2.img.exists():
-                    err_msg = f"Output file missing after T2w {step_name}: {processed_t2.img}"
-                    self.logger.warning(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step(f"T2w_{step_name}", {"Status": "Output Missing"}, details={"path": str(processed_t2.img)})
+            self._add_anat_step(
+                step_name,
+                details,
+                figures=figures,
+            )
+        except ImportError as exc:
+            if not is_t1w:
+                self.logger.warning(
+                    f"Failed to plot {suffix} report figure: {exc}"
+                )
+        except Exception as exc:
+            self.logger.warning(
+                f"Failed to plot {suffix} report figure: {exc}"
+            )
 
-            # Save intermediate T2w
-            if save_inter and not skipped and final_output_dir and step_desc:
-                try:
-                    ents = dict(processed_t2.entities)
-                    ents['desc'] = step_desc
-                    if 'suffix' not in ents:
-                        ents['suffix'] = 'T2w'
-                    fname = build_bids_name(ents)
-                    dest = final_output_dir / fname
+    def _prepare_t2w_for_coregistration(
+        self,
+        context: dict,
+        output_dir: Path,
+    ) -> ImageFile:
+        """Prepare the T2w moving image for a skull-stripped FS target."""
+        if not self.anat_config.preprocessing.use_freesurfer:
+            return context["preprocessed_t2w"]
 
-                    if not dest.exists():
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy(processed_t2.img, dest)
-                        if processed_t2.json and processed_t2.json.exists():
-                            shutil.copy(processed_t2.json, dest.with_suffix("").with_suffix(".json"))
-                except Exception as e:
-                    self.logger.warning(f"Failed to save intermediate T2w {step_name} output: {e}")
+        mask_step = next(
+            (s for s in self.steps if isinstance(s, BrainMaskingStep)),
+            None,
+        )
+        if not mask_step:
+            self.logger.warning(
+                "FreeSurfer anatomical coregistration requested, but no "
+                "BrainMaskingStep is configured. Proceeding with the "
+                "unmasked T2w image."
+            )
+            return context["preprocessed_t2w"]
 
-            # Reporting: T2w
-            if reporter:
-                try:
-                    from ...lib.reporting.viz import create_ortho_view
+        self.logger.info(
+            "FreeSurfer coregistration uses a skull-stripped T1w target. "
+            "Generating a skull-stripped T2w moving image before T2w -> "
+            "T1w registration."
+        )
+        masked_t2w, _ = mask_step(
+            context["preprocessed_t2w"],
+            output_dir=output_dir,
+            return_mask=True,
+        )
+        return masked_t2w
 
-                    fig_list = []
-                    if isinstance(step, DenoisingStep):
-                        p = figures_dir / "t2w_denoised.png"
-                        create_ortho_view(processed_t2.img, p, title="Denoised T2w")
-                        fig_list.append({"path": str(p), "title": "Denoising", "caption": "Denoised T2w"})
+    @staticmethod
+    def _flatten_coregistration_options(config: dict) -> dict:
+        """Flatten the legacy nested options block without mutating config."""
+        options = dict(config)
+        nested = options.pop("options", None)
+        if isinstance(nested, dict):
+            options.update(nested)
+        return options
 
-                    details = {"Modality": "T2w"}
-                    if hasattr(step, "method"):
-                        details["Method"] = step.method
+    def _make_coregistration_step(
+        self,
+        config: dict,
+        options: dict,
+        *,
+        method: Optional[str] = None,
+    ) -> CoregistrationStep:
+        step = CoregistrationStep(
+            self.config,
+            self.logger,
+            self.provenance,
+            method=method or config.get("method", "fsl"),
+            options={
+                key: value
+                for key, value in options.items()
+                if key not in {"enabled", "method"}
+            },
+        )
+        step.modality = "Anatomical"
+        return step
 
-                    self._add_anat_step(step_name, details, figures=fig_list)
-                except Exception as e:
-                    self.logger.warning(f"Failed to plot T2w report figure: {e}")
+    @staticmethod
+    def _do_coreg(
+        step: CoregistrationStep,
+        moving: ImageFile,
+        fixed: ImageFile,
+        output_dir: Path,
+        options: dict,
+        force: bool,
+    ) -> Optional[ImageFile]:
+        """Execute one registration and normalize its result contract."""
+        result = step(
+            moving,
+            output_dir=output_dir,
+            target=fixed.img,
+            options=options,
+            force=force,
+        )
+        if isinstance(result, dict):
+            result = result.get("current_image")
+        return result
 
-        self.logger.info(f"T2w processing complete: {processed_t2.img}")
-
-        context["preprocessed_t2w"] = processed_t2
-
-        # Run QC if enabled on T2w
+    def _report_coregistration(
+        self,
+        reporter,
+        fixed: ImageFile,
+        result: ImageFile,
+        figures_dir: Path,
+        *,
+        filename: str,
+        title: str,
+        reference: str,
+        moving: str,
+        method: str,
+        caption: str,
+    ) -> None:
+        if not reporter:
+            return
         try:
-            self._run_mriqc_qc([processed_t2], output_dir, context, reporter)
-        except Exception as e:
-            err_msg = f"T2w QC step failed: {e}"
-            self.logger.warning(err_msg)
-            context.setdefault('errors', []).append(err_msg)
+            from ...lib.reporting.viz import plot_comparison
 
-        # Validate outputs after all steps
-        self._validate_outputs(context, step_metrics, reporter)
+            figure_path = figures_dir / filename
+            plot_comparison(
+                fixed.img,
+                result.img,
+                figure_path,
+                title=title,
+            )
+            self._add_anat_step(
+                "Coregistration",
+                {
+                    "Method": method,
+                    "Reference": reference,
+                    "Moving": moving,
+                },
+                figures=[{
+                    "path": str(figure_path),
+                    "title": "Coregistration",
+                    "caption": caption,
+                }],
+            )
+        except Exception as exc:
+            self.logger.warning(
+                f"Failed to plot Coregistration report: {exc}"
+            )
 
-        return context, step_metrics
+    def _coregister_to_supersynth(
+        self,
+        ref_img: str,
+        coreg_config: dict,
+        coreg_options: dict,
+        coreg_step: CoregistrationStep,
+        force_coreg: bool,
+        context: dict,
+        output_dir: Path,
+        reporter,
+        figures_dir: Path,
+    ) -> None:
+        """Register an anatomical image to a synthetic T1w target."""
+        from ...lib.anat.super_synth import ensure_supersynth_outputs_for_image, ensure_supersynth_t1w
+
+        moving = context.get("preprocessed_t2w") or context.get("preprocessed_t1w")
+        if moving is None:
+            raise ProcessingError("No moving anatomical image available for SuperSynth coregistration.")
+
+        use_multivariate = (
+            ref_img == "supersynth_multivariate"
+            or str(coreg_options.get("supersynth_registration", "")).lower() == "multivariate"
+        )
+
+        if use_multivariate:
+            fixed_source = context.get("preprocessed_t1w")
+            if fixed_source is None:
+                raise ProcessingError("SuperSynth multivariate coregistration requires a preprocessed T1w fixed source.")
+
+            ss_root = output_dir / "coregistration" / "supersynth_multivariate"
+            fixed_outputs = ensure_supersynth_outputs_for_image(
+                fixed_source,
+                ss_root / "fixed",
+                self.config,
+                self.logger,
+                mode=coreg_options.get("supersynth_mode"),
+                device=coreg_options.get("supersynth_device"),
+                sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                force=bool(coreg_options.get("force", False)) or force_coreg,
+            )
+            moving_outputs = ensure_supersynth_outputs_for_image(
+                moving,
+                ss_root / "moving",
+                self.config,
+                self.logger,
+                mode=coreg_options.get("supersynth_mode"),
+                device=coreg_options.get("supersynth_device"),
+                sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                force=bool(coreg_options.get("force", False)) or force_coreg,
+            )
+            required = ("synth_t1w", "synth_t2w")
+            if not all(k in fixed_outputs and k in moving_outputs for k in required):
+                raise ProcessingError("SuperSynth multivariate coregistration requires synthetic T1w and T2w outputs for both images.")
+
+            synth_ref = ImageFile(
+                entities={**fixed_source.entities, "desc": "synthT1w"},
+                img=fixed_outputs["synth_t1w"],
+            )
+            coreg_options.update({
+                "registration_fixed": fixed_outputs["synth_t1w"],
+                "registration_moving": moving_outputs["synth_t1w"],
+                "registration_fixed_extras": [fixed_outputs["synth_t2w"]],
+                "registration_moving_extras": [moving_outputs["synth_t2w"]],
+                "transform_type": coreg_options.get("transform_type", "SyNOnly"),
+            })
+            coreg_step = self._make_coregistration_step(
+                coreg_config,
+                coreg_options,
+                method="ants",
+            )
+            self.logger.info(
+                "Coregistration: SuperSynth multivariate registration "
+                "(moving synth T1w/T2w -> fixed synth T1w/T2w), applying transform to original anatomical image."
+            )
+        else:
+            synth_ref = ensure_supersynth_t1w(
+                context,
+                output_dir / "coregistration",
+                self.config,
+                self.logger,
+                input_preference=coreg_options.get("supersynth_input", "auto"),
+                mode=coreg_options.get("supersynth_mode"),
+                device=coreg_options.get("supersynth_device"),
+                sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
+                force=bool(coreg_options.get("force", False)) or force_coreg,
+                subdir="supersynth_reference",
+            )
+            if not synth_ref:
+                raise ProcessingError("SuperSynth anatomical coregistration target could not be generated.")
+            self.logger.info("Coregistration: Reference=SuperSynth T1w. Registering anatomical image -> synthetic T1w.")
+
+        res_anat = self._do_coreg(
+            coreg_step,
+            moving,
+            synth_ref,
+            output_dir,
+            coreg_options,
+            force_coreg,
+        )
+        context["preprocessed_anat_coreg"] = res_anat
+        context["preprocessed_t1w_synth"] = synth_ref
+
+        if moving is context.get("preprocessed_t2w"):
+            context["preprocessed_t2w_coreg"] = res_anat
+        else:
+            context["preprocessed_t1w"] = res_anat
+
+        self._report_coregistration(
+            reporter,
+            synth_ref,
+            res_anat,
+            figures_dir,
+            filename="coreg_anat_on_supersynth.png",
+            title="Coreg Anat -> SuperSynth T1w",
+            reference="SuperSynth T1w",
+            moving=moving.entities.get("suffix", "Anat"),
+            method=coreg_step.method,
+            caption=(
+                "Anatomical image (overlay) on SuperSynth T1w"
+            ),
+        )
 
     def _run_coregistration(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, figures_dir: Path, step_metrics: List[dict]) -> (dict, List[dict]):
         """
@@ -832,52 +1170,19 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             self.logger.info("Skipping Coregistration (Not enabled or insufficient data).")
             return context, step_metrics
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.update(description="[cyan]Coregistration")
-            except Exception:
-                pass
+        _update_progress(reporter, description="[cyan]Coregistration")
 
         errors = context.setdefault('errors', [])
 
-        def _prepare_t2w_for_freesurfer_coreg() -> ImageFile:
-            use_fs = self.anat_config.preprocessing.use_freesurfer
-            if not use_fs:
-                return context["preprocessed_t2w"]
-
-            mask_step = next((s for s in self.steps if isinstance(s, BrainMaskingStep)), None)
-            if not mask_step:
-                self.logger.warning(
-                    "FreeSurfer anatomical coregistration requested, but no BrainMaskingStep is configured. "
-                    "Proceeding with the unmasked T2w image."
-                )
-                return context["preprocessed_t2w"]
-
-            self.logger.info(
-                "FreeSurfer coregistration uses a skull-stripped T1w target. "
-                "Generating a skull-stripped T2w moving image before T2w -> T1w registration."
-            )
-            masked_t2w, _ = mask_step(context["preprocessed_t2w"], output_dir=output_dir, return_mask=True)
-            return masked_t2w
-
         try:
             # Flatten options logic (Top-level + Nested 'options')
-            coreg_options = dict(coreg_cfg_run)
-            if "options" in coreg_options:
-                sub_opts = coreg_options.pop("options")
-                if isinstance(sub_opts, dict):
-                    coreg_options.update(sub_opts)
-
-            coreg_step = CoregistrationStep(
-                self.config,
-                self.logger,
-                self.provenance,
-                method=coreg_cfg_run.get("method", "fsl"),
-                options={k: v for k, v in coreg_options.items() if k not in {"enabled", "method"}},
+            coreg_options = self._flatten_coregistration_options(
+                coreg_cfg_run
             )
-            coreg_step.modality = "Anatomical"
+            coreg_step = self._make_coregistration_step(
+                coreg_cfg_run,
+                coreg_options,
+            )
             rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
             force_coreg = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(coreg_step, rerun_from_step)
             self._anat_force_from_step_active = force_coreg
@@ -888,144 +1193,71 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
             st = time.time()
             if ref_img in {"supersynth", "syntht1w", "synthetic_t1w", "supersynth_multivariate"}:
-                from ...lib.anat.super_synth import ensure_supersynth_outputs_for_image, ensure_supersynth_t1w
-
-                moving = context.get("preprocessed_t2w") or context.get("preprocessed_t1w")
-                if moving is None:
-                    raise ProcessingError("No moving anatomical image available for SuperSynth coregistration.")
-
-                use_multivariate = (
-                    ref_img == "supersynth_multivariate"
-                    or str(coreg_options.get("supersynth_registration", "")).lower() == "multivariate"
+                self._coregister_to_supersynth(
+                    ref_img,
+                    coreg_cfg_run,
+                    coreg_options,
+                    coreg_step,
+                    force_coreg,
+                    context,
+                    output_dir,
+                    reporter,
+                    figures_dir,
                 )
-
-                if use_multivariate:
-                    fixed_source = context.get("preprocessed_t1w")
-                    if fixed_source is None:
-                        raise ProcessingError("SuperSynth multivariate coregistration requires a preprocessed T1w fixed source.")
-
-                    ss_root = output_dir / "coregistration" / "supersynth_multivariate"
-                    fixed_outputs = ensure_supersynth_outputs_for_image(
-                        fixed_source,
-                        ss_root / "fixed",
-                        self.config,
-                        self.logger,
-                        mode=coreg_options.get("supersynth_mode"),
-                        device=coreg_options.get("supersynth_device"),
-                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)) or force_coreg,
-                    )
-                    moving_outputs = ensure_supersynth_outputs_for_image(
-                        moving,
-                        ss_root / "moving",
-                        self.config,
-                        self.logger,
-                        mode=coreg_options.get("supersynth_mode"),
-                        device=coreg_options.get("supersynth_device"),
-                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)) or force_coreg,
-                    )
-                    required = ("synth_t1w", "synth_t2w")
-                    if not all(k in fixed_outputs and k in moving_outputs for k in required):
-                        raise ProcessingError("SuperSynth multivariate coregistration requires synthetic T1w and T2w outputs for both images.")
-
-                    synth_ref = ImageFile(
-                        entities={**fixed_source.entities, "desc": "synthT1w"},
-                        img=fixed_outputs["synth_t1w"],
-                    )
-                    coreg_options.update({
-                        "registration_fixed": fixed_outputs["synth_t1w"],
-                        "registration_moving": moving_outputs["synth_t1w"],
-                        "registration_fixed_extras": [fixed_outputs["synth_t2w"]],
-                        "registration_moving_extras": [moving_outputs["synth_t2w"]],
-                        "transform_type": coreg_options.get("transform_type", "SyNOnly"),
-                    })
-                    coreg_step = CoregistrationStep(
-                        self.config,
-                        self.logger,
-                        self.provenance,
-                        method="ants",
-                        options={k: v for k, v in coreg_options.items() if k not in {"enabled", "method"}},
-                    )
-                    self.logger.info(
-                        "Coregistration: SuperSynth multivariate registration "
-                        "(moving synth T1w/T2w -> fixed synth T1w/T2w), applying transform to original anatomical image."
-                    )
-                else:
-                    synth_ref = ensure_supersynth_t1w(
-                        context,
-                        output_dir / "coregistration",
-                        self.config,
-                        self.logger,
-                        input_preference=coreg_options.get("supersynth_input", "auto"),
-                        mode=coreg_options.get("supersynth_mode"),
-                        device=coreg_options.get("supersynth_device"),
-                        sharpen_synths=coreg_options.get("supersynth_sharpen_synths"),
-                        force=bool(coreg_options.get("force", False)) or force_coreg,
-                        subdir="supersynth_reference",
-                    )
-                    if not synth_ref:
-                        raise ProcessingError("SuperSynth anatomical coregistration target could not be generated.")
-                    self.logger.info("Coregistration: Reference=SuperSynth T1w. Registering anatomical image -> synthetic T1w.")
-
-                res_anat = coreg_step(moving, output_dir=output_dir, target=synth_ref.img, options=coreg_options, force=force_coreg)
-                if isinstance(res_anat, dict):
-                    res_anat = res_anat.get("current_image")
-                context["preprocessed_anat_coreg"] = res_anat
-                context["preprocessed_t1w_synth"] = synth_ref
-
-                if moving is context.get("preprocessed_t2w"):
-                    context["preprocessed_t2w_coreg"] = res_anat
-                else:
-                    context["preprocessed_t1w"] = res_anat
-
-                if reporter:
-                    try:
-                        from ...lib.reporting.viz import plot_comparison
-                        p = figures_dir / "coreg_anat_on_supersynth.png"
-                        plot_comparison(synth_ref.img, res_anat.img, p, title="Coreg Anat -> SuperSynth T1w")
-                        details = {"Method": coreg_step.method, "Reference": "SuperSynth T1w", "Moving": moving.entities.get("suffix", "Anat")}
-                        fig_item = [{"path": str(p), "title": "Coregistration", "caption": "Anatomical image (overlay) on SuperSynth T1w"}]
-                        self._add_anat_step("Coregistration", details, figures=fig_item)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to plot Coregistration report: {e}")
 
             elif ref_img == 't2w':
                 self.logger.info("Coregistration: Reference=T2w. Registering T1w -> T2w.")
-                res_t1 = coreg_step(context["preprocessed_t1w"], output_dir=output_dir, target=context["preprocessed_t2w"].img, options=coreg_options, force=force_coreg)
-                if isinstance(res_t1, dict):
-                    res_t1 = res_t1.get("current_image")
+                res_t1 = self._do_coreg(
+                    coreg_step,
+                    context["preprocessed_t1w"],
+                    context["preprocessed_t2w"],
+                    output_dir,
+                    coreg_options,
+                    force_coreg,
+                )
                 context["preprocessed_t1w"] = res_t1
 
-                if reporter:
-                    try:
-                        from ...lib.reporting.viz import plot_comparison
-                        p = figures_dir / "coreg_t1_on_t2.png"
-                        plot_comparison(context["preprocessed_t2w"].img, res_t1.img, p, title="Coreg T1w -> T2w")
-                        details = {"Method": coreg_step.method, "Reference": "T2w", "Moving": "T1w"}
-                        fig_item = [{"path": str(p), "title": "Coregistration", "caption": "T1w (overlay) on T2w"}]
-                        self._add_anat_step("Coregistration", details, figures=fig_item)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to plot Coregistration report: {e}")
+                self._report_coregistration(
+                    reporter,
+                    context["preprocessed_t2w"],
+                    res_t1,
+                    figures_dir,
+                    filename="coreg_t1_on_t2.png",
+                    title="Coreg T1w -> T2w",
+                    reference="T2w",
+                    moving="T1w",
+                    method=coreg_step.method,
+                    caption="T1w (overlay) on T2w",
+                )
 
             else:
                 self.logger.info("Coregistration: Reference=T1w. Registering T2w -> T1w.")
-                moving_t2 = _prepare_t2w_for_freesurfer_coreg()
-                res_t2 = coreg_step(moving_t2, output_dir=output_dir, target=context["preprocessed_t1w"].img, options=coreg_options, force=force_coreg)
-                if isinstance(res_t2, dict):
-                    res_t2 = res_t2.get("current_image")
+                moving_t2 = self._prepare_t2w_for_coregistration(
+                    context,
+                    output_dir,
+                )
+                res_t2 = self._do_coreg(
+                    coreg_step,
+                    moving_t2,
+                    context["preprocessed_t1w"],
+                    output_dir,
+                    coreg_options,
+                    force_coreg,
+                )
                 context["preprocessed_t2w_coreg"] = res_t2
 
-                if reporter:
-                    try:
-                        from ...lib.reporting.viz import plot_comparison
-                        p = figures_dir / "coreg_t2_on_t1.png"
-                        plot_comparison(context["preprocessed_t1w"].img, res_t2.img, p, title="Coreg T2w -> T1w")
-                        details = {"Method": coreg_step.method, "Reference": "T1w", "Moving": "T2w"}
-                        fig_item = [{"path": str(p), "title": "Coregistration", "caption": "T2w (overlay) on T1w"}]
-                        self._add_anat_step("Coregistration", details, figures=fig_item)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to plot Coregistration report: {e}")
+                self._report_coregistration(
+                    reporter,
+                    context["preprocessed_t1w"],
+                    res_t2,
+                    figures_dir,
+                    filename="coreg_t2_on_t1.png",
+                    title="Coreg T2w -> T1w",
+                    reference="T1w",
+                    moving="T2w",
+                    method=coreg_step.method,
+                    caption="T2w (overlay) on T1w",
+                )
 
             dur = time.time() - st
             step_metrics.append({"Step": "Coregistration", "Status": "Completed", "Duration": f"{dur:.2f}s"})
@@ -1105,13 +1337,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if not mask_step:
             return context, step_metrics
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.update(description="[cyan]Brain Masking")
-            except Exception:
-                pass
+        _update_progress(reporter, description="[cyan]Brain Masking")
 
         pre_cfg = self.anat_config.preprocessing
         coreg_cfg_local = pre_cfg.coregistration
@@ -1180,22 +1406,25 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             m_fname = build_bids_name(m_ents)
             m_dest = final_output_dir / m_fname
 
-            if m_dest.exists():
+            cached_mask = reuse_path_if_exists(
+                m_dest,
+                m_ents,
+                force=force_masking,
+            )
+            if cached_mask is not None:
                 self.logger.info(f"Skipping Brain Masking (Found existing mask: {m_fname})")
-                context["brain_mask"] = ImageFile(entities=m_ents, img=m_dest)
+                context["brain_mask"] = cached_mask
                 _store_skull_stripped_preproc(ref_img_key, target_img, context["brain_mask"])
                 skipped_mask = True
                 step_metrics.append({"Step": "BrainMasking", "Status": "Skipped (Found)", "Duration": "0s"})
 
-                tracker_module = mask_step.normalize_tracker_module(mask_step.__class__.__name__)
-                tracker = self.config.tracker
-                subject = context.get('subject')
-                session = context.get('session')
-                study = context.get('study_name', self.config.get('study_name'))
-
-                if tracker and subject and session:
-                    tracker.update_status(subject, session, tracker_module, "completed (cached)", study=study, modality="Anatomical")
-                    tracker.save()
+                update_step_status(
+                    self.config,
+                    context,
+                    mask_step,
+                    "completed (cached)",
+                    modality="Anatomical",
+                )
 
         if not skipped_mask:
             st = time.time()
@@ -1268,13 +1497,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             self.logger.warning(err_msg)
             context.setdefault('errors', []).append(err_msg)
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.advance()
-            except Exception:
-                pass
+        _update_progress(reporter, advance=True)
 
         # Validate outputs after brain masking
         self._validate_outputs(context, step_metrics, reporter)
@@ -1311,8 +1534,14 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         ents["desc"] = desc
         ents.setdefault("suffix", suffix)
         dest = output_dir / build_bids_name(ents)
-        if dest.exists() and self.config.get("skip_existing", False) and not force:
-            return ImageFile(entities=ents, img=dest, json=getattr(img_obj, "json", None))
+        cached = reuse_if_exists(
+            ents,
+            output_dir,
+            force=force or not self.config.get("skip_existing", False),
+            json_path=getattr(img_obj, "json", None),
+        )
+        if cached is not None:
+            return cached
 
         try:
             img_nii = nib.load(str(img_obj.img))
@@ -1349,6 +1578,474 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 self._add_anat_step(label, {"Status": "Failed"}, details={"error": str(e), "desc": desc})
             return None
 
+    def apply_spatial_transform(
+        self,
+        in_img: Path,
+        template: Path,
+        transform: Path,
+        *,
+        transform_type: str,
+        interp: str,
+        out_path: Path,
+    ) -> Path:
+        """Apply an FSL affine or ANTs warp/affine transform pair."""
+        transform = Path(transform)
+        if transform_type == "fsl" or transform.suffix == ".mat":
+            fsl.applywarp(
+                in_file=in_img,
+                ref_file=Path(template),
+                out_file=out_path,
+                premat=transform,
+                interp=interp,
+                force=True,
+            )
+            return out_path
+
+        warp = transform.with_suffix("").parent / (
+            transform.name + "1Warp.nii.gz"
+        )
+        affine = transform.with_suffix("").parent / (
+            transform.name + "0GenericAffine.mat"
+        )
+        if not (warp.exists() and affine.exists()):
+            raise FileNotFoundError(
+                f"Missing {warp.name} or {affine.name}"
+            )
+        ants.apply_transforms(
+            fixed_file=Path(template),
+            moving_file=in_img,
+            out_file=out_path,
+            transforms=[warp, affine],
+            interpolator=(
+                "nearestNeighbor" if interp == "nn" else interp
+            ),
+        )
+        return out_path
+
+    def _normalize_primary(
+        self,
+        context: dict,
+        norm_step: NonlinearRegistrationStep,
+        output_dir: Path,
+        *,
+        force_norm: bool,
+        errors: List[str],
+        reporter,
+    ) -> tuple[dict, Optional[str], bool]:
+        primary_img = context.get("preprocessed_t1w")
+        primary_key = "preprocessed_t1w"
+        primary_suffix = "T1w"
+        if primary_img is None:
+            primary_img = context.get("preprocessed_t2w_coreg") or context.get(
+                "preprocessed_t2w"
+            )
+            primary_key = "preprocessed_t2w"
+            primary_suffix = "T2w"
+        if primary_img is None:
+            return context, None, True
+
+        self.logger.info("Running Normalization on %s...", primary_suffix)
+        try:
+            context["current_image"] = primary_img
+            normalization_result = norm_step(
+                context,
+                output_dir=output_dir,
+                force=force_norm,
+            )
+            if isinstance(normalization_result, dict):
+                context = normalization_result
+        except Exception as exc:
+            err_msg = f"Normalization step failed: {exc}"
+            self.logger.error(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(
+                    "Normalization",
+                    {"Status": "Failed"},
+                    details={"error": str(exc)},
+                )
+            return context, primary_suffix, False
+
+        normalized_primary = context.get("current_image")
+        context[primary_key] = normalized_primary
+        if not (
+            normalized_primary
+            and hasattr(normalized_primary, "img")
+            and normalized_primary.img.exists()
+        ):
+            err_msg = (
+                f"Normalization output {primary_suffix} image missing or invalid."
+            )
+            self.logger.warning(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(
+                    "Normalization",
+                    {"Status": "Output Missing"},
+                    details={
+                        "path": str(
+                            getattr(normalized_primary, "img", "Unknown")
+                        )
+                    },
+                )
+        return context, primary_suffix, True
+
+    def _apply_warp_to_secondary(
+        self,
+        context: dict,
+        norm_step: NonlinearRegistrationStep,
+        norm_space: str,
+        output_dir: Path,
+        *,
+        primary_suffix: Optional[str],
+        force_norm: bool,
+        skip_existing: bool,
+        errors: List[str],
+        reporter,
+    ) -> None:
+        transform = context.get("template_transform")
+        t2_img = context.get("preprocessed_t2w")
+        if "preprocessed_t2w_coreg" in context:
+            t2_img = context["preprocessed_t2w_coreg"]
+        if not (
+            primary_suffix == "T1w"
+            and t2_img
+            and transform
+            and transform.exists()
+        ):
+            return
+
+        self.logger.info("Applying Normalization Warp to T2w...")
+        entities = dict(t2_img.entities)
+        entities["space"] = norm_space
+        entities["desc"] = "norm"
+        entities.setdefault("suffix", "T2w")
+        norm_t2_path = output_dir / build_bids_name(entities)
+
+        try:
+            cached_norm_t2 = reuse_path_if_exists(
+                norm_t2_path,
+                entities,
+                force=force_norm or not skip_existing,
+            )
+            if cached_norm_t2 is not None:
+                self.logger.info(
+                    "Skipping T2w Normalization (Exists): %s", norm_t2_path
+                )
+                context["preprocessed_t2w"] = cached_norm_t2
+                update_step_status(
+                    self.config,
+                    context,
+                    "Coregistration",
+                    "completed (cached)",
+                    modality="Anatomical",
+                )
+                return
+
+            template = norm_step.template or (
+                self.anat_config.preprocessing.normalization.get("template")
+            )
+            if not template:
+                warn_msg = "No template reference found for T2 normalization apply."
+                self.logger.warning(warn_msg)
+                errors.append(warn_msg)
+                if reporter:
+                    self._add_anat_step(
+                        "Normalization_T2w", {"Status": "Template Missing"}
+                    )
+                return
+
+            transform_type = str(
+                context.get("template_transform_type", "ants") or "ants"
+            ).lower()
+            is_fsl = transform_type == "fsl" or Path(transform).suffix == ".mat"
+            interp = (
+                self.anat_config.preprocessing.normalization
+                .get("options", {})
+                .get("interpolation")
+                or "trilinear"
+            ) if is_fsl else "linear"
+            try:
+                self.apply_spatial_transform(
+                    t2_img.img,
+                    Path(template),
+                    Path(transform),
+                    transform_type=transform_type,
+                    interp=interp,
+                    out_path=norm_t2_path,
+                )
+            except FileNotFoundError:
+                prefix = Path(transform)
+                warp = prefix.with_suffix("").parent / (
+                    prefix.name + "1Warp.nii.gz"
+                )
+                affine = prefix.with_suffix("").parent / (
+                    prefix.name + "0GenericAffine.mat"
+                )
+                warn_msg = "Could not find warp/affine files for T2 normalization."
+                self.logger.warning(warn_msg)
+                errors.append(warn_msg)
+                if reporter:
+                    self._add_anat_step(
+                        "Normalization_T2w",
+                        {"Status": "Warp Files Missing"},
+                        details={"warp": str(warp), "affine": str(affine)},
+                    )
+                return
+
+            norm_t2_obj = ImageFile(entities=entities, img=norm_t2_path)
+            context["preprocessed_t2w"] = norm_t2_obj
+            if not norm_t2_obj.img.exists():
+                backend = "FLIRT apply" if is_fsl else "apply_transforms"
+                err_msg = (
+                    "T2w normalized output file missing after "
+                    f"{backend}: {norm_t2_obj.img}"
+                )
+                self.logger.warning(err_msg)
+                errors.append(err_msg)
+                if reporter:
+                    self._add_anat_step(
+                        "Normalization_T2w",
+                        {"Status": "Output Missing"},
+                        details={"path": str(norm_t2_obj.img)},
+                    )
+        except Exception as exc:
+            err_msg = f"Failed to apply normalization warp to T2w: {exc}"
+            self.logger.warning(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(
+                    "Normalization_T2w",
+                    {"Status": "Failed"},
+                    details={"error": str(exc)},
+                )
+
+    def _normalize_brain_mask(
+        self,
+        context: dict,
+        norm_step: NonlinearRegistrationStep,
+        norm_space: str,
+        output_dir: Path,
+        *,
+        force_norm: bool,
+        skip_existing: bool,
+        errors: List[str],
+        reporter,
+    ) -> Optional[ImageFile]:
+        """Normalize the anatomical brain mask using the primary transform."""
+        mask_obj = context.get("brain_mask")
+        if not (mask_obj and hasattr(mask_obj, "img") and Path(mask_obj.img).exists()):
+            warn_msg = (
+                "Normalized skull-stripped output was requested, but no brain mask is available. "
+                "Enable anat.preprocessing.brain_masking and verify that it completes successfully."
+            )
+            self.logger.warning(warn_msg)
+            errors.append(warn_msg)
+            return None
+        transform = context.get("template_transform")
+        template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
+        if not (transform and template):
+            warn_msg = (
+                "Normalized skull-stripped output was requested, but the normalization transform "
+                "or template is unavailable."
+            )
+            self.logger.warning(warn_msg)
+            errors.append(warn_msg)
+            return None
+
+        ents = dict(mask_obj.entities)
+        ents['space'] = norm_space
+        ents['desc'] = 'norm'
+        ents['suffix'] = 'mask'
+
+        norm_mask_path = output_dir / build_bids_name(ents)
+        cached_norm_mask = reuse_path_if_exists(
+            norm_mask_path,
+            ents,
+            force=force_norm or not skip_existing,
+        )
+        if cached_norm_mask is not None:
+            return cached_norm_mask
+
+        try:
+            transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
+            is_fsl = (
+                transform_type == "fsl"
+                or Path(transform).suffix == ".mat"
+            )
+            if is_fsl:
+                if not Path(transform).exists():
+                    warn_msg = f"Normalization transform does not exist: {transform}"
+                    self.logger.warning(warn_msg)
+                    errors.append(warn_msg)
+                    return None
+            try:
+                self.apply_spatial_transform(
+                    mask_obj.img,
+                    Path(template),
+                    Path(transform),
+                    transform_type=transform_type,
+                    interp="nn",
+                    out_path=norm_mask_path,
+                )
+            except FileNotFoundError:
+                prefix = Path(transform)
+                warp = prefix.with_suffix("").parent / (
+                    prefix.name + "1Warp.nii.gz"
+                )
+                affine = prefix.with_suffix("").parent / (
+                    prefix.name + "0GenericAffine.mat"
+                )
+                if not is_fsl:
+                    warn_msg = (
+                        "Could not normalize the brain mask: "
+                        f"missing {warp.name} or {affine.name}."
+                    )
+                    self.logger.warning(warn_msg)
+                    errors.append(warn_msg)
+                    return None
+                raise
+
+            if not norm_mask_path.exists():
+                raise ProcessingError(f"Normalized brain mask was not created: {norm_mask_path}")
+            return ImageFile(entities=ents, img=norm_mask_path)
+        except Exception as e:
+            err_msg = f"Failed to normalize the anatomical brain mask: {e}"
+            self.logger.warning(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(
+                    "Normalization_BrainMask",
+                    {"Status": "Failed"},
+                    details={"error": str(e)},
+                )
+            return None
+
+
+
+    def _publish_normalized_image(
+        self,
+        image: Optional[ImageFile],
+        suffix: str,
+        final_output_dir: Path,
+        errors: List[str],
+        reporter,
+    ) -> None:
+        if not (
+            image
+            and hasattr(image, "entities")
+            and hasattr(image, "img")
+            and image.img.exists()
+            and image.entities.get("space")
+        ):
+            return
+
+        entities = dict(image.entities)
+        entities["desc"] = "norm"
+        entities.setdefault("suffix", suffix)
+        destination = final_output_dir / build_bids_name(entities)
+        try:
+            if image.img.resolve() != destination.resolve():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(image.img, destination)
+                if image.json and image.json.exists():
+                    shutil.copy2(
+                        image.json,
+                        destination.with_suffix("").with_suffix(".json"),
+                    )
+            image.img = destination
+        except Exception as exc:
+            err_msg = f"Failed to publish normalized {suffix}: {exc}"
+            self.logger.warning(err_msg)
+            errors.append(err_msg)
+            if reporter:
+                self._add_anat_step(
+                    f"Normalization_{suffix}",
+                    {"Status": "Failed to Save"},
+                    details={"error": str(exc)},
+                )
+
+    def _publish_normalization_transforms(
+        self,
+        context: dict,
+        final_output_dir: Path,
+        errors: List[str],
+        reporter,
+    ) -> None:
+        transform = context.get("template_transform")
+        if not transform:
+            return
+
+        transform = Path(transform)
+        transform_type = str(
+            context.get("template_transform_type", "ants") or "ants"
+        ).lower()
+        if transform_type == "ants":
+            candidates = [
+                transform.parent / f"{transform.name}0GenericAffine.mat",
+                transform.parent / f"{transform.name}1Warp.nii.gz",
+                transform.parent / f"{transform.name}1InverseWarp.nii.gz",
+            ]
+            if transform.exists():
+                candidates.append(transform)
+        else:
+            candidates = [transform]
+
+        for source in candidates:
+            if not source.exists():
+                continue
+            destination = final_output_dir / source.name
+            try:
+                if source.resolve() != destination.resolve():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
+            except Exception as exc:
+                err_msg = (
+                    "Failed to publish normalization transform "
+                    f"{source.name}: {exc}"
+                )
+                self.logger.warning(err_msg)
+                errors.append(err_msg)
+                if reporter:
+                    self._add_anat_step(
+                        "Normalization_Transform",
+                        {"Status": "Failed to Save"},
+                        details={
+                            "error": str(exc),
+                            "file": str(source),
+                        },
+                    )
+
+    def _publish_normalization_outputs(
+        self,
+        context: dict,
+        final_output_dir: Optional[Path],
+        errors: List[str],
+        reporter,
+    ) -> None:
+        if not final_output_dir:
+            return
+        self._publish_normalized_image(
+            context.get("preprocessed_t1w"),
+            "T1w",
+            final_output_dir,
+            errors,
+            reporter,
+        )
+        self._publish_normalized_image(
+            context.get("preprocessed_t2w"),
+            "T2w",
+            final_output_dir,
+            errors,
+            reporter,
+        )
+        self._publish_normalization_transforms(
+            context,
+            final_output_dir,
+            errors,
+            reporter,
+        )
+
     def _run_normalization(self, output_dir: Path, context: dict, final_output_dir: Optional[Path], reporter, figures_dir: Path, step_metrics: List[dict]) -> (dict, List[dict]):
         """
         Run nonlinear normalization if enabled.
@@ -1370,230 +2067,44 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         if force_norm:
             self.logger.info("Forcing Normalization because rerun_from_step has been reached.")
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.update(description=f"[cyan]Normalization ({norm_step.template})")
-            except Exception:
-                pass
+        _update_progress(
+            reporter,
+            description=f"[cyan]Normalization ({norm_step.template})",
+        )
 
-        primary_img = context.get("preprocessed_t1w")
-        primary_key = "preprocessed_t1w"
-        primary_suffix = "T1w"
-
-        if primary_img is None:
-            primary_img = context.get("preprocessed_t2w_coreg") or context.get("preprocessed_t2w")
-            primary_key = "preprocessed_t2w"
-            primary_suffix = "T2w"
-
-        if primary_img:
-            self.logger.info(f"Running Normalization on {primary_suffix}...")
-            try:
-                context["current_image"] = primary_img
-                normalization_result = norm_step(
-                    context,
-                    output_dir=output_dir,
-                    force=force_norm,
-                )
-                if isinstance(normalization_result, dict):
-                    context = normalization_result
-            except Exception as e:
-                err_msg = f"Normalization step failed: {e}"
-                self.logger.error(err_msg)
-                errors.append(err_msg)
-                if reporter:
-                    self._add_anat_step("Normalization", {"Status": "Failed"}, details={"error": str(e)})
-                return context, step_metrics
-
-            normalized_primary = context.get("current_image")
-            context[primary_key] = normalized_primary
-
-            if not (normalized_primary and hasattr(normalized_primary, 'img') and normalized_primary.img.exists()):
-                err_msg = f"Normalization output {primary_suffix} image missing or invalid."
-                self.logger.warning(err_msg)
-                errors.append(err_msg)
-                if reporter:
-                    self._add_anat_step("Normalization", {"Status": "Output Missing"}, details={"path": str(getattr(normalized_primary, 'img', 'Unknown'))})
-
-            # Apply to T2w
-            transform = context.get("template_transform")
-            t2_img = context.get("preprocessed_t2w")
-            if "preprocessed_t2w_coreg" in context:
-                t2_img = context["preprocessed_t2w_coreg"]
-
-            transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
-            if primary_suffix == "T1w" and t2_img and transform and transform.exists():
-                self.logger.info("Applying Normalization Warp to T2w...")
-                ents = dict(t2_img.entities)
-                ents['space'] = norm_space
-                ents['desc'] = 'norm'
-                if 'suffix' not in ents:
-                    ents['suffix'] = 'T2w'
-
-                norm_t2_path = output_dir / build_bids_name(ents)
-
-                try:
-                    if not norm_t2_path.exists() or not skip_existing or force_norm:
-                        template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
-
-                        if template:
-                            if transform_type == "fsl" or Path(transform).suffix == ".mat":
-                                interp = (
-                                    self.anat_config.preprocessing.normalization.get("options", {}).get("interpolation")
-                                    or "trilinear"
-                                )
-                                fsl.applywarp(
-                                    in_file=t2_img.img,
-                                    ref_file=Path(template),
-                                    out_file=norm_t2_path,
-                                    premat=Path(transform),
-                                    interp=interp,
-                                    force=True,
-                                )
-                                norm_t2_obj = ImageFile(entities=ents, img=norm_t2_path)
-                                context["preprocessed_t2w"] = norm_t2_obj
-
-                                if not norm_t2_obj.img.exists():
-                                    err_msg = f"T2w normalized output file missing after FLIRT apply: {norm_t2_obj.img}"
-                                    self.logger.warning(err_msg)
-                                    errors.append(err_msg)
-                                    if reporter:
-                                        self._add_anat_step("Normalization_T2w", {"Status": "Output Missing"}, details={"path": str(norm_t2_obj.img)})
-                            else:
-                                prefix = Path(transform)
-                                warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
-                                affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
-
-                                if warp.exists() and affine.exists():
-                                    ants.apply_transforms(
-                                        fixed_file=Path(template),
-                                        moving_file=t2_img.img,
-                                        out_file=norm_t2_path,
-                                        transforms=[warp, affine],
-                                        interpolator='linear'
-                                    )
-                                    norm_t2_obj = ImageFile(entities=ents, img=norm_t2_path)
-                                    context["preprocessed_t2w"] = norm_t2_obj
-
-                                    if not norm_t2_obj.img.exists():
-                                        err_msg = f"T2w normalized output file missing after apply_transforms: {norm_t2_obj.img}"
-                                        self.logger.warning(err_msg)
-                                        errors.append(err_msg)
-                                        if reporter:
-                                            self._add_anat_step("Normalization_T2w", {"Status": "Output Missing"}, details={"path": str(norm_t2_obj.img)})
-                                else:
-                                    warn_msg = "Could not find warp/affine files for T2 normalization."
-                                    self.logger.warning(warn_msg)
-                                    errors.append(warn_msg)
-                                    if reporter:
-                                        self._add_anat_step("Normalization_T2w", {"Status": "Warp Files Missing"}, details={"warp": str(warp), "affine": str(affine)})
-                        else:
-                            warn_msg = "No template reference found for T2 normalization apply."
-                            self.logger.warning(warn_msg)
-                            errors.append(warn_msg)
-                            if reporter:
-                                self._add_anat_step("Normalization_T2w", {"Status": "Template Missing"})
-                    else:
-                        self.logger.info(f"Skipping T2w Normalization (Exists): {norm_t2_path}")
-                        context["preprocessed_t2w"] = ImageFile(entities=ents, img=norm_t2_path)
-
-                        tracker = self.config.tracker
-                        if tracker and context.get('subject') and context.get('session'):
-                            study = context.get('study_name', self.config.get('study_name'))
-                            tracker.update_status(context['subject'], context['session'], "Coregistration", "completed (cached)",
-                                                  study=study, modality="Anatomical")
-                            tracker.save()
-                except Exception as e:
-                    err_msg = f"Failed to apply normalization warp to T2w: {e}"
-                    self.logger.warning(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step("Normalization_T2w", {"Status": "Failed"}, details={"error": str(e)})
-
-        def _normalize_brain_mask():
-            mask_obj = context.get("brain_mask")
-            if not (mask_obj and hasattr(mask_obj, "img") and Path(mask_obj.img).exists()):
-                warn_msg = (
-                    "Normalized skull-stripped output was requested, but no brain mask is available. "
-                    "Enable anat.preprocessing.brain_masking and verify that it completes successfully."
-                )
-                self.logger.warning(warn_msg)
-                errors.append(warn_msg)
-                return None
-            transform = context.get("template_transform")
-            template = norm_step.template or self.anat_config.preprocessing.normalization.get("template")
-            if not (transform and template):
-                warn_msg = (
-                    "Normalized skull-stripped output was requested, but the normalization transform "
-                    "or template is unavailable."
-                )
-                self.logger.warning(warn_msg)
-                errors.append(warn_msg)
-                return None
-
-            ents = dict(mask_obj.entities)
-            ents['space'] = norm_space
-            ents['desc'] = 'norm'
-            ents['suffix'] = 'mask'
-
-            norm_mask_path = output_dir / build_bids_name(ents)
-            if norm_mask_path.exists() and skip_existing and not force_norm:
-                return ImageFile(entities=ents, img=norm_mask_path)
-
-            try:
-                transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
-                if transform_type == "fsl" or Path(transform).suffix == ".mat":
-                    if not Path(transform).exists():
-                        warn_msg = f"Normalization transform does not exist: {transform}"
-                        self.logger.warning(warn_msg)
-                        errors.append(warn_msg)
-                        return None
-                    fsl.applywarp(
-                        in_file=mask_obj.img,
-                        ref_file=Path(template),
-                        out_file=norm_mask_path,
-                        premat=Path(transform),
-                        interp="nn",
-                        force=True,
-                    )
-                else:
-                    prefix = Path(transform)
-                    warp = prefix.with_suffix("").parent / (prefix.name + "1Warp.nii.gz")
-                    affine = prefix.with_suffix("").parent / (prefix.name + "0GenericAffine.mat")
-                    if not (warp.exists() and affine.exists()):
-                        warn_msg = (
-                            "Could not normalize the brain mask: "
-                            f"missing {warp.name} or {affine.name}."
-                        )
-                        self.logger.warning(warn_msg)
-                        errors.append(warn_msg)
-                        return None
-                    ants.apply_transforms(
-                        fixed_file=Path(template),
-                        moving_file=mask_obj.img,
-                        out_file=norm_mask_path,
-                        transforms=[warp, affine],
-                        interpolator='nearestNeighbor'
-                    )
-
-                if not norm_mask_path.exists():
-                    raise ProcessingError(f"Normalized brain mask was not created: {norm_mask_path}")
-                return ImageFile(entities=ents, img=norm_mask_path)
-            except Exception as e:
-                err_msg = f"Failed to normalize the anatomical brain mask: {e}"
-                self.logger.warning(err_msg)
-                errors.append(err_msg)
-                if reporter:
-                    self._add_anat_step(
-                        "Normalization_BrainMask",
-                        {"Status": "Failed"},
-                        details={"error": str(e)},
-                    )
-                return None
+        context, primary_suffix, normalization_ok = self._normalize_primary(
+            context,
+            norm_step,
+            output_dir,
+            force_norm=force_norm,
+            errors=errors,
+            reporter=reporter,
+        )
+        if not normalization_ok:
+            return context, step_metrics
+        self._apply_warp_to_secondary(
+            context,
+            norm_step,
+            norm_space,
+            output_dir,
+            primary_suffix=primary_suffix,
+            force_norm=force_norm,
+            skip_existing=skip_existing,
+            errors=errors,
+            reporter=reporter,
+        )
 
         if self.anat_config.normalization.skull_stripped_outputs:
-            normalized_mask = _normalize_brain_mask()
+            normalized_mask = self._normalize_brain_mask(
+                context,
+                norm_step,
+                norm_space,
+                output_dir,
+                force_norm=force_norm,
+                skip_existing=skip_existing,
+                errors=errors,
+                reporter=reporter,
+            )
             if normalized_mask:
                 normalized_images = (
                     ("normalized_t1w_brain", context.get("preprocessed_t1w"), "T1w"),
@@ -1621,80 +2132,15 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         context[context_key] = brain_obj
                         self.logger.info(f"Saved normalized skull-stripped {suffix}: {brain_obj.img}")
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.advance()
-            except Exception:
-                pass
+        _update_progress(reporter, advance=True)
 
         # Publish normalized images and transforms to the final anat directory.
-        if final_output_dir:
-            def _publish_norm_img(img_obj, suffix: str):
-                if not (img_obj and hasattr(img_obj, 'entities') and hasattr(img_obj, 'img') and img_obj.img.exists()):
-                    return
-                if not img_obj.entities.get('space'):
-                    return
-
-                ents = dict(img_obj.entities)
-                ents['desc'] = 'norm'
-                if 'suffix' not in ents:
-                    ents['suffix'] = suffix
-                fname = build_bids_name(ents)
-                dest = final_output_dir / fname
-                try:
-                    if img_obj.img.resolve() != dest.resolve():
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(img_obj.img, dest)
-                        if img_obj.json and img_obj.json.exists():
-                            shutil.copy2(img_obj.json, dest.with_suffix("").with_suffix(".json"))
-                    img_obj.img = dest
-                except Exception as e:
-                    err_msg = f"Failed to publish normalized {suffix}: {e}"
-                    self.logger.warning(err_msg)
-                    errors.append(err_msg)
-                    if reporter:
-                        self._add_anat_step(f"Normalization_{suffix}", {"Status": "Failed to Save"}, details={"error": str(e)})
-
-            def _publish_norm_transforms():
-                transform = context.get("template_transform")
-                if not transform:
-                    return
-
-                transform = Path(transform)
-                transform_type = str(context.get("template_transform_type", "ants") or "ants").lower()
-                candidates = []
-
-                if transform_type == "ants":
-                    candidates.extend([
-                        transform.parent / f"{transform.name}0GenericAffine.mat",
-                        transform.parent / f"{transform.name}1Warp.nii.gz",
-                        transform.parent / f"{transform.name}1InverseWarp.nii.gz",
-                    ])
-                    if transform.exists():
-                        candidates.append(transform)
-                else:
-                    candidates.append(transform)
-
-                for src in candidates:
-                    if not src.exists():
-                        continue
-                    dest = final_output_dir / src.name
-                    try:
-                        if src.resolve() != dest.resolve():
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src, dest)
-                    except Exception as e:
-                        err_msg = f"Failed to publish normalization transform {src.name}: {e}"
-                        self.logger.warning(err_msg)
-                        errors.append(err_msg)
-                        if reporter:
-                            self._add_anat_step("Normalization_Transform", {"Status": "Failed to Save"}, details={"error": str(e), "file": str(src)})
-
-            _publish_norm_img(context.get("preprocessed_t1w"), 'T1w')
-            _publish_norm_img(context.get("preprocessed_t2w"), 'T2w')
-            _publish_norm_transforms()
+        self._publish_normalization_outputs(
+            context,
+            final_output_dir,
+            errors,
+            reporter,
+        )
 
         # Run QC if enabled on normalized outputs
         try:
@@ -1726,13 +2172,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         errors = context.setdefault('errors', [])
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.update(description="[cyan]FreeSurfer Stats")
-            except Exception:
-                pass
+        _update_progress(reporter, description="[cyan]FreeSurfer Stats")
 
         try:
             self.logger.info("Parsing FreeSurfer Stats...")
@@ -1749,13 +2189,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             if reporter:
                 self._add_anat_step("FreeSurferStats", {"Status": "Failed"}, details={"error": str(e)})
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.advance()
-            except Exception:
-                pass
+        _update_progress(reporter, advance=True)
 
         # Validate FreeSurfer outputs if possible (not explicit here)
 
@@ -1808,21 +2242,21 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                         subject, session, volumes,
                         method="supersynth", study=study,
                     )
-                    tracker.save()
+                    mark_tracker_dirty(self.config)
 
             if reporter:
                 details = {"Status": "Complete", "Regions": len(context.get("super_synth_volumes", {}))}
                 csv = context.get("super_synth_volumes_csv")
                 if csv:
                     details["Volumes_CSV"] = str(csv)
-                self._add_anat_step(reporter, "SuperSynth", details)
+                self._add_anat_step("SuperSynth", details)
 
         except Exception as e:
             err_msg = f"SuperSynth failed: {e}"
             self.logger.error(err_msg)
             errors.append(err_msg)
             if reporter:
-                self._add_anat_step(reporter, "SuperSynth", {"Status": "Failed", "error": str(e)})
+                self._add_anat_step("SuperSynth", {"Status": "Failed", "error": str(e)})
 
         return context, step_metrics
 
@@ -1839,13 +2273,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         errors = context.setdefault('errors', [])
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.update(description="[cyan]Segmentation")
-            except Exception:
-                pass
+        _update_progress(reporter, description="[cyan]Segmentation")
 
         try:
             self.logger.info("Running Segmentation...")
@@ -1863,13 +2291,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 self._add_anat_step("Segmentation", {"Status": "Failed"}, details={"error": str(e)})
             return context, step_metrics
 
-        if reporter:
-            try:
-                from rich.progress import Progress
-                if isinstance(reporter, Progress):
-                    reporter.advance()
-            except Exception:
-                pass
+        _update_progress(reporter, advance=True)
 
         # Save intermediates
         save_inter = self.config.get("save_intermediate", False)
@@ -2040,24 +2462,23 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             t1_entities = dict(getattr(t1w, "entities", {}) or {})
             t1_entities.setdefault("suffix", "T1w")
             t1_entities["desc"] = "preproc"
-            t1_name = build_bids_name(t1_entities)
-            t1_path = final_output_dir / t1_name
-
-            if not t1_path.exists():
+            preprocessed_t1w = reuse_if_exists(
+                t1_entities,
+                final_output_dir,
+            )
+            if preprocessed_t1w is None:
                 return None
-
-            preprocessed_t1w = ImageFile(entities=t1_entities, img=t1_path, json=None)
 
         if t2w_files:
             t2w = t2w_files[0]
             t2_entities = dict(getattr(t2w, "entities", {}) or {})
             t2_entities.setdefault("suffix", "T2w")
             t2_entities["desc"] = "preproc"
-            t2_name = build_bids_name(t2_entities)
-            t2_path = final_output_dir / t2_name
-            if t2_path.exists():
-                preprocessed_t2w = ImageFile(entities=t2_entities, img=t2_path, json=None)
-            else:
+            preprocessed_t2w = reuse_if_exists(
+                t2_entities,
+                final_output_dir,
+            )
+            if preprocessed_t2w is None:
                 return None
 
         if preprocessed_t1w is None and preprocessed_t2w is None:
@@ -2067,29 +2488,28 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         mask_entities = dict(getattr(mask_ref, "entities", {}) or {})
         mask_entities.pop("space", None)
         mask_entities["suffix"] = "mask"
-        mask_name = build_bids_name(mask_entities)
-        mask_path = final_output_dir / mask_name
-        if mask_path.exists():
-            brain_mask = ImageFile(entities=mask_entities, img=mask_path, json=None)
+        brain_mask = reuse_if_exists(mask_entities, final_output_dir)
 
         if brain_mask and self.anat_config.preprocessing.skull_stripped_outputs:
             if preprocessed_t1w:
                 t1_brain_entities = dict(preprocessed_t1w.entities)
                 t1_brain_entities["desc"] = "preproc-brain"
-                t1_brain_name = build_bids_name(t1_brain_entities)
-                t1_brain_path = final_output_dir / t1_brain_name
-                if not t1_brain_path.exists():
+                preprocessed_t1w_brain = reuse_if_exists(
+                    t1_brain_entities,
+                    final_output_dir,
+                )
+                if preprocessed_t1w_brain is None:
                     return None
-                preprocessed_t1w_brain = ImageFile(entities=t1_brain_entities, img=t1_brain_path, json=None)
 
             if preprocessed_t2w:
                 t2_brain_entities = dict(preprocessed_t2w.entities)
                 t2_brain_entities["desc"] = "preproc-brain"
-                t2_brain_name = build_bids_name(t2_brain_entities)
-                t2_brain_path = final_output_dir / t2_brain_name
-                if not t2_brain_path.exists():
+                preprocessed_t2w_brain = reuse_if_exists(
+                    t2_brain_entities,
+                    final_output_dir,
+                )
+                if preprocessed_t2w_brain is None:
                     return None
-                preprocessed_t2w_brain = ImageFile(entities=t2_brain_entities, img=t2_brain_path, json=None)
 
         norm_cfg = self.anat_config.preprocessing.normalization or {}
         if self.anat_config.normalization.skull_stripped_outputs and norm_cfg.get("enabled"):
@@ -2099,19 +2519,23 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 norm_t1_entities = dict(preprocessed_t1w.entities)
                 norm_t1_entities["space"] = norm_space
                 norm_t1_entities["desc"] = "brain"
-                norm_t1_path = final_output_dir / build_bids_name(norm_t1_entities)
-                if not norm_t1_path.exists():
+                normalized_t1w_brain = reuse_if_exists(
+                    norm_t1_entities,
+                    final_output_dir,
+                )
+                if normalized_t1w_brain is None:
                     return None
-                normalized_t1w_brain = ImageFile(entities=norm_t1_entities, img=norm_t1_path, json=None)
 
             if preprocessed_t2w:
                 norm_t2_entities = dict(preprocessed_t2w.entities)
                 norm_t2_entities["space"] = norm_space
                 norm_t2_entities["desc"] = "brain"
-                norm_t2_path = final_output_dir / build_bids_name(norm_t2_entities)
-                if not norm_t2_path.exists():
+                normalized_t2w_brain = reuse_if_exists(
+                    norm_t2_entities,
+                    final_output_dir,
+                )
+                if normalized_t2w_brain is None:
                     return None
-                normalized_t2w_brain = ImageFile(entities=norm_t2_entities, img=norm_t2_path, json=None)
 
         return {
             "preprocessed_t1w": preprocessed_t1w,
@@ -2164,7 +2588,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         )
         return False
 
-    def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> dict:
+    def run(self, output_dir: Path, context: dict, final_output_dir: Optional[Path] = None, reporter=None) -> PipelineContext:
         """
         Execute the anatomical preprocessing workflow.
         """
@@ -2184,7 +2608,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 self.logger.info(
                     f"⚡ FAST SKIP: Found preprocessed anatomical outputs in {final_output_dir}"
                 )
-                context = dict(context)
+                context = PipelineContext(context)
                 context.update({k: v for k, v in cached.items() if v is not None})
                 context["anat_preprocessing_skipped"] = True
                 return context
@@ -2192,7 +2616,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         figures_dir = output_dir / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
 
-        context = dict(context)
+        context = PipelineContext(context)
         step_metrics: List[dict] = []
 
         if context.get("t1w_files"):
@@ -2278,7 +2702,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         self._handle_reporting_and_outputs(context, final_output_dir, reporter, step_metrics)
 
-        return context
+        return PipelineContext.ensure(context)
 
     def _update_json_history(self, json_path: Path, steps: list):
         """Update JSON sidecar with processing history."""
@@ -2414,8 +2838,12 @@ class AnatPipeline(BasePipeline):
     Finds T1w/T2w files and runs AnatPreprocessingWorkflow.
     """
 
-    def __init__(self, config: PipelineConfig):
-        super().__init__(config)
+    def __init__(
+        self,
+        config: PipelineConfig,
+        logger: Optional[logging.Logger] = None,
+    ):
+        super().__init__(config, logger=logger)
 
     @property
     def name(self) -> str:
@@ -2523,12 +2951,12 @@ class AnatPipeline(BasePipeline):
 
         subj_work_dir = self._get_work_dir(subject, session)
 
-        context = {
+        context = PipelineContext({
             "subject": subject,
             "session": session,
             "t1w_files": t1w,
             "t2w_files": t2w
-        }
+        })
 
         # Initialize Reporter
         final_anat_dir = self._get_output_dir(subject, session) / "anat"
@@ -2557,18 +2985,21 @@ class AnatPipeline(BasePipeline):
             except Exception:
                 pass
 
-            tracker = self.config.tracker
-            if tracker and subject and session:
-                study = self.config.get('study_name')
-                tracker.update_status(subject, session, "Overall_Status", "Complete", study=study, modality="Anatomical")
-                tracker.save()
+            if update_step_status(
+                self.config,
+                context,
+                "Overall_Status",
+                "Complete",
+                modality="Anatomical",
+            ):
+                flush_tracker(self.config)
 
         except Exception as e:
             self.logger.error(f"Error processing sub-{subject}: {e}")
             if self.config.stop_on_error:
                 raise e
 
-def run_anatomical_workflow(config: PipelineConfig, subject: str, session: Optional[str] = None, reporter=None) -> dict:
+def run_anatomical_workflow(config: PipelineConfig, subject: str, session: Optional[str] = None, reporter=None) -> PipelineContext:
     """
     Convenience function to run the anatomical workflow standalone.
 
@@ -2599,12 +3030,12 @@ def run_anatomical_workflow(config: PipelineConfig, subject: str, session: Optio
     work_dir = pipeline._get_work_dir(subject, session)
     final_output_dir = pipeline._get_output_dir(subject, session) / "anat"
 
-    context = {
+    context = PipelineContext({
         "subject": subject,
         "session": session,
         "t1w_files": t1w,
         "t2w_files": t2w
-    }
+    })
 
     results = pipeline.preprocessing.run(work_dir, context, final_output_dir=final_output_dir, reporter=reporter)
 

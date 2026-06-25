@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 import logging
 from pathlib import Path
 
-from ...core import BaseWorkflow
+from ...core import BaseWorkflow, PipelineContext
 from ...core.types import ImageLike
 from ...lib.fmri.bids_apps import FmriPrepStep
 from ...lib.fmri.hcp import HCPfMRIStep
@@ -24,14 +24,8 @@ class FmriWorkflow(BaseWorkflow):
         super().__init__(config, logger)
         
     def _initialize_steps(self):
-        # Pull from config_data if it's a PipelineConfig object, else treat as dict
-        if hasattr(self.config, 'config_data'):
-            pipeline_cfg = self.config.config_data
-        else:
-            pipeline_cfg = self.config
-            
-        fmriprep_config = pipeline_cfg.get("fmriprep", {})
-        hcp_config = pipeline_cfg.get("hcp", {})
+        fmriprep_config = self.config.get("fmriprep", {})
+        hcp_config = self.config.get("hcp", {})
         
         # If user has an fmriprep config dict, assume they want it
         use_fmriprep = fmriprep_config.get("enabled", False)
@@ -72,7 +66,9 @@ class FmriWorkflow(BaseWorkflow):
         for sub in active_subjects:
             # Create a mock internal context image for the steps to extract subject label
             mock_img = type('obj', (object,), {'entities': {'sub': sub}})()
-            context = {"current_image": mock_img, "subject": sub}
+            context = PipelineContext(
+                {"current_image": mock_img, "subject": sub}
+            )
             
             try:
                 for step in self.pipeline_steps:

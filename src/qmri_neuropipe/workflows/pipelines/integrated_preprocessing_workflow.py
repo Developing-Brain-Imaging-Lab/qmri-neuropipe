@@ -7,9 +7,12 @@ for step execution, providing better separation of concerns and reusability.
 
 from pathlib import Path
 from typing import Optional
+import shutil
 
-from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.core.types import DWIFile
+from qmri_neuropipe.utils.data_io import DataIOManager
+from qmri_neuropipe.utils.execution_engine import ExecutionEngine
 
 # Processing steps
 from qmri_neuropipe.lib.common.denoise import DenoisingStep
@@ -40,8 +43,6 @@ class PreprocessingWorkflow(BaseWorkflow):
         Recover intermediate data from the final output directory back to the working directory.
         This allows the pipeline to skip steps that were previously computed and saved.
         """
-        import shutil
-
         self.logger.info("Attempting to recover intermediate data...")
 
         intermediate_store = output_dir / "intermediate"
@@ -482,7 +483,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         output_dir: Path,
         context: dict,
         reporter=None
-    ) -> dict:
+    ) -> PipelineContext:
         """
         Execute the preprocessing workflow using ExecutionEngine.
         
@@ -500,9 +501,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         dict
             Updated context after preprocessing
         """
-        from ...utils.execution_engine import ExecutionEngine
-        from ...utils.data_io import DataIOManager
-        
+        context = PipelineContext.ensure(context)
         self.logger.info("Starting PreprocessingWorkflow with ExecutionEngine")
         
         dwi_files = context.get("dwi_files", [])
@@ -608,4 +607,4 @@ class PreprocessingWorkflow(BaseWorkflow):
             self.logger.warning(f"Failed to save final outputs: {e}")
 
         self.logger.info("PreprocessingWorkflow complete")
-        return context
+        return PipelineContext.ensure(context)

@@ -1,6 +1,12 @@
 Bootstrap: docker
 From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
+%arguments
+    # Install every declared optional feature by default. This is intentionally
+    # explicit because the project's "all" extra does not currently include
+    # nifreeze or mriqc.
+    PYTHON_EXTRAS=amico,nexi,nifreeze,pyafq,hdbet,mriqc,synb0,tracker,reporting,viewer
+
 %labels
     Author Dean
     Version 0.0.1
@@ -8,7 +14,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     License MIT
 
 %files
-    . /app
+    # Build from the repository root. Copy only package inputs so that local
+    # datasets, build products, Git history, and existing images cannot be
+    # included accidentally.
+    pyproject.toml /app/pyproject.toml
+    src /app/src
 
 %post
     set -e
@@ -25,7 +35,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # --------------------------------------------------------------------------------
     # 1. System dependencies
     # --------------------------------------------------------------------------------
-    apt-get update && apt-get install -y \
+    apt-get update && apt-get install -y --no-install-recommends \
         wget \
         curl \
         ca-certificates \
@@ -141,9 +151,35 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
     cd "${REPO_DIR}"
     rm -rf build dist *.egg-info src/*.egg-info
-    ${CONDA_DIR}/bin/python -m pip uninstall -y qmri-neuropipe || true
     ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
-    ${CONDA_DIR}/bin/python -m pip install --no-cache-dir --force-reinstall --no-build-isolation --prefer-binary ".[all]"
+    PYTHON_EXTRAS="{{ PYTHON_EXTRAS }}"
+    if [ -n "${PYTHON_EXTRAS}" ]; then
+        PACKAGE_SPEC=".[${PYTHON_EXTRAS}]"
+    else
+        PACKAGE_SPEC="."
+    fi
+    ${CONDA_DIR}/bin/python -m pip install \
+        --no-cache-dir \
+        --no-compile \
+        --no-build-isolation \
+        --prefer-binary \
+        "${PACKAGE_SPEC}"
+
+    # Remove package caches and temporary build content before Apptainer
+    # compresses the root filesystem into the final SIF.
+    ${CONDA_DIR}/bin/conda clean --all --yes
+    if [ -x "${FSLDIR}/bin/conda" ]; then
+        "${FSLDIR}/bin/conda" clean --all --yes
+    elif [ -x "${FSLDIR}/bin/mamba" ]; then
+        "${FSLDIR}/bin/mamba" clean --all --yes
+    elif [ -x "${FSLDIR}/bin/micromamba" ]; then
+        "${FSLDIR}/bin/micromamba" clean --all --yes
+    fi
+    # These packages are required only while constructing the image. Runtime
+    # libraries declared by FreeSurfer and the other installed tools remain.
+    apt-get purge -y --auto-remove build-essential git gnupg sudo
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /root/.cache /root/.conda /tmp/*
 
 
 %environment

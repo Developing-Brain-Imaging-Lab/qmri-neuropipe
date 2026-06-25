@@ -77,6 +77,8 @@ from qmri_neuropipe.core.config import (
     create_default_config
 )
 
+from qmri_neuropipe.core.context import PipelineContext
+
 # Import provenance
 from qmri_neuropipe.core.provenance import ProvenanceTracker
 

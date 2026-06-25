@@ -19,7 +19,8 @@ import nibabel as nib
 import numpy as np
 
 # Core framework
-from qmri_neuropipe.core import BasePipeline, PipelineConfig
+from qmri_neuropipe.core import BasePipeline, PipelineConfig, PipelineContext
+from qmri_neuropipe.core.caching import reuse_if_exists, reuse_path_if_exists
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 
 # BIDS I/O
@@ -278,12 +279,12 @@ class DMRIPipeline(BasePipeline):
         self.logger.info("  RUNNING ANATOMICAL PIPELINE  ")
         self.logger.info("="*60)
         
-        anat_context = {
+        anat_context = PipelineContext({
             "subject": subject,
             "session": session,
             "t1w_files": t1w_files,
             "t2w_files": t2w_files
-        }
+        })
         
         anat_final_dir = self._get_output_dir(subject, session) / 'anat'
         anat_results = self.anat_preprocessing.run(
@@ -307,11 +308,11 @@ class DMRIPipeline(BasePipeline):
         return t1w_files, t2w_files
 
     def _build_initial_context(self, subject: str, session: Optional[str], 
-                               dwi_files: list, t1w_files: list, t2w_files: list) -> dict:
+                               dwi_files: list, t1w_files: list, t2w_files: list) -> PipelineContext:
         """Build initial processing context."""
         topup_groups = find_reversed_phase_groups(dwi_files)
         
-        return {
+        return PipelineContext({
             "subject": subject,
             "session": session,
             "current_image": dwi_files[0],
@@ -320,7 +321,7 @@ class DMRIPipeline(BasePipeline):
             "t1w_files": t1w_files,
             "t2w_files": t2w_files,
             "study_name": self.config.get('study_name')
-        }
+        })
 
     def _run_preprocessing(self, context: dict, work_dir: Path, output_dir: Path, reporter) -> dict:
         """Run preprocessing workflow."""
@@ -424,7 +425,8 @@ class DMRIPipeline(BasePipeline):
                 fname += ".nii.gz"
 
             target_img = output_dir / fname
-            if not target_img.exists():
+            cached_dwi = reuse_path_if_exists(target_img, ents)
+            if cached_dwi is None:
                 missing += 1
                 continue
 
@@ -433,7 +435,7 @@ class DMRIPipeline(BasePipeline):
             jsn = io_manager._find_sidecar_for_image(target_img, ".json", [output_dir])
 
             preprocessed_dwis.append(
-                DWIFile(img=target_img, bval=bval, bvec=bvec, json=jsn, entities=ents)
+                DWIFile(img=cached_dwi.img, bval=bval, bvec=bvec, json=jsn, entities=ents)
             )
 
             gnl_path = self._find_saved_gnl_tensor(target_img, ents)
@@ -552,9 +554,9 @@ class DMRIPipeline(BasePipeline):
         if image_entities:
             image_entities["desc"] = "gnl_tensor"
             image_entities["suffix"] = "dwi"
-            candidate = dwi_img.parent / build_bids_name(image_entities)
-            if candidate.exists():
-                return candidate
+            cached_gnl = reuse_if_exists(image_entities, dwi_img.parent)
+            if cached_gnl is not None:
+                return cached_gnl.img
 
         siblings = sorted(dwi_img.parent.glob("*desc-gnl_tensor*_dwi.nii.gz"))
         if len(siblings) == 1:

@@ -10,22 +10,12 @@ This module provides:
 """
 
 from __future__ import annotations
-import sys
+import os
 import warnings
 from pathlib import Path
-from typing import List, Optional, Any
+from typing import List, Optional
 import typer
 from rich.table import Table
-from rich.layout import Layout
-from rich.live import Live
-from rich.panel import Panel
-from rich import box
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
-from rich.console import Group
-from rich.text import Text
-from collections import deque
-import threading
-import multiprocessing
 
 # Global Warning Silencing
 # 1. Suppress resource_tracker warnings (benign semaphore "leaks" at shutdown in some envs)
@@ -40,10 +30,12 @@ warnings.filterwarnings("ignore", message=".*overflow encountered in exp.*", cat
 warnings.filterwarnings("ignore", message=".*invalid value encountered in log.*", category=RuntimeWarning)
 
 
-from qmri_neuropipe.core import PipelineConfig
+from qmri_neuropipe.core import BasePipeline, PipelineConfig
 from qmri_neuropipe.core.exceptions import ConfigurationError
+from qmri_neuropipe.core.parallel import run_parallel as run_parallel_tasks
 from qmri_neuropipe.core.ui import console
 from qmri_neuropipe.io import DataLoader
+from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
 
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
@@ -276,8 +268,6 @@ def maybe_run_auto_import(config: PipelineConfig, verbose: bool = False) -> None
             "Automatic import with dcm2bids requires a subject. Set `import.subject` or provide a single participant_label."
         )
 
-    from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
-
     config.bids_dir.mkdir(parents=True, exist_ok=True)
     if config.work_dir:
         config.work_dir.mkdir(parents=True, exist_ok=True)
@@ -376,8 +366,6 @@ def import_command(
                 subject=subject,
                 session=session,
             )
-
-        from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
 
         workflow = ImportWorkflow(config=config)
         context = {}
@@ -619,7 +607,11 @@ def main(
     """
     if ctx.invoked_subcommand is not None:
         return
-    
+
+    # Keep a valid config available to the outer error handler even when
+    # argument parsing or config-file loading fails before the merge.
+    config = PipelineConfig(debug=debug)
+
     try:
         # Parse gpu_ids
         gpu_ids_list = None
@@ -684,25 +676,22 @@ def main(
         # Merge config file and CLI arguments
         config = merge_cli_and_config(config_file, cli_args)
         
-        # Handle pipeline and level (can come from config file or CLI)
-        # Priority: CLI > Config File > Defaults
-        # These are stored in config.config_data if they were in the config file
+        # Handle pipeline and level (can come from config file or CLI).
+        # Priority: CLI > Config File > Defaults.
         pipeline_name = pipeline
         analysis_level = level
-        
-        # Check config.config_data for pipeline/level if not provided via CLI
-        # This avoids reloading the config file
+
         if pipeline_name is None:
-            pipeline_name = config.config_data.get('pipeline')
+            pipeline_name = config.get("pipeline")
         
         if analysis_level is None:
-            analysis_level = config.config_data.get('level')
+            analysis_level = config.get("level")
         
 
         # Set defaults if still not specified
         if pipeline_name is None:
             # Smart default: If relaxometry explicitly configured and dmri not, use relaxometry
-            if config.config_data.get('relaxometry') and not config.config_data.get('dmri'):
+            if config.get("relaxometry") and not config.get("dmri"):
                 pipeline_name = 'relaxometry'
             else:
                 pipeline_name = 'dmri'
@@ -728,8 +717,6 @@ def main(
         
         # --- Configure Environment for Threading (ANTs, OpenMP, etc.) ---
         # This MUST be done before importing pipeline modules that might initialize libraries (like ANTs)
-        import os
-        
         # Determine effective CPU count
         effective_cpus = config.n_cpus
         if not effective_cpus:
@@ -830,211 +817,46 @@ def main(
                 ),
             )
 
-        # If parallel execution requested
-        # If parallel execution requested
         if jobs > 1 and not submit:
-             console.print(f"\n[bold blue]Running locally in PARALLEL mode with {jobs} workers.[/bold blue]")
-             
-             import concurrent.futures
-             from qmri_neuropipe.core.ui import console as main_console
-             
-             # Serialize Config
-             config_dict = config.to_dict()
-             
-             # Initialize Manager for inter-process communication
-             manager = multiprocessing.Manager()
-             log_queue = manager.Queue()
-             slot_queue = manager.Queue()
-             for i in range(jobs):
-                  slot_queue.put(i)
-             
-             # UI State tracking
-             class UIState:
-                  def __init__(self, n_jobs, total):
-                       self.n_jobs = n_jobs
-                       self.buffers = {i: deque(maxlen=10) for i in range(n_jobs)}
-                       self.job_info = {i: "[dim]Idle[/dim]" for i in range(n_jobs)}
-                       self.job_status = {i: "idle" for i in range(n_jobs)}
-                       # Distinct vibrant colors for workers
-                       self.colors = ["cyan", "magenta", "yellow", "green", "blue", "red", "bright_blue", "bright_magenta"]
-                       self.progress = Progress(
-                            SpinnerColumn(),
-                            TextColumn("[progress.description]{task.description}"),
-                            BarColumn(bar_width=None),
-                            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                            TimeRemainingColumn(),
-                            console=main_console,
-                            expand=True
-                       )
-                       self.overall_task = self.progress.add_task("[bold green]Total Progress", total=total)
-                       self.lock = threading.Lock()
-                       self.tasks_done = 0
+            console.print(
+                f"\n[bold blue]Running locally in PARALLEL mode with {jobs} workers.[/bold blue]"
+            )
 
-                  def update_log(self, j_id, msg):
-                       with self.lock:
-                            # Strip common redundant prefixes if needed, but keep it clean
-                            self.buffers[j_id].append(msg)
+        console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
+        if pipeline_name == "dmri":
+            from .workflows.pipelines.dmri import DMRIPipeline
 
-                  def update_info(self, j_id, info, status="running"):
-                       with self.lock:
-                            self.job_info[j_id] = info
-                            self.job_status[j_id] = status
+            pipeline_obj = DMRIPipeline(config)
+        elif pipeline_name == "anat":
+            from .workflows.pipelines.anat import AnatPipeline
 
-                  def advance(self):
-                       with self.lock:
-                            self.tasks_done += 1
-                            self.progress.update(self.overall_task, completed=self.tasks_done)
+            pipeline_obj = AnatPipeline(config)
+        elif pipeline_name == "relaxometry":
+            from .workflows.pipelines.relaxometry import RelaxometryPipeline
 
-                  def get_layout(self):
-                       with self.lock:
-                            status_icons = {
-                                 "idle": "💤 [dim]Idle[/dim]",
-                                 "running": "🔄 [bold cyan]Running[/bold cyan]",
-                                 "complete": "✅ [bold green]Done[/bold green]",
-                                 "failed": "❌ [bold red]ERROR[/bold red]"
-                            }
-                            
-                            # Build the main body grid using Layout
-                            cols = 2 if self.n_jobs > 1 else 1
-                            rows = (self.n_jobs + cols - 1) // cols
-                            
-                            body_layout = Layout()
-                            row_layouts = []
-                            for r in range(rows):
-                                 row_l = Layout(name=f"row_{r}")
-                                 col_layouts = []
-                                 for c in range(cols):
-                                      idx = r * cols + c
-                                      if idx < self.n_jobs:
-                                           # Extended color palette for more workers
-                                           color_palette = [
-                                                "cyan", "magenta", "yellow", "green", 
-                                                "blue", "red", "bright_blue", "bright_magenta",
-                                                "bright_cyan", "bright_yellow", "bright_green", "bright_red"
-                                           ]
-                                           color = color_palette[idx % len(color_palette)]
-                                           icon = status_icons.get(self.job_status[idx], "•")
-                                           title = f"[{color}]Worker {idx+1}[/{color}] {icon} [bold]{self.job_info[idx]}[/bold]"
-                                           
-                                           # Convert buffer lines from ANSI to Rich Text objects to preserve colors
-                                           # Create snapshot of buffer to avoid lock issues
-                                           buffer_snapshot = list(self.buffers[idx])
-                                           rich_buffer = []
-                                           for line in buffer_snapshot:
-                                                rich_buffer.append(Text.from_ansi(line))
-                                           
-                                           content = Text("\n").join(rich_buffer)
-                                           col_layouts.append(Layout(Panel(content, title=title, border_style=color, box=box.ROUNDED, padding=(0, 1))))
-                                      else:
-                                           col_layouts.append(Layout())
-                                 row_l.split_row(*col_layouts)
-                                 row_layouts.append(row_l)
-                            
-                            body_layout.split_column(*row_layouts)
+            pipeline_obj = RelaxometryPipeline(config)
+        elif pipeline_name == "fmri":
+            from .workflows.pipelines.fmri_workflow import FmriWorkflow
 
-                            layout = Layout()
-                            layout.split_column(
-                                 Layout(Panel("[bold white on blue] qmri-neuropipe [/bold white on blue] [blue]Parallel Processing Monitor[/blue]", box=box.MINIMAL), size=3),
-                                 Layout(body_layout, name="main"),
-                                 Layout(Panel(self.progress, box=box.MINIMAL), size=3)
-                            )
-                            return layout
-
-             ui_state = UIState(jobs, len(tasks))
-             
-             def log_monitor(live_obj):
-                  while True:
-                       try:
-                            item = log_queue.get()
-                            if item == "STOP": break
-                            msg_type, j_id, msg = item
-                            if msg_type == "log":
-                                 ui_state.update_log(j_id, msg)
-                            elif msg_type == "info":
-                                 # Expecting msg to be (subject_info, status)
-                                 if isinstance(msg, tuple):
-                                      ui_state.update_info(j_id, msg[0], msg[1])
-                                 else:
-                                      ui_state.update_info(j_id, msg)
-                            
-                            # Trigger UI refresh
-                            if live_obj and live_obj.is_started:
-                                 try:
-                                       live_obj.update(ui_state.get_layout())
-                                 except Exception:
-                                       pass
-                       except Exception:
-                            break
-
-             results = []
-             # Use screen=True for maximum stability (own terminal buffer)
-             with Live(ui_state.get_layout(), console=main_console, refresh_per_second=4, screen=True) as live:
-                  # Start monitor with live access
-                  monitor_thread = threading.Thread(target=log_monitor, args=(live,), daemon=True)
-                  monitor_thread.start()
-
-                  with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as executor:
-                       futures = {}
-                       for i, (sub, ses) in enumerate(tasks):
-                            # GPU assignment now handled in worker based on slot_queue
-                            # Pass None to let worker determine GPU based on job_id
-                            f = executor.submit(_run_parallel_worker, sub, ses, config_dict, None, pipeline_name, log_queue, slot_queue)
-                            futures[f] = (sub, ses)
-
-                       for f in concurrent.futures.as_completed(futures):
-                            sub_id, ses_id = futures[f]
-                            try:
-                                 res = f.result()
-                                 if res:
-                                       res.update({'subject': sub_id, 'session': ses_id})
-                                       results.append(res)
-                                 else:
-                                       results.append({'n_failed': 1, 'subject': sub_id, 'session': ses_id})
-                            except Exception as e:
-                                 results.append({'n_failed': 1, 'error': str(e), 'subject': sub_id, 'session': ses_id})
-                            ui_state.advance()
-                            live.update(ui_state.get_layout())
-
-             log_queue.put("STOP")
-             monitor_thread.join(timeout=1)
-
-             # Aggregate Stats and collect failures
-             stats = {'n_success': 0, 'n_failed': 0, 'n_skipped': 0}
-             failures = []
-             for r in results:
-                  stats['n_success'] += r.get('n_success', 0)
-                  stats['n_failed'] += r.get('n_failed', 0)
-                  stats['n_skipped'] += r.get('n_skipped', 0)
-                  if r.get('n_failed', 0) > 0:
-                       failures.append(r)
-        
+            pipeline_obj = FmriWorkflow(config)
         else:
-            # Create and run pipeline
-            console.print(f"\n[blue]Initializing {pipeline_name} pipeline...[/blue]")
-            if pipeline_name == 'dmri':
-                from .workflows.pipelines.dmri import DMRIPipeline
-                pipeline_obj = DMRIPipeline(config)
-            elif pipeline_name == 'anat':
-                from .workflows.pipelines.anat import AnatPipeline
-                pipeline_obj = AnatPipeline(config)
-            elif pipeline_name == 'relaxometry':
-                from .workflows.pipelines.relaxometry import RelaxometryPipeline
-                pipeline_obj = RelaxometryPipeline(config)
-            elif pipeline_name == 'fmri':
-                from .workflows.pipelines.fmri_workflow import FmriWorkflow
-                pipeline_obj = FmriWorkflow(config)
-            else:
-                raise ConfigurationError(
-                    f"Unsupported pipeline: {pipeline_name}",
-                    details=f"Available pipelines: dmri, anat, relaxometry, fmri"
-                )
-            
-            # Run pipeline
-            console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
+            raise ConfigurationError(
+                f"Unsupported pipeline: {pipeline_name}",
+                details="Available pipelines: dmri, anat, relaxometry, fmri",
+            )
+
+        console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")
+        if jobs > 1 and not submit and not isinstance(pipeline_obj, BasePipeline):
+            stats = run_parallel_tasks(
+                pipeline_obj.__class__,
+                config,
+                tasks,
+                jobs,
+                logger=pipeline_obj.logger,
+            )
+        else:
             stats = pipeline_obj.run(pairs=tasks)
-            # Single processing doesn't handle failures list yet, but we'll focus on parallel for now
-            failures = []
-        
+        failures = stats.get("failures", [])
 
         if stats:
             if stats.get('n_failed', 0) > 0:
@@ -1064,229 +886,10 @@ def main(
     
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {str(e)}")
-        if config.debug if 'config' in locals() else debug:
+        if config.debug:
             console.print_exception()
         raise typer.Exit(code=1)
 
-
-def _run_parallel_worker(
-    subject: str,
-    session: Optional[str],
-    config_dict: dict,
-    gpu_id: Optional[int],
-    pipeline_name: str,
-    log_queue: Optional[Any] = None,
-    slot_queue: Optional[Any] = None
-) -> dict:
-    """
-    Worker function for parallel pipeline execution.
-    
-    Handles OS-level stdout/stderr redirection for clean parallel logging,
-    GPU isolation, and proper resource cleanup.
-    """
-    import os
-    import sys
-    import threading
-    import logging
-    from pathlib import Path
-    
-    # 0. Acquire Slot and Identify Job
-    job_id = 0
-    if slot_queue:
-         job_id = slot_queue.get()
-
-    # Communication flag for parallel-aware modules
-    os.environ["QMRI_PARALLEL_WORKER"] = "1"
-    
-    from qmri_neuropipe.core import ui
-    from rich.console import Console
-    
-    # We will initialize the console AFTER redirection.
-    
-    # Resource cleanup tracking
-    original_stdout_fd = None
-    original_stderr_fd = None
-    pipe_out = None
-    pipe_in = None
-
-    try:
-        # 1. Robust OS-level Redirection with cleanup tracking
-        if log_queue:
-            # Save original file descriptors for restoration
-            original_stdout_fd = os.dup(1)
-            original_stderr_fd = os.dup(2)
-            
-            pipe_out, pipe_in = os.pipe()
-            
-            def forwarder():
-                try:
-                    with os.fdopen(pipe_out, 'r', errors='replace') as f:
-                        for line in f:
-                            if line.strip():
-                                log_queue.put(("log", job_id, line.strip()))
-                except Exception:
-                    pass
-
-            threading.Thread(target=forwarder, daemon=True).start()
-
-            # Flush current streams before redirecting
-            try:
-                 sys.stdout.flush()
-                 sys.stderr.flush()
-            except Exception:
-                 pass
-            
-            # Redirect FD 1 and 2 (stdout/stderr) to pipe
-            os.dup2(pipe_in, 1)
-            os.dup2(pipe_in, 2)
-            os.close(pipe_in)
-            pipe_in = None  # Mark as closed
-            
-            # Update Python's sys.stdout/stderr to point to the new FDs.
-            # CRITICAL: Use closefd=False to prevent Python from closing FD 1/2 
-            # when these objects are garbage collected between tasks in the pool.
-            sys.stdout = os.fdopen(1, 'w', buffering=1, closefd=False)
-            sys.stderr = os.fdopen(2, 'w', buffering=1, closefd=False)
-
-            # Initialize the worker console to use the redirected streams
-            ui.console = Console(force_terminal=True, color_system="truecolor", soft_wrap=True, legacy_windows=False)
-        from qmri_neuropipe.core import PipelineConfig, ui
-        from rich.console import Console
-
-        # 2. Isolate GPU Environment
-        # Use worker slot-based GPU assignment for deterministic scheduling
-        if gpu_id is not None:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        elif config_dict.get('gpu_ids') and job_id is not None:
-            # Fallback: assign based on worker slot
-            gpu_list = config_dict['gpu_ids']
-            assigned_gpu = gpu_list[job_id % len(gpu_list)]
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned_gpu)
-            
-        # 3. Reconstruct Config
-        valid_keys = set(PipelineConfig.__annotations__.keys())
-        if 'config_data' in valid_keys:
-            valid_keys.remove('config_data')
-            
-        standard_args = {k: v for k, v in config_dict.items() if k in valid_keys}
-        
-        try:
-            config = PipelineConfig(**standard_args, config_data=config_dict)
-        except Exception:
-            config = PipelineConfig()
-            for k, v in standard_args.items():
-                if hasattr(config, k):
-                    setattr(config, k, v)
-            config.config_data = config_dict
-            
-        if config.bids_dir: config.bids_dir = Path(config.bids_dir)
-        if config.output_dir: config.output_dir = Path(config.output_dir)
-        if config.work_dir: config.work_dir = Path(config.work_dir)
-        if config.subjects_file: config.subjects_file = Path(config.subjects_file)
-
-        config.set('jobs', 1)
-        if 'jobs' in config.config_data:
-            config.config_data['jobs'] = 1
-
-        # 4. Setup Worker UI/Logging (Now that redirection is active)
-        if log_queue:
-
-             log_queue.put(("info", job_id, (f"{subject} (ses-{session if session else 'N/A'})", "running")))
-             ui.console.print(f"🚀 [bold cyan]Starting pipeline for {subject}[/bold cyan]")
-             
-             # Configure worker-specific logging to avoid conflicts
-             # Use worker-specific logger instances instead of reconfiguring root
-             log_level = getattr(logging, config.log_level, logging.INFO)
-             
-             worker_logger = logging.getLogger(f"qmri-neuropipe.worker.{job_id}")
-             worker_logger.setLevel(log_level)
-             
-             # Clear any existing handlers
-             worker_logger.handlers.clear()
-             
-             # Add stderr handler for this worker
-             handler = logging.StreamHandler(sys.stderr)
-             handler.setLevel(log_level)
-             formatter = logging.Formatter('[%(name)s] %(levelname)s: %(message)s')
-             handler.setFormatter(formatter)
-             worker_logger.addHandler(handler)
-             worker_logger.propagate = False
-             
-
-        # 4. Initialize Pipeline
-        if pipeline_name == 'dmri':
-            from qmri_neuropipe.workflows.pipelines.dmri import DMRIPipeline
-            pipeline_obj = DMRIPipeline(config, logger=worker_logger)
-        elif pipeline_name == 'anat':
-            from qmri_neuropipe.workflows.pipelines.anat import AnatPipeline
-            pipeline_obj = AnatPipeline(config, logger=worker_logger)
-        elif pipeline_name == 'relaxometry':
-            from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryPipeline
-            pipeline_obj = RelaxometryPipeline(config, logger=worker_logger)
-        elif pipeline_name == 'fmri':
-            from qmri_neuropipe.workflows.pipelines.fmri_workflow import FmriWorkflow
-            pipeline_obj = FmriWorkflow(config, logger=worker_logger)
-        else:
-             return {'n_success': 0, 'n_failed': 1, 'n_skipped': 0, 'error': f"Unknown pipeline {pipeline_name}"}
-        
-        # 5. Run (Single Subject mode)
-        stats = pipeline_obj.run(
-            subjects=[subject], 
-            sessions=[session] if session else None
-        )
-        
-        if log_queue:
-             status = "complete" if stats.get('n_success', 0) > 0 else "failed"
-             log_queue.put(("info", job_id, (f"{subject} (Done)", status)))
-             ui.console.print(f"✨ [bold green]Finished {subject}[/bold green]")
-             
-        stats.update({'subject': subject, 'session': session})
-        return stats
-        
-    except Exception as e:
-        if log_queue:
-             log_queue.put(("info", job_id, (f"{subject} (Error)", "failed")))
-             ui.console.print(f"❌ [bold red]FATAL ERROR: {str(e)}[/bold red]")
-        return {
-            'n_success': 0, 
-            'n_failed': 1, 
-            'n_skipped': 0, 
-            'error': str(e),
-            'subject': subject,
-            'session': session
-        }
-    finally:
-         # Clean up file descriptors and restore original streams
-         if original_stdout_fd is not None:
-              try:
-                   # Flush Python streams
-                   sys.stdout.flush()
-                   sys.stderr.flush()
-                   
-                   # Restore original file descriptors
-                   os.dup2(original_stdout_fd, 1)
-                   os.dup2(original_stderr_fd, 2)
-                   
-                   # Close duplicates
-                   os.close(original_stdout_fd)
-                   os.close(original_stderr_fd)
-                   
-                   # Recreate Python streams pointing to restored FDs
-                   sys.stdout = os.fdopen(1, 'w', buffering=1, closefd=False)
-                   sys.stderr = os.fdopen(2, 'w', buffering=1, closefd=False)
-              except Exception:
-                   pass  # Best effort cleanup
-         
-         # Close pipe_in if still open (shouldn't be, but safety)
-         if pipe_in is not None:
-              try:
-                   os.close(pipe_in)
-              except OSError:
-                   pass
-         
-         # Release worker slot
-         if slot_queue:
-              slot_queue.put(job_id)
 
 if __name__ == "__main__":
     app()

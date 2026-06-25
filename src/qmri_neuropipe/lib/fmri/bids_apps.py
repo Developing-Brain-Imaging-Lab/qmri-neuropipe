@@ -20,9 +20,7 @@ class FmriPrepStep(BaseProcessingStep):
     def __init__(self, config: Any, logger: Optional[logging.Logger] = None, provenance=None):
         super().__init__(config, logger, provenance)
         
-        # Pull from config_data if it's a PipelineConfig object
-        cfg_data = getattr(self.config, 'config_data', {}) if hasattr(self.config, 'config_data') else self.config
-        fmriprep_cfg = cfg_data.get("fmriprep", {}) if isinstance(cfg_data, dict) else {}
+        fmriprep_cfg = self.config.get("fmriprep", {})
         
         self.container_path = fmriprep_cfg.get("container_path")
         self.docker_image = fmriprep_cfg.get("docker_image")

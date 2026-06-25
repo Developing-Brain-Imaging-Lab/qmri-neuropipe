@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from qmri_neuropipe.core import BaseWorkflow
+from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.lib.common.segmentation import SegmentationStep
 from qmri_neuropipe.lib.common.analysis import AtlasRegistrationStep, StatsExtractionStep
 
@@ -49,7 +49,8 @@ class SegmentationWorkflow(BaseWorkflow):
         context: dict,
         reporter=None,
         final_output_dir: Optional[Path] = None,
-    ) -> dict:
+    ) -> PipelineContext:
+        context = PipelineContext.ensure(context)
         if not self.steps:
             return context
 
@@ -59,4 +60,4 @@ class SegmentationWorkflow(BaseWorkflow):
         result = context
         for step in self.steps:
             result = step.run(result, out_dir)
-        return result
+        return PipelineContext.ensure(result)
