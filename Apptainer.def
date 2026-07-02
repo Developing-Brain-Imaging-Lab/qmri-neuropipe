@@ -25,6 +25,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export DEBIAN_FRONTEND=noninteractive
     export CONDA_DIR=/opt/conda
     export PATH=${CONDA_DIR}/bin:$PATH
+    export MAMBA_ROOT_PREFIX=/tmp/micromamba-root
 
     FREESURFER_VERSION="${FREESURFER_VERSION:-8.2.0}"
     FREESURFER_PACKAGE="${FREESURFER_PACKAGE:-freesurfer_ubuntu22-8.2.0_amd64.deb}"
@@ -43,13 +44,14 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         git \
         build-essential \
         sudo \
+        bzip2 \
         bc \
         dc \
         file \
         tcsh \
         perl \
         locales \
-        libgl1-mesa-dev \
+        libgl1 \
         libglu1-mesa \
         libfontconfig1 \
         libfreetype6 \
@@ -64,13 +66,14 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         rm -rf /var/lib/apt/lists/*
 
     # --------------------------------------------------------------------------------
-    # 2. Miniforge and core neuroimaging binaries
+    # 2. Micromamba and core neuroimaging binaries
     # --------------------------------------------------------------------------------
-    wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /tmp/miniforge.sh
-    bash /tmp/miniforge.sh -b -p ${CONDA_DIR}
-    rm /tmp/miniforge.sh
+    mkdir -p /usr/local/bin
+    wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /tmp bin/micromamba
+    install -m 0755 /tmp/bin/micromamba /usr/local/bin/micromamba
+    rm -rf /tmp/bin
 
-    mamba install -y -c mrtrix3 -c conda-forge \
+    micromamba install -y -p ${CONDA_DIR} -c mrtrix3 -c conda-forge \
         python=3.10 \
         pip \
         numpy \
@@ -80,7 +83,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         ants \
         afni \
         dcm2niix
-    conda clean --all --yes
+    micromamba clean --all --yes
 
     # --------------------------------------------------------------------------------
     # 3. FSL
@@ -98,7 +101,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     mkdir -p ${FREESURFER_HOME}
     wget -O /tmp/freesurfer.deb ${FREESURFER_URL}
     apt-get update
-    apt-get install -y /tmp/freesurfer.deb
+    apt-get install -y --no-install-recommends /tmp/freesurfer.deb
     rm -f /tmp/freesurfer.deb
     rm -rf /var/lib/apt/lists/*
     FS_ACTUAL_HOME=""
@@ -167,7 +170,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
     # Remove package caches and temporary build content before Apptainer
     # compresses the root filesystem into the final SIF.
-    ${CONDA_DIR}/bin/conda clean --all --yes
+    micromamba clean --all --yes
     if [ -x "${FSLDIR}/bin/conda" ]; then
         "${FSLDIR}/bin/conda" clean --all --yes
     elif [ -x "${FSLDIR}/bin/mamba" ]; then
@@ -175,11 +178,28 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     elif [ -x "${FSLDIR}/bin/micromamba" ]; then
         "${FSLDIR}/bin/micromamba" clean --all --yes
     fi
+    rm -rf "${REPO_DIR}"
     # These packages are required only while constructing the image. Runtime
     # libraries declared by FreeSurfer and the other installed tools remain.
-    apt-get purge -y --auto-remove build-essential git gnupg sudo
+    apt-get purge -y --auto-remove build-essential git gnupg sudo bzip2
     apt-get clean
-    rm -rf /var/lib/apt/lists/* /root/.cache /root/.conda /tmp/*
+    find ${CONDA_DIR} ${FSLDIR} ${FREESURFER_HOME} \
+        -type d \( -name __pycache__ -o -name ".pytest_cache" -o -name tests -o -name test \) \
+        -prune -exec rm -rf {} +
+    find ${CONDA_DIR} ${FSLDIR} ${FREESURFER_HOME} \
+        -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.a" -o -name "*.la" \) \
+        -delete
+    find ${CONDA_DIR} \
+        -type d \( -path "*/include" -o -path "*/Headers" \) \
+        -prune -exec rm -rf {} +
+    rm -rf \
+        /var/lib/apt/lists/* \
+        /root/.cache \
+        /root/.conda \
+        /root/.local \
+        /tmp/micromamba-root \
+        /tmp/*
+    rm -f /usr/local/bin/micromamba
 
 
 %environment
