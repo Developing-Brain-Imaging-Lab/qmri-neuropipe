@@ -30,6 +30,8 @@ _PED_TO_VECTOR = {
     "k-": np.array([0.0, 0.0, -1.0]),
 }
 
+_FSL_TOPUP_SUPPORTED_PED = {"i", "i-", "j", "j-"}
+
 # def load_dwi_from_bids(sub_dir: Path) -> Dict[Path, Path, Path, Path, Optional[Path], Optional[Path]]:
 #     """
 #     Very small helper: picks the first *_dwi.nii.gz and mates .bval/.bvec/.json.
@@ -125,6 +127,44 @@ def phase_encoding_direction_to_vector(direction: str) -> np.ndarray:
         return _PED_TO_VECTOR[str(direction)].copy()
     except KeyError as exc:
         raise ValueError(f"Unsupported PhaseEncodingDirection: {direction!r}") from exc
+
+
+def infer_fsl_phase_encoding_direction(
+    dwi: DWIFile | None = None,
+    json_path: Path | None = None,
+    entities: Optional[dict] = None,
+) -> str | None:
+    """
+    Resolve a phase-encoding direction usable by FSL topup/eddy acqparams.
+
+    BIDS allows ``k``/``k-`` for through-plane phase encoding, but FSL topup
+    rejects acqparams rows with a nonzero third vector component. If JSON has a
+    through-plane direction but the BIDS ``dir`` entity gives a conventional
+    in-plane AP/PA/RL/LR label, prefer the entity for FSL.
+    """
+    json_ped = _load_json_field(json_path or getattr(dwi, "json", None), "PhaseEncodingDirection")
+    source_entities = entities or getattr(dwi, "entities", {}) or {}
+    dir_label = source_entities.get("dir")
+    dir_ped = _DIR_ENTITY_TO_PED.get(str(dir_label).strip().upper()) if dir_label else None
+
+    if json_ped in _FSL_TOPUP_SUPPORTED_PED:
+        return json_ped
+    if json_ped in {"k", "k-"} and dir_ped in _FSL_TOPUP_SUPPORTED_PED:
+        return dir_ped
+    return json_ped or dir_ped
+
+
+def fsl_phase_encoding_direction_to_vector(direction: str) -> np.ndarray:
+    """Convert a phase-encoding direction to an FSL topup/eddy acqparams vector."""
+    vector = phase_encoding_direction_to_vector(direction)
+    if not np.isclose(vector[2], 0.0):
+        raise ValueError(
+            "FSL topup/eddy acqparams require the third phase-encoding vector "
+            f"component to be zero, but PhaseEncodingDirection={direction!r} "
+            "maps to through-plane encoding. Fix the DWI sidecar or filename "
+            "dir entity to an in-plane direction such as AP/PA/RL/LR, or disable topup."
+        )
+    return vector
 
 
 def phase_encoding_vector_to_direction(vector: Iterable[float], atol: float = 1e-5) -> str:
@@ -233,7 +273,7 @@ def build_acqp_index(
         except Exception:
             return None, None
 
-    ped = infer_phase_encoding_direction(json_path=json_path, entities=entities)
+    ped = infer_fsl_phase_encoding_direction(json_path=json_path, entities=entities)
     if ped is None:
         return None, None
 
@@ -248,8 +288,10 @@ def build_acqp_index(
     # Map BIDS PE to FSL acqp (i/j/k with +/-). Using j as default example:
     # Columns are: dx dy dz readout_time
     try:
-        vector = phase_encoding_direction_to_vector(ped).astype(int)
+        vector = fsl_phase_encoding_direction_to_vector(ped).astype(int)
     except ValueError:
+        if ped in {"k", "k-"}:
+            raise
         vector = phase_encoding_direction_to_vector("j").astype(int)
     line = " ".join(str(value) for value in vector)
 

@@ -17,8 +17,8 @@ from ...core.types import DWIFile
 from ...interfaces import fsl
 from ...io.bids import build_bids_name, _load_json_field
 from ...io.dmri.bids import (
-    infer_phase_encoding_direction,
-    phase_encoding_direction_to_vector,
+    infer_fsl_phase_encoding_direction,
+    fsl_phase_encoding_direction_to_vector,
 )
 
 class MergeStep(BaseProcessingStep):
@@ -192,17 +192,20 @@ class MergeStep(BaseProcessingStep):
                 
                 # Identify acqp for this file
                 # Use PhaseEncodingDirection and TotalReadoutTime from JSON
-                pe_dir = _load_json_field(d.json, "PhaseEncodingDirection")
+                pe_dir = infer_fsl_phase_encoding_direction(dwi=d, json_path=d.json, entities=d.entities)
                 trt = _load_json_field(d.json, "TotalReadoutTime")
                 eff_echo = _load_json_field(d.json, "EffectiveEchoSpacing")
                 
                 # FSL format: x y z time
                 # x,y,z derived from PE dir (i, i-, j, j-, k, k-)
-                try:
-                    vec = phase_encoding_direction_to_vector(pe_dir).astype(int).tolist()
-                except ValueError:
+                if pe_dir is None:
                     self.logger.warning(f"Unknown or missing PhaseEncodingDirection '{pe_dir}' for {d.img.name}. Defaulting to [0,1,0].")
                     vec = [0, 1, 0]
+                else:
+                    try:
+                        vec = fsl_phase_encoding_direction_to_vector(pe_dir).astype(int).tolist()
+                    except ValueError as exc:
+                        raise ProcessingError(str(exc)) from exc
                 
                 # Readout time: TRT is best. If missing, use EES * (dim - 1). 
                 ro_time = 0.05 # Default

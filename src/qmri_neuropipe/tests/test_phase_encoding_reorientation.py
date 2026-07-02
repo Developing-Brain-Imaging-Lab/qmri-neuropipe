@@ -6,6 +6,9 @@ import numpy as np
 
 from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.io.dmri.bids import (
+    build_acqp_index,
+    fsl_phase_encoding_direction_to_vector,
+    infer_fsl_phase_encoding_direction,
     phase_encoding_transform_matrix,
     transform_acqparams_file,
     transform_phase_encoding_direction,
@@ -57,6 +60,31 @@ def test_acqparams_rows_follow_reorientation(tmp_path: Path):
     )
 
     assert destination.read_text() == "0 -1 0 0.050000\n-1 0 0 0.075000\n"
+
+
+def test_fsl_acqparams_prefers_in_plane_dir_entity_for_through_plane_json(tmp_path: Path):
+    dwi = tmp_path / "sub-01_dir-AP_dwi.nii.gz"
+    sidecar = tmp_path / "sub-01_dir-AP_dwi.json"
+    nib.save(nib.Nifti1Image(np.zeros((2, 3, 4, 2)), np.eye(4)), dwi)
+    sidecar.write_text('{"PhaseEncodingDirection": "k", "TotalReadoutTime": 0.08}\n', encoding="utf-8")
+
+    assert infer_fsl_phase_encoding_direction(json_path=sidecar, entities={"dir": "AP"}) == "j"
+
+    acqp, index = build_acqp_index(sidecar, dwi, entities={"dir": "AP"}, support_dir=tmp_path)
+
+    assert acqp is not None
+    assert index is not None
+    assert acqp.read_text() == "0 1 0 0.080000\n"
+    assert index.read_text() == "1\n1\n"
+
+
+def test_fsl_acqparams_rejects_through_plane_phase_encoding():
+    try:
+        fsl_phase_encoding_direction_to_vector("k")
+    except ValueError as exc:
+        assert "third phase-encoding vector component to be zero" in str(exc)
+    else:
+        raise AssertionError("Expected through-plane FSL acqparams direction to fail")
 
 
 def test_reorient_step_updates_sidecar_and_pipeline_context(tmp_path: Path):
