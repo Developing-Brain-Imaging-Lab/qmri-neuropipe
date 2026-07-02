@@ -178,10 +178,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     elif [ -x "${FSLDIR}/bin/micromamba" ]; then
         "${FSLDIR}/bin/micromamba" clean --all --yes
     fi
+    cd /
     rm -rf "${REPO_DIR}"
     # These packages are required only while constructing the image. Runtime
     # libraries declared by FreeSurfer and the other installed tools remain.
-    apt-get purge -y --auto-remove build-essential git gnupg sudo bzip2
+    SUDO_FORCE_REMOVE=yes apt-get purge -y --auto-remove build-essential git gnupg sudo bzip2
     apt-get clean
     find ${CONDA_DIR} ${FSLDIR} ${FREESURFER_HOME} \
         -type d \( -name __pycache__ -o -name ".pytest_cache" -o -name tests -o -name test \) \
