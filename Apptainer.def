@@ -73,7 +73,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     install -m 0755 /tmp/bin/micromamba /usr/local/bin/micromamba
     rm -rf /tmp/bin
 
-    micromamba install -y -p ${CONDA_DIR} -c mrtrix3 -c conda-forge \
+    micromamba create -y -p ${CONDA_DIR} -c mrtrix3 -c conda-forge \
         python=3.10 \
         pip \
         numpy \
