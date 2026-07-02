@@ -18,6 +18,7 @@ from ...interfaces import fsl
 from ...io.bids import build_bids_name, _load_json_field
 from ...io.dmri.bids import (
     infer_fsl_phase_encoding_direction,
+    infer_phase_encoding_direction,
     fsl_phase_encoding_direction_to_vector,
 )
 
