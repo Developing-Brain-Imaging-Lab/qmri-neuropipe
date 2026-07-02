@@ -2,10 +2,10 @@ Bootstrap: docker
 From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 %arguments
-    # Install every declared optional feature by default. This is intentionally
-    # explicit because the project's "all" extra does not currently include
-    # nifreeze or mriqc.
-    PYTHON_EXTRAS=amico,nexi,nifreeze,pyafq,hdbet,mriqc,synb0,tracker,reporting,viewer
+    # Install optional features that currently resolve together. MRIQC and
+    # Nifreeze are excluded for now because their nitransforms requirements
+    # conflict.
+    PYTHON_EXTRAS=amico,nexi,pyafq,hdbet,synb0,tracker,reporting,viewer
 
 %labels
     Author Dean
