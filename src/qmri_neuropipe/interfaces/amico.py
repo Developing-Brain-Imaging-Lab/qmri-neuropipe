@@ -12,6 +12,15 @@ from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
 
+
+def _normalize_sandi_scheme_header(scheme_file: Path) -> None:
+    lines = scheme_file.read_text().splitlines()
+    if not lines:
+        raise ProcessingError(f"AMICO SANDI scheme file is empty: {scheme_file}")
+    lines[0] = "VERSION: STEJSKALTANNER"
+    scheme_file.write_text("\n".join(lines) + "\n")
+
+
 def fit_noddi(
     in_file: Union[Path, ImageLike],
     out_dir: Path,
@@ -139,14 +148,27 @@ def fit_sandi(
     
     scheme_file = out_dir / 'scheme.txt'
     
-    Delta_file = in_file.Delta if isinstance(in_file, DWIFile) else kwargs.get('Delta_file')
-    delta_file = in_file.delta if isinstance(in_file, DWIFile) else kwargs.get('delta_file')
-    
-    if Delta_file and delta_file:
-        amico.util.sandi2scheme(str(bval_file), str(bvec_file), str(Delta_file), str(delta_file), schemeFilename=str(scheme_file))
-    else:
-        # Fallback if no explicit time parameters
-        amico.util.fsl2scheme(str(bval_file), str(bvec_file), str(scheme_file))
+    Delta_file = kwargs.get('Delta_file')
+    delta_file = kwargs.get('delta_file')
+    if isinstance(in_file, DWIFile):
+        Delta_file = Delta_file or getattr(in_file, 'Delta', None)
+        delta_file = delta_file or getattr(in_file, 'delta', None)
+
+    if not Delta_file or not delta_file:
+        raise ProcessingError(
+            "AMICO SANDI requires diffusion timing files so the scheme can be "
+            "written as VERSION: STEJSKALTANNER. Provide both Delta_file and "
+            "delta_file, or use the dmipy SANDI backend."
+        )
+
+    amico.util.sandi2scheme(
+        str(bval_file),
+        str(bvec_file),
+        str(Delta_file),
+        str(delta_file),
+        schemeFilename=str(scheme_file),
+    )
+    _normalize_sandi_scheme_header(scheme_file)
     
     in_path = extract_image_path(in_file)
     ae.load_data(dwi_filename=str(in_path), scheme_filename=str(scheme_file), mask_filename=str(mask_file))

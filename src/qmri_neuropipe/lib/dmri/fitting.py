@@ -827,7 +827,12 @@ class SANDIFittingStep(BaseProcessingStep):
         elif self.method == 'amico':
              _warn_unsupported_gnl(self.logger, context, dwi, "SANDI")
              from ...interfaces.amico import fit_sandi
-             fit_sandi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **self.kwargs)
+             fit_kwargs = self.kwargs.copy()
+             if hasattr(dwi, 'Delta') and dwi.Delta:
+                 fit_kwargs['Delta_file'] = dwi.Delta
+             if hasattr(dwi, 'delta') and dwi.delta:
+                 fit_kwargs['delta_file'] = dwi.delta
+             fit_sandi(dwi, model_out, mask_file=mask_path, nthreads=self.nthreads, **fit_kwargs)
         else:
              raise ValueError(f"Unknown SANDI method: {self.method}")
 
