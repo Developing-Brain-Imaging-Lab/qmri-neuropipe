@@ -20,6 +20,40 @@ from qmri_neuropipe.interfaces.dmipy import (
     _safe_rotate_gradients_for_gnl,
 )
 
+def _build_microglia_model(cylinder_models, gaussian_models, sphere_models, distribute_models, MultiCompartmentModel, model_config):
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
+
+    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
+    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    dispersed_bundle.set_fixed_parameter(
+        'G2Zeppelin_1_lambda_par',
+        float(model_config.get('parallel_diffusivity', 1.7e-9))
+    )
+
+    small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+    large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+    ball = gaussian_models.G1Ball()
+
+    model = MultiCompartmentModel(
+        models=[dispersed_bundle, small_sphere, large_sphere, ball]
+    )
+    model.set_fixed_parameter(
+        'S2SphereStejskalTannerApproximation_1_diameter',
+        float(model_config.get('small_diameter', 4e-6))
+    )
+    model.set_fixed_parameter(
+        'S2SphereStejskalTannerApproximation_2_diameter',
+        float(model_config.get('large_diameter', 8e-6))
+    )
+    model.set_fixed_parameter(
+        'G1Ball_1_lambda_iso',
+        float(model_config.get('iso_diffusivity', 3.0e-9))
+    )
+    return model
+
+
 def _fit_microglia_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
     print(f"[Worker {chunk_id}] Started Microglia chunk with {len(data_chunk)} voxels.")
@@ -35,37 +69,13 @@ def _fit_microglia_chunk(args):
     os.environ["OPENBLAS_NUM_THREADS"] = "1"
     
     try:
-        stick = cylinder_models.C1Stick()
-        zeppelin = gaussian_models.G2Zeppelin()
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-        
-        # Link stick and zeppelin parallel diffusivity
-        dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
-        dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-        
-        # Fix parallel diffusivity to 1.7e-9 or similar based on config
-        d_par = float(model_config.get('parallel_diffusivity', 1.7e-9))
-        dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', d_par)
-        
-        # Spheres
-        small_sphere = sphere_models.S2SphereStejskalTannerApproximation(name="SmallSphere")
-        large_sphere = sphere_models.S2SphereStejskalTannerApproximation(name="LargeSphere")
-        
-        # Fix diameters based on config
-        d_small = float(model_config.get('small_diameter', 4e-6))
-        d_large = float(model_config.get('large_diameter', 8e-6))
-        
-        small_sphere.set_fixed_parameter('SmallSphere_1_diameter', d_small)
-        large_sphere.set_fixed_parameter('LargeSphere_1_diameter', d_large)
-        
-        # Free water ball
-        ball = gaussian_models.G1Ball()
-        d_iso = float(model_config.get('iso_diffusivity', 3.0e-9))
-        ball.set_fixed_parameter('G1Ball_1_lambda_iso', d_iso)
-        
-        # Assemble 4-compartment model
-        microglia_model = MultiCompartmentModel(
-            models=[dispersed_bundle, small_sphere, large_sphere, ball]
+        microglia_model = _build_microglia_model(
+            cylinder_models,
+            gaussian_models,
+            sphere_models,
+            distribute_models,
+            MultiCompartmentModel,
+            model_config,
         )
         
         # Fit
@@ -111,22 +121,14 @@ def _fit_microglia_chunk_gnl(args):
         base_scheme = _build_dmipy_scheme(bvals, bvecs, delta=delta_arr, Delta=Delta_arr)
 
         for vox_idx in range(data_chunk.shape[0]):
-            stick = cylinder_models.C1Stick()
-            zeppelin = gaussian_models.G2Zeppelin()
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-            dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-            dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-            dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', float(model_config.get('parallel_diffusivity', 1.7e-9)))
-
-            small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-            large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-            small_sphere.set_fixed_parameter('S2SphereStejskalTannerApproximation_1_diameter', float(model_config.get('small_diameter', 4e-6)))
-            large_sphere.set_fixed_parameter('S2SphereStejskalTannerApproximation_1_diameter', float(model_config.get('large_diameter', 8e-6)))
-
-            ball = gaussian_models.G1Ball()
-            ball.set_fixed_parameter('G1Ball_1_lambda_iso', float(model_config.get('iso_diffusivity', 3.0e-9)))
-
-            model = MultiCompartmentModel(models=[dispersed_bundle, small_sphere, large_sphere, ball])
+            model = _build_microglia_model(
+                cylinder_models,
+                gaussian_models,
+                sphere_models,
+                distribute_models,
+                MultiCompartmentModel,
+                model_config,
+            )
             if merged is None:
                 merged = _initialize_param_storage(model, n_voxels)
 
@@ -170,13 +172,14 @@ def _fit_microglia_chunk_gnl(args):
                         first_error = exc
 
         if merged is None:
-            stick = cylinder_models.C1Stick()
-            zeppelin = gaussian_models.G2Zeppelin()
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-            small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-            large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-            ball = gaussian_models.G1Ball()
-            model = MultiCompartmentModel(models=[dispersed_bundle, small_sphere, large_sphere, ball])
+            model = _build_microglia_model(
+                cylinder_models,
+                gaussian_models,
+                sphere_models,
+                distribute_models,
+                MultiCompartmentModel,
+                model_config,
+            )
             merged = _initialize_param_storage(model, n_voxels)
             failed_voxels = n_voxels
 

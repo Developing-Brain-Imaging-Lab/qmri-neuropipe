@@ -185,7 +185,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     SUDO_FORCE_REMOVE=yes apt-get purge -y --auto-remove build-essential git gnupg sudo bzip2
     apt-get clean
     find ${CONDA_DIR} ${FSLDIR} ${FREESURFER_HOME} \
-        -type d \( -name __pycache__ -o -name ".pytest_cache" -o -name tests -o -name test \) \
+        -type d \( -name __pycache__ -o -name ".pytest_cache" \) \
         -prune -exec rm -rf {} +
     find ${CONDA_DIR} ${FSLDIR} ${FREESURFER_HOME} \
         -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.a" -o -name "*.la" \) \
