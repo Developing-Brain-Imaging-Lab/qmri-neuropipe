@@ -155,6 +155,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     cd "${REPO_DIR}"
     rm -rf build dist *.egg-info src/*.egg-info
     ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel
+    ${CONDA_DIR}/bin/python -m pip install \
+        --no-cache-dir \
+        --no-compile \
+        --prefer-binary \
+        dmri-amico
     PYTHON_EXTRAS="{{ PYTHON_EXTRAS }}"
     if [ -n "${PYTHON_EXTRAS}" ]; then
         PACKAGE_SPEC=".[${PYTHON_EXTRAS}]"
@@ -167,6 +172,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         --no-build-isolation \
         --prefer-binary \
         "${PACKAGE_SPEC}"
+    ${CONDA_DIR}/bin/python -c "import amico"
 
     # Remove package caches and temporary build content before Apptainer
     # compresses the root filesystem into the final SIF.

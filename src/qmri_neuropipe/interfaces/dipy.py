@@ -822,6 +822,9 @@ def _gnl_worker_func(chunk_id, chunk_data, _, kwargs):
     model_class = kwargs['model_class']
     # Copy model_kwargs so we can safely modify
     full_kwargs = kwargs.get('model_kwargs', {}).copy()
+    # These are pipeline/driver controls, not DIPY model constructor kwargs.
+    for key in ('n_cpus', 'nthreads', 'smoothing_fwhm', 'grad_nonlin', 'sub_method'):
+        full_kwargs.pop(key, None)
     metrics = full_kwargs.pop('metrics', None)
     peak_npeaks = int(full_kwargs.pop('peak_npeaks', 3))
     peak_relative_threshold = float(full_kwargs.pop('peak_relative_threshold', 0.5))
