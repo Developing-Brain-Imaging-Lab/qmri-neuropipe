@@ -142,8 +142,9 @@ def _build_sandi_model(model_config):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions import distribute_models
+        from dimpy.distribution.distribute_models import BundleModel 
         from dmipy.core.modeling_framework import MultiCompartmentModel
+        
 
     parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
     iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
