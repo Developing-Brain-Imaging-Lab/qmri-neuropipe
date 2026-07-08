@@ -142,7 +142,7 @@ def _build_sandi_model(model_config):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dimpy.distribution.distribute_models import BundleModel 
+        from dmipy.distributions.distribute_models import BundleModel
         from dmipy.core.modeling_framework import MultiCompartmentModel
         
 
