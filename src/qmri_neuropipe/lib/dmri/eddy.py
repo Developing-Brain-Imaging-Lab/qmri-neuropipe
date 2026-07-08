@@ -179,7 +179,9 @@ class EddyCorrectionStep(BaseProcessingStep):
                 img=output_img,
                 json=input_img.json,
                 bval=input_img.bval,
-                bvec=out_bvec if out_bvec.exists() else input_img.bvec # Fallback to input bvec if rotated missing? 
+                bvec=out_bvec if out_bvec.exists() else input_img.bvec, # Fallback to input bvec if rotated missing?
+                Delta=getattr(input_img, "Delta", None),
+                delta=getattr(input_img, "delta", None),
              )
              
              if context is not None:
@@ -336,7 +338,9 @@ class EddyCorrectionStep(BaseProcessingStep):
                          img=temp_int16,
                          json=input_img.json,
                          bval=input_img.bval,
-                         bvec=input_img.bvec
+                         bvec=input_img.bvec,
+                         Delta=getattr(input_img, "Delta", None),
+                         delta=getattr(input_img, "delta", None),
                      )
                  else:
                      self.logger.warning("Int16 conversion failed (output missing). Using original float input.")

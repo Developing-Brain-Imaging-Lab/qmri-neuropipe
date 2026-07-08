@@ -14,6 +14,7 @@ import numpy as np
 
 from qmri_neuropipe.core.types import ImageFile, DWIFile
 from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
+from qmri_neuropipe.io.dmri.bids import ensure_dwi_timing_sidecars
 from qmri_neuropipe.core.utils import get_nifti_stem
 
 
@@ -76,6 +77,7 @@ class DataIOManager:
         copied_dwi_files = []
         
         for d in dwi_files:
+            ensure_dwi_timing_sidecars(d, logger=self.logger)
             # Copy main image
             dest_img = raw_work_dir / d.img.name
             if not dest_img.exists():
@@ -85,6 +87,8 @@ class DataIOManager:
             dest_bval = self._copy_sidecar(d.bval, raw_work_dir)
             dest_bvec = self._copy_sidecar(d.bvec, raw_work_dir)
             dest_json = self._copy_sidecar(d.json, raw_work_dir)
+            dest_Delta = self._copy_sidecar(d.Delta, raw_work_dir)
+            dest_delta = self._copy_sidecar(d.delta, raw_work_dir)
             
             # Ensure entities match the processing subject/session
             current_entities = d.entities.copy()
@@ -98,6 +102,8 @@ class DataIOManager:
                 json=dest_json,
                 bval=dest_bval,
                 bvec=dest_bvec,
+                Delta=dest_Delta,
+                delta=dest_delta,
                 entities=current_entities
             )
             copied_dwi_files.append(new_dwi)
@@ -273,13 +279,14 @@ class DataIOManager:
             
             target_img = target_dir / fname
             
-            # Check if skip
+            copy_image = True
             if skip_existing and target_img.exists():
-                self.logger.debug(f"Skipping existing file: {target_img}")
-                continue
+                self.logger.debug(f"Skipping existing image file but refreshing sidecars: {target_img}")
+                copy_image = False
             
             # Copy files
-            self.logger.info(f"Saving: {target_img}")
+            if copy_image:
+                self.logger.info(f"Saving: {target_img}")
             search_dirs = []
             if dwi.img.parent:
                 search_dirs.append(dwi.img.parent)
@@ -333,7 +340,9 @@ class DataIOManager:
                 mask_src = self._find_mask_for_image(dwi.img, search_dirs)
 
             mask_applied_to_final = False
-            if apply_mask_to_final and mask_src and mask_src.exists():
+            if not copy_image:
+                mask_applied_to_final = False
+            elif apply_mask_to_final and mask_src and mask_src.exists():
                 try:
                     self._apply_mask_to_dwi_and_save(dwi.img, mask_src, target_img)
                     mask_applied_to_final = True
@@ -349,9 +358,17 @@ class DataIOManager:
             bval_src = getattr(dwi, "bval", None) or self._find_sidecar_for_image(dwi.img, ".bval", search_dirs)
             bvec_src = getattr(dwi, "bvec", None) or self._find_sidecar_for_image(dwi.img, ".bvec", search_dirs)
             json_src = getattr(dwi, "json", None) or self._find_sidecar_for_image(dwi.img, ".json", search_dirs)
+            Delta_src = (
+                getattr(dwi, "Delta", None)
+                or self._find_sidecar_for_image(dwi.img, ".bigdelta", search_dirs)
+                or self._find_sidecar_for_image(dwi.img, ".Delta", search_dirs)
+            )
+            delta_src = getattr(dwi, "delta", None) or self._find_sidecar_for_image(dwi.img, ".delta", search_dirs)
 
             self._copy_sidecar_with_new_name(bval_src, target_img, ".bval")
             self._copy_sidecar_with_new_name(bvec_src, target_img, ".bvec")
+            self._copy_sidecar_with_new_name(Delta_src, target_img, ".bigdelta")
+            self._copy_sidecar_with_new_name(delta_src, target_img, ".delta")
             target_json = self._copy_sidecar_with_new_name(json_src, target_img, ".json")
 
             processing_steps = context.get("processing_steps") or context.get("preprocessing_steps") or []

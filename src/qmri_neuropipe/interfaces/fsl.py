@@ -397,6 +397,8 @@ def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:
         json=in_file.json,
         bval=in_file.bval,
         bvec=out_bvec,
+        Delta=getattr(in_file, "Delta", None),
+        delta=getattr(in_file, "delta", None),
     )
 
 
@@ -512,6 +514,8 @@ def eddy(
             json=in_file.json,
             bval=in_file.bval,
             bvec=out_bvec,
+            Delta=getattr(in_file, "Delta", None),
+            delta=getattr(in_file, "delta", None),
         )
 
     # We must ensure we have a valid input path
@@ -614,6 +618,8 @@ def eddy(
         json=in_file.json,
         bval=in_file.bval,
         bvec=out_bvec,
+        Delta=getattr(in_file, "Delta", None),
+        delta=getattr(in_file, "delta", None),
     )
 
 

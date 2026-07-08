@@ -230,7 +230,9 @@ class DenoisingStep(BaseProcessingStep):
                     img=output_img_path,
                     json=result_json,
                     bval=input_img.bval,
-                    bvec=input_img.bvec
+                    bvec=input_img.bvec,
+                    Delta=getattr(input_img, "Delta", None),
+                    delta=getattr(input_img, "delta", None),
                  )
              else:
                  result_img = ImageFile(entities=input_img.entities, img=output_img_path, json=result_json)
@@ -428,7 +430,9 @@ class DenoisingStep(BaseProcessingStep):
                                  img=denoised,
                                  json=result_json,
                                  bval=input_img.bval,
-                                 bvec=input_img.bvec)
+                                 bvec=input_img.bvec,
+                                 Delta=getattr(input_img, "Delta", None),
+                                 delta=getattr(input_img, "delta", None))
         else:
             result_img = ImageFile(entities=input_img.entities,
                                    img=denoised,

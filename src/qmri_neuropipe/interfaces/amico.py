@@ -64,7 +64,7 @@ def fit_noddi(
     except ImportError:
         raise ProcessingError("AMICO not installed.")
         
-    out_dir = ensure_dir(out_dir)
+    out_dir = ensure_dir(out_dir).resolve()
     studies_path = out_dir / "AMICO_studies"
     studies_path.mkdir(exist_ok=True)
 
@@ -82,12 +82,19 @@ def fit_noddi(
     
     amico.core.setup()
     
-    scheme_file = out_dir / 'scheme.txt'
+    bval_file = Path(bval_file).resolve()
+    bvec_file = Path(bvec_file).resolve()
+    mask_file = Path(mask_file).resolve() if mask_file else None
+    scheme_file = (out_dir / 'scheme.txt').resolve()
     amico.util.fsl2scheme(str(bval_file), str(bvec_file), str(scheme_file))
     
-    in_path = extract_image_path(in_file)
+    in_path = extract_image_path(in_file).resolve()
     ae = amico.Evaluation(str(studies_path), subject_id) # Initialize ae here
-    ae.load_data(dwi_filename=str(in_path), scheme_filename=str(scheme_file), mask_filename=str(mask_file))
+    ae.load_data(
+        dwi_filename=str(in_path),
+        scheme_filename=str(scheme_file),
+        mask_filename=str(mask_file) if mask_file else None,
+    )
     ae.set_model("NODDI")
     ae.set_config('nthreads', n_cpus)
     ae.generate_kernels()
@@ -139,13 +146,13 @@ def fit_sandi(
     except ImportError:
         raise ProcessingError("AMICO not installed.")
         
-    out_dir = ensure_dir(out_dir)
+    out_dir = ensure_dir(out_dir).resolve()
     studies_path = out_dir / "AMICO_studies"
     studies_path.mkdir(exist_ok=True)
 
     n_cpus = int(kwargs.pop("nthreads", n_cpus))
     
-    out_dir = ensure_dir(out_dir)
+    out_dir = ensure_dir(out_dir).resolve()
     studies_path = out_dir / "AMICO_studies"
     studies_path.mkdir(exist_ok=True)
     
@@ -157,10 +164,14 @@ def fit_sandi(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required but not provided or found in input DWIFile.")
     
+    bval_file = Path(bval_file).resolve()
+    bvec_file = Path(bvec_file).resolve()
+    mask_file = Path(mask_file).resolve() if mask_file else None
+
     amico.core.setup()
     ae = amico.Evaluation(str(studies_path), subject_id)
     
-    scheme_file = out_dir / 'scheme.txt'
+    scheme_file = (out_dir / 'scheme.txt').resolve()
     
     Delta_file = kwargs.get('Delta_file')
     delta_file = kwargs.get('delta_file')
@@ -178,14 +189,18 @@ def fit_sandi(
     amico.util.sandi2scheme(
         str(bval_file),
         str(bvec_file),
-        str(Delta_file),
-        str(delta_file),
+        str(Path(Delta_file).resolve()),
+        str(Path(delta_file).resolve()),
         schemeFilename=str(scheme_file),
     )
     _normalize_sandi_scheme_header(scheme_file)
     
-    in_path = extract_image_path(in_file)
-    ae.load_data(dwi_filename=str(in_path), scheme_filename=str(scheme_file), mask_filename=str(mask_file))
+    in_path = extract_image_path(in_file).resolve()
+    ae.load_data(
+        dwi_filename=str(in_path),
+        scheme_filename=str(scheme_file),
+        mask_filename=str(mask_file) if mask_file else None,
+    )
     ae.set_model("SANDI")
     ae.set_config('nthreads', n_cpus)
     ae.generate_kernels()

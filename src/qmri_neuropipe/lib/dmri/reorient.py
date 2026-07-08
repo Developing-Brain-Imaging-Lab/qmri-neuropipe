@@ -111,6 +111,8 @@ class DMRIReorientStep(BaseProcessingStep):
                      bval=out_bval_path if out_bval_path.exists() else None,
                      bvec=out_bvec_path if out_bvec_path.exists() else None,
                      json=out_path.with_suffix("").with_suffix(".json"),
+                     Delta=getattr(input_image, "Delta", None),
+                     delta=getattr(input_image, "delta", None),
                      entities=entities
                  )
                  self._update_output_phase_encoding(input_image, result)
@@ -145,6 +147,8 @@ class DMRIReorientStep(BaseProcessingStep):
             bval=out_bval_path if out_bval_path.exists() else None,
             bvec=out_bvec_path if out_bvec_path.exists() else None,
             json=out_json,
+            Delta=getattr(input_image, "Delta", None),
+            delta=getattr(input_image, "delta", None),
             entities=entities
         )
         spatial_transform = {

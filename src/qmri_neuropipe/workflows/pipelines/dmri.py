@@ -433,9 +433,14 @@ class DMRIPipeline(BasePipeline):
             bval = io_manager._find_sidecar_for_image(target_img, ".bval", [output_dir])
             bvec = io_manager._find_sidecar_for_image(target_img, ".bvec", [output_dir])
             jsn = io_manager._find_sidecar_for_image(target_img, ".json", [output_dir])
+            Delta = (
+                io_manager._find_sidecar_for_image(target_img, ".bigdelta", [output_dir])
+                or io_manager._find_sidecar_for_image(target_img, ".Delta", [output_dir])
+            )
+            delta = io_manager._find_sidecar_for_image(target_img, ".delta", [output_dir])
 
             preprocessed_dwis.append(
-                DWIFile(img=cached_dwi.img, bval=bval, bvec=bvec, json=jsn, entities=ents)
+                DWIFile(img=cached_dwi.img, bval=bval, bvec=bvec, json=jsn, Delta=Delta, delta=delta, entities=ents)
             )
 
             gnl_path = self._find_saved_gnl_tensor(target_img, ents)
@@ -476,8 +481,13 @@ class DMRIPipeline(BasePipeline):
                 bval = io_manager._find_sidecar_for_image(candidate, ".bval", [output_dir])
                 bvec = io_manager._find_sidecar_for_image(candidate, ".bvec", [output_dir])
                 jsn = io_manager._find_sidecar_for_image(candidate, ".json", [output_dir])
+                Delta = (
+                    io_manager._find_sidecar_for_image(candidate, ".bigdelta", [output_dir])
+                    or io_manager._find_sidecar_for_image(candidate, ".Delta", [output_dir])
+                )
+                delta = io_manager._find_sidecar_for_image(candidate, ".delta", [output_dir])
                 preprocessed_dwis.append(
-                    DWIFile(img=candidate, bval=bval, bvec=bvec, json=jsn, entities=ents)
+                    DWIFile(img=candidate, bval=bval, bvec=bvec, json=jsn, Delta=Delta, delta=delta, entities=ents)
                 )
 
                 gnl_path = self._find_saved_gnl_tensor(candidate, ents)

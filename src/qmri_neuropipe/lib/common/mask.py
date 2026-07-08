@@ -421,7 +421,9 @@ class BrainMaskingStep(BaseProcessingStep):
                      entities=entities, 
                      json=input_image.json, 
                      bval=input_image.bval, 
-                     bvec=input_image.bvec
+                     bvec=input_image.bvec,
+                     Delta=getattr(input_image, "Delta", None),
+                     delta=getattr(input_image, "delta", None),
                  )
             else:
                  brain_obj = ImageFile(img=Path(masked_path), entities=entities)

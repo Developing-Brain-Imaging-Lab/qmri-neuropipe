@@ -88,7 +88,9 @@ class ResampleStep(BaseProcessingStep):
                   entities=entities,
                   bval=input_image.bval,
                   bvec=input_image.bvec,
-                  json=input_image.json
+                  json=input_image.json,
+                  Delta=getattr(input_image, "Delta", None),
+                  delta=getattr(input_image, "delta", None),
              )
         else:
              result = ImageFile(img=output_img, entities=entities)

@@ -76,7 +76,8 @@ class GradientCheckStep(BaseProcessingStep):
                 if out_bvec.exists() and out_bval.exists() and not kwargs.get('force', False):
                     self.logger.info(f"Skipping GradientCheck for {input_img.img.name} (Outputs exist)")
                     result_img = DWIFile(
-                        entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec
+                        entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec,
+                        Delta=getattr(input_img, "Delta", None), delta=getattr(input_img, "delta", None),
                     )
                 else:
                     self.logger.info(f"Running dwigradcheck on {input_img.img.name}...")
@@ -94,7 +95,8 @@ class GradientCheckStep(BaseProcessingStep):
                         raise ProcessingError(f"Gradient check failed for {input_img.img.name}: {e}") from e
                         
                     result_img = DWIFile(
-                        entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec
+                        entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec,
+                        Delta=getattr(input_img, "Delta", None), delta=getattr(input_img, "delta", None),
                     )
                 
                 processed_files.append(result_img)
@@ -122,7 +124,8 @@ class GradientCheckStep(BaseProcessingStep):
             if out_bvec.exists() and out_bval.exists() and not kwargs.get('force', False):
                 self.logger.info(f"Skipping GradientCheckStep (Outputs exist)")
                 return DWIFile(
-                    entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec
+                    entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec,
+                    Delta=getattr(input_img, "Delta", None), delta=getattr(input_img, "delta", None),
                 )
 
             self.logger.info(f"Running dwigradcheck on {input_img.img.name}...")
@@ -140,5 +143,6 @@ class GradientCheckStep(BaseProcessingStep):
                 raise ProcessingError(f"Gradient check failed: {e}") from e
             
             return DWIFile(
-                entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec
+                entities=input_img.entities, img=input_img.img, json=input_img.json, bval=out_bval, bvec=out_bvec,
+                Delta=getattr(input_img, "Delta", None), delta=getattr(input_img, "delta", None),
             )

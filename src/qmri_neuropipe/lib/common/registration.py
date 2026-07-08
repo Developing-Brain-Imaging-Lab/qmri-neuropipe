@@ -1288,6 +1288,28 @@ class CoregistrationStep(BaseProcessingStep):
                  bval_path = output_dir / (base_name + ".bval")
                  if not bval_path.exists(): shutil.copy(input_image.bval, bval_path)
                  final_bval = bval_path
+
+             final_Delta = None
+             if getattr(input_image, "Delta", None) and input_image.Delta.exists():
+                 base_name = output_img.name
+                 for ext in ['.nii.gz', '.nii']:
+                     if base_name.endswith(ext):
+                         base_name = base_name[:-len(ext)]
+                         break
+                 Delta_path = output_dir / (base_name + ".bigdelta")
+                 if not Delta_path.exists(): shutil.copy(input_image.Delta, Delta_path)
+                 final_Delta = Delta_path
+
+             final_delta = None
+             if getattr(input_image, "delta", None) and input_image.delta.exists():
+                 base_name = output_img.name
+                 for ext in ['.nii.gz', '.nii']:
+                     if base_name.endswith(ext):
+                         base_name = base_name[:-len(ext)]
+                         break
+                 delta_path = output_dir / (base_name + ".delta")
+                 if not delta_path.exists(): shutil.copy(input_image.delta, delta_path)
+                 final_delta = delta_path
              
              final_json = None
              if input_image.json and input_image.json.exists():
@@ -1299,7 +1321,15 @@ class CoregistrationStep(BaseProcessingStep):
                  json_path = output_dir / (base_name + ".json")
                  final_json = copy_json_with_metadata(input_image.json, json_path)
 
-             result = DWIFile(img=output_img, bvec=final_bvec, bval=final_bval, entities=entities, json=final_json)
+             result = DWIFile(
+                 img=output_img,
+                 bvec=final_bvec,
+                 bval=final_bval,
+                 Delta=final_Delta,
+                 delta=final_delta,
+                 entities=entities,
+                 json=final_json,
+             )
         else:
              result = ImageFile(img=output_img, entities=entities)
 

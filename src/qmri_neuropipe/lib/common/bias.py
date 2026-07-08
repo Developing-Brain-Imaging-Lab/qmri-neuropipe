@@ -88,7 +88,9 @@ class BiasCorrectionStep(BaseProcessingStep):
                         img=output_img,
                         json=input_img.json,
                         bval=input_img.bval,
-                        bvec=input_img.bvec
+                        bvec=input_img.bvec,
+                        Delta=getattr(input_img, "Delta", None),
+                        delta=getattr(input_img, "delta", None),
                      )
                  else:
                      result_img = ImageFile(entities=input_img.entities, img=output_img, json=input_img.json)
@@ -153,7 +155,9 @@ class BiasCorrectionStep(BaseProcessingStep):
                 img=output_img,
                 json=input_img.json,
                 bval=input_img.bval,
-                bvec=input_img.bvec
+                bvec=input_img.bvec,
+                Delta=getattr(input_img, "Delta", None),
+                delta=getattr(input_img, "delta", None),
             )
         else:
              result_img = ImageFile(entities=input_img.entities, img=output_img, json=input_img.json)

@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
-from typing import Optional, Tuple, Dict, Iterable
+from typing import Optional, Tuple, Dict, Iterable, Any
 import json
 import tempfile
 import nibabel as nib
@@ -47,9 +47,9 @@ _FSL_TOPUP_SUPPORTED_PED = {"i", "i-", "j", "j-"}
 #     return Dict(img=dwi, bval=bval, bvec=bvec, json=js, acqp=acqp, index=index)
 
 
-def bids_find_dwi(root) -> list[DWIFile]:
+def bids_find_dwi(root, derive_timing_sidecars: bool = True) -> list[DWIFile]:
     """
-    Find DWI NIfTI images and their associated JSON/BVAL/BVEC files.
+    Find DWI NIfTI images and their associated JSON/BVAL/BVEC/timing files.
 
     Uses the existing `bids_find(root, suffix='dwi', extension='.nii.gz')`.
     """
@@ -61,7 +61,11 @@ def bids_find_dwi(root) -> list[DWIFile]:
         json_path = _sidecar(img, ".json")
         bval_path = _sidecar(img, ".bval")
         bvec_path = _sidecar(img, ".bvec")
-        Delta_path = _sidecar(img, ".Delta")
+        Delta_path = _sidecar(img, ".bigdelta")
+        if not Delta_path.exists():
+            legacy_Delta_path = _sidecar(img, ".Delta")
+            if legacy_Delta_path.exists():
+                Delta_path = legacy_Delta_path
         delta_path = _sidecar(img, ".delta")
 
         dwi = DWIFile(
@@ -73,9 +77,118 @@ def bids_find_dwi(root) -> list[DWIFile]:
             Delta=Delta_path if Delta_path.exists() else None,
             delta=delta_path if delta_path.exists() else None,
         )
+        if derive_timing_sidecars:
+            ensure_dwi_timing_sidecars(dwi)
         results.append(dwi)
 
     return results
+
+
+_BIG_DELTA_JSON_KEYS = (
+    "Delta",
+    "BigDelta",
+    "big_delta",
+    "DiffusionGradientSeparation",
+    "DiffusionGradientSeparationTime",
+    "GradientSeparation",
+)
+
+_SMALL_DELTA_JSON_KEYS = (
+    "delta",
+    "SmallDelta",
+    "small_delta",
+    "DiffusionGradientDuration",
+    "DiffusionGradientDurationTime",
+    "GradientDuration",
+)
+
+
+def _load_json_payload(json_path: Path | None) -> dict[str, Any]:
+    if not json_path or not Path(json_path).exists():
+        return {}
+    try:
+        with Path(json_path).open() as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _first_present(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload[key] not in (None, ""):
+            return payload[key]
+    return None
+
+
+def _dwi_volume_count(dwi: DWIFile) -> Optional[int]:
+    if dwi.bval and Path(dwi.bval).exists():
+        values = np.loadtxt(dwi.bval)
+        return int(np.atleast_1d(values).size)
+    if dwi.img and Path(dwi.img).exists():
+        shape = nib.load(str(dwi.img)).shape
+        return int(shape[3]) if len(shape) > 3 else 1
+    return None
+
+
+def _coerce_timing_vector(value: Any, n_volumes: int) -> Optional[np.ndarray]:
+    if value is None:
+        return None
+    try:
+        arr = np.asarray(value, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    if arr.size == 0 or not np.all(np.isfinite(arr)):
+        return None
+    if arr.size == 1:
+        arr = np.repeat(arr, n_volumes)
+    elif arr.size != n_volumes:
+        return None
+
+    # Timing metadata should be seconds. Values like 40 or 10 usually indicate
+    # milliseconds in vendor-derived JSON, so normalize them for model fitting.
+    if np.nanmean(np.abs(arr)) > 1.0:
+        arr = arr / 1000.0
+    return arr
+
+
+def ensure_dwi_timing_sidecars(dwi: DWIFile, overwrite: bool = False, logger=None) -> DWIFile:
+    """Create .bigdelta/.delta sidecars from DWI JSON timing metadata when available."""
+    if not isinstance(dwi, DWIFile):
+        return dwi
+    if dwi.Delta and dwi.delta and Path(dwi.Delta).exists() and Path(dwi.delta).exists() and not overwrite:
+        return dwi
+
+    payload = _load_json_payload(dwi.json)
+    if not payload:
+        return dwi
+
+    try:
+        n_volumes = _dwi_volume_count(dwi)
+    except Exception as exc:
+        if logger:
+            logger.warning(f"Could not determine DWI volume count for timing sidecars: {exc}")
+        return dwi
+    if not n_volumes:
+        return dwi
+
+    big_delta = _coerce_timing_vector(_first_present(payload, _BIG_DELTA_JSON_KEYS), n_volumes)
+    small_delta = _coerce_timing_vector(_first_present(payload, _SMALL_DELTA_JSON_KEYS), n_volumes)
+    if big_delta is None or small_delta is None:
+        return dwi
+
+    Delta_path = _sidecar(dwi.img, ".bigdelta")
+    delta_path = _sidecar(dwi.img, ".delta")
+    if overwrite or not Delta_path.exists():
+        np.savetxt(Delta_path, big_delta, fmt="%.9g")
+    if overwrite or not delta_path.exists():
+        np.savetxt(delta_path, small_delta, fmt="%.9g")
+
+    dwi.Delta = Delta_path if Delta_path.exists() else dwi.Delta
+    dwi.delta = delta_path if delta_path.exists() else dwi.delta
+    if logger:
+        logger.info(f"Created diffusion timing sidecars for {Path(dwi.img).name}: {Delta_path.name}, {delta_path.name}")
+    return dwi
     
 def build_dwi_filename(sub_id, session=None, entities=None):
     

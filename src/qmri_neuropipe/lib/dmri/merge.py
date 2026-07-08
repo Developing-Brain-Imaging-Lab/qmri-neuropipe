@@ -75,7 +75,7 @@ class MergeStep(BaseProcessingStep):
         out_nii = merge_dir / out_name
         out_bval = out_nii.with_suffix("").with_suffix(".bval")
         out_bvec = out_nii.with_suffix("").with_suffix(".bvec")
-        out_Delta = merge_dir / (out_name.replace(".nii.gz", ".Delta"))
+        out_Delta = merge_dir / (out_name.replace(".nii.gz", ".bigdelta"))
         out_delta = merge_dir / (out_name.replace(".nii.gz", ".delta"))
         out_index = merge_dir / "index.txt"
         

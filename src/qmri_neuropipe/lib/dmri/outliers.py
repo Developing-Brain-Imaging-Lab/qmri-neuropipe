@@ -89,9 +89,11 @@ class OutlierRemovalStep(BaseProcessingStep):
                      # Construct output object using consistent BIDS naming
                      new_bval_path = None
                      new_bvec_path = None
+                     new_Delta_path = None
+                     new_delta_path = None
+                     base_name = build_bids_name(out_ents)
                      
                      if current_img.bval:
-                         base_name = build_bids_name(out_ents)
                          bval_name = base_name.replace('.nii.gz', '.bval').replace('.nii', '.bval')
                          new_bval_path = output_dir / bval_name
                          # Fallback to original if cleaned version doesn't exist
@@ -99,19 +101,30 @@ class OutlierRemovalStep(BaseProcessingStep):
                              new_bval_path = current_img.bval
                      
                      if current_img.bvec:
-                         base_name = build_bids_name(out_ents)
                          bvec_name = base_name.replace('.nii.gz', '.bvec').replace('.nii', '.bvec')
                          new_bvec_path = output_dir / bvec_name
                          # Fallback to original if cleaned version doesn't exist
                          if not new_bvec_path.exists(): 
                              new_bvec_path = current_img.bvec
+
+                     if getattr(current_img, "Delta", None):
+                         Delta_name = base_name.replace('.nii.gz', '.bigdelta').replace('.nii', '.bigdelta')
+                         candidate = output_dir / Delta_name
+                         new_Delta_path = candidate if candidate.exists() else None
+
+                     if getattr(current_img, "delta", None):
+                         delta_name = base_name.replace('.nii.gz', '.delta').replace('.nii', '.delta')
+                         candidate = output_dir / delta_name
+                         new_delta_path = candidate if candidate.exists() else None
                      
                      new_dwi_file = DWIFile(
                           entities=current_img.entities,
                           img=out_path,
                           json=current_img.json,
                           bval=new_bval_path,
-                          bvec=new_bvec_path
+                          bvec=new_bvec_path,
+                          Delta=new_Delta_path,
+                          delta=new_delta_path,
                      )
                      
                      context["current_image"] = new_dwi_file
@@ -263,6 +276,8 @@ class OutlierRemovalStep(BaseProcessingStep):
         # Handle bvals/bvecs
         new_bval_path = None
         new_bvec_path = None
+        new_Delta_path = None
+        new_delta_path = None
         
         
         # Bvals
@@ -331,6 +346,40 @@ class OutlierRemovalStep(BaseProcessingStep):
                      except Exception:
                          pass
 
+        # Diffusion timings
+        for attr, extension in (("Delta", ".bigdelta"), ("delta", ".delta")):
+             timing_path = getattr(current_img, attr, None)
+             if timing_path and timing_path.exists():
+                 try:
+                     timings = np.atleast_1d(np.loadtxt(timing_path))
+                     if timings.size == 1 and n_vols > 1:
+                         timings = np.repeat(timings, n_vols)
+                     if timings.size != n_vols:
+                         self.logger.warning(
+                             f"{extension} file size {timings.size} does not match DWI volumes {n_vols}; not writing cleaned timing file."
+                         )
+                         continue
+                     new_timings = timings[keep_indices]
+                     base_name = build_bids_name(out_ents)
+                     timing_name = base_name.replace('.nii.gz', extension).replace('.nii', extension)
+                     new_timing_path = output_dir / timing_name
+                     tmp_timing = output_dir / f"{timing_name}.tmp"
+                     np.savetxt(tmp_timing, new_timings.reshape(1, -1), fmt='%.9g')
+                     _ = np.loadtxt(tmp_timing)
+                     tmp_timing.replace(new_timing_path)
+                     if attr == "Delta":
+                         new_Delta_path = new_timing_path
+                     else:
+                         new_delta_path = new_timing_path
+                     self.logger.info(f"Saved cleaned {extension} timings to: {new_timing_path}")
+                 except Exception as e:
+                     self.logger.error(f"Failed to save cleaned {extension} timings: {e}")
+                     if 'tmp_timing' in locals():
+                         try:
+                             tmp_timing.unlink(missing_ok=True)
+                         except Exception:
+                             pass
+
         # --- Calculate Statistics ---
         total_vols = n_vols
         num_removed = len(bad_indices)
@@ -378,7 +427,9 @@ class OutlierRemovalStep(BaseProcessingStep):
              img=out_path,
              json=current_img.json,
              bval=new_bval_path,
-             bvec=new_bvec_path
+             bvec=new_bvec_path,
+             Delta=new_Delta_path,
+             delta=new_delta_path,
         )
         
         context["current_image"] = new_dwi_file
