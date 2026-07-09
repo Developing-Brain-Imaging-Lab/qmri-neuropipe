@@ -8,7 +8,10 @@ import logging
 import typer
 from pathlib import Path
 from typing import Optional, List
+from qmri_neuropipe import configure_runtime_warnings
 from qmri_neuropipe.core.ui import console
+
+configure_runtime_warnings()
 
 # Import interfaces (lazy import inside commands to avoid heavy loading if not needed?)
 # Actually, top level imports are fine for CLI usually, but robust imports are better.
