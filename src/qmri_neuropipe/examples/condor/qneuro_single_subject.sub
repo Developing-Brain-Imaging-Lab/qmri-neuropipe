@@ -1,0 +1,81 @@
+# HTCondor submit file for one qMRI NeuroPipe subject/session in qneuro.sif.
+#
+# Edit the settings in this first block, then submit with:
+#   condor_submit qneuro_single_subject.sub
+#
+# This template asks HTCondor to run the executable inside qneuro.sif and
+# transfers:
+#   - the qmri-neuropipe YAML/JSON config
+#   - one BIDS subject/session directory
+# It returns:
+#   - qneuro_outputs_sub-<subject>_ses-<session>.tar.gz
+
+universe = vanilla
+executable = run_qneuro_condor.sh
+
+# ---- User settings ---------------------------------------------------------
+# Use bare labels here because these values are also used to build host paths.
+subject = 01
+session = 01
+
+# Host-side paths visible and readable from the submit machine.
+# HTCondor uses container_image to run this job inside qneuro.sif.
+container_image = /absolute/path/to/qneuro.sif
+config_file = /absolute/path/to/config.yaml
+freesurfer_license = /absolute/path/to/license.txt
+bids_dir = /path/to/bids
+
+# Basename expected inside the execute-node scratch directory after transfer.
+# Keep this in sync with the config filename above unless your site remaps inputs.
+config_name = config.yaml
+license_name = license.txt
+
+# Pipeline and resources.
+pipeline = dmri
+cpus = 8
+memory_gb = 32
+disk_gb = 40
+
+# For dmri jobs, fail early if no BIDS DWI image is found after transfer.
+# Set to false only if you intentionally allow no-DWI subject/session jobs.
+require_dwi = true
+
+# For session datasets, transfer only the requested session directory.
+# For single-session datasets, set session above to "none" and change this to:
+#   bids_input = $(bids_dir)/sub-$(subject)
+# The wrapper reconstructs a minimal BIDS tree at data/sub-*/ses-*.
+bids_input = $(bids_dir)/sub-$(subject)/ses-$(session)
+
+# On sites where URL/staging plugins do not recursively transfer directories,
+# package the subject/session as a tarball and set bids_input to that file:
+#   tar -C /path/to/bids -czf sub-01_ses-01_bids.tar.gz sub-01/ses-01 dataset_description.json
+#   bids_input = /path/to/sub-01_ses-01_bids.tar.gz
+# Or use:
+#   ./package_and_submit_qneuro.sh --submit-file qneuro_single_subject.sub \
+#     --bids-dir /path/to/bids --subject 01 --session 01 \
+#     --package-dir /path/to/staging --transfer-uri osdf:///chtc/staging/user
+
+# If the config references shared host paths outside the transferred scratch
+# directory, your site must expose those paths inside container jobs.
+# ---------------------------------------------------------------------------
+
+arguments = $(subject) $(session) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name)
+
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = $(config_file), $(freesurfer_license), $(bids_input)
+transfer_output_files = qneuro_outputs_sub-$(subject)_ses-$(session).tar.gz
+
+request_cpus = $(cpus)
+request_memory = $(memory_gb)GB
+request_disk = $(disk_gb)GB
+
+# Keep the container environment predictable. The wrapper sets thread counts and
+# known tool paths itself.
+getenv = False
+
+log = qneuro_sub-$(subject)_ses-$(session).$(Cluster).log
+output = qneuro_sub-$(subject)_ses-$(session).$(Cluster).$(Process).out
+error = qneuro_sub-$(subject)_ses-$(session).$(Cluster).$(Process).err
+
+queue 1

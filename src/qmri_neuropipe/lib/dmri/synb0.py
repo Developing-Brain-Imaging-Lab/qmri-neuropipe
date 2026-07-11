@@ -344,7 +344,25 @@ class Synb0EstimationStep(BaseProcessingStep):
             freesurfer.mri_convert(in_file=t1w_path, out_file=t1w_mgz)
     
             t1w_n3 = output_dir / "t1w_n3.mgz"
-            freesurfer.mri_nu_correct(in_file=t1w_mgz, out_file=t1w_n3)
+            try:
+                freesurfer.mri_nu_correct(in_file=t1w_mgz, out_file=t1w_n3)
+            except Exception as exc:
+                self.logger.warning(
+                    "FreeSurfer mri_nu_correct failed during Synb0 T1 preprocessing "
+                    "(%s). Falling back to ANTs N4 bias correction.",
+                    exc,
+                )
+                if t1w_n3.exists():
+                    t1w_n3.unlink()
+                t1w_n4_input = output_dir / "t1w_n4_input.nii.gz"
+                t1w_n4 = output_dir / "t1w_n4.nii.gz"
+                freesurfer.mri_convert(in_file=t1w_mgz, out_file=t1w_n4_input)
+                ants.n4bias(
+                    in_file=t1w_n4_input,
+                    out_file=t1w_n4,
+                    nthreads=int(getattr(self.config, "n_cpus", 1) or 1),
+                )
+                freesurfer.mri_convert(in_file=t1w_n4, out_file=t1w_n3)
     
             t1w_norm = output_dir / "t1w_norm.mgz"
             freesurfer.mri_normalize(in_file=t1w_n3, out_file=t1w_norm)
