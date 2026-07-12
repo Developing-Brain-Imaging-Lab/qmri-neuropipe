@@ -1,0 +1,43 @@
+# Example settings for qneuro_condor.py.
+#
+# You can either put `command: stage-remote` or `command: submit-staged` here
+# and run:
+#   python qneuro_condor.py --settings qneuro_settings.yaml
+#
+# Or omit command and run:
+#   python qneuro_condor.py stage-remote --settings qneuro_settings.yaml
+#   python qneuro_condor.py submit-staged --settings qneuro_settings.yaml
+
+common:
+  cpus: 24
+  gpus: 1
+  memory_gb: 32
+  disk_gb: 40
+  pipeline: dmri
+  require_dwi: true
+  getenv: true
+  requirements: (OpSys == "LINUX") && (Arch == "X86_64") && (HasCHTCStaging == true)
+  gpu_minimum_capability: 8.0
+  want_flocking: true
+  want_glidein: true
+  want_gpu_lab: false
+  gpu_job_length: medium
+  notification: Complete
+  notify_user: deaniii@wisc.edu
+  log_dir: /home/deaniii/wbic/code/condor_logs
+
+stage_remote:
+  remote_host: deaniii@ap2002.chtc.wisc.edu
+  remote_stage_dir: /staging/deaniii/qneuro-staging
+  bids_dir: /study/dean_k99/Studies/infmri/rawdata
+  subjects: [10021, 10022, 10023]
+  session: 01
+  bundle_name: qneuro_stage_bundle.tar.gz
+
+submit_staged:
+  staging_dir: /staging/deaniii/qneuro-staging
+  submit_dir: /home/deaniii/qneuro-condor
+  container_image: /staging/deaniii/qneuro.sif
+  config_file: /home/deaniii/qneuro-condor/condorproc.yaml
+  freesurfer_license: /home/deaniii/qneuro-condor/license.txt
+  output_destination: osdf:///chtc/staging/deaniii/qneuro-outputs

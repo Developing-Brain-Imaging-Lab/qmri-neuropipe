@@ -36,7 +36,6 @@ def _run_mrtrix(parts: list[str], *, label: str, script: bool = False, n_threads
     run_cmd(
         _mrtrix_cmd(cmd_parts),
         label=label,
-        cwd=_writable_tmpdir() if script else None,
         n_threads=n_threads,
     )
 

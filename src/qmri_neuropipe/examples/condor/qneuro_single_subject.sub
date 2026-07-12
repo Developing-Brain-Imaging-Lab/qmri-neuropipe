@@ -11,7 +11,7 @@
 #   - qneuro_outputs_sub-<subject>_ses-<session>.tar.gz
 
 universe = vanilla
-executable = run_qneuro_condor.sh
+executable = run_qneuro_condor.py
 
 # ---- User settings ---------------------------------------------------------
 # Use bare labels here because these values are also used to build host paths.
@@ -51,7 +51,7 @@ bids_input = $(bids_dir)/sub-$(subject)/ses-$(session)
 #   tar -C /path/to/bids -czf sub-01_ses-01_bids.tar.gz sub-01/ses-01 dataset_description.json
 #   bids_input = /path/to/sub-01_ses-01_bids.tar.gz
 # Or use:
-#   ./package_and_submit_qneuro.sh --submit-file qneuro_single_subject.sub \
+#   ./package_and_submit_qneuro.py --submit-file qneuro_single_subject.sub \
 #     --bids-dir /path/to/bids --subject 01 --session 01 \
 #     --package-dir /path/to/staging --transfer-uri osdf:///chtc/staging/user
 
