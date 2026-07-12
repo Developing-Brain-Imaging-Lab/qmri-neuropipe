@@ -606,7 +606,38 @@ def eddy(
 
     cmd_parts.extend(_format_extra_opts(extra_opts))
 
-    run_cmd(" ".join(cmd_parts), label="eddy")
+    try:
+        run_cmd(" ".join(cmd_parts), label="eddy")
+    except RuntimeError as exc:
+        gpu_thread_limited = "compiled for GPU can only use 1 CPU thread" in str(exc)
+        if not gpu_thread_limited or int(nthreads) == 1:
+            raise
+
+        retry_parts: list[str] = []
+        has_omp = False
+        has_nthr = False
+        for part in cmd_parts:
+            if part.startswith("OMP_NUM_THREADS="):
+                retry_parts.append("OMP_NUM_THREADS=1")
+                has_omp = True
+            elif part.startswith("--nthr="):
+                retry_parts.append("--nthr=1")
+                has_nthr = True
+            else:
+                retry_parts.append(part)
+
+        if not has_omp:
+            if retry_parts and retry_parts[0] == "env":
+                retry_parts.insert(1, "OMP_NUM_THREADS=1")
+            else:
+                retry_parts = ["env", "OMP_NUM_THREADS=1", *retry_parts]
+        if not has_nthr and _check_eddy_supports_nthr(eddy_bin):
+            retry_parts.append("--nthr=1")
+
+        logger.warning(
+            "Eddy binary is GPU-thread-limited; retrying with OMP_NUM_THREADS=1 and --nthr=1."
+        )
+        run_cmd(" ".join(retry_parts), label="eddy")
 
     rotated_bvec = out_base.with_suffix(".eddy_rotated_bvecs")
     if rotated_bvec.exists():
