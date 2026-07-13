@@ -143,7 +143,8 @@ def _build_sandi_model(model_config):
         warnings.simplefilter("ignore")
         from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
         from dmipy.distributions.distribute_models import BundleModel
-        from dmipy.core.modeling_framework import MultiCompartmentModel
+        #from dmipy.core.modeling_framework import MultiCompartmentModel
+        from dmipy.core.modeling_framework import MultiCompartmentSphericalMeanModel
         
 
     parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
@@ -155,7 +156,7 @@ def _build_sandi_model(model_config):
 
     bundle = BundleModel([stick, soma])
 
-    sandi_model = MultiCompartmentModel(models=[bundle, extra_cellular])
+    sandi_model = MultiCompartmentSphericalMeanModel(models=[bundle, extra_cellular])
     sandi_model.set_parameter_optimization_bounds('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter',[2e-6, 24e-6])
     sandi_model.set_parameter_optimization_bounds('G1Ball_1_lambda_iso',[1e-10, 3e-9]) #D_ec
     sandi_model.set_parameter_optimization_bounds('BundleModel_1_C1Stick_1_lambda_par',[1e-10, 3e-9]) #D_in
