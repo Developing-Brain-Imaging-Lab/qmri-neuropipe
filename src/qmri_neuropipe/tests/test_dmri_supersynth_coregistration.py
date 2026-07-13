@@ -8,7 +8,10 @@ import numpy as np
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.types import DWIFile, ImageFile
 from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
-from qmri_neuropipe.lib.common.registration import CoregistrationStep
+from qmri_neuropipe.lib.common.registration import (
+    CoregistrationStep,
+    _ensure_fsl_registration_nifti,
+)
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
     PreprocessingWorkflow,
@@ -194,3 +197,29 @@ def test_supersynth_mean_b0_uses_all_low_b_volumes(tmp_path: Path):
     mean_b0 = np.asarray(nib.load(str(result)).dataobj)
     assert mean_b0.shape == (2, 2, 2)
     assert np.allclose(mean_b0, 5.0)
+
+
+def test_fsl_registration_converts_mgz_input_to_nifti(tmp_path: Path):
+    mgz_path = tmp_path / "SynthT1.mgz"
+    data = np.arange(24, dtype=np.float32).reshape((2, 3, 4))
+    affine = np.array(
+        [
+            [1.5, 0.0, 0.0, 10.0],
+            [0.0, 2.0, 0.0, -5.0],
+            [0.0, 0.0, 2.5, 3.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    nib.save(nib.MGHImage(data, affine), mgz_path)
+
+    result = _ensure_fsl_registration_nifti(
+        mgz_path,
+        tmp_path,
+        "moving",
+        logging.getLogger(__name__),
+    )
+
+    converted = nib.load(result)
+    assert result.name == "fsl_moving_SynthT1.nii.gz"
+    np.testing.assert_allclose(np.asarray(converted.dataobj), data)
+    np.testing.assert_allclose(converted.affine, affine)

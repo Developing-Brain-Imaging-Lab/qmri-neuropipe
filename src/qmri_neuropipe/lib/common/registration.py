@@ -218,6 +218,44 @@ def prepare_registration_images(
     return moving_for_reg, fixed_for_reg, changed
 
 
+def _ensure_fsl_registration_nifti(
+    image_path: Path,
+    output_dir: Path,
+    label: str,
+    logger: logging.Logger,
+    force: bool = False,
+) -> Path:
+    """Convert MGH/MGZ registration inputs to NIfTI for reliable FSL I/O."""
+    image_path = Path(image_path)
+    if image_path.suffix.lower() not in {".mgh", ".mgz"}:
+        return image_path
+
+    output_path = output_dir / f"fsl_{label}_{image_path.stem}.nii.gz"
+    if output_path.exists() and not force and check_nifti_integrity(output_path):
+        return output_path
+
+    logger.info(
+        f"Converting FSL registration {label} from {image_path.suffix} to NIfTI: "
+        f"{output_path.name}"
+    )
+    try:
+        source = nib.load(str(image_path))
+        converted = nib.Nifti1Image.from_image(source)
+        nib.save(converted, str(output_path))
+    except Exception as exc:
+        raise ProcessingError(
+            f"Could not convert FSL registration {label} image to NIfTI: "
+            f"{image_path}"
+        ) from exc
+
+    if not check_nifti_integrity(output_path):
+        raise ProcessingError(
+            f"FSL registration {label} conversion produced an invalid NIfTI: "
+            f"{output_path}"
+        )
+    return output_path
+
+
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
     options = options or {}
     explicit = options.get("subject_id") or options.get("fs_subject_id") or options.get("freesurfer_subject_id")
@@ -797,6 +835,21 @@ class CoregistrationStep(BaseProcessingStep):
                     output_dir,
                     options,
                     nthreads,
+                    force=kwargs.get("force", False),
+                )
+            if self.method == "fsl":
+                moving_for_reg = _ensure_fsl_registration_nifti(
+                    moving_for_reg,
+                    output_dir,
+                    "moving",
+                    self.logger,
+                    force=kwargs.get("force", False),
+                )
+                registration_target = _ensure_fsl_registration_nifti(
+                    registration_target,
+                    output_dir,
+                    "fixed",
+                    self.logger,
                     force=kwargs.get("force", False),
                 )
 
