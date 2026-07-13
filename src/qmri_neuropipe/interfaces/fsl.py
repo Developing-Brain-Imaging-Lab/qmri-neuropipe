@@ -48,6 +48,65 @@ def _ensure_acqp_index(in_dwi: DWIFile, support_dir: Optional[Path] = None) -> t
     )
 
 
+def _read_numeric_rows(path: Path) -> list[list[str]]:
+    try:
+        return [line.split() for line in path.read_text().splitlines() if line.split()]
+    except OSError:
+        return []
+
+
+def _count_bval_dirs(path: Optional[Path]) -> Optional[int]:
+    if not path:
+        return None
+    rows = _read_numeric_rows(Path(path))
+    if not rows:
+        return None
+    return sum(len(row) for row in rows)
+
+
+def _write_bvec_rows(path: Path, rows: list[list[str]]) -> None:
+    path.write_text("\n".join(" ".join(row) for row in rows) + "\n")
+
+
+def _normalise_fsl_bvec(path: Path, expected_dirs: Optional[int] = None) -> Optional[int]:
+    rows = _read_numeric_rows(path)
+    if not rows:
+        return None
+
+    if len(rows) == 3:
+        widths = {len(row) for row in rows}
+        if len(widths) == 1:
+            return widths.pop()
+
+    if expected_dirs and len(rows) == expected_dirs and all(len(row) == 3 for row in rows):
+        _write_bvec_rows(path, [list(col) for col in zip(*rows)])
+        return expected_dirs
+
+    flat = [value for row in rows for value in row]
+    if expected_dirs and len(flat) == expected_dirs * 3:
+        vectors = [flat[i:i + 3] for i in range(0, len(flat), 3)]
+        _write_bvec_rows(path, [list(col) for col in zip(*vectors)])
+        return expected_dirs
+
+    return len(rows[0]) if len(rows) == 3 and rows[0] else None
+
+
+def _validate_or_reuse_bvec(out_bvec: Path, fallback_bvec: Optional[Path], bval: Optional[Path], label: str) -> Path:
+    expected_dirs = _count_bval_dirs(bval)
+    actual_dirs = _normalise_fsl_bvec(out_bvec, expected_dirs) if out_bvec.exists() else None
+    if expected_dirs and actual_dirs != expected_dirs and fallback_bvec and Path(fallback_bvec).exists():
+        logger.warning(
+            "%s produced an invalid bvec table (%s directions; expected %s). "
+            "Reusing the incoming bvec table.",
+            label,
+            actual_dirs,
+            expected_dirs,
+        )
+        shutil.copy2(fallback_bvec, out_bvec)
+        _normalise_fsl_bvec(out_bvec, expected_dirs)
+    return out_bvec
+
+
 def bet(in_file: ImageLike | Path, out_file: Path, frac: float = 0.5, mask: bool = True, robust: bool = True) -> tuple[Path, Optional[Path]]:
     """
     Wrapper for FSL BET. Accepts ImageLike or Path.
@@ -390,6 +449,8 @@ def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:
 
     if in_file.bvec and not out_bvec.exists():
         run_cmd(fdt_cmd, label="fdt_rotate_bvecs")
+    if in_file.bvec:
+        _validate_or_reuse_bvec(out_bvec, in_file.bvec, in_file.bval, "fdt_rotate_bvecs")
 
     return DWIFile(
         entities=in_file.entities,
@@ -642,6 +703,8 @@ def eddy(
     rotated_bvec = out_base.with_suffix(".eddy_rotated_bvecs")
     if rotated_bvec.exists():
         shutil.move(rotated_bvec, out_bvec)
+    if in_file.bvec:
+        _validate_or_reuse_bvec(out_bvec, in_file.bvec, in_file.bval, "eddy")
 
     return DWIFile(
         entities=in_file.entities,
