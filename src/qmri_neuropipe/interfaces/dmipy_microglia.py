@@ -20,13 +20,24 @@ from qmri_neuropipe.interfaces.dmipy import (
     _safe_rotate_gradients_for_gnl,
 )
 
-def _build_microglia_model(cylinder_models, gaussian_models, sphere_models, distribute_models, MultiCompartmentModel, model_config):
+def _build_microglia_model(
+    cylinder_models,
+    gaussian_models,
+    sphere_models,
+    distribute_models,
+    MultiCompartmentModel,
+    model_config,
+):
     stick = cylinder_models.C1Stick()
     zeppelin = gaussian_models.G2Zeppelin()
     dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
 
-    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
+    # The model uses a fixed main orientation and makes no tortuosity assumption.
+    dispersed_bundle.set_fixed_parameter('SD1Watson_1_mu', [0.0, 0.0])
+    dispersed_bundle.set_equal_parameter(
+        'G2Zeppelin_1_lambda_par',
+        'C1Stick_1_lambda_par',
+    )
     dispersed_bundle.set_fixed_parameter(
         'G2Zeppelin_1_lambda_par',
         float(model_config.get('parallel_diffusivity', 1.7e-9))
@@ -39,13 +50,41 @@ def _build_microglia_model(cylinder_models, gaussian_models, sphere_models, dist
     model = MultiCompartmentModel(
         models=[dispersed_bundle, small_sphere, large_sphere, ball]
     )
-    model.set_fixed_parameter(
-        'S2SphereStejskalTannerApproximation_1_diameter',
-        float(model_config.get('small_diameter', 4e-6))
+
+    microglia_diameter = [5e-6, 11e-6]
+    astrocyte_diameter = [12e-6, 18e-6]
+    microglia_initial_diameter = float(
+        model_config.get('small_diameter', 8e-6)
     )
-    model.set_fixed_parameter(
+    astrocyte_initial_diameter = float(
+        model_config.get('large_diameter', 16e-6)
+    )
+
+    for label, initial, bounds in (
+        ('microglia', microglia_initial_diameter, microglia_diameter),
+        ('astrocyte', astrocyte_initial_diameter, astrocyte_diameter),
+    ):
+        if not bounds[0] <= initial <= bounds[1]:
+            raise ValueError(
+                f"Initial {label} diameter {initial:g} m is outside the "
+                f"optimization bounds [{bounds[0]:g}, {bounds[1]:g}] m."
+            )
+
+    model.set_parameter_optimization_bounds(
+        'S2SphereStejskalTannerApproximation_1_diameter',
+        microglia_diameter,
+    )
+    model.set_parameter_optimization_bounds(
         'S2SphereStejskalTannerApproximation_2_diameter',
-        float(model_config.get('large_diameter', 8e-6))
+        astrocyte_diameter,
+    )
+    model.set_initial_guess_parameter(
+        'S2SphereStejskalTannerApproximation_1_diameter',
+        microglia_initial_diameter,
+    )
+    model.set_initial_guess_parameter(
+        'S2SphereStejskalTannerApproximation_2_diameter',
+        astrocyte_initial_diameter,
     )
     model.set_fixed_parameter(
         'G1Ball_1_lambda_iso',
@@ -207,8 +246,8 @@ def fit_microglia(
     nthreads: int = 1,
     parallel_diffusivity: float = 1.7e-9,
     iso_diffusivity: float = 3.0e-9,
-    small_diameter: float = 4e-6,
-    large_diameter: float = 8e-6,
+    small_diameter: float = 8e-6,
+    large_diameter: float = 16e-6,
     solver: str = "brute2fine",
     solver_kwargs: Optional[Dict] = None,
     grad_nonlin: Optional[Path] = None,

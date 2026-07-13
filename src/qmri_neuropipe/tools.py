@@ -400,8 +400,16 @@ def fit_microglia_cli(
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
     iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
-    small_diameter: float = typer.Option(4e-6, "--small-diameter", help="Small-sphere diameter in meters."),
-    large_diameter: float = typer.Option(8e-6, "--large-diameter", help="Large-sphere diameter in meters."),
+    small_diameter: float = typer.Option(
+        8e-6,
+        "--small-diameter",
+        help="Initial microglia-sphere diameter in meters (fitted within bounds).",
+    ),
+    large_diameter: float = typer.Option(
+        16e-6,
+        "--large-diameter",
+        help="Initial astrocyte-sphere diameter in meters (fitted within bounds).",
+    ),
     solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
     delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
     big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),

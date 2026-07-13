@@ -899,8 +899,8 @@ class MicrogliaFittingStep(BaseProcessingStep):
              # Extract metrics and hyperparams
              d_par = kwargs.get('parallel_diffusivity') or self.config.get('parallel_diffusivity', 1.7e-9)
              d_iso = kwargs.get('iso_diffusivity') or self.config.get('iso_diffusivity', 3.0e-9)
-             d_small = kwargs.get('small_diameter') or self.config.get('small_diameter', 4e-6)
-             d_large = kwargs.get('large_diameter') or self.config.get('large_diameter', 8e-6)
+             d_small = kwargs.get('small_diameter') or self.config.get('small_diameter', 8e-6)
+             d_large = kwargs.get('large_diameter') or self.config.get('large_diameter', 16e-6)
              
              fit_microglia(
                  dwi, 

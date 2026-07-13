@@ -757,7 +757,8 @@ def _mapmri_peaks_from_fit(
     from dipy.data import default_sphere
     from dipy.direction import peak_directions
 
-    odf = np.asarray(fit.odf(default_sphere), dtype=np.float32)
+    # DIPY's Cython peak_directions implementation requires a double buffer.
+    odf = np.asarray(fit.odf(default_sphere), dtype=np.float64)
     odf_flat = odf.reshape((-1, odf.shape[-1]))
     peaks = np.zeros((odf_flat.shape[0], n_peaks * 3), dtype=np.float32)
 
