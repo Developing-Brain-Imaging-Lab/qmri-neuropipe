@@ -962,6 +962,43 @@ class TestR1ModelingSync:
 
         copytree.assert_not_called()
 
+    def test_completed_models_are_copied_before_later_failure(self, tmp_path, monkeypatch):
+        from qmri_neuropipe.workflows.pipelines import integrated_modeling_workflow as modeling
+
+        config = PipelineConfig(
+            bids_dir=tmp_path / "bids",
+            output_dir=tmp_path / "out",
+            config_data={"stop_on_error": True, "dmri": {"modeling": {}}},
+        )
+        wf = modeling.ModelingWorkflow(config, _logger(), None)
+
+        class _SuccessfulStep:
+            def should_skip(self, context, output_dir):
+                return False
+
+            def __call__(self, context, output_dir, mask, force):
+                return context
+
+        class _FailingStep(_SuccessfulStep):
+            def __call__(self, context, output_dir, mask, force):
+                raise RuntimeError("model fit failed")
+
+        wf.steps = [_SuccessfulStep(), _FailingStep()]
+        copytree = Mock()
+        monkeypatch.setattr("shutil.copytree", copytree)
+
+        with pytest.raises(RuntimeError, match="model fit failed"):
+            wf._execute_modeling(
+                [ImageFile({"sub": "01", "suffix": "dwi"}, tmp_path / "a.nii.gz")],
+                [None],
+                {},
+                tmp_path / "staging",
+                tmp_path / "final",
+                reporter=None,
+            )
+
+        copytree.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # R0 — CLI/config merge used by --dry-run

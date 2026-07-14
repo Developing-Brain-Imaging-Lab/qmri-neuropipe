@@ -478,7 +478,18 @@ class ModelingWorkflow(BaseWorkflow):
                     
                 except Exception as e:
                     if self.config.stop_on_error:
-                        raise e
+                        # Preserve outputs from models that completed before a
+                        # later model failed. The normal synchronization below
+                        # is otherwise bypassed when this exception propagates.
+                        if final_dir and staging_changed:
+                            shutil.copytree(
+                                staging_dir,
+                                final_dir,
+                                dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("figures"),
+                            )
+                            staging_changed = False
+                        raise
                     self.logger.error(f"{step_name} failed: {e}")
                 
                 if reporter:
