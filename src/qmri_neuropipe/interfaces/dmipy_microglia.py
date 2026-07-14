@@ -277,8 +277,8 @@ def fit_microglia(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from dmipy.core import acquisition_scheme
-    except ImportError:
-        raise ProcessingError("Dmipy required but not installed.")
+    except ImportError as exc:
+        raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
 
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)

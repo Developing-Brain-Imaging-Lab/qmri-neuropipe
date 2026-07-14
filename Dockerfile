@@ -122,8 +122,9 @@ RUN mkdir -p /opt/c3d && \
 WORKDIR /app
 COPY . /app
 
-RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip setuptools wheel && \
-    ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]"
+RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel && \
+    ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
+    ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources"
 
 # --------------------------------------------------------------------------------
 # 7. Runtime wrapper

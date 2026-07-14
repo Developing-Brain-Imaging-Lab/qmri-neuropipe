@@ -489,7 +489,7 @@ class DataIOManager:
             data["ProcessingStepsDetail"] = step_details
 
         with open(json_path, "w") as f:
-            json.dump(data, f, indent=4)
+            json.dump(data, f, indent=4, default=str)
     
     def _save_gnl_maps(
         self,
