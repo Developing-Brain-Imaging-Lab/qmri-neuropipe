@@ -897,10 +897,24 @@ class MicrogliaFittingStep(BaseProcessingStep):
              fit_kwargs = self.kwargs.copy()
              
              # Extract metrics and hyperparams
-             d_par = kwargs.get('parallel_diffusivity') or self.config.get('parallel_diffusivity', 1.7e-9)
-             d_iso = kwargs.get('iso_diffusivity') or self.config.get('iso_diffusivity', 3.0e-9)
-             d_small = kwargs.get('small_diameter') or self.config.get('small_diameter', 8e-6)
-             d_large = kwargs.get('large_diameter') or self.config.get('large_diameter', 16e-6)
+             configured_d_par = fit_kwargs.pop(
+                 'parallel_diffusivity', self.config.get('parallel_diffusivity', 1.0e-9)
+             )
+             configured_d_iso = fit_kwargs.pop(
+                 'iso_diffusivity', self.config.get('iso_diffusivity', 3.0e-9)
+             )
+             configured_d_small = fit_kwargs.pop(
+                 'small_diameter', self.config.get('small_diameter', 8e-6)
+             )
+             configured_d_large = fit_kwargs.pop(
+                 'large_diameter', self.config.get('large_diameter', 16e-6)
+             )
+             small_bounds = fit_kwargs.pop('small_diameter_bounds', (5e-6, 11e-6))
+             large_bounds = fit_kwargs.pop('large_diameter_bounds', (12e-6, 18e-6))
+             d_par = kwargs.get('parallel_diffusivity') or configured_d_par
+             d_iso = kwargs.get('iso_diffusivity') or configured_d_iso
+             d_small = kwargs.get('small_diameter') or configured_d_small
+             d_large = kwargs.get('large_diameter') or configured_d_large
              
              fit_microglia(
                  dwi, 
@@ -912,6 +926,8 @@ class MicrogliaFittingStep(BaseProcessingStep):
                  iso_diffusivity=d_iso,
                  small_diameter=d_small,
                  large_diameter=d_large,
+                 small_diameter_bounds=small_bounds,
+                 large_diameter_bounds=large_bounds,
                  **fit_kwargs
              )
         else:

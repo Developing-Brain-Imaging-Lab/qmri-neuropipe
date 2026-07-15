@@ -1,7 +1,8 @@
 
 from pathlib import Path
-from typing import Optional, Dict, Union
+from typing import Any, Optional, Dict, Sequence, Union
 import json
+import math
 
 import shutil
 # Optional dependencies imported locally
@@ -11,6 +12,63 @@ from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
+
+
+SANDI_AMICO_DEFAULTS = {
+    # User-facing units follow the SANDI literature: um and um^2/ms.
+    "soma_diffusivity": 3.0,
+    "soma_radii": (1.0, 3.8, 6.6, 9.4, 12.2, 15.0),
+    "neurite_diffusivities": (0.25, 1.1666666667, 2.0833333333, 3.0),
+    "extra_diffusivities": (0.25, 0.9375, 1.625, 2.3125, 3.0),
+    "l1_regularization": 0.0,
+    "l2_regularization": 7.5e-4,
+}
+
+
+def _positive_grid(name: str, values: Sequence[float]) -> tuple[float, ...]:
+    try:
+        grid = tuple(float(value) for value in values)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a sequence of numbers.") from exc
+    if not grid or any(not math.isfinite(value) or value <= 0 for value in grid):
+        raise ValueError(f"{name} must contain one or more finite positive values.")
+    if any(right <= left for left, right in zip(grid, grid[1:])):
+        raise ValueError(f"{name} must be strictly increasing.")
+    return grid
+
+
+def _configure_sandi_model(model, **kwargs) -> Dict[str, Any]:
+    """Configure an AMICO SANDI model using literature-friendly units."""
+    settings = {**SANDI_AMICO_DEFAULTS, **kwargs}
+    d_is = float(settings["soma_diffusivity"])
+    lambda1 = float(settings["l1_regularization"])
+    lambda2 = float(settings["l2_regularization"])
+    if not math.isfinite(d_is) or d_is <= 0:
+        raise ValueError("soma_diffusivity must be finite and positive.")
+    if any(not math.isfinite(value) or value < 0 for value in (lambda1, lambda2)):
+        raise ValueError("SANDI regularization values must be finite and non-negative.")
+
+    radii = _positive_grid("soma_radii", settings["soma_radii"])
+    neurite = _positive_grid("neurite_diffusivities", settings["neurite_diffusivities"])
+    extra = _positive_grid("extra_diffusivities", settings["extra_diffusivities"])
+    model.set(
+        d_is=d_is * 1e-3,  # um^2/ms -> mm^2/s
+        Rs=[value * 1e-6 for value in radii],  # um -> m
+        d_in=[value * 1e-3 for value in neurite],
+        d_isos=[value * 1e-3 for value in extra],
+    )
+    model.set_solver(lambda1=lambda1, lambda2=lambda2)
+    return {
+        "SomaDiffusivity": d_is,
+        "SomaDiffusivityUnits": "um^2/ms",
+        "SomaRadii": list(radii),
+        "SomaRadiiUnits": "um",
+        "NeuriteDiffusivities": list(neurite),
+        "ExtraCellularDiffusivities": list(extra),
+        "CompartmentDiffusivityUnits": "um^2/ms",
+        "L1Regularization": lambda1,
+        "L2Regularization": lambda2,
+    }
 
 
 def _normalize_sandi_scheme_header(scheme_file: Path) -> None:
@@ -26,7 +84,7 @@ def _move_amico_metric_outputs(
     out_dir: Path,
     ent_base: Dict[str, str],
     mapping: Dict[str, tuple[str, ...]],
-    sidecar: Dict[str, str],
+    sidecar: Dict[str, Any],
 ) -> Dict[str, Path]:
     output_files = {}
     for suffix, source_names in mapping.items():
@@ -202,6 +260,23 @@ def fit_sandi(
         mask_filename=str(mask_file) if mask_file else None,
     )
     ae.set_model("SANDI")
+    sandi_settings = _configure_sandi_model(
+        ae.model,
+        soma_diffusivity=kwargs.get("soma_diffusivity", SANDI_AMICO_DEFAULTS["soma_diffusivity"]),
+        soma_radii=kwargs.get("soma_radii", SANDI_AMICO_DEFAULTS["soma_radii"]),
+        neurite_diffusivities=kwargs.get(
+            "neurite_diffusivities", SANDI_AMICO_DEFAULTS["neurite_diffusivities"]
+        ),
+        extra_diffusivities=kwargs.get(
+            "extra_diffusivities", SANDI_AMICO_DEFAULTS["extra_diffusivities"]
+        ),
+        l1_regularization=kwargs.get(
+            "l1_regularization", SANDI_AMICO_DEFAULTS["l1_regularization"]
+        ),
+        l2_regularization=kwargs.get(
+            "l2_regularization", SANDI_AMICO_DEFAULTS["l2_regularization"]
+        ),
+    )
     ae.set_config('nthreads', n_cpus)
     ae.generate_kernels()
     ae.load_kernels()
@@ -224,7 +299,9 @@ def fit_sandi(
     sidecar = {
         "ModelName": "SANDI (Soma and Neurite Density Imaging)",
         "FittingSoftware": "AMICO",
-        "InputData": in_path.name
+        "InputData": in_path.name,
+        "FittingMethod": "AMICO accelerated fitting",
+        **sandi_settings,
     }
     
     output_files = _move_amico_metric_outputs(res_dir, out_dir, ent_base, mapping, sidecar)

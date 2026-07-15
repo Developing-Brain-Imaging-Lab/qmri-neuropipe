@@ -20,6 +20,164 @@ from qmri_neuropipe.interfaces.dmipy import (
     _safe_rotate_gradients_for_gnl,
 )
 
+
+def _load_microglia_gradients(bval_file, bvec_file):
+    """Load FSL-style gradients and convert b-values to dmipy SI units."""
+    bvals_fsl = np.asarray(np.loadtxt(bval_file), dtype=float).reshape(-1)
+    bvecs = np.asarray(np.loadtxt(bvec_file), dtype=float)
+    if bvecs.ndim != 2:
+        raise ValueError("b-vectors must be a two-dimensional 3 x N or N x 3 array.")
+    if bvecs.shape == (3, bvals_fsl.size):
+        bvecs = bvecs.T
+    elif bvecs.shape != (bvals_fsl.size, 3):
+        raise ValueError(
+            f"b-vector shape {bvecs.shape} is incompatible with "
+            f"{bvals_fsl.size} b-values; expected 3 x N or N x 3."
+        )
+    if not np.all(np.isfinite(bvals_fsl)) or np.any(bvals_fsl < 0):
+        raise ValueError("b-values must be finite and non-negative.")
+    if not np.all(np.isfinite(bvecs)):
+        raise ValueError("b-vectors must be finite.")
+
+    norms = np.linalg.norm(bvecs, axis=1)
+    diffusion_weighted = bvals_fsl > 10.0
+    if np.any(norms[diffusion_weighted] <= 0):
+        raise ValueError("Every diffusion-weighted volume must have a non-zero b-vector.")
+    if np.any(np.abs(norms[diffusion_weighted] - 1.0) > 0.1):
+        raise ValueError("Diffusion-weighted b-vectors must have approximately unit norm.")
+    nonzero = norms > 0
+    bvecs[nonzero] /= norms[nonzero, None]
+    return bvals_fsl * 1e6, bvecs
+
+
+def _load_microglia_timing(delta_file, Delta_file, n_measurements):
+    """Load required PGSE timing in seconds and validate its physical ordering."""
+    if not delta_file or not Delta_file:
+        raise ProcessingError(
+            "Microglia sphere fitting requires both small-delta and big-Delta "
+            "timing files, with values in seconds."
+        )
+
+    def load_timing(path, label):
+        values = np.asarray(np.loadtxt(Path(path)), dtype=float).reshape(-1)
+        if values.size not in (1, n_measurements):
+            raise ValueError(
+                f"{label} timing must contain either one value or "
+                f"{n_measurements} values; found {values.size}."
+            )
+        if not np.all(np.isfinite(values)) or np.any(values <= 0):
+            raise ValueError(f"{label} timing must be finite and positive seconds.")
+        return np.full(n_measurements, values[0]) if values.size == 1 else values
+
+    delta = load_timing(delta_file, "small-delta")
+    Delta = load_timing(Delta_file, "big-Delta")
+    if np.any(Delta <= delta):
+        raise ValueError("Every big-Delta value must be greater than small-delta.")
+    return delta, Delta
+
+
+def _microglia_metric_name(parameter_name):
+    """Map dmipy parameter names to stable, interpretable derivative suffixes."""
+    exact = {
+        "partial_volume_0": "f_bundle",
+        "partial_volume_1": "f_small_sphere",
+        "partial_volume_2": "f_large_sphere",
+        "partial_volume_3": "f_iso",
+        "derived_f_stick": "f_stick",
+        "derived_f_extracellular": "f_extracellular",
+        "derived_f_tissue": "f_tissue",
+        "derived_small_sphere_radius": "small_sphere_radius",
+        "derived_large_sphere_radius": "large_sphere_radius",
+        "derived_watson_kappa": "watson_kappa",
+    }
+    if parameter_name in exact:
+        return exact[parameter_name]
+    if parameter_name.endswith("SD1Watson_1_mu"):
+        return "mu"
+    if parameter_name.endswith("SD1Watson_1_odi"):
+        return "odi"
+    if parameter_name.endswith("G2Zeppelin_1_lambda_perp"):
+        return "bundle_radial_diffusivity"
+    if parameter_name.endswith("SD1WatsonDistributed_1_partial_volume_0"):
+        return "bundle_stick_fraction"
+    if parameter_name.endswith("S2SphereStejskalTannerApproximation_1_diameter"):
+        return "small_sphere_diameter"
+    if parameter_name.endswith("S2SphereStejskalTannerApproximation_2_diameter"):
+        return "large_sphere_diameter"
+    return parameter_name.replace("SD1WatsonDistributed_1_", "")
+
+
+def _microglia_metric_metadata(metric):
+    metadata = {
+        "f_bundle": ("Signal fraction of the dispersed stick/zeppelin bundle.", "unitless"),
+        "f_small_sphere": ("Signal fraction of the small-sphere compartment.", "unitless"),
+        "f_large_sphere": ("Signal fraction of the large-sphere compartment.", "unitless"),
+        "f_iso": ("Signal fraction of the isotropic ball compartment.", "unitless"),
+        "f_stick": (
+            "Whole-voxel restricted stick signal fraction (paper f_IC).",
+            "unitless",
+        ),
+        "f_extracellular": (
+            "Whole-voxel hindered extracellular tensor signal fraction (paper f_EC).",
+            "unitless",
+        ),
+        "f_tissue": ("Tissue signal fraction, calculated as 1 - f_iso (paper f_T).", "unitless"),
+        "bundle_stick_fraction": (
+            "Stick fraction within the dispersed bundle; not a whole-voxel fraction.",
+            "unitless",
+        ),
+        "odi": ("Watson orientation dispersion index.", "unitless"),
+        "watson_kappa": (
+            "Watson concentration converted from ODI as 1/tan(pi*ODI/2).",
+            "unitless",
+        ),
+        "mu": (
+            "Watson mean orientation as polar and azimuthal spherical angles.",
+            "radian",
+        ),
+        "bundle_radial_diffusivity": (
+            "Radial diffusivity of the bundle zeppelin compartment.",
+            "m^2/s",
+        ),
+        "small_sphere_diameter": ("Fitted small-sphere diameter.", "m"),
+        "large_sphere_diameter": ("Fitted large-sphere diameter.", "m"),
+        "small_sphere_radius": ("Fitted small-sphere radius (paper R_SS).", "m"),
+        "large_sphere_radius": ("Fitted large-sphere radius (paper R_LS).", "m"),
+    }
+    description, units = metadata.get(metric, ("Fitted dmipy model parameter.", "unknown"))
+    result = {"MetricDescription": description, "MetricUnits": units}
+    if metric == "mu":
+        result["MetricComponents"] = ["polar_angle", "azimuthal_angle"]
+    return result
+
+
+def _add_paper_microglia_maps(full_maps):
+    """Add paper-facing fractions, radii, and Watson concentration in place."""
+    f_bundle = full_maps.get('partial_volume_0')
+    bundle_stick = full_maps.get('SD1WatsonDistributed_1_partial_volume_0')
+    f_iso = full_maps.get('partial_volume_3')
+    small_diameter = full_maps.get(
+        'S2SphereStejskalTannerApproximation_1_diameter'
+    )
+    large_diameter = full_maps.get(
+        'S2SphereStejskalTannerApproximation_2_diameter'
+    )
+    odi = full_maps.get('SD1WatsonDistributed_1_SD1Watson_1_odi')
+    if f_bundle is not None and bundle_stick is not None:
+        full_maps['derived_f_stick'] = f_bundle * bundle_stick
+        full_maps['derived_f_extracellular'] = f_bundle * (1.0 - bundle_stick)
+    if f_iso is not None:
+        full_maps['derived_f_tissue'] = 1.0 - f_iso
+    if small_diameter is not None:
+        full_maps['derived_small_sphere_radius'] = 0.5 * small_diameter
+    if large_diameter is not None:
+        full_maps['derived_large_sphere_radius'] = 0.5 * large_diameter
+    if odi is not None:
+        safe_odi = np.clip(odi, np.finfo(float).eps, 1.0 - np.finfo(float).eps)
+        full_maps['derived_watson_kappa'] = 1.0 / np.tan(0.5 * np.pi * safe_odi)
+    return full_maps
+
+
 def _build_microglia_model(
     cylinder_models,
     gaussian_models,
@@ -32,15 +190,15 @@ def _build_microglia_model(
     zeppelin = gaussian_models.G2Zeppelin()
     dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
 
-    # The model uses a fixed main orientation and makes no tortuosity assumption.
-    dispersed_bundle.set_fixed_parameter('SD1Watson_1_mu', [0.0, 0.0])
+    # Fit the Watson mean orientation (mu) independently from its orientation
+    # dispersion index (odi). The model makes no tortuosity assumption.
     dispersed_bundle.set_equal_parameter(
         'G2Zeppelin_1_lambda_par',
         'C1Stick_1_lambda_par',
     )
     dispersed_bundle.set_fixed_parameter(
         'G2Zeppelin_1_lambda_par',
-        float(model_config.get('parallel_diffusivity', 1.7e-9))
+        float(model_config.get('parallel_diffusivity', 1.0e-9))
     )
 
     small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
@@ -51,8 +209,22 @@ def _build_microglia_model(
         models=[dispersed_bundle, small_sphere, large_sphere, ball]
     )
 
-    microglia_diameter = [5e-6, 11e-6]
-    astrocyte_diameter = [12e-6, 18e-6]
+    microglia_diameter = list(
+        map(float, model_config.get('small_diameter_bounds', [5e-6, 11e-6]))
+    )
+    astrocyte_diameter = list(
+        map(float, model_config.get('large_diameter_bounds', [12e-6, 18e-6]))
+    )
+    for label, bounds in (
+        ('small-sphere', microglia_diameter),
+        ('large-sphere', astrocyte_diameter),
+    ):
+        if len(bounds) != 2 or not 0 < bounds[0] < bounds[1]:
+            raise ValueError(
+                f"{label} diameter bounds must contain two increasing positive values."
+            )
+    if microglia_diameter[1] >= astrocyte_diameter[0]:
+        raise ValueError("Small- and large-sphere diameter bounds must not overlap.")
     microglia_initial_diameter = float(
         model_config.get('small_diameter', 8e-6)
     )
@@ -244,12 +416,17 @@ def fit_microglia(
     Delta_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     nthreads: int = 1,
-    parallel_diffusivity: float = 1.7e-9,
+    parallel_diffusivity: float = 1.0e-9,
     iso_diffusivity: float = 3.0e-9,
     small_diameter: float = 8e-6,
     large_diameter: float = 16e-6,
+    small_diameter_bounds=(5e-6, 11e-6),
+    large_diameter_bounds=(12e-6, 18e-6),
     solver: str = "brute2fine",
     solver_kwargs: Optional[Dict] = None,
+    Ns: int = 5,
+    maxiter: int = 300,
+    N_sphere_samples: int = 30,
     grad_nonlin: Optional[Path] = None,
     **kwargs
 ) -> Dict[str, Path]:
@@ -283,40 +460,42 @@ def fit_microglia(
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
     
-    if bval_file is None or bvec_file is None:
-        if isinstance(in_file, DWIFile):
-             bval_file = bval_file or in_file.bval
-             bvec_file = bvec_file or in_file.bvec
-             delta_file = delta_file or in_file.delta
-             Delta_file = Delta_file or in_file.Delta
+    if isinstance(in_file, DWIFile):
+         bval_file = bval_file or in_file.bval
+         bvec_file = bvec_file or in_file.bvec
+         delta_file = delta_file or in_file.delta
+         Delta_file = Delta_file or in_file.Delta
              
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required.")
 
     if solver_kwargs is None:
         solver_kwargs = {}
+    else:
+        solver_kwargs = dict(solver_kwargs)
+    solver_kwargs.setdefault('Ns', int(Ns))
+    solver_kwargs.setdefault('maxiter', int(maxiter))
+    solver_kwargs.setdefault('N_sphere_samples', int(N_sphere_samples))
     
     img = nib.load(str(in_path))
     data = img.get_fdata()
     affine = img.affine
     
-    bvals = np.loadtxt(bval_file) * 1e6 # dmipy expects SI units
-    bvecs = np.loadtxt(bvec_file).T
-    
-    # Check if we have explicitly provided delta/Delta for sphere modeling
-    # Dmipy's Sphere models REQUIRE gradient duration (delta) and diffusion time (Delta)
-    if delta_file and delta_file.exists() and Delta_file and Delta_file.exists():
-        delta_arr = np.loadtxt(delta_file)
-        Delta_arr = np.loadtxt(Delta_file)
-        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-            bvalues=bvals, gradient_directions=bvecs,
-            delta=delta_arr, Delta=Delta_arr
+    bvals, bvecs = _load_microglia_gradients(bval_file, bvec_file)
+    if bvals.size != data.shape[-1]:
+        raise ValueError(
+            f"Found {bvals.size} gradient entries for a DWI with "
+            f"{data.shape[-1]} volumes."
         )
-    else:
-        # Fallback to standard (not ideal for sphere models which depend strictly on diffusion time)
-        print("WARNING: No delta/Delta files found. Sphere radius estimation may be inaccurate without explicit diffusion times.")
-        # Dmipy usually defaults delta=0.015, Delta=0.03 if not provided
-        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals, bvecs)
+    delta_arr, Delta_arr = _load_microglia_timing(
+        delta_file, Delta_file, bvals.size
+    )
+    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
+        bvalues=bvals,
+        gradient_directions=bvecs,
+        delta=delta_arr,
+        Delta=Delta_arr,
+    )
 
     if mask_file and mask_file.exists():
         mask_data = nib.load(str(mask_file)).get_fdata().astype(bool)
@@ -345,7 +524,9 @@ def fit_microglia(
         'parallel_diffusivity': parallel_diffusivity,
         'iso_diffusivity': iso_diffusivity,
         'small_diameter': small_diameter,
-        'large_diameter': large_diameter
+        'large_diameter': large_diameter,
+        'small_diameter_bounds': small_diameter_bounds,
+        'large_diameter_bounds': large_diameter_bounds,
     }
     
     chunk_args = []
@@ -406,6 +587,10 @@ def fit_microglia(
         else:
              out_arr = v.reshape(out_arr.shape)
         full_maps[k] = out_arr
+
+    # Paper-facing quantities derived from dmipy's nested bundle and diameter
+    # parameterization. Raw fitted maps remain available alongside these maps.
+    _add_paper_microglia_maps(full_maps)
         
     # Standardize map names
     # dmipy name resolution:
@@ -423,22 +608,31 @@ def fit_microglia(
     import json
     sidecar = {
         "ModelName": "Microglia (4-Compartment)",
+        "ModelReference": "https://doi.org/10.1126/sciadv.abq2923",
         "FittingSoftware": "Dmipy",
-        "InputData": in_path.name
+        "InputData": in_path.name,
+        "BValueInputUnits": "s/mm^2",
+        "BValueFittingUnits": "s/m^2",
+        "SmallDeltaSeconds": {
+            "Minimum": float(np.min(delta_arr)),
+            "Maximum": float(np.max(delta_arr)),
+        },
+        "BigDeltaSeconds": {
+            "Minimum": float(np.min(Delta_arr)),
+            "Maximum": float(np.max(Delta_arr)),
+        },
+        "SphereSignalModel": "S2SphereStejskalTannerApproximation",
+        "SmallSphereDiameterBoundsMeters": list(map(float, small_diameter_bounds)),
+        "LargeSphereDiameterBoundsMeters": list(map(float, large_diameter_bounds)),
+        "ParallelDiffusivityMetersSquaredPerSecond": parallel_diffusivity,
+        "IsotropicDiffusivityMetersSquaredPerSecond": iso_diffusivity,
+        "Solver": solver,
+        "SolverOptions": solver_kwargs,
+        "WatsonMeanOrientationFitted": True,
     }
     
     for k, array in full_maps.items():
-        # Clean up suffix (e.g. 'SD1WatsonDistributed_1_partial_volume_0' -> 'pv_bundle')
-        suffix = k.replace('SD1WatsonDistributed_1_', '')
-        suffix = suffix.replace('SmallSphere_1_', 'small_')
-        suffix = suffix.replace('LargeSphere_1_', 'large_')
-        
-        # Simplified naming mapping based on known Dmipy internal structure
-        if k == 'partial_volume_0': suffix = 'f_bundle'
-        elif k == 'partial_volume_1': suffix = 'f_small_sphere'
-        elif k == 'partial_volume_2': suffix = 'f_large_sphere'
-        elif 'kappa' in k: suffix = 'dispersion_kappa'
-        elif 'mu' in k: suffix = 'mu' # main orientation vector (3D)
+        suffix = _microglia_metric_name(k)
         
         out_name = build_bids_name({**ent_base, 'suffix': suffix})
         out_p = out_dir / out_name
@@ -446,6 +640,14 @@ def fit_microglia(
         outputs[suffix] = out_p
         
         with open(str(out_p).replace('.nii.gz', '.json'), 'w') as f:
-             json.dump(sidecar, f, indent=4)
+             json.dump(
+                 {
+                     **sidecar,
+                     "Metric": suffix,
+                     **_microglia_metric_metadata(suffix),
+                 },
+                 f,
+                 indent=4,
+             )
              
     return outputs

@@ -337,6 +337,12 @@ def fit_sandi_cli(
     solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
     delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
     big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
+    soma_diffusivity: float = typer.Option(3.0, "--soma-diffusivity", help="AMICO intra-soma diffusivity in um^2/ms."),
+    soma_radius: Optional[list[float]] = typer.Option(None, "--soma-radius", help="AMICO soma radius in um; repeat for each dictionary value."),
+    neurite_diffusivity: Optional[list[float]] = typer.Option(None, "--neurite-diffusivity", help="AMICO intra-neurite diffusivity in um^2/ms; repeatable."),
+    extra_diffusivity: Optional[list[float]] = typer.Option(None, "--extra-diffusivity", help="AMICO extra-cellular diffusivity in um^2/ms; repeatable."),
+    l1_regularization: float = typer.Option(0.0, "--l1-regularization", help="AMICO SANDI L1 regularization."),
+    l2_regularization: float = typer.Option(7.5e-4, "--l2-regularization", help="AMICO SANDI L2 regularization."),
     grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
@@ -378,6 +384,12 @@ def fit_sandi_cli(
                 n_cpus=nthreads,
                 delta_file=delta,
                 Delta_file=big_delta,
+                soma_diffusivity=soma_diffusivity,
+                soma_radii=soma_radius if soma_radius is not None else (1.0, 3.8, 6.6, 9.4, 12.2, 15.0),
+                neurite_diffusivities=neurite_diffusivity if neurite_diffusivity is not None else (0.25, 1.1666666667, 2.0833333333, 3.0),
+                extra_diffusivities=extra_diffusivity if extra_diffusivity is not None else (0.25, 0.9375, 1.625, 2.3125, 3.0),
+                l1_regularization=l1_regularization,
+                l2_regularization=l2_regularization,
             )
         else:
             raise ValueError(f"Unknown backend: {backend}")
@@ -398,7 +410,7 @@ def fit_microglia_cli(
     bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
-    parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
+    parallel_diff: float = typer.Option(1.0e-9, "--parallel-diff", help="Restricted/parallel diffusivity in m^2/s"),
     iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
     small_diameter: float = typer.Option(
         8e-6,
@@ -410,6 +422,15 @@ def fit_microglia_cli(
         "--large-diameter",
         help="Initial astrocyte-sphere diameter in meters (fitted within bounds).",
     ),
+    small_diameter_bound: Optional[list[float]] = typer.Option(
+        None, "--small-diameter-bound", help="Small-sphere diameter bound in meters; provide twice."
+    ),
+    large_diameter_bound: Optional[list[float]] = typer.Option(
+        None, "--large-diameter-bound", help="Large-sphere diameter bound in meters; provide twice."
+    ),
+    grid_samples: int = typer.Option(5, "--grid-samples", help="Dmipy brute-force samples per parameter."),
+    orientation_samples: int = typer.Option(30, "--orientation-samples", help="Spherical samples for Watson mean orientation."),
+    maxiter: int = typer.Option(300, "--maxiter", help="Maximum MIX optimizer iterations."),
     solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
     delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
     big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
@@ -439,7 +460,12 @@ def fit_microglia_cli(
             iso_diffusivity=iso_diff,
             small_diameter=small_diameter,
             large_diameter=large_diameter,
+            small_diameter_bounds=small_diameter_bound or (5e-6, 11e-6),
+            large_diameter_bounds=large_diameter_bound or (12e-6, 18e-6),
             solver=solver,
+            Ns=grid_samples,
+            N_sphere_samples=orientation_samples,
+            maxiter=maxiter,
             grad_nonlin=grad_nonlin,
         )
         console.print("[bold green]Success![/bold green]")
