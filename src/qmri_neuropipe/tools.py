@@ -830,6 +830,108 @@ def create_gnl_map_cli(
         raise typer.Exit(code=1)
 
 
+@app.command("create-print-model")
+def create_print_model_cli(
+    inputs: List[Path] = typer.Argument(..., help="Input 3D NIfTI mask/segmentation image(s)."),
+    output: Path = typer.Option(..., "--output", "-o", help="Output mesh path (.stl or .obj)."),
+    threshold: float = typer.Option(0.5, "--threshold", help="Voxel threshold for binary masks."),
+    labels: Optional[str] = typer.Option(None, "--labels", help="Comma-separated integer labels to extract from segmentation images."),
+    smooth_sigma: float = typer.Option(0.5, "--smooth-sigma", help="Gaussian smoothing sigma before surface extraction. Use 0 to disable."),
+    fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes", help="Fill internal binary holes before meshing."),
+    closing_iterations: int = typer.Option(0, "--closing-iterations", help="Binary closing iterations before meshing."),
+    file_format: str = typer.Option("auto", "--format", help="Mesh format: auto, stl, or obj."),
+):
+    """
+    Export a 3D-printable surface mesh from brain or tract/bundle mask NIfTI files.
+
+    This is intended for binary brain masks, tissue masks, segmentation labels, or
+    tract/bundle masks such as TractSeg outputs. Use create-tract-print-model for
+    native streamline tractograms (.trk/.tck).
+    """
+    try:
+        from qmri_neuropipe.lib.print3d import export_print_mesh
+
+        missing = [path for path in inputs if not path.exists()]
+        if missing:
+            raise FileNotFoundError(f"Input file not found: {missing[0]}")
+
+        mesh = export_print_mesh(
+            inputs=list(inputs),
+            output=output,
+            threshold=threshold,
+            labels=labels,
+            smooth_sigma=smooth_sigma,
+            fill_holes=fill_holes,
+            closing_iterations=closing_iterations,
+            file_format=file_format,
+        )
+        console.print(
+            "[bold green]Success![/bold green] "
+            f"Wrote {output} with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces."
+        )
+    except Exception as e:
+        console.print(f"[bold red]Error creating print model:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("create-tract-print-model")
+def create_tract_print_model_cli(
+    tractogram: Path = typer.Argument(..., help="Input tractogram file (.trk or .tck)."),
+    output: Path = typer.Option(..., "--output", "-o", help="Output tube mesh path (.stl or .obj)."),
+    radius: float = typer.Option(0.4, "--radius", help="Tube radius in tractogram/world millimeters."),
+    sides: int = typer.Option(8, "--sides", help="Number of sides around each tube."),
+    max_streamlines: Optional[int] = typer.Option(2000, "--max-streamlines", help="Maximum streamlines to convert. Use 0 for no limit."),
+    every_n: int = typer.Option(1, "--every-n", help="Use every Nth streamline before max-streamlines sampling."),
+    random_sample: bool = typer.Option(False, "--random-sample", help="Randomly sample streamlines when limiting."),
+    seed: int = typer.Option(1, "--seed", help="Random seed for --random-sample."),
+    min_length: float = typer.Option(5.0, "--min-length", help="Minimum streamline length in millimeters."),
+    point_step: int = typer.Option(2, "--point-step", help="Use every Nth point along each streamline."),
+    cap_ends: bool = typer.Option(True, "--cap-ends/--no-cap-ends", help="Cap tube ends."),
+    file_format: str = typer.Option("auto", "--format", help="Mesh format: auto, stl, or obj."),
+):
+    """
+    Export streamline tractography as tube meshes for 3D-printable tract models.
+
+    Large whole-brain tractograms can produce enormous meshes. Start with
+    --max-streamlines or --every-n and increase density after checking the result.
+    """
+    try:
+        from qmri_neuropipe.lib.print3d import export_streamline_tube_mesh
+
+        if not tractogram.exists():
+            raise FileNotFoundError(f"Input tractogram not found: {tractogram}")
+
+        mesh = export_streamline_tube_mesh(
+            tractogram_path=tractogram,
+            output=output,
+            radius=radius,
+            sides=sides,
+            max_streamlines=None if max_streamlines == 0 else max_streamlines,
+            every_n=every_n,
+            random_sample=random_sample,
+            seed=seed,
+            min_length=min_length,
+            point_step=point_step,
+            cap_ends=cap_ends,
+            file_format=file_format,
+        )
+        console.print(
+            "[bold green]Success![/bold green] "
+            f"Wrote {output} with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces."
+        )
+        console.print(
+            "[yellow]Note:[/yellow] Streamline tube meshes may contain disconnected fibers. "
+            "For reliable physical printing, inspect and repair/support the mesh in slicer software."
+        )
+    except Exception as e:
+        console.print(f"[bold red]Error creating tract print model:[/bold red] {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
 @app.command("tracker-init")
 def tracker_init_cli(
     output: Path = typer.Option(..., "--output", "-o", help="Path to create the tracker Excel file."),

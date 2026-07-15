@@ -19,6 +19,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # included accidentally.
     pyproject.toml /app/pyproject.toml
     src /app/src
+    container-assets /opt/container-assets
 
 %post
     set -e
@@ -140,7 +141,24 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     mkdir -p /data /output /code
 
     # --------------------------------------------------------------------------------
-    # 6. qmri-neuropipe and Python dependencies
+    # 6. Optional TORTOISE binaries
+    # --------------------------------------------------------------------------------
+    TORTOISE_SRC=/opt/container-assets/tortoise
+    TORTOISE_HOME=/opt/tortoise
+    if [ -d "${TORTOISE_SRC}/bin" ] && [ -f "${TORTOISE_SRC}/bin/CreateGradientNonlinearityBMatrix" ]; then
+        mkdir -p "${TORTOISE_HOME}"
+        cp -a "${TORTOISE_SRC}/." "${TORTOISE_HOME}/"
+        chmod -R a+rX "${TORTOISE_HOME}"
+        chmod a+rx "${TORTOISE_HOME}/bin/"* || true
+        echo "Installed TORTOISE binaries from ${TORTOISE_SRC} to ${TORTOISE_HOME}"
+        "${TORTOISE_HOME}/bin/CreateGradientNonlinearityBMatrix" --help >/dev/null 2>&1 || true
+    else
+        echo "No local TORTOISE binaries found under ${TORTOISE_SRC}/bin; skipping TORTOISE install."
+    fi
+    rm -rf /opt/container-assets
+
+    # --------------------------------------------------------------------------------
+    # 7. qmri-neuropipe and Python dependencies
     # --------------------------------------------------------------------------------
     REPO_DIR=/app
     if [ ! -f "${REPO_DIR}/pyproject.toml" ]; then
@@ -227,7 +245,9 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:$PATH
 
     export C3DPATH=/opt/c3d/bin
-    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:$PATH
+    export TORTOISE_HOME=/opt/tortoise
+    export LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:$LD_LIBRARY_PATH
+    export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:${TORTOISE_HOME}/bin:$PATH
     export LC_ALL=C
 
 %runscript

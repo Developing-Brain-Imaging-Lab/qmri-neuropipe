@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Optional, List, Union
+import shutil
 from ..core.run import run_cmd
 from ..core.types import ImageLike, DWIFile, ImageFile
 from ..core.utils import extract_image_path, ensure_dir
+from ..core import ProcessingError
 
 def diffprep(
     dwi_file: Union[Path, DWIFile],
@@ -138,7 +140,16 @@ def apply_grad_nonlin(
     """
     
     # Updated command based on user feedback to use CreateGradientNonlinearityBMatrix with correct flags
-    cmd_parts = ["CreateGradientNonlinearityBMatrix"]
+    executable = "CreateGradientNonlinearityBMatrix"
+    if shutil.which(executable) is None:
+        raise ProcessingError(
+            f"Required TORTOISE executable '{executable}' was not found in PATH. "
+            "Install TORTOISE inside the container or use the native GE GNL backend "
+            "by setting dmri.preprocessing.grad_nonlin.method: native_ge when the "
+            "DWI sidecars include GE gradient nonlinearity metadata."
+        )
+
+    cmd_parts = [executable]
     
     if initial_image:
         cmd_parts.append(f"--initial_image {initial_image}")

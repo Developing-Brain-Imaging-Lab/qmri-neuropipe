@@ -64,6 +64,9 @@ viewer = [
     "plotly",
     "pywebview"
 ]
+print3d = [
+    "scikit-image"
+]
 all = [
     "dmri-amico",
     "nexi",
@@ -76,6 +79,7 @@ all = [
     "weasyprint",
     "dash",
     "pywebview",
+    "scikit-image",
     "tensorflow>=2.21,<2.22; python_version>='3.10' and python_version<'3.14'"
 ]
 [project.scripts]

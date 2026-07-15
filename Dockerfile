@@ -25,7 +25,9 @@ ENV FS_LICENSE=${FREESURFER_HOME}/license.txt
 ENV FSFAST_HOME=${FREESURFER_HOME}/fsfast
 ENV MNI_DIR=${FREESURFER_HOME}/mni
 ENV C3DPATH=/opt/c3d/bin
-ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:$PATH
+ENV TORTOISE_HOME=/opt/tortoise
+ENV LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:$LD_LIBRARY_PATH
+ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:${TORTOISE_HOME}/bin:$PATH
 
 # --------------------------------------------------------------------------------
 # 1. System dependencies
@@ -117,17 +119,34 @@ RUN mkdir -p /opt/c3d && \
     mkdir -p /data /output /code
 
 # --------------------------------------------------------------------------------
-# 6. qmri-neuropipe and Python dependencies
+# 6. Optional TORTOISE binaries
+# --------------------------------------------------------------------------------
+COPY container-assets /opt/container-assets
+RUN if [ -d /opt/container-assets/tortoise/bin ] && [ -f /opt/container-assets/tortoise/bin/CreateGradientNonlinearityBMatrix ]; then \
+        mkdir -p ${TORTOISE_HOME} && \
+        cp -a /opt/container-assets/tortoise/. ${TORTOISE_HOME}/ && \
+        chmod -R a+rX ${TORTOISE_HOME} && \
+        chmod a+rx ${TORTOISE_HOME}/bin/* || true && \
+        echo "Installed TORTOISE binaries from /opt/container-assets/tortoise to ${TORTOISE_HOME}" && \
+        ${TORTOISE_HOME}/bin/CreateGradientNonlinearityBMatrix --help >/dev/null 2>&1 || true; \
+    else \
+        echo "No local TORTOISE binaries found under /opt/container-assets/tortoise/bin; skipping TORTOISE install."; \
+    fi && \
+    rm -rf /opt/container-assets
+
+# --------------------------------------------------------------------------------
+# 7. qmri-neuropipe and Python dependencies
 # --------------------------------------------------------------------------------
 WORKDIR /app
-COPY . /app
+COPY pyproject.toml /app/pyproject.toml
+COPY src /app/src
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel && \
     ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
     ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources"
 
 # --------------------------------------------------------------------------------
-# 7. Runtime wrapper
+# 8. Runtime wrapper
 # --------------------------------------------------------------------------------
 RUN printf '%s\n' \
     '#!/usr/bin/env bash' \
