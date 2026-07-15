@@ -30,8 +30,9 @@ stage_remote:
   remote_host: deaniii@ap2002.chtc.wisc.edu
   remote_stage_dir: /staging/deaniii/qneuro-staging
   bids_dir: /study/dean_k99/Studies/infmri/rawdata
+  # Pair by position: 10021/base, 10022/post, 10023/base.
   subjects: [10021, 10022, 10023]
-  session: 01
+  sessions: [base, post, base]
   bundle_name: qneuro_stage_bundle.tar.gz
 
 submit_staged:

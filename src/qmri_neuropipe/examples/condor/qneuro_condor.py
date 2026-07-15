@@ -229,6 +229,28 @@ def value_to_arg(value: object) -> str:
     return str(value)
 
 
+def normalize_subject_session_settings(values: dict[str, object]) -> dict[str, object]:
+    values = dict(values)
+
+    session_value = values.get("session")
+    if isinstance(session_value, (list, tuple)) and "sessions" not in values:
+        values["sessions"] = session_value
+        values.pop("session", None)
+
+    sessions_value = values.get("sessions")
+    has_subjects = bool(values.get("subjects") or values.get("subjects_file"))
+    if (
+        values.get("subject")
+        and isinstance(sessions_value, (list, tuple))
+        and len(sessions_value) > 1
+        and not has_subjects
+    ):
+        values["subjects"] = [values["subject"]] * len(sessions_value)
+        values.pop("subject", None)
+
+    return values
+
+
 def expand_settings_args(argv: list[str]) -> list[str]:
     argv, settings_path = pop_settings_arg(argv)
     if settings_path is None:
@@ -244,7 +266,7 @@ def expand_settings_args(argv: list[str]) -> list[str]:
     if not argv or argv[0] not in COMMANDS:
         argv = [command, *argv]
 
-    values = settings_for_command(settings, command)
+    values = normalize_subject_session_settings(settings_for_command(settings, command))
     allowed = COMMAND_SETTINGS[command]
     inserted: list[str] = []
 
