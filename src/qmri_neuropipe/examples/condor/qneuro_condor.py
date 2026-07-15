@@ -19,7 +19,7 @@ COMMANDS = {"submit-local", "push-submit", "stage-remote", "submit-staged"}
 
 COMMAND_SETTINGS = {
     "submit-local": {
-        "container_image", "config_file", "freesurfer_license", "bids_dir",
+        "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
@@ -29,7 +29,7 @@ COMMAND_SETTINGS = {
         "output_destination",
     },
     "push-submit": {
-        "container_image", "config_file", "freesurfer_license", "bids_dir",
+        "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
@@ -42,12 +42,12 @@ COMMAND_SETTINGS = {
         "remote_host", "remote_stage_dir", "bids_dir", "subject", "subjects",
         "subjects_file", "session", "sessions", "manifest_name",
         "bundle_name", "create_remote_dir", "bundle", "no_bundle",
-        "include_support_files", "config_file", "freesurfer_license",
+        "include_support_files", "config_file", "freesurfer_license", "gnl_coeff_file",
         "copy_script", "no_copy_script",
     },
     "submit-staged": {
         "staging_dir", "submit_dir", "manifest", "manifest_name",
-        "container_image", "config_file", "freesurfer_license", "transfer_uri",
+        "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "transfer_uri",
         "subject", "subjects", "subjects_file", "session", "sessions",
         "pipeline", "cpus", "gpus", "memory_gb", "disk_gb", "require_dwi",
         "submit_file_name", "queue_file_name", "no_submit", "requirements",
@@ -485,6 +485,29 @@ def htcondor_transfer_source(value: str) -> str:
     return value
 
 
+def transfer_source_name(value: str) -> str:
+    if not value:
+        return ""
+    cleaned = value.rstrip("/")
+    if "://" in cleaned:
+        cleaned = cleaned.rsplit("?", 1)[0].rsplit("#", 1)[0]
+    return cleaned.rsplit("/", 1)[-1]
+
+
+def prepare_optional_transfer_file(value: str, *, label: str) -> tuple[str, str]:
+    if not value:
+        return "", ""
+    if "://" in value:
+        name = transfer_source_name(value)
+        if not name:
+            raise ValueError(f"{label} URL must end with a filename: {value}")
+        return value, name
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"{label} not found: {path}")
+    return str(path), path.name
+
+
 def local_path_from_transfer_source(value: str) -> str:
     if value.startswith("osdf:///chtc/staging/"):
         return "/staging/" + value.removeprefix("osdf:///chtc/staging/")
@@ -526,6 +549,8 @@ def generate_submit_file(
     config_name: str,
     freesurfer_license: str,
     license_name: str,
+    gnl_coeff_file: str,
+    gnl_coeff_name: str,
     queue_file: str,
     cpus: int,
     gpus: int,
@@ -549,6 +574,8 @@ def generate_submit_file(
     container_image = htcondor_transfer_source(container_image)
     config_file = htcondor_transfer_source(config_file)
     freesurfer_license = htcondor_transfer_source(freesurfer_license)
+    gnl_coeff_file = htcondor_transfer_source(gnl_coeff_file) if gnl_coeff_file else ""
+    gnl_transfer = ", $(gnl_coeff_file)" if gnl_coeff_file else ""
     gpu_lines = ""
     if positive_int(gpus):
         gpu_lines = f"request_gpus = $(gpus)\n"
@@ -596,6 +623,8 @@ config_file = {config_file}
 config_name = {config_name}
 freesurfer_license = {freesurfer_license}
 license_name = {license_name}
+gnl_coeff_file = {gnl_coeff_file}
+gnl_coeff_name = {gnl_coeff_name}
 
 pipeline = {pipeline}
 cpus = {cpus}
@@ -604,11 +633,11 @@ memory_gb = {memory_gb}
 disk_gb = {disk_gb}
 require_dwi = {require_dwi}
 
-arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name)
+arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) $(gnl_coeff_name)
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-transfer_input_files = $(config_file), $(freesurfer_license), $(bids_input)
+transfer_input_files = $(config_file), $(freesurfer_license){gnl_transfer}, $(bids_input)
 transfer_output_files = qneuro_outputs_sub-$(SUBJECT)_ses-$(SESSION_NAME).tar.gz
 {output_directory_line}
 
@@ -681,6 +710,14 @@ def add_submit_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--container-image", required=True)
     parser.add_argument("--config-file", required=True)
     parser.add_argument("--freesurfer-license", required=True)
+    parser.add_argument(
+        "--gnl-coeff-file",
+        default="",
+        help=(
+            "Optional gradient nonlinearity coefficient file to transfer with each job. "
+            "Reference it from the container YAML as either its basename or config/<basename>."
+        ),
+    )
     parser.add_argument("--bids-dir", required=True)
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--subject")
@@ -734,6 +771,10 @@ def cmd_submit_local(args: argparse.Namespace) -> int:
     script_path = Path(__file__).resolve()
     config_file = Path(args.config_file).resolve()
     license_file = Path(args.freesurfer_license).resolve()
+    gnl_coeff_file, gnl_coeff_name = prepare_optional_transfer_file(
+        args.gnl_coeff_file,
+        label="GNL coefficient file",
+    )
     check_yaml_duplicate_keys(config_file)
     generate_submit_file(
         submit_file,
@@ -743,6 +784,8 @@ def cmd_submit_local(args: argparse.Namespace) -> int:
         config_name=config_file.name,
         freesurfer_license=str(license_file),
         license_name=license_file.name,
+        gnl_coeff_file=gnl_coeff_file,
+        gnl_coeff_name=gnl_coeff_name,
         queue_file=queue_file.name,
         cpus=args.cpus,
         gpus=args.gpus,
@@ -778,6 +821,15 @@ def cmd_push_submit(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"Config file not found: {config_file}")
     if not license_file.is_file():
         raise FileNotFoundError(f"FreeSurfer license not found: {license_file}")
+    gnl_coeff_file, gnl_coeff_name = prepare_optional_transfer_file(
+        args.gnl_coeff_file,
+        label="GNL coefficient file",
+    )
+    remote_gnl_coeff_file = gnl_coeff_file
+    gnl_scp_files: list[str] = []
+    if gnl_coeff_file and "://" not in gnl_coeff_file:
+        remote_gnl_coeff_file = gnl_coeff_name
+        gnl_scp_files.append(gnl_coeff_file)
     check_yaml_duplicate_keys(config_file)
 
     work_dir = Path(tempfile.mkdtemp(prefix="qneuro_condor."))
@@ -799,6 +851,8 @@ def cmd_push_submit(args: argparse.Namespace) -> int:
         config_name=config_file.name,
         freesurfer_license=license_file.name,
         license_name=license_file.name,
+        gnl_coeff_file=remote_gnl_coeff_file,
+        gnl_coeff_name=gnl_coeff_name,
         queue_file=queue_file.name,
         cpus=args.cpus,
         gpus=args.gpus,
@@ -831,6 +885,7 @@ def cmd_push_submit(args: argparse.Namespace) -> int:
             str(queue_file),
             str(config_file),
             str(license_file),
+            *gnl_scp_files,
             f"{args.submit_host}:{remote_submit_dir}/",
         ],
         check=True,
@@ -873,6 +928,16 @@ def cmd_stage_remote(args: argparse.Namespace) -> int:
         if not license_file.is_file():
             raise FileNotFoundError(f"FreeSurfer license not found: {license_file}")
         payload.extend([config_file, license_file])
+        if args.gnl_coeff_file:
+            gnl_coeff_file, _gnl_coeff_name = prepare_optional_transfer_file(
+                args.gnl_coeff_file,
+                label="GNL coefficient file",
+            )
+            if "://" in gnl_coeff_file:
+                raise ValueError(
+                    "--include-support-files with stage-remote requires a local --gnl-coeff-file"
+                )
+            payload.append(Path(gnl_coeff_file))
         if args.copy_script:
             payload.append(Path(__file__).resolve())
 
@@ -918,6 +983,10 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
         raise FileNotFoundError(f"Config file not found: {config_file}")
     if not license_file.is_file():
         raise FileNotFoundError(f"FreeSurfer license not found: {license_file}")
+    gnl_coeff_file, gnl_coeff_name = prepare_optional_transfer_file(
+        args.gnl_coeff_file,
+        label="GNL coefficient file",
+    )
     check_yaml_duplicate_keys(config_file)
 
     transfer_uri = args.transfer_uri.rstrip("/") or infer_transfer_uri(staging_source)
@@ -950,6 +1019,8 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
         config_name=config_file.name,
         freesurfer_license=str(license_file),
         license_name=license_file.name,
+        gnl_coeff_file=gnl_coeff_file,
+        gnl_coeff_name=gnl_coeff_name,
         queue_file=queue_file.name,
         cpus=args.cpus,
         gpus=args.gpus,
@@ -1034,6 +1105,20 @@ def copy_freesurfer_license(cwd: Path, license_name: str) -> None:
     eprint("Warning: no transferred FreeSurfer license found. FreeSurfer tools may fail.")
 
 
+def stage_gnl_coeff_file(cwd: Path, gnl_coeff_name: str) -> None:
+    if not gnl_coeff_name:
+        return
+    candidate = cwd / gnl_coeff_name
+    if not candidate.is_file():
+        eprint(f"Warning: requested GNL coefficient file was not transferred: {gnl_coeff_name}")
+        return
+    target = cwd / "config" / candidate.name
+    target.parent.mkdir(exist_ok=True)
+    if candidate.resolve() != target.resolve():
+        shutil.copy2(candidate, target)
+    print(f"Using GNL coefficient file at {candidate.name} and config/{candidate.name}")
+
+
 def extract_input_archives(cwd: Path, subject: str, session_for_name: str) -> None:
     output_name = f"qneuro_outputs_sub-{subject}_ses-{session_for_name}.tar.gz"
     for archive in sorted(cwd.iterdir()):
@@ -1116,7 +1201,7 @@ def cmd_run(argv: list[str]) -> int:
     if len(argv) < 5:
         eprint(
             "Usage: qneuro_condor.py run <subject> <session|none> <cpus> "
-            "<memory_gb> <pipeline> [config_name] [require_dwi] [license_name]"
+            "<memory_gb> <pipeline> [config_name] [require_dwi] [license_name] [gnl_coeff_name]"
         )
         return 2
 
@@ -1130,6 +1215,7 @@ def cmd_run(argv: list[str]) -> int:
     config_name = argv[5] if len(argv) > 5 else ""
     require_dwi = argv[6] if len(argv) > 6 else "true"
     license_name = argv[7] if len(argv) > 7 else "license.txt"
+    gnl_coeff_name = argv[8] if len(argv) > 8 else ""
 
     cwd = Path(os.environ.get("_CONDOR_SCRATCH_DIR", os.getcwd())).resolve()
     os.chdir(cwd)
@@ -1164,6 +1250,7 @@ def cmd_run(argv: list[str]) -> int:
     shutil.copy2(config, staged_config)
 
     copy_freesurfer_license(cwd, license_name)
+    stage_gnl_coeff_file(cwd, gnl_coeff_name)
     extract_input_archives(cwd, subject, session_for_name)
     data_dir = stage_bids_tree(cwd, subject, session)
 
@@ -1239,6 +1326,7 @@ def main(argv: list[str]) -> int:
     stage.add_argument("--remote-stage-dir", required=True)
     stage.add_argument("--config-file", default="")
     stage.add_argument("--freesurfer-license", default="")
+    stage.add_argument("--gnl-coeff-file", default="")
     stage.add_argument("--bids-dir", required=True)
     selection = stage.add_mutually_exclusive_group(required=True)
     selection.add_argument("--subject")
@@ -1287,6 +1375,14 @@ def main(argv: list[str]) -> int:
     staged.add_argument("--container-image", required=True)
     staged.add_argument("--config-file", default="")
     staged.add_argument("--freesurfer-license", default="")
+    staged.add_argument(
+        "--gnl-coeff-file",
+        default="",
+        help=(
+            "Optional gradient nonlinearity coefficient file to transfer with each job. "
+            "May be a local path or osdf:/// URL."
+        ),
+    )
     staged.add_argument("--transfer-uri", default="")
     staged_selection = staged.add_mutually_exclusive_group()
     staged_selection.add_argument("--subject")

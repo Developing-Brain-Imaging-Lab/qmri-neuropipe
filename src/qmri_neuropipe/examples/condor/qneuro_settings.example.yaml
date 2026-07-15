@@ -40,4 +40,7 @@ submit_staged:
   container_image: /staging/deaniii/qneuro.sif
   config_file: /home/deaniii/qneuro-condor/condorproc.yaml
   freesurfer_license: /home/deaniii/qneuro-condor/license.txt
+  # Optional: Condor transfers this file; in condorproc.yaml reference
+  # `gw_magnus.dat` or `config/gw_magnus.dat`, not the osdf:/// URL.
+  gnl_coeff_file: osdf:///chtc/staging/deaniii/gw_magnus.dat
   output_destination: osdf:///chtc/staging/deaniii/qneuro-outputs
