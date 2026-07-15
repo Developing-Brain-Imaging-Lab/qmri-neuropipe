@@ -21,6 +21,7 @@ COMMAND_SETTINGS = {
     "submit-local": {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
+        "bids_include_dirs", "bids_exclude_dirs",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
         "package_dir", "requirements", "getenv", "gpu_minimum_capability",
@@ -31,6 +32,7 @@ COMMAND_SETTINGS = {
     "push-submit": {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
+        "bids_include_dirs", "bids_exclude_dirs",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
         "submit_host", "remote_submit_dir", "remote_package_dir",
@@ -40,7 +42,7 @@ COMMAND_SETTINGS = {
     },
     "stage-remote": {
         "remote_host", "remote_stage_dir", "bids_dir", "subject", "subjects",
-        "subjects_file", "session", "sessions", "manifest_name",
+        "subjects_file", "session", "sessions", "bids_include_dirs", "bids_exclude_dirs", "manifest_name",
         "bundle_name", "create_remote_dir", "bundle", "no_bundle",
         "include_support_files", "config_file", "freesurfer_license", "gnl_coeff_file",
         "copy_script", "no_copy_script",
@@ -391,17 +393,119 @@ def tar_members(subject: str, session: str) -> tuple[str, str]:
     return subject_dir, f"{subject_dir}_bids.tar.gz"
 
 
-def create_bids_archive(bids_dir: Path, subject: str, session: str, archive_dir: Path) -> Path:
+def split_csvish(value: object) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        parts = value
+    else:
+        parts = str(value).split(",")
+    return [str(part).strip() for part in parts if str(part).strip()]
+
+
+def add_empty_dir(tf: tarfile.TarFile, source: Path, arcname: str) -> None:
+    info = tf.gettarinfo(str(source), arcname=arcname)
+    info.type = tarfile.DIRTYPE
+    tf.addfile(info)
+
+
+def add_direct_files(tf: tarfile.TarFile, source_dir: Path, arc_prefix: str) -> None:
+    for item in sorted(source_dir.iterdir()):
+        if item.is_file():
+            tf.add(
+                item,
+                arcname=f"{arc_prefix}/{item.name}",
+                filter=tarinfo_without_macos_metadata,
+            )
+
+
+def add_filtered_bids_tree(
+    tf: tarfile.TarFile,
+    bids_dir: Path,
+    input_rel: str,
+    include_dirs: list[str],
+    exclude_dirs: list[str],
+) -> None:
+    input_dir = bids_dir / input_rel
+    include_set = {d.strip("/") for d in include_dirs}
+    exclude_set = {d.strip("/") for d in exclude_dirs}
+    add_empty_dir(tf, input_dir, input_rel)
+    add_direct_files(tf, input_dir, input_rel)
+
+    if include_set:
+        datatype_dirs = sorted(include_set)
+    else:
+        datatype_dirs = sorted(
+            item.name for item in input_dir.iterdir()
+            if item.is_dir() and item.name not in exclude_set
+        )
+
+    for dirname in datatype_dirs:
+        if dirname in exclude_set:
+            continue
+        src = input_dir / dirname
+        if src.is_dir():
+            tf.add(src, arcname=f"{input_rel}/{dirname}", filter=tarinfo_without_macos_metadata)
+        elif include_set:
+            print(f"Warning: requested BIDS directory not found, skipping: {src}", file=sys.stderr)
+
+
+def add_filtered_subject_tree(
+    tf: tarfile.TarFile,
+    bids_dir: Path,
+    subject_rel: str,
+    include_dirs: list[str],
+    exclude_dirs: list[str],
+) -> None:
+    subject_dir = bids_dir / subject_rel
+    include_set = {d.strip("/") for d in include_dirs}
+    exclude_set = {d.strip("/") for d in exclude_dirs}
+    add_empty_dir(tf, subject_dir, subject_rel)
+    add_direct_files(tf, subject_dir, subject_rel)
+
+    for item in sorted(subject_dir.iterdir()):
+        if not item.is_dir():
+            continue
+        if item.name.startswith("ses-"):
+            add_filtered_bids_tree(tf, bids_dir, f"{subject_rel}/{item.name}", include_dirs, exclude_dirs)
+        elif include_set:
+            if item.name in include_set and item.name not in exclude_set:
+                tf.add(item, arcname=f"{subject_rel}/{item.name}", filter=tarinfo_without_macos_metadata)
+        elif item.name not in exclude_set:
+            tf.add(item, arcname=f"{subject_rel}/{item.name}", filter=tarinfo_without_macos_metadata)
+
+
+def create_bids_archive(
+    bids_dir: Path,
+    subject: str,
+    session: str,
+    archive_dir: Path,
+    include_dirs: list[str] | None = None,
+    exclude_dirs: list[str] | None = None,
+) -> Path:
     input_rel, archive_name = tar_members(subject, session)
     if not (bids_dir / input_rel).is_dir():
         raise FileNotFoundError(f"Requested BIDS input not found: {bids_dir / input_rel}")
 
     archive = archive_dir / archive_name
-    members = [input_rel] + [m for m in ROOT_METADATA if (bids_dir / m).exists()]
+    include_dirs = include_dirs or []
+    exclude_dirs = exclude_dirs or []
+    members = [m for m in ROOT_METADATA if (bids_dir / m).exists()]
     print(f"Creating BIDS archive: {archive}")
+    if include_dirs:
+        print(f"  Including BIDS directories only: {', '.join(include_dirs)}")
+    if exclude_dirs:
+        print(f"  Excluding BIDS directories: {', '.join(exclude_dirs)}")
     with tarfile.open(archive, "w:gz") as tf:
         for member in members:
             tf.add(bids_dir / member, arcname=member, filter=tarinfo_without_macos_metadata)
+        if include_dirs or exclude_dirs:
+            if "/" in input_rel:
+                add_filtered_bids_tree(tf, bids_dir, input_rel, include_dirs, exclude_dirs)
+            else:
+                add_filtered_subject_tree(tf, bids_dir, input_rel, include_dirs, exclude_dirs)
+        else:
+            tf.add(bids_dir / input_rel, arcname=input_rel, filter=tarinfo_without_macos_metadata)
     return archive
 
 
@@ -682,6 +786,8 @@ queue SUBJECT,SESSION,SESSION_NAME,bids_input from {queue_file}
 def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[list[str]], list[Path]]:
     bids_dir = Path(args.bids_dir).resolve()
     transfer_uri = (args.transfer_uri or "").rstrip("/")
+    include_dirs = split_csvish(getattr(args, "bids_include_dirs", ""))
+    exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -689,7 +795,14 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
         subject = norm_label(subject_raw, "sub-")
         session = norm_label(session_raw, "ses-")
         session_arg = "none" if is_empty_label(session) else session
-        archive = create_bids_archive(bids_dir, subject, session_arg, archive_dir)
+        archive = create_bids_archive(
+            bids_dir,
+            subject,
+            session_arg,
+            archive_dir,
+            include_dirs=include_dirs,
+            exclude_dirs=exclude_dirs,
+        )
         archives.append(archive)
         bids_input = f"{transfer_uri}/{archive.name}" if transfer_uri else htcondor_transfer_source(str(archive))
         rows.append([subject, session_arg, session_arg, bids_input])
@@ -701,6 +814,8 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
 
 def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[list[str]], list[Path]]:
     bids_dir = Path(args.bids_dir).resolve()
+    include_dirs = split_csvish(getattr(args, "bids_include_dirs", ""))
+    exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -708,7 +823,14 @@ def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
         subject = norm_label(subject_raw, "sub-")
         session = norm_label(session_raw, "ses-")
         session_arg = "none" if is_empty_label(session) else session
-        archive = create_bids_archive(bids_dir, subject, session_arg, archive_dir)
+        archive = create_bids_archive(
+            bids_dir,
+            subject,
+            session_arg,
+            archive_dir,
+            include_dirs=include_dirs,
+            exclude_dirs=exclude_dirs,
+        )
         archives.append(archive)
         rows.append([subject, session_arg, session_arg, archive.name])
 
@@ -756,6 +878,16 @@ def add_submit_common_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--transfer-uri", default="")
     parser.add_argument("--pipeline", default="dmri")
+    parser.add_argument(
+        "--bids-include-dirs",
+        default="",
+        help="Comma-separated BIDS datatype directories to package, for example: anat,dwi.",
+    )
+    parser.add_argument(
+        "--bids-exclude-dirs",
+        default="",
+        help="Comma-separated BIDS datatype directories to omit when packaging.",
+    )
     parser.add_argument("--cpus", type=int, default=8)
     parser.add_argument("--gpus", type=int, default=0)
     parser.add_argument("--memory-gb", type=int, default=32)
@@ -1350,6 +1482,16 @@ def main(argv: list[str]) -> int:
     stage.add_argument("--freesurfer-license", default="")
     stage.add_argument("--gnl-coeff-file", default="")
     stage.add_argument("--bids-dir", required=True)
+    stage.add_argument(
+        "--bids-include-dirs",
+        default="",
+        help="Comma-separated BIDS datatype directories to package, for example: anat,dwi.",
+    )
+    stage.add_argument(
+        "--bids-exclude-dirs",
+        default="",
+        help="Comma-separated BIDS datatype directories to omit when packaging.",
+    )
     selection = stage.add_mutually_exclusive_group(required=True)
     selection.add_argument("--subject")
     selection.add_argument("--subjects", help="Comma-separated subject labels, for example: 10021,10022")
