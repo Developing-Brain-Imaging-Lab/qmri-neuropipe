@@ -1385,6 +1385,12 @@ def cmd_run(argv: list[str]) -> int:
     fsldir = os.environ.setdefault("FSLDIR", "/usr/local/fsl")
     fs_home = os.environ.setdefault("FREESURFER_HOME", "/usr/local/freesurfer/8.2.0")
     c3d = os.environ.setdefault("C3DPATH", "/opt/c3d/bin")
+    tortoise_home = os.environ.setdefault("TORTOISE_HOME", "/opt/tortoise")
+    tortoise_lib = f"{tortoise_home}/lib"
+    os.environ["LD_LIBRARY_PATH"] = ":".join([
+        tortoise_lib,
+        os.environ.get("LD_LIBRARY_PATH", ""),
+    ])
     os.environ["PATH"] = ":".join([
         f"{conda_dir}/bin",
         f"{fsldir}/bin",
@@ -1392,8 +1398,14 @@ def cmd_run(argv: list[str]) -> int:
         f"{fs_home}/python/bin",
         f"{fs_home}/python/scripts",
         c3d,
+        f"{tortoise_home}/bin",
         os.environ.get("PATH", ""),
     ])
+    tortoise_gnl = shutil.which("CreateGradientNonlinearityBMatrix")
+    if tortoise_gnl:
+        print(f"Found TORTOISE GNL executable: {tortoise_gnl}")
+    else:
+        print("TORTOISE GNL executable not found on PATH after environment setup")
 
     config = find_config(cwd, config_name)
     qmri_cmd = resolve_qmri_command()

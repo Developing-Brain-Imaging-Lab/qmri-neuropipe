@@ -157,10 +157,8 @@ def apply_grad_nonlin(
     cmd_parts.append(f"--final_image {final_image}")
     cmd_parts.append(f"--nonlinearity {grad_coeffs}")
     
-    # Assuming TORTOISE style boolean (1/0) or switch
-    # User requested --isGE
     if is_ge:
-        cmd_parts.append("--isGE 1")
+        cmd_parts.append("--isGE")
     
     # Run command
     # Output file (graddev_c.nii) is created in the CWD or typically implied by the input.
