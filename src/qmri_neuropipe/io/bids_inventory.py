@@ -69,6 +69,17 @@ class ProcessingGapCoverage:
 
 
 @dataclass
+class SessionBreakdown:
+    """Raw and derivative coverage for one session label."""
+
+    n_subjects: int = 0
+    n_observations: int = 0
+    raw_modalities: dict[str, ModalityCoverage] = field(default_factory=dict)
+    derivative_products: dict[str, dict[str, DerivativeProductCoverage]] = field(default_factory=dict)
+    processing_gaps: dict[str, ProcessingGapCoverage] = field(default_factory=dict)
+
+
+@dataclass
 class DataInventory:
     """Counts for a raw or derivative data tree."""
 
@@ -110,6 +121,7 @@ class BIDSDatasetInventory:
     raw_data: DataInventory
     derivatives: list[DerivativeInventory] = field(default_factory=list)
     processing_gaps: dict[str, ProcessingGapCoverage] = field(default_factory=dict)
+    session_breakdown: dict[str, SessionBreakdown] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -450,6 +462,7 @@ def inspect_bids_dataset(
     sessions: Optional[list[str]] = None,
     include_derivatives: bool = False,
     include_processing_gaps: bool = False,
+    include_session_breakdown: bool = False,
 ) -> BIDSDatasetInventory:
     """Inspect a BIDS dataset without modifying it."""
     root = Path(bids_dir).expanduser().resolve()
@@ -507,6 +520,37 @@ def inspect_bids_dataset(
                 )
             )
 
+    processing_gaps = (
+        _processing_gap_coverage(raw_root, pairs, derivative_roots)
+        if include_processing_gaps
+        else {}
+    )
+
+    session_breakdown: dict[str, SessionBreakdown] = {}
+    if include_session_breakdown:
+        session_groups: dict[str, list[tuple[str, Optional[str]]]] = {}
+        for pair in pairs:
+            label = f"ses-{pair[1]}" if pair[1] else "sessionless"
+            session_groups.setdefault(label, []).append(pair)
+        for label, session_pairs in sorted(session_groups.items()):
+            derivative_products: dict[str, dict[str, DerivativeProductCoverage]] = {}
+            if include_derivatives or include_processing_gaps:
+                for derivative, derivative_root in zip(derivatives, derivative_roots):
+                    products = _derivative_product_coverage(derivative_root, session_pairs)
+                    if products:
+                        derivative_products[derivative.name] = products
+            session_breakdown[label] = SessionBreakdown(
+                n_subjects=len({subject for subject, _ in session_pairs}),
+                n_observations=len(session_pairs),
+                raw_modalities=_modality_coverage(raw_root, session_pairs),
+                derivative_products=derivative_products,
+                processing_gaps=(
+                    _processing_gap_coverage(raw_root, session_pairs, derivative_roots)
+                    if include_processing_gaps
+                    else {}
+                ),
+            )
+
     return BIDSDatasetInventory(
         path=str(root),
         rawdata_path=str(raw_root),
@@ -520,11 +564,8 @@ def inspect_bids_dataset(
         sessions=session_values,
         raw_data=raw_data,
         derivatives=derivatives,
-        processing_gaps=(
-            _processing_gap_coverage(raw_root, pairs, derivative_roots)
-            if include_processing_gaps
-            else {}
-        ),
+        processing_gaps=processing_gaps,
+        session_breakdown=session_breakdown,
         warnings=warnings,
     )
 

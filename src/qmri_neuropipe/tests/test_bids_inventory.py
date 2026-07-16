@@ -194,6 +194,55 @@ def test_processing_gaps_cli_details_lists_missing_observations(tmp_path: Path):
     assert "sub-02" in result.output
 
 
+def test_session_breakdown_reports_raw_derivative_and_gap_counts(tmp_path: Path):
+    root = _dataset(tmp_path)
+    _write(root / "sub-01" / "ses-02" / "dwi" / "sub-01_ses-02_dwi.nii.gz")
+    _write(root / "sub-03" / "ses-02" / "dwi" / "sub-03_ses-02_dwi.nii.gz")
+
+    inventory = inspect_bids_dataset(
+        root,
+        include_derivatives=True,
+        include_processing_gaps=True,
+        include_session_breakdown=True,
+    )
+
+    assert set(inventory.session_breakdown) == {"ses-01", "ses-02", "sessionless"}
+    ses01 = inventory.session_breakdown["ses-01"]
+    assert ses01.raw_modalities["dwi"].n_observations == 1
+    assert ses01.derivative_products["qmri-neuropipe outputs"]["dwi"].models == ["DTI"]
+    assert ses01.processing_gaps["dwi"].missing_observations == 0
+
+    ses02 = inventory.session_breakdown["ses-02"]
+    assert ses02.n_subjects == 2
+    assert ses02.raw_modalities["dwi"].n_observations == 2
+    assert ses02.processing_gaps["dwi"].processed_observations == 0
+    assert ses02.processing_gaps["dwi"].missing_observations == 2
+
+
+def test_by_session_cli_renders_session_tables(tmp_path: Path):
+    root = _dataset(tmp_path)
+    _write(root / "sub-01" / "ses-02" / "dwi" / "sub-01_ses-02_dwi.nii.gz")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            str(root),
+            "--derivatives",
+            "--processing-gaps",
+            "--by-session",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Raw coverage by session" in result.output
+    assert "Derivative model coverage by session" in result.output
+    assert "Processing gaps by session" in result.output
+    assert "ses-01" in result.output
+    assert "ses-02" in result.output
+    assert "sessionless" in result.output
+
+
 def test_inspect_cli_emits_json(tmp_path: Path):
     result = CliRunner().invoke(app, ["inspect", str(_dataset(tmp_path)), "--format", "json"])
 

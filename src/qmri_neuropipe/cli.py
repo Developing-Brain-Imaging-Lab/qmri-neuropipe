@@ -195,6 +195,71 @@ def _print_inventory(inventory, *, details: bool = False) -> None:
             if missing.row_count:
                 console.print(missing)
 
+    if inventory.session_breakdown:
+        raw_sessions = Table(title="Raw coverage by session")
+        raw_sessions.add_column("Session", style="bold")
+        raw_sessions.add_column("Modality")
+        raw_sessions.add_column("Subjects", justify="right")
+        raw_sessions.add_column("Observations", justify="right")
+        raw_sessions.add_column("Data types", style="cyan")
+        for session, summary in inventory.session_breakdown.items():
+            for modality, counts in summary.raw_modalities.items():
+                raw_sessions.add_row(
+                    session,
+                    modality,
+                    str(counts.n_subjects),
+                    str(counts.n_observations),
+                    ", ".join(counts.suffixes),
+                )
+        if raw_sessions.row_count:
+            console.print(raw_sessions)
+
+        derivative_sessions = Table(title="Derivative model coverage by session")
+        derivative_sessions.add_column("Session", style="bold")
+        derivative_sessions.add_column("Derivative")
+        derivative_sessions.add_column("Modality")
+        derivative_sessions.add_column("Subjects", justify="right")
+        derivative_sessions.add_column("Observations", justify="right")
+        derivative_sessions.add_column("Models", style="cyan")
+        for session, summary in inventory.session_breakdown.items():
+            for derivative, products in summary.derivative_products.items():
+                for modality, counts in products.items():
+                    derivative_sessions.add_row(
+                        session,
+                        derivative,
+                        modality,
+                        str(counts.n_subjects),
+                        str(counts.n_observations),
+                        ", ".join(counts.models) or "—",
+                    )
+        if derivative_sessions.row_count:
+            console.print(derivative_sessions)
+
+        session_gaps = Table(title="Processing gaps by session")
+        session_gaps.add_column("Session", style="bold")
+        session_gaps.add_column("Modality")
+        session_gaps.add_column("Raw", justify="right")
+        session_gaps.add_column("Processed", justify="right")
+        session_gaps.add_column("Missing", justify="right", style="yellow")
+        session_gaps.add_column("Coverage", justify="right", style="cyan")
+        for session, summary in inventory.session_breakdown.items():
+            for modality, counts in summary.processing_gaps.items():
+                coverage_pct = (
+                    100.0 * counts.processed_observations / counts.raw_observations
+                    if counts.raw_observations
+                    else 0.0
+                )
+                session_gaps.add_row(
+                    session,
+                    modality,
+                    str(counts.raw_observations),
+                    str(counts.processed_observations),
+                    str(counts.missing_observations),
+                    f"{coverage_pct:.1f}%",
+                )
+        if session_gaps.row_count:
+            console.print(session_gaps)
+
     for warning in inventory.warnings:
         console.print(f"[yellow]Warning:[/yellow] {warning}")
 
@@ -212,6 +277,11 @@ def inspect_command(
         False,
         "--processing-gaps",
         help="Compare raw observations with available derivative products.",
+    ),
+    by_session: bool = typer.Option(
+        False,
+        "--by-session",
+        help="Break raw and derivative coverage counts out by session label.",
     ),
     details: bool = typer.Option(False, "--details", help="Show per-model derivative coverage."),
     participant_label: Optional[List[str]] = typer.Option(None, "--participant-label", "-p", help="Participant label to include; repeat for multiple labels."),
@@ -238,6 +308,7 @@ def inspect_command(
             sessions=session_label,
             include_derivatives=derivatives or details or processing_gaps,
             include_processing_gaps=processing_gaps,
+            include_session_breakdown=by_session,
         )
     except Exception as exc:
         console.print(f"[bold red]Inspection failed:[/bold red] {exc}")

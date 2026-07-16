@@ -21,6 +21,7 @@ from qmri_neuropipe.io.bids_inventory import (
     ModelCoverage,
     ModalityCoverage,
     ProcessingGapCoverage,
+    SessionBreakdown,
     inspect_bids_dataset,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     'ModelCoverage',
     'ModalityCoverage',
     'ProcessingGapCoverage',
+    'SessionBreakdown',
     'inspect_bids_dataset',
 ]
