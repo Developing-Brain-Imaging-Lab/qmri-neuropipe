@@ -13,6 +13,15 @@ from qmri_neuropipe.io.data_loader import (
 from qmri_neuropipe.io.bids import (
     select_participants_sessions
 )
+from qmri_neuropipe.io.bids_inventory import (
+    BIDSDatasetInventory,
+    DataInventory,
+    DerivativeProductCoverage,
+    DerivativeInventory,
+    ModelCoverage,
+    ModalityCoverage,
+    inspect_bids_dataset,
+)
 
 __all__ = [
     'DataLoader',
@@ -20,4 +29,11 @@ __all__ = [
     'DataTypeFiles',
     'load_subject_data',
     'select_participants_sessions',
+    'BIDSDatasetInventory',
+    'DataInventory',
+    'DerivativeProductCoverage',
+    'DerivativeInventory',
+    'ModelCoverage',
+    'ModalityCoverage',
+    'inspect_bids_dataset',
 ]
