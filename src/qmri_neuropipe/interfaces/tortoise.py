@@ -139,6 +139,17 @@ def apply_grad_nonlin(
         cwd: Working directory for execution (output usually generated here).
     """
     
+    final_image = Path(final_image).resolve()
+    grad_coeffs = Path(grad_coeffs).resolve()
+    initial_image = Path(initial_image).resolve() if initial_image else None
+
+    if not final_image.exists():
+        raise ProcessingError(f"TORTOISE final_image does not exist: {final_image}")
+    if initial_image and not initial_image.exists():
+        raise ProcessingError(f"TORTOISE initial_image does not exist: {initial_image}")
+    if not grad_coeffs.exists():
+        raise ProcessingError(f"TORTOISE nonlinearity coefficients file does not exist: {grad_coeffs}")
+
     # Updated command based on user feedback to use CreateGradientNonlinearityBMatrix with correct flags
     executable = "CreateGradientNonlinearityBMatrix"
     if shutil.which(executable) is None:
