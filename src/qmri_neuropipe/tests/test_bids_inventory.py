@@ -164,6 +164,36 @@ def test_inspect_cli_accepts_relative_rawdata_dir(tmp_path: Path):
     assert report["derivatives"][0]["products"]["dwi"]["models"] == ["DTI"]
 
 
+def test_processing_gaps_compare_raw_and_derivative_observations(tmp_path: Path):
+    root = _dataset(tmp_path)
+    _write(root / "sub-02" / "dwi" / "sub-02_dwi.nii.gz")
+
+    inventory = inspect_bids_dataset(root, include_processing_gaps=True)
+
+    dwi = inventory.processing_gaps["dwi"]
+    assert dwi.raw_observations == 2
+    assert dwi.processed_observations == 1
+    assert dwi.missing_observations == 1
+    assert dwi.missing_subjects == 1
+    assert dwi.missing == ["sub-02"]
+
+
+def test_processing_gaps_cli_details_lists_missing_observations(tmp_path: Path):
+    root = _dataset(tmp_path)
+    _write(root / "sub-02" / "dwi" / "sub-02_dwi.nii.gz")
+
+    result = CliRunner().invoke(
+        app,
+        ["inspect", str(root), "--processing-gaps", "--details"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Processing gaps" in result.output
+    assert "Raw observations" in result.output
+    assert "Missing derivative observations" in result.output
+    assert "sub-02" in result.output
+
+
 def test_inspect_cli_emits_json(tmp_path: Path):
     result = CliRunner().invoke(app, ["inspect", str(_dataset(tmp_path)), "--format", "json"])
 

@@ -163,6 +163,38 @@ def _print_inventory(inventory, *, details: bool = False) -> None:
             if model_details.row_count:
                 console.print(model_details)
 
+    if inventory.processing_gaps:
+        gaps = Table(title="Processing gaps")
+        gaps.add_column("Modality", style="bold")
+        gaps.add_column("Raw observations", justify="right")
+        gaps.add_column("Processed", justify="right")
+        gaps.add_column("Missing", justify="right", style="yellow")
+        gaps.add_column("Coverage", justify="right", style="cyan")
+        for modality, counts in inventory.processing_gaps.items():
+            coverage_pct = (
+                100.0 * counts.processed_observations / counts.raw_observations
+                if counts.raw_observations
+                else 0.0
+            )
+            gaps.add_row(
+                modality,
+                str(counts.raw_observations),
+                str(counts.processed_observations),
+                str(counts.missing_observations),
+                f"{coverage_pct:.1f}%",
+            )
+        console.print(gaps)
+
+        if details:
+            missing = Table(title="Missing derivative observations")
+            missing.add_column("Modality", style="bold")
+            missing.add_column("Subject/session observations", style="yellow")
+            for modality, counts in inventory.processing_gaps.items():
+                if counts.missing:
+                    missing.add_row(modality, ", ".join(counts.missing))
+            if missing.row_count:
+                console.print(missing)
+
     for warning in inventory.warnings:
         console.print(f"[yellow]Warning:[/yellow] {warning}")
 
@@ -176,6 +208,11 @@ def inspect_command(
         help="Raw BIDS data directory, absolute or relative to BIDS_DIR (for example: rawdata).",
     ),
     derivatives: bool = typer.Option(False, "--derivatives", help="Include datasets beneath derivatives/."),
+    processing_gaps: bool = typer.Option(
+        False,
+        "--processing-gaps",
+        help="Compare raw observations with available derivative products.",
+    ),
     details: bool = typer.Option(False, "--details", help="Show per-model derivative coverage."),
     participant_label: Optional[List[str]] = typer.Option(None, "--participant-label", "-p", help="Participant label to include; repeat for multiple labels."),
     session_label: Optional[List[str]] = typer.Option(None, "--session-label", "-s", help="Session label to include; repeat for multiple labels."),
@@ -199,7 +236,8 @@ def inspect_command(
             rawdata_dir=rawdata_dir,
             participants=participant_label,
             sessions=session_label,
-            include_derivatives=derivatives or details,
+            include_derivatives=derivatives or details or processing_gaps,
+            include_processing_gaps=processing_gaps,
         )
     except Exception as exc:
         console.print(f"[bold red]Inspection failed:[/bold red] {exc}")

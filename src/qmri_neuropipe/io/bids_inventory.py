@@ -58,6 +58,17 @@ class DerivativeProductCoverage:
 
 
 @dataclass
+class ProcessingGapCoverage:
+    """Raw observations lacking a corresponding derivative product."""
+
+    raw_observations: int = 0
+    processed_observations: int = 0
+    missing_observations: int = 0
+    missing_subjects: int = 0
+    missing: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DataInventory:
     """Counts for a raw or derivative data tree."""
 
@@ -98,6 +109,7 @@ class BIDSDatasetInventory:
     sessions: list[str]
     raw_data: DataInventory
     derivatives: list[DerivativeInventory] = field(default_factory=list)
+    processing_gaps: dict[str, ProcessingGapCoverage] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -253,6 +265,12 @@ _MODEL_ALIASES = {
 _DWI_MODELS = {"DTI", "DKI", "NODDI", "SANDI", "NEXI", "MAPMRI", "FWE_DTI", "CSD", "microglia"}
 _RELAX_MODELS = {"DESPOT1", "DESPOT1HIFI", "DESPOT2", "DESPOT2FM", "mcDESPOT"}
 _NATIVE_SPACES = {"native", "dwi", "anat", "t1w", "scanner", "subject"}
+_RELAXOMETRY_RAW_SUFFIXES = {
+    "vfa", "spgr", "ssfp", "irspgr", "mp2rage", "irt1", "m0map",
+    "t1map", "t2map", "t2starmap", "t1rho", "mese", "mts", "tb1map",
+    "tb1afi", "b1map",
+}
+_GAP_FAMILIES = {"anat", "dwi", "func", "relaxometry"}
 
 
 def _canonical_model(value: object) -> Optional[str]:
@@ -350,6 +368,70 @@ def _derivative_product_coverage(
     return products
 
 
+def _raw_observation_families(root: Path, pair: tuple[str, Optional[str]]) -> set[str]:
+    subject, session = pair
+    observation_root = root / f"sub-{subject}"
+    if session:
+        observation_root /= f"ses-{session}"
+    families: set[str] = set()
+    for path in _iter_primary_files(observation_root):
+        datatype = _datatype(path, root)
+        suffix = str(parse_bids_filename(path).get("suffix") or "").lower()
+        if datatype == "anat" and suffix in _RELAXOMETRY_RAW_SUFFIXES:
+            families.add("relaxometry")
+        elif datatype in _GAP_FAMILIES:
+            families.add(datatype)
+    return families
+
+
+def _derivative_observation_families(root: Path, pair: tuple[str, Optional[str]]) -> set[str]:
+    subject, session = pair
+    observation_root = root / f"sub-{subject}"
+    if session:
+        observation_root /= f"ses-{session}"
+    families: set[str] = set()
+    for path in _iter_primary_files(observation_root):
+        parsed = parse_bids_filename(path)
+        datatype = _datatype(path, root)
+        family = _processing_family(datatype, _model_from_path(path, parsed))
+        if family in _GAP_FAMILIES:
+            families.add(family)
+    return families
+
+
+def _processing_gap_coverage(
+    raw_root: Path,
+    raw_pairs: list[tuple[str, Optional[str]]],
+    derivative_roots: list[Path],
+) -> dict[str, ProcessingGapCoverage]:
+    raw_by_family: dict[str, set[tuple[str, Optional[str]]]] = {}
+    for pair in raw_pairs:
+        for family in _raw_observation_families(raw_root, pair):
+            raw_by_family.setdefault(family, set()).add(pair)
+
+    processed_by_family: dict[str, set[tuple[str, Optional[str]]]] = {}
+    for derivative_root in derivative_roots:
+        for pair in raw_pairs:
+            for family in _derivative_observation_families(derivative_root, pair):
+                processed_by_family.setdefault(family, set()).add(pair)
+
+    result: dict[str, ProcessingGapCoverage] = {}
+    for family, raw_observations in sorted(raw_by_family.items()):
+        processed = raw_observations & processed_by_family.get(family, set())
+        missing = sorted(raw_observations - processed, key=lambda item: (item[0], item[1] or ""))
+        result[family] = ProcessingGapCoverage(
+            raw_observations=len(raw_observations),
+            processed_observations=len(processed),
+            missing_observations=len(missing),
+            missing_subjects=len({subject for subject, _ in missing}),
+            missing=[
+                f"sub-{subject}/ses-{session}" if session else f"sub-{subject}"
+                for subject, session in missing
+            ],
+        )
+    return result
+
+
 def _derivative_roots(derivatives_dir: Path) -> list[Path]:
     if not derivatives_dir.is_dir():
         return []
@@ -367,6 +449,7 @@ def inspect_bids_dataset(
     participants: Optional[list[str]] = None,
     sessions: Optional[list[str]] = None,
     include_derivatives: bool = False,
+    include_processing_gaps: bool = False,
 ) -> BIDSDatasetInventory:
     """Inspect a BIDS dataset without modifying it."""
     root = Path(bids_dir).expanduser().resolve()
@@ -394,8 +477,9 @@ def inspect_bids_dataset(
     raw_data.modality_coverage = _modality_coverage(raw_root, pairs)
 
     derivatives: list[DerivativeInventory] = []
-    if include_derivatives:
-        for derivative_root in _derivative_roots(root / "derivatives"):
+    derivative_roots = _derivative_roots(root / "derivatives")
+    if include_derivatives or include_processing_gaps:
+        for derivative_root in derivative_roots:
             desc, desc_warning = _read_json(derivative_root / "dataset_description.json")
             if desc_warning:
                 warnings.append(desc_warning)
@@ -436,6 +520,11 @@ def inspect_bids_dataset(
         sessions=session_values,
         raw_data=raw_data,
         derivatives=derivatives,
+        processing_gaps=(
+            _processing_gap_coverage(raw_root, pairs, derivative_roots)
+            if include_processing_gaps
+            else {}
+        ),
         warnings=warnings,
     )
 
