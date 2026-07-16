@@ -2,6 +2,11 @@
 
 TractSeg is a deep learning-based tool for automated bundle segmentation and tractography. `qmri-neuropipe` integrates TractSeg with enhanced preprocessing workflows and flexible bundle selection.
 
+TractSeg bundle masks and MRtrix streamline tractography are separate outputs.
+Enable MRtrix tractography when `.tck` streamlines, SIFT/SIFT2, tractometry, or
+connectomes are required. TractSeg masks can then constrain named-tract
+extraction; see [Extracting Specific Tracts](../workflows/tract_extraction.md).
+
 ## Features
 
 - **Automated MNI Registration**: The pipeline handles registration to MNI space (1.25mm ISO) for segmentation and **automatically inverse-warps** the bundle masks back to native space.

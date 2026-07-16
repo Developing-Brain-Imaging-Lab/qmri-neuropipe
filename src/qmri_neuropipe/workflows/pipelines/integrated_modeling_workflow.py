@@ -11,7 +11,7 @@ from typing import Optional
 import shutil
 
 from qmri_neuropipe.core import BaseWorkflow, PipelineContext
-from qmri_neuropipe.io.bids import build_bids_name
+from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 from qmri_neuropipe.lib.dmri.fitting import (
     DTIFittingStep,
     DKIFittingStep,
@@ -23,7 +23,13 @@ from qmri_neuropipe.lib.dmri.fitting import (
     FWDTIFittingStep,
     MicrogliaFittingStep
 )
-from qmri_neuropipe.lib.dmri.tractography import TractSegStep, PyAFQStep
+from qmri_neuropipe.lib.dmri.tractography import (
+    MRtrixAnatomicalConstraintsStep,
+    MRtrixTractographyStep,
+    PyAFQStep,
+    TractSegStep,
+    TractSpecificAnalysisStep,
+)
 from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
 from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_matches, step_force_active
 from qmri_neuropipe.core.tracking import flush_tracker, update_step_status
@@ -113,13 +119,33 @@ class ModelingWorkflow(BaseWorkflow):
         if not tract_cfg:
             tract_cfg = self.config.get('dmri', {}).get('tractography', {})
              
-        if tract_cfg.get('tractseg', {}).get('enabled', False):
+        mrtrix_cfg = tract_cfg.get('mrtrix', {})
+        # Backward compatibility for the formerly documented flat schema.
+        if tract_cfg.get('enabled', False) and not mrtrix_cfg:
+            mrtrix_cfg = {
+                'enabled': True,
+                'algorithm': tract_cfg.get('algorithm', 'iFOD2'),
+                'select': tract_cfg.get('n_streamlines', 10_000_000),
+            }
+            tract_cfg['mrtrix'] = mrtrix_cfg
+        if tract_cfg.get('tract_specific', {}).get('enabled', False) and not mrtrix_cfg.get('enabled', False):
+            self.logger.info("Tract-specific analysis enabled: Auto-enabling MRtrix tractography")
+            mrtrix_cfg = tract_cfg.setdefault('mrtrix', {})
+            mrtrix_cfg.setdefault('enabled', True)
+            mrtrix_cfg.setdefault('algorithm', 'iFOD2')
+        needs_fod = tract_cfg.get('tractseg', {}).get('enabled', False) or (
+            mrtrix_cfg.get('enabled', False)
+            and not str(mrtrix_cfg.get('algorithm', 'iFOD2')).lower().startswith('tensor')
+        )
+        if needs_fod:
             csd_cfg = modeling_cfg.get('csd', {})
             if not csd_cfg.get('enabled', False):
                 self.logger.info(
-                    "TractSeg enabled: Auto-enabling CSD Fitting"
+                    "FOD-based tractography enabled: Auto-enabling CSD Fitting"
                 )
                 modeling_cfg.setdefault('csd', {})['enabled'] = True
+        if mrtrix_cfg.get('enabled', False) and str(mrtrix_cfg.get('algorithm', '')).lower().startswith('tensor'):
+            modeling_cfg.setdefault('dti', {}).setdefault('enabled', True)
 
     def _add_model_steps(self, modeling_cfg: dict) -> None:
         """Add enabled fitting steps in the stable registry order."""
@@ -171,6 +197,29 @@ class ModelingWorkflow(BaseWorkflow):
         dmri_cfg = self.config.get('dmri', {})
         if not tract_cfg:
             tract_cfg = dmri_cfg.get('tractography', {})
+
+        mrtrix_cfg = dict(tract_cfg.get('mrtrix', {}))
+        if tract_cfg.get('enabled', False) and not mrtrix_cfg:
+            mrtrix_cfg = {
+                'enabled': True,
+                'algorithm': tract_cfg.get('algorithm', 'iFOD2'),
+                'select': tract_cfg.get('n_streamlines', 10_000_000),
+            }
+        if mrtrix_cfg.get('enabled', False):
+            mrtrix_cfg.pop('enabled', None)
+            act_cfg = mrtrix_cfg.get('act', {})
+            if isinstance(act_cfg, dict) and act_cfg.get('enabled', False):
+                self.logger.info("Adding MRtrixAnatomicalConstraintsStep")
+                self.add_step(MRtrixAnatomicalConstraintsStep(
+                    config=self.config, logger=self.logger, provenance=self.provenance,
+                    nthreads=self.config.n_cpus,
+                    **{key: value for key, value in act_cfg.items() if key != 'enabled'},
+                ))
+            self.logger.info("Adding MRtrixTractographyStep")
+            self.add_step(MRtrixTractographyStep(
+                config=self.config, logger=self.logger, provenance=self.provenance,
+                nthreads=self.config.n_cpus, **mrtrix_cfg,
+            ))
              
         if tract_cfg.get('tractseg', {}).get('enabled', False):
             self.logger.info("Adding TractSegStep")
@@ -190,6 +239,15 @@ class ModelingWorkflow(BaseWorkflow):
                 provenance=self.provenance,
                 method='pyafq',
                 **tract_cfg.get('pyafq', {}).get('options', {})
+            ))
+
+        tract_specific = dict(tract_cfg.get('tract_specific', {}))
+        if tract_specific.get('enabled', False):
+            tract_specific.pop('enabled', None)
+            self.logger.info("Adding TractSpecificAnalysisStep")
+            self.add_step(TractSpecificAnalysisStep(
+                config=self.config, logger=self.logger, provenance=self.provenance,
+                nthreads=self.config.n_cpus, **tract_specific,
             ))
 
     def run(
@@ -530,6 +588,27 @@ class ModelingWorkflow(BaseWorkflow):
                 elif 'CSD' in step_name:
                     model_dir = output_dir / 'CSD'
                     required = ['fod']
+                elif step_name == 'MRtrixAnatomicalConstraintsStep':
+                    if not any((output_dir / 'MRtrix' / 'ACT').glob('*_desc-act5tt_probseg.nii.gz')):
+                        return False
+                    continue
+                elif step_name == 'MRtrixTractographyStep':
+                    tract_dir = output_dir / 'MRtrix' / 'tractography'
+                    if not any(tract_dir.glob('*_desc-wholebrain*_tractography.tck')):
+                        return False
+                    continue
+                elif step_name == 'TractSegStep':
+                    if not any((output_dir / 'TractSeg').glob('**/*.nii.gz')):
+                        return False
+                    continue
+                elif step_name == 'PyAFQStep':
+                    if not any((output_dir / 'PyAFQ').glob('**/*.trk')):
+                        return False
+                    continue
+                elif step_name == 'TractSpecificAnalysisStep':
+                    if not (output_dir / 'MRtrix' / 'tract_specific').exists():
+                        return False
+                    continue
                 else:
                     continue
                 
@@ -595,6 +674,35 @@ class ModelingWorkflow(BaseWorkflow):
                 matches = list(model_dir.glob(f"*{metric}*.nii.gz"))
                 if matches:
                     model_results[metric] = matches[0]
+
+        tract_root = output_dir / "MRtrix"
+        tract_dir = tract_root / "tractography"
+        if tract_dir.exists():
+            tract = context.setdefault("tractography", {})
+            filtered = next(tract_dir.glob("*_desc-wholebrain*SIFT_tractography.tck"), None)
+            unfiltered = next((p for p in tract_dir.glob("*_desc-wholebrain*_tractography.tck") if "SIFT" not in p.name), None)
+            if filtered:
+                tract["whole_brain"] = filtered
+                tract["unfiltered"] = unfiltered
+            elif unfiltered:
+                tract["whole_brain"] = unfiltered
+            weights = next(tract_dir.glob("*_desc-sift2_weights.tsv"), None)
+            if weights:
+                tract["sift2_weights"] = weights
+            act_dir = tract_root / "ACT"
+            five_tt = next(act_dir.glob("*_desc-act5tt_probseg.nii.gz"), None) if act_dir.exists() else None
+            gmwmi = next(act_dir.glob("*_desc-gmwmi_mask.nii.gz"), None) if act_dir.exists() else None
+            if five_tt:
+                tract["act_5tt"] = five_tt
+            if gmwmi:
+                tract["gmwmi_seed"] = gmwmi
+            bundle_dir = tract_root / "tract_specific" / "bundles"
+            if bundle_dir.exists():
+                tract["bundles"] = {
+                    get_entities_from_path(p).get("desc") or p.stem: p
+                    for p in bundle_dir.glob("*_tractography.tck")
+                    if "resampled" not in p.name.lower()
+                }
     
     def _update_tracker_for_cache(self, context):
         """Update tracker for all cached steps."""

@@ -26,8 +26,9 @@ ENV FSFAST_HOME=${FREESURFER_HOME}/fsfast
 ENV MNI_DIR=${FREESURFER_HOME}/mni
 ENV C3DPATH=/opt/c3d/bin
 ENV TORTOISE_HOME=/opt/tortoise
-ENV LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:$LD_LIBRARY_PATH
-ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:${TORTOISE_HOME}/bin:$PATH
+ENV QMRI_FIT_HOME=/opt/qmri-fit
+ENV LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:${QMRI_FIT_HOME}/lib:$LD_LIBRARY_PATH
+ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:${TORTOISE_HOME}/bin:${QMRI_FIT_HOME}/bin:$PATH
 
 # --------------------------------------------------------------------------------
 # 1. System dependencies
@@ -131,11 +132,36 @@ RUN if [ -d /opt/container-assets/tortoise/bin ] && [ -f /opt/container-assets/t
         ${TORTOISE_HOME}/bin/CreateGradientNonlinearityBMatrix --help >/dev/null 2>&1 || true; \
     else \
         echo "No local TORTOISE binaries found under /opt/container-assets/tortoise/bin; skipping TORTOISE install."; \
+    fi
+
+# --------------------------------------------------------------------------------
+# 7. Optional qMRI fitting binary from qmri_nextgen
+# --------------------------------------------------------------------------------
+RUN QMRI_FIT_SRC=/opt/container-assets/qmri-fit; \
+    QMRI_FIT_BIN=""; \
+    if [ -f "${QMRI_FIT_SRC}/bin/qmri-fit" ]; then QMRI_FIT_BIN="${QMRI_FIT_SRC}/bin/qmri-fit"; \
+    elif [ -f "${QMRI_FIT_SRC}/qmri-fit" ]; then QMRI_FIT_BIN="${QMRI_FIT_SRC}/qmri-fit"; \
+    elif [ -f "${QMRI_FIT_SRC}/bin/qmri_fit" ]; then QMRI_FIT_BIN="${QMRI_FIT_SRC}/bin/qmri_fit"; \
+    elif [ -f "${QMRI_FIT_SRC}/qmri_fit" ]; then QMRI_FIT_BIN="${QMRI_FIT_SRC}/qmri_fit"; fi; \
+    if [ -n "${QMRI_FIT_BIN}" ]; then \
+        mkdir -p ${QMRI_FIT_HOME} && \
+        cp -a "${QMRI_FIT_SRC}/." ${QMRI_FIT_HOME}/ && \
+        mkdir -p ${QMRI_FIT_HOME}/bin && \
+        if [ ! -f ${QMRI_FIT_HOME}/bin/qmri-fit ] && [ -f ${QMRI_FIT_HOME}/qmri-fit ]; then mv ${QMRI_FIT_HOME}/qmri-fit ${QMRI_FIT_HOME}/bin/qmri-fit; fi && \
+        if [ ! -f ${QMRI_FIT_HOME}/bin/qmri_fit ] && [ -f ${QMRI_FIT_HOME}/qmri_fit ]; then mv ${QMRI_FIT_HOME}/qmri_fit ${QMRI_FIT_HOME}/bin/qmri_fit; fi && \
+        if [ -f ${QMRI_FIT_HOME}/bin/qmri-fit ] && [ ! -e ${QMRI_FIT_HOME}/bin/qmri_fit ]; then ln -s qmri-fit ${QMRI_FIT_HOME}/bin/qmri_fit; fi && \
+        if [ -f ${QMRI_FIT_HOME}/bin/qmri_fit ] && [ ! -e ${QMRI_FIT_HOME}/bin/qmri-fit ]; then ln -s qmri_fit ${QMRI_FIT_HOME}/bin/qmri-fit; fi && \
+        chmod -R a+rX ${QMRI_FIT_HOME} && \
+        chmod a+rx ${QMRI_FIT_HOME}/bin/* || true && \
+        echo "Installed qmri-fit from ${QMRI_FIT_SRC} to ${QMRI_FIT_HOME}" && \
+        ${QMRI_FIT_HOME}/bin/qmri-fit --help >/dev/null 2>&1 || true; \
+    else \
+        echo "No local qmri-fit binary found under ${QMRI_FIT_SRC}; skipping qmri-fit install."; \
     fi && \
     rm -rf /opt/container-assets
 
 # --------------------------------------------------------------------------------
-# 7. qmri-neuropipe and Python dependencies
+# 8. qmri-neuropipe and Python dependencies
 # --------------------------------------------------------------------------------
 WORKDIR /app
 COPY pyproject.toml /app/pyproject.toml
@@ -146,7 +172,7 @@ RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wh
     ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources"
 
 # --------------------------------------------------------------------------------
-# 8. Runtime wrapper
+# 9. Runtime wrapper
 # --------------------------------------------------------------------------------
 RUN printf '%s\n' \
     '#!/usr/bin/env bash' \

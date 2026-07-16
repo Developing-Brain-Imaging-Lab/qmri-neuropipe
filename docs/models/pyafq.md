@@ -2,6 +2,11 @@
 
 PyAFQ is an automated structural connectivity and tractography analysis pipeline. It is particularly well-suited for both infant and adult datasets.
 
+The current integration asks PyAFQ to generate and segment its own tractography.
+It does not import the MRtrix whole-brain tractogram. Use the MRtrix
+`tract_specific` workflow when MRtrix tractometry or SIFT2-weighted connectomes
+are required.
+
 ## Configuration
 
 ```yaml

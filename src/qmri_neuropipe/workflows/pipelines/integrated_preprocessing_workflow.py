@@ -601,6 +601,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         context["processing_steps"] = [step.__class__.__name__ for step in self.steps]
         try:
             io_manager = DataIOManager(self.config, self.logger)
+            io_manager.normalize_context_derivative_entities(context)
             skip_existing = self.config.get("skip_existing", True)
             io_manager.save_final_outputs(context, self.config.output_dir, skip_existing=skip_existing)
         except Exception as e:

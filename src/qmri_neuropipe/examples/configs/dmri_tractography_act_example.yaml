@@ -1,0 +1,55 @@
+bids_dir: /path/to/bids
+output_dir: /path/to/derivatives/qmri-neuropipe
+n_cpus: 8
+skip_existing: true
+
+dmri:
+  modeling:
+    csd:
+      enabled: true
+      method: msmt_csd
+      lmax: 8
+    dti:
+      enabled: true
+      method: dipy
+      metrics: [fa, md, ad, rd]
+    tractography:
+      mrtrix:
+        enabled: true
+        algorithm: iFOD2
+        select: 10000000
+        cutoff: 0.06
+        minlength: 10
+        maxlength: 250
+        act:
+          enabled: true
+          algorithm: fsl
+          validate: true
+          seed_gmwmi: true
+          backtrack: true
+          crop_at_gmwmi: true
+        filtering:
+          method: sift2
+      tractseg:
+        enabled: true
+        options:
+          preprocess: true
+          bundles: [CST_L, CST_R, AF_L, AF_R]
+      tract_specific:
+        enabled: true
+        bundles:
+          - {name: CST_L, source: tractseg}
+          - {name: CST_R, source: tractseg}
+          - {name: AF_L, source: tractseg}
+          - {name: AF_R, source: tractseg}
+        metrics: [DTI.FA, DTI.MD]
+        streamline_statistic: mean
+        profiles:
+          enabled: true
+          nodes: 100
+        track_density:
+          enabled: true
+        connectome:
+          enabled: false
+          nodes: /path/to/dwi-space_parcellation.nii.gz
+          use_sift2: true

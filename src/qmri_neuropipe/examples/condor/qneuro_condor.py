@@ -1386,9 +1386,12 @@ def cmd_run(argv: list[str]) -> int:
     fs_home = os.environ.setdefault("FREESURFER_HOME", "/usr/local/freesurfer/8.2.0")
     c3d = os.environ.setdefault("C3DPATH", "/opt/c3d/bin")
     tortoise_home = os.environ.setdefault("TORTOISE_HOME", "/opt/tortoise")
+    qmri_fit_home = os.environ.setdefault("QMRI_FIT_HOME", "/opt/qmri-fit")
     tortoise_lib = f"{tortoise_home}/lib"
+    qmri_fit_lib = f"{qmri_fit_home}/lib"
     os.environ["LD_LIBRARY_PATH"] = ":".join([
         tortoise_lib,
+        qmri_fit_lib,
         os.environ.get("LD_LIBRARY_PATH", ""),
     ])
     os.environ["PATH"] = ":".join([
@@ -1399,6 +1402,7 @@ def cmd_run(argv: list[str]) -> int:
         f"{fs_home}/python/scripts",
         c3d,
         f"{tortoise_home}/bin",
+        f"{qmri_fit_home}/bin",
         os.environ.get("PATH", ""),
     ])
     tortoise_gnl = shutil.which("CreateGradientNonlinearityBMatrix")
@@ -1406,6 +1410,11 @@ def cmd_run(argv: list[str]) -> int:
         print(f"Found TORTOISE GNL executable: {tortoise_gnl}")
     else:
         print("TORTOISE GNL executable not found on PATH after environment setup")
+    qmri_fit = shutil.which("qmri-fit") or shutil.which("qmri_fit")
+    if qmri_fit:
+        print(f"Found qmri-fit executable: {qmri_fit}")
+    else:
+        print("qmri-fit executable not found on PATH after environment setup")
 
     config = find_config(cwd, config_name)
     qmri_cmd = resolve_qmri_command()

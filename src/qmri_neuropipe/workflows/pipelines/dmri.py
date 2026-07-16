@@ -408,16 +408,15 @@ class DMRIPipeline(BasePipeline):
         stale_gnl = False
         expect_merged = self._should_expect_merged_preprocessed_dwi(context)
         expected_dwis = [dwi_files[0]] if expect_merged else dwi_files
+        expected_entities = io_manager.derivative_entities_for_dwis(
+            expected_dwis,
+            context,
+            desc="preproc",
+            suffix="dwi",
+        )
 
-        for dwi in expected_dwis:
-            ents = (dwi.entities or {}).copy()
-            if subject:
-                ents["sub"] = subject
-            if session:
-                ents["ses"] = session
-
-            ents["desc"] = "preproc"
-            ents["suffix"] = "dwi"
+        for dwi, ents in zip(expected_dwis, expected_entities):
+            ents = ents.copy()
             if expect_merged:
                 ents.pop("dir", None)
             fname = build_bids_name(ents)

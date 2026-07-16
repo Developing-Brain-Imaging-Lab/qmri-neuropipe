@@ -703,9 +703,16 @@ def create_default_config(modality: str = 'dmri') -> Dict[str, Any]:
                         'lmax': 8
                     },
                     'tractography': {
-                        'enabled': False,
-                        'algorithm': 'iFOD2',
-                        'n_streamlines': 10000000
+                        'mrtrix': {
+                            'enabled': False,
+                            'algorithm': 'iFOD2',
+                            'select': 10000000,
+                            'act': {'enabled': False},
+                            'filtering': {'method': 'none'}
+                        },
+                        'tractseg': {'enabled': False},
+                        'pyafq': {'enabled': False},
+                        'tract_specific': {'enabled': False, 'bundles': [], 'metrics': []}
                     }
                 },
                 'qc': {

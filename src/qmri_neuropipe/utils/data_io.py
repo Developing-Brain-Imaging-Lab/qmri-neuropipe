@@ -42,6 +42,91 @@ class DataIOManager:
         """
         self.config = config
         self.logger = logger
+
+    def _configured_derivative_drop_entities(self) -> List[str]:
+        """Entities to omit from final derivative names when doing so is collision-safe."""
+        dmri_cfg = self.config.get("dmri", {}) if hasattr(self.config, "get") else {}
+        derivatives_cfg = dmri_cfg.get("derivatives", {}) or {}
+        output_cfg = dmri_cfg.get("output", {}) or {}
+        value = (
+            derivatives_cfg.get("drop_entities")
+            if "drop_entities" in derivatives_cfg
+            else output_cfg.get("drop_entities", ["dir", "run"])
+        )
+        if value is None or value is False:
+            return []
+        if isinstance(value, str):
+            value = [item.strip() for item in value.split(",")]
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def derivative_entities_for_dwis(
+        self,
+        dwis: List[DWIFile],
+        context: Dict,
+        *,
+        desc: str = "preproc",
+        suffix: str = "dwi",
+    ) -> List[Dict[str, str]]:
+        """
+        Build final derivative entities and drop configured entities only if
+        filenames remain unique across the DWI set.
+        """
+        prepared = []
+        for dwi in dwis:
+            ents = dict(getattr(dwi, "entities", {}) or {})
+            sub = ents.get("sub") or context.get("subject", "unknown")
+            ses = ents.get("ses") or context.get("session")
+            ents["sub"] = sub
+            if ses:
+                ents["ses"] = ses
+            else:
+                ents.pop("ses", None)
+            ents["desc"] = desc
+            ents["suffix"] = suffix
+            prepared.append(ents)
+
+        for entity in self._configured_derivative_drop_entities():
+            if not any(entity in ents for ents in prepared):
+                continue
+            proposed = []
+            for ents in prepared:
+                new_ents = dict(ents)
+                new_ents.pop(entity, None)
+                proposed.append(new_ents)
+            names = [build_bids_name(ents) for ents in proposed]
+            if len(names) == len(set(names)):
+                prepared = proposed
+                self.logger.debug(f"Dropping derivative entity '{entity}' from final DWI-derived filenames")
+            else:
+                self.logger.info(
+                    f"Keeping derivative entity '{entity}' because removing it would create duplicate filenames"
+                )
+
+        return prepared
+
+    def normalize_context_derivative_entities(self, context: Dict) -> None:
+        """Mutate preprocessed DWI entities so downstream derivatives share clean names."""
+        dwis = context.get("preprocessed_dwis", []) or []
+        if not dwis:
+            return
+        cleaned = self.derivative_entities_for_dwis(dwis, context, desc="preproc", suffix="dwi")
+        changed = False
+        for dwi, ents in zip(dwis, cleaned):
+            old = dict(getattr(dwi, "entities", {}) or {})
+            new_ents = dict(old)
+            for key in self._configured_derivative_drop_entities():
+                if key not in ents:
+                    new_ents.pop(key, None)
+            new_ents.update(ents)
+            if new_ents != old:
+                changed = True
+                dwi.entities = new_ents
+        if changed:
+            current = context.get("current_image")
+            for dwi in dwis:
+                if dwi is current:
+                    context["current_image"] = dwi
+                    break
     
     def copy_raw_data_to_workdir(
         self,
@@ -247,13 +332,18 @@ class DataIOManager:
             .get("apply_to_final_output", False)
         )
 
-        for dwi, mask in zip(dwis, masks or [None] * len(dwis)):
+        derivative_entities = self.derivative_entities_for_dwis(dwis, context, desc="preproc", suffix="dwi")
+        mask_list = list(masks or [])
+        if len(mask_list) < len(dwis):
+            mask_list.extend([None] * (len(dwis) - len(mask_list)))
+
+        for dwi, mask, ents in zip(dwis, mask_list, derivative_entities):
             if not dwi.img.exists():
                 self.logger.warning(f"Final DWI missing: {dwi.img}")
                 continue
             
             # Determine output path
-            ents = dwi.entities.copy()
+            ents = ents.copy()
             sub = ents.get("sub") or context.get("subject", "unknown")
             ses = ents.get("ses")
             
@@ -504,7 +594,16 @@ class DataIOManager:
         seen_sources = set()
         selected_targets = {}
 
-        for dwi in context.get("preprocessed_dwis", []) or []:
+        preprocessed_dwis = context.get("preprocessed_dwis", []) or []
+        dwi_entity_by_id = {
+            id(dwi): ents
+            for dwi, ents in zip(
+                preprocessed_dwis,
+                self.derivative_entities_for_dwis(preprocessed_dwis, context, desc="gnl_tensor", suffix="dwi"),
+            )
+        }
+
+        for dwi in preprocessed_dwis:
             img_path = getattr(dwi, "img", None)
             if img_path is None:
                 continue
@@ -519,7 +618,7 @@ class DataIOManager:
             if not gnl_path or not gnl_path.exists():
                 continue
 
-            dwi_entities = dict(getattr(dwi, "entities", {}) or {})
+            dwi_entities = dict(dwi_entity_by_id.get(id(dwi)) or getattr(dwi, "entities", {}) or {})
             sub_g = dwi_entities.get("sub") or context.get("subject", "unknown")
             ses_g = dwi_entities.get("ses") or context.get("session")
             dwi_entities["sub"] = sub_g

@@ -186,3 +186,11 @@ relaxometry:
       DESPOT1: [T1]
       mcDESPOT: [VFm, T2m, MWF]
 ```
+# Tract statistics and streamline tractometry
+
+Bundle masks from TractSeg can be passed through the standard ROI statistics
+workflow for voxel-weighted summaries. This is different from streamline
+tractometry, which samples a metric along each extracted streamline. Enable
+`dmri.modeling.tractography.tract_specific` for streamline sampling,
+track-density maps, and connectomes. See
+[Tractometry and Connectomes](workflows/tractometry.md).

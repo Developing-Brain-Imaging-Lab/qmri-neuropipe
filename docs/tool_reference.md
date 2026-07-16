@@ -633,3 +633,10 @@ columns for region name, mean, standard deviation, and voxel count for each
 fitted metric.
 
 See [Atlas Registration & ROI Statistics](analysis.md) for full configuration options.
+# MRtrix tractography tools
+
+The tractography workflow uses `5ttgen`, `5ttcheck`, and `5tt2gmwmi` for ACT;
+`tckgen` for tracking; `tcksift` or `tcksift2` for filtering; `tckedit` for
+bundle extraction; `tckresample`, `tcksample`, and `tckmap` for tractometry; and
+`tck2connectome` for connectivity matrices. See
+[MRtrix Tractography](workflows/tractography.md) for configuration.

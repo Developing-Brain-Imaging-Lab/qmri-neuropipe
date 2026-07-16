@@ -29,6 +29,7 @@ def test_anatomical_space_gnl_tensor_is_saved_with_final_dwi_derivatives(tmp_pat
         config_data={
             "skip_existing": False,
             "dmri": {
+                "derivatives": {"drop_entities": []},
                 "preprocessing": {
                     "coregistration": {
                         "enabled": True,

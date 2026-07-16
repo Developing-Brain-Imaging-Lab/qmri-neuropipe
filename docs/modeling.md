@@ -45,6 +45,9 @@ Click on a model below for detailed configuration and usage instructions.
     *   Deep learning-based bundle segmentation and tracking.
     *   Features: Initial MNI registration with inverse warping, bundle-specific tracking.
 *   [**PyAFQ**](models/pyafq.md)
+*   [**MRtrix Tractography**](workflows/tractography.md)
+*   [**Extracting Specific Tracts**](workflows/tract_extraction.md)
+*   [**Tractometry and Connectomes**](workflows/tractometry.md)
     *   Automated Fiber Quantification for infant and adult data.
 
 ## General Configuration

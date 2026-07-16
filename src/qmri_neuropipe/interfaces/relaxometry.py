@@ -16,14 +16,15 @@ def _get_binary(name: str) -> str:
 
 
 def _get_qmri_fit_command(subcommand: str, legacy_binary: Optional[str] = None) -> list[str]:
-    """Resolve the modern qmri_fit CLI with optional fallback to a legacy standalone binary."""
-    qmri_fit = shutil.which("qmri_fit")
-    if qmri_fit:
-        return [qmri_fit, subcommand]
+    """Resolve the modern qmri-fit/qmri_fit CLI with optional legacy fallback."""
+    for name in ("qmri-fit", "qmri_fit"):
+        qmri_fit = shutil.which(name)
+        if qmri_fit:
+            return [qmri_fit, subcommand]
     if legacy_binary:
         return [_get_binary(legacy_binary)]
     raise RuntimeError(
-        "Binary 'qmri_fit' not found in PATH. Please ensure it is installed."
+        "Binary 'qmri-fit' or 'qmri_fit' not found in PATH. Please ensure it is installed."
     )
 
 

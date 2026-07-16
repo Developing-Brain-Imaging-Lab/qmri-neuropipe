@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Union
+from typing import Any, Iterable, Optional, Tuple, Dict, Union
 from ..core.run import run_cmd, _writable_tmpdir
 from ..core.types import ImageLike, DWIFile
 from ..core.utils import ensure_path, ensure_dir, extract_image_path
@@ -1007,4 +1007,303 @@ def sh2peaks(
         cmd.append("-force")
         
     _run_mrtrix(cmd, label="sh2peaks")
+    return out_p
+
+
+def _append_options(cmd: list[str], options: Optional[Dict[str, Any]]) -> None:
+    """Append MRtrix-style options from a mapping.
+
+    ``True`` emits a flag, ``False``/``None`` omit it, and sequences emit one
+    option followed by all their values. Keys may be written with or without a
+    leading dash. This is intentionally small and is used only for documented
+    MRtrix passthrough options.
+    """
+    for key, value in (options or {}).items():
+        flag = str(key) if str(key).startswith("-") else f"-{key}"
+        if value is True:
+            cmd.append(flag)
+        elif value is False or value is None:
+            continue
+        elif isinstance(value, (list, tuple)):
+            cmd.extend([flag, *map(str, value)])
+        else:
+            cmd.extend([flag, str(value)])
+
+
+def five_tt_gen(
+    algorithm: str,
+    in_file: ImageLike | Path,
+    out_file: Path,
+    *,
+    options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Generate an ACT five-tissue-type image with ``5ttgen``."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["5ttgen", algorithm, str(extract_image_path(in_file)), str(out_p)]
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label=f"5ttgen-{algorithm}", script=True, n_threads=nthreads)
+    return out_p
+
+
+def five_tt_check(in_file: ImageLike | Path, *, nthreads: int = 1) -> Path:
+    """Validate a five-tissue-type image using ``5ttcheck``."""
+    in_p = extract_image_path(in_file)
+    cmd = ["5ttcheck", str(in_p), "-quiet"]
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    _run_mrtrix(cmd, label="5ttcheck", n_threads=nthreads)
+    return in_p
+
+
+def five_tt_to_gmwmi(
+    in_file: ImageLike | Path, out_file: Path, *, force: bool = False
+) -> Path:
+    """Create a grey-matter/white-matter interface seed mask."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["5tt2gmwmi", str(extract_image_path(in_file)), str(out_p)]
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="5tt2gmwmi")
+    return out_p
+
+
+def tckgen(
+    in_file: ImageLike | Path,
+    out_file: Path,
+    *,
+    algorithm: str = "iFOD2",
+    select: int = 10_000_000,
+    act: Optional[Path] = None,
+    seed_gmwmi: Optional[Path] = None,
+    seed_image: Optional[Path] = None,
+    mask: Optional[Path] = None,
+    include: Optional[Iterable[Path]] = None,
+    exclude: Optional[Iterable[Path]] = None,
+    options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Generate a tractogram using ``tckgen``."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tckgen", str(extract_image_path(in_file)), str(out_p), "-algorithm", algorithm]
+    if select:
+        cmd.extend(["-select", str(select)])
+    if act:
+        cmd.extend(["-act", str(act)])
+    if seed_gmwmi:
+        cmd.extend(["-seed_gmwmi", str(seed_gmwmi)])
+    elif seed_image:
+        cmd.extend(["-seed_image", str(seed_image)])
+    if mask:
+        cmd.extend(["-mask", str(mask)])
+    for roi in include or []:
+        cmd.extend(["-include", str(roi)])
+    for roi in exclude or []:
+        cmd.extend(["-exclude", str(roi)])
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label=f"tckgen-{algorithm}", n_threads=nthreads)
+    return out_p
+
+
+def tckedit(
+    in_file: Path,
+    out_file: Path,
+    *,
+    include: Optional[Iterable[Path]] = None,
+    exclude: Optional[Iterable[Path]] = None,
+    ends_only: bool = False,
+    options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Extract or edit streamlines using ROI constraints."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tckedit", str(in_file), str(out_p)]
+    for roi in include or []:
+        cmd.extend(["-include", str(roi)])
+    for roi in exclude or []:
+        cmd.extend(["-exclude", str(roi)])
+    if ends_only:
+        cmd.append("-ends_only")
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tckedit", n_threads=nthreads)
+    return out_p
+
+
+def tcksift2(
+    tracks: Path,
+    fod: ImageLike | Path,
+    out_weights: Path,
+    *,
+    act: Optional[Path] = None,
+    options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Estimate per-streamline SIFT2 weights."""
+    out_p = ensure_dir(out_weights)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tcksift2", str(tracks), str(extract_image_path(fod)), str(out_p)]
+    if act:
+        cmd.extend(["-act", str(act)])
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tcksift2", n_threads=nthreads)
+    return out_p
+
+
+def tcksift(
+    tracks: Path,
+    fod: ImageLike | Path,
+    out_file: Path,
+    *,
+    act: Optional[Path] = None,
+    term_number: Optional[int] = None,
+    options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Filter a tractogram using SIFT."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tcksift", str(tracks), str(extract_image_path(fod)), str(out_p)]
+    if act:
+        cmd.extend(["-act", str(act)])
+    if term_number:
+        cmd.extend(["-term_number", str(term_number)])
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tcksift", n_threads=nthreads)
+    return out_p
+
+
+def tckmap(
+    tracks: Path, out_file: Path, *, template: Optional[Path] = None,
+    weights: Optional[Path] = None, options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1, force: bool = False,
+) -> Path:
+    """Create a track-density image."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tckmap", str(tracks), str(out_p)]
+    if template:
+        cmd.extend(["-template", str(template)])
+    if weights:
+        cmd.extend(["-tck_weights_in", str(weights)])
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tckmap", n_threads=nthreads)
+    return out_p
+
+
+def tcksample(
+    tracks: Path, image: ImageLike | Path, out_file: Path, *,
+    statistic_tck: Optional[str] = None, options: Optional[Dict[str, Any]] = None,
+    nthreads: int = 1, force: bool = False,
+) -> Path:
+    """Sample an image along streamlines."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tcksample", str(tracks), str(extract_image_path(image)), str(out_p)]
+    if statistic_tck:
+        cmd.extend(["-stat_tck", statistic_tck])
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tcksample", n_threads=nthreads)
+    return out_p
+
+
+def tckresample(
+    tracks: Path, out_file: Path, *, num_points: int = 100,
+    nthreads: int = 1, force: bool = False,
+) -> Path:
+    """Resample every streamline to a fixed number of points."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tckresample", str(tracks), str(out_p), "-num_points", str(num_points)]
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tckresample", n_threads=nthreads)
+    return out_p
+
+
+def tck2connectome(
+    tracks: Path, nodes: ImageLike | Path, out_file: Path, *,
+    weights: Optional[Path] = None, scale_file: Optional[Path] = None,
+    statistic: str = "sum", symmetric: bool = True, zero_diagonal: bool = True,
+    options: Optional[Dict[str, Any]] = None, nthreads: int = 1,
+    force: bool = False,
+) -> Path:
+    """Generate a connectome matrix from a tractogram and node image."""
+    out_p = ensure_dir(out_file)
+    if out_p.exists() and not force:
+        return out_p
+    cmd = ["tck2connectome", str(tracks), str(extract_image_path(nodes)), str(out_p)]
+    if weights:
+        cmd.extend(["-tck_weights_in", str(weights)])
+    if scale_file:
+        cmd.extend(["-scale_file", str(scale_file)])
+    if statistic:
+        cmd.extend(["-stat_edge", statistic])
+    if symmetric:
+        cmd.append("-symmetric")
+    if zero_diagonal:
+        cmd.append("-zero_diagonal")
+    _append_options(cmd, options)
+    if nthreads > 1:
+        cmd.extend(["-nthreads", str(nthreads)])
+    if force:
+        cmd.append("-force")
+    cmd.append("-quiet")
+    _run_mrtrix(cmd, label="tck2connectome", n_threads=nthreads)
     return out_p

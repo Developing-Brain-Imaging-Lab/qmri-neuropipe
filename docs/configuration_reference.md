@@ -299,10 +299,25 @@ dmri:
       enabled: false
       method: dmipy
     tractography:
+      mrtrix:
+        enabled: false
+        algorithm: iFOD2
+        select: 10000000
+        act:
+          enabled: false
+          algorithm: fsl
+          validate: true
+          seed_gmwmi: true
+        filtering:
+          method: none
       tractseg:
         enabled: false
       pyafq:
         enabled: false
+      tract_specific:
+        enabled: false
+        bundles: []
+        metrics: []
 ```
 
 | Model | Key | Methods | Common options |
@@ -316,8 +331,39 @@ dmri:
 | NEXI | `dmri.modeling.nexi` | `nexi` | Model-specific parameters |
 | MAPMRI | `dmri.modeling.mapmri` | `dipy` | MAPMRI model options |
 | Free-water DTI | `dmri.modeling.fwe_dti` or `dmri.modeling.fwdti` | `dipy` | `fit_method` |
+| MRtrix tractography | `dmri.modeling.tractography.mrtrix` | `iFOD2`, `SD_STREAM`, `Tensor_Det`, `Tensor_Prob` | `select`, `cutoff`, `minlength`, `maxlength`, `act`, `filtering` |
 | TractSeg | `dmri.modeling.tractography.tractseg` | `tractseg` | `options` passed to TractSeg wrapper |
 | pyAFQ | `dmri.modeling.tractography.pyafq` | `pyafq` | `options` passed to pyAFQ wrapper |
+| Tract-specific analysis | `dmri.modeling.tractography.tract_specific` | MRtrix | `bundles`, `metrics`, `track_density`, `connectome` |
+
+### MRtrix tractography options
+
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `mrtrix.enabled` | bool | false | Generate a whole-brain tractogram |
+| `mrtrix.algorithm` | str | `iFOD2` | FOD or tensor tracking algorithm |
+| `mrtrix.select` | int | 10000000 | Requested output streamline count |
+| `mrtrix.cutoff` | float | MRtrix default | FOD amplitude cutoff |
+| `mrtrix.minlength` / `maxlength` | float | MRtrix default | Streamline length constraints in mm |
+| `mrtrix.act.enabled` | bool | false | Enable anatomically constrained tractography |
+| `mrtrix.act.five_tt` | path | auto | Existing 5TT image; otherwise generate from T1w |
+| `mrtrix.act.algorithm` | str | `fsl` | `5ttgen` backend |
+| `mrtrix.act.validate` | bool | true | Run `5ttcheck` |
+| `mrtrix.act.seed_gmwmi` | bool | true | Seed from the GMWMI image |
+| `mrtrix.act.backtrack` | bool | true | Enable ACT backtracking |
+| `mrtrix.act.crop_at_gmwmi` | bool | true | Crop endpoints at the GMWMI |
+| `mrtrix.filtering.method` | str | `none` | `none`, `sift`, or `sift2` |
+| `tract_specific.bundles` | list | [] | TractSeg names or ROI definitions |
+| `tract_specific.metrics` | list | [] | `MODEL.METRIC` names or image mappings |
+| `tract_specific.streamline_statistic` | str | `mean` | Statistic produced per streamline by `tcksample` |
+| `tract_specific.profiles.enabled` | bool | false | Generate fixed-node along-tract profiles |
+| `tract_specific.profiles.nodes` | int | 100 | Number of points per resampled streamline |
+| `tract_specific.track_density.enabled` | bool | false | Create a TDI per extracted bundle |
+| `tract_specific.connectome.enabled` | bool | false | Create a parcellation-based connectome |
+| `tract_specific.connectome.nodes` | path | none | Required DWI-space integer node image |
+
+The old flat `tractography.enabled`, `algorithm`, and `n_streamlines` keys are
+translated for compatibility, but new configurations should use `mrtrix`.
 
 ### Modeling Fit Method Notes
 

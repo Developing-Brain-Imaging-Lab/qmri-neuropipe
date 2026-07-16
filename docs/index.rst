@@ -18,6 +18,10 @@ Welcome to qmri-neuropipe's documentation!
    source/user_guide/advanced_usage
    workflows/anatomical
    workflows/diffusion
+   workflows/tractography
+   models/tractseg
+   workflows/tract_extraction
+   workflows/tractometry
    workflows/relaxometry
    workflows/fmri
    modeling

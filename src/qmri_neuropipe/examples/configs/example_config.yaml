@@ -241,9 +241,36 @@ dmri:
       
     # Tractography
     tractography:
-      enabled: false
-      algorithm: iFOD2       # Options: iFOD2, SD_Stream, Tensor_Det
-      n_streamlines: 10000000
+      mrtrix:
+        enabled: false
+        algorithm: iFOD2       # iFOD2, SD_STREAM, Tensor_Det, Tensor_Prob
+        select: 10000000
+        cutoff: 0.06
+        act:
+          enabled: true
+          algorithm: fsl       # 5ttgen backend when an existing 5TT is unavailable
+          seed_gmwmi: true
+          backtrack: true
+          crop_at_gmwmi: true
+        filtering:
+          method: sift2        # none, sift, sift2
+      tractseg:
+        enabled: false
+        options:
+          preprocess: true
+          bundles: [CST_L, CST_R]
+      pyafq:
+        enabled: false
+      tract_specific:
+        enabled: false
+        bundles:
+          - name: CST_L
+            source: tractseg
+          - name: CST_R
+            source: tractseg
+        metrics: [DTI.FA, DTI.MD]
+        track_density:
+          enabled: true
       
   # Quality control
   qc:

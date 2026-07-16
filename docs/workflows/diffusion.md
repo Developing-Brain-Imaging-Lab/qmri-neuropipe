@@ -23,11 +23,17 @@ The pipeline handles single-shell and multi-shell data and supports advanced dis
 | Coregistration | `dmri.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` |
 | Brain masking | `dmri.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` |
 | Normalization | `dmri.normalization` | `ants`, `synthmorph`, `robust_iterative` |
+| Tractography | `dmri.modeling.tractography` | MRtrix, ACT, SIFT/SIFT2, TractSeg, pyAFQ |
+| Tract-specific analysis | `dmri.modeling.tractography.tract_specific` | Bundle extraction, tractometry, track-density maps, connectomes |
 | Analysis | `dmri.analysis` | Atlas-based ROI statistics |
 
 **Main Class**: `qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline`
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
+
+For streamline workflows, see [MRtrix Tractography](tractography.md),
+[TractSeg](../models/tractseg.md), [Extracting Specific Tracts](tract_extraction.md),
+and [Tractometry and Connectomes](tractometry.md).
 
 ## Anatomical Integration
 If an `anat` directory exists for the subject, the pipeline can optionally run the full **Anatomical Workflow** first (see [Anatomical Workflow](anatomical.md)) and use the resulting T1w/T2w images as references for coregistration.
