@@ -115,6 +115,55 @@ def test_inventory_filters_participant_and_session(tmp_path: Path):
     assert inventory.raw_data.suffixes == {"T1w": 1, "dwi": 1}
 
 
+def test_inventory_supports_nested_rawdata_with_sibling_derivatives(tmp_path: Path):
+    source = _dataset(tmp_path)
+    study_root = tmp_path / "study"
+    study_root.mkdir()
+    rawdata = study_root / "rawdata"
+    source.rename(rawdata)
+    (rawdata / "derivatives").rename(study_root / "derivatives")
+
+    inventory = inspect_bids_dataset(
+        study_root,
+        rawdata_dir="rawdata",
+        include_derivatives=True,
+    )
+
+    assert inventory.path == str(study_root.resolve())
+    assert inventory.rawdata_path == str(rawdata.resolve())
+    assert inventory.n_subjects == 2
+    assert inventory.raw_data.modality_coverage["dwi"].n_observations == 1
+    assert inventory.derivatives[0].products["dwi"].models == ["DTI"]
+
+
+def test_inspect_cli_accepts_relative_rawdata_dir(tmp_path: Path):
+    source = _dataset(tmp_path)
+    study_root = tmp_path / "study"
+    study_root.mkdir()
+    rawdata = study_root / "rawdata"
+    source.rename(rawdata)
+    (rawdata / "derivatives").rename(study_root / "derivatives")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "inspect",
+            str(study_root),
+            "--rawdata-dir",
+            "rawdata",
+            "--derivatives",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["rawdata_path"] == str(rawdata.resolve())
+    assert report["n_subjects"] == 2
+    assert report["derivatives"][0]["products"]["dwi"]["models"] == ["DTI"]
+
+
 def test_inspect_cli_emits_json(tmp_path: Path):
     result = CliRunner().invoke(app, ["inspect", str(_dataset(tmp_path)), "--format", "json"])
 

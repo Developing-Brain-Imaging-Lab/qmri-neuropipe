@@ -87,6 +87,7 @@ class BIDSDatasetInventory:
     """Serializable summary of a BIDS dataset."""
 
     path: str
+    rawdata_path: str
     name: Optional[str]
     bids_version: Optional[str]
     n_subjects: int
@@ -362,6 +363,7 @@ def _derivative_roots(derivatives_dir: Path) -> list[Path]:
 def inspect_bids_dataset(
     bids_dir: str | Path,
     *,
+    rawdata_dir: str | Path | None = None,
     participants: Optional[list[str]] = None,
     sessions: Optional[list[str]] = None,
     include_derivatives: bool = False,
@@ -371,17 +373,25 @@ def inspect_bids_dataset(
     if not root.is_dir():
         raise FileNotFoundError(f"BIDS directory not found: {root}")
 
-    metadata, warning = _read_json(root / "dataset_description.json")
+    if rawdata_dir is None:
+        raw_root = root
+    else:
+        raw_path = Path(rawdata_dir).expanduser()
+        raw_root = (root / raw_path).resolve() if not raw_path.is_absolute() else raw_path.resolve()
+    if not raw_root.is_dir():
+        raise FileNotFoundError(f"BIDS raw-data directory not found: {raw_root}")
+
+    metadata, warning = _read_json(raw_root / "dataset_description.json")
     warnings = [warning] if warning else []
-    pairs = _filtered_pairs(root, participants, sessions)
+    pairs = _filtered_pairs(raw_root, participants, sessions)
     participant_values = sorted({subject for subject, _ in pairs})
     session_values = sorted({session for _, session in pairs if session is not None})
     sessionless = sorted({subject for subject, session in pairs if session is None})
 
     # Scan only selected subject/session roots and merge their counts.
-    raw_parts = _observation_roots(root, pairs)
+    raw_parts = _observation_roots(raw_root, pairs)
     raw_data = _merge_data_inventories(_inventory_data(path) for path in raw_parts)
-    raw_data.modality_coverage = _modality_coverage(root, pairs)
+    raw_data.modality_coverage = _modality_coverage(raw_root, pairs)
 
     derivatives: list[DerivativeInventory] = []
     if include_derivatives:
@@ -415,6 +425,7 @@ def inspect_bids_dataset(
 
     return BIDSDatasetInventory(
         path=str(root),
+        rawdata_path=str(raw_root),
         name=metadata.get("Name"),
         bids_version=metadata.get("BIDSVersion"),
         n_subjects=len(participant_values),

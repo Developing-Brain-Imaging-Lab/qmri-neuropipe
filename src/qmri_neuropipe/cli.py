@@ -58,6 +58,8 @@ def _print_inventory(inventory, *, details: bool = False) -> None:
     overview.add_column("Property", style="bold")
     overview.add_column("Value", style="cyan")
     overview.add_row("Path", inventory.path)
+    if inventory.rawdata_path != inventory.path:
+        overview.add_row("Raw data", inventory.rawdata_path)
     overview.add_row("BIDS version", inventory.bids_version or "Unknown")
     overview.add_row("Participants", str(inventory.n_subjects))
     overview.add_row("Distinct session labels", str(inventory.n_sessions))
@@ -168,6 +170,11 @@ def _print_inventory(inventory, *, details: bool = False) -> None:
 @app.command("inspect")
 def inspect_command(
     bids_dir: Path = typer.Argument(..., help="BIDS dataset directory.", exists=True, file_okay=False),
+    rawdata_dir: Optional[Path] = typer.Option(
+        None,
+        "--rawdata-dir",
+        help="Raw BIDS data directory, absolute or relative to BIDS_DIR (for example: rawdata).",
+    ),
     derivatives: bool = typer.Option(False, "--derivatives", help="Include datasets beneath derivatives/."),
     details: bool = typer.Option(False, "--details", help="Show per-model derivative coverage."),
     participant_label: Optional[List[str]] = typer.Option(None, "--participant-label", "-p", help="Participant label to include; repeat for multiple labels."),
@@ -189,6 +196,7 @@ def inspect_command(
     try:
         inventory = inspect_bids_dataset(
             bids_dir,
+            rawdata_dir=rawdata_dir,
             participants=participant_label,
             sessions=session_label,
             include_derivatives=derivatives or details,
