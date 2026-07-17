@@ -5,17 +5,19 @@ import argparse
 import csv
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 ROOT_METADATA = ("dataset_description.json", "participants.tsv", "participants.json", "README", "CHANGES")
-COMMANDS = {"submit-local", "push-submit", "stage-remote", "submit-staged"}
+COMMANDS = {"submit-local", "push-submit", "stage-remote", "submit-staged", "collect-outputs"}
+OUTPUT_ARCHIVE_RE = re.compile(r"^qneuro_outputs_sub-(?P<subject>.+?)_ses-(?P<session>.+?)\.tar\.gz$")
 
 COMMAND_SETTINGS = {
     "submit-local": {
@@ -57,6 +59,11 @@ COMMAND_SETTINGS = {
         "want_gpu_lab", "gpu_job_length", "notification", "notify_user",
         "log_dir", "output_directory", "output_destination",
     },
+    "collect-outputs": {
+        "outputs_dir", "remote_host", "remote_outputs_dir", "bids_dir",
+        "derivatives_dir", "derivative_name", "subject", "subjects",
+        "subjects_file", "session", "sessions", "overwrite", "dry_run",
+    },
 }
 
 BOOLEAN_FLAGS = {
@@ -65,6 +72,8 @@ BOOLEAN_FLAGS = {
     "no_bundle": "--no-bundle",
     "include_support_files": "--include-support-files",
     "no_copy_script": "--no-copy-script",
+    "overwrite": "--overwrite",
+    "dry_run": "--dry-run",
 }
 
 NEGATED_BOOLEAN_FLAGS = {
@@ -1203,6 +1212,275 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_output_archive_name(path: Path) -> tuple[str, str] | None:
+    match = OUTPUT_ARCHIVE_RE.match(path.name)
+    if not match:
+        return None
+    subject = norm_label(match.group("subject"), "sub-")
+    session = norm_label(match.group("session"), "ses-")
+    session = "" if is_empty_label(session) else session
+    return subject, session
+
+
+def output_archive_patterns(args: argparse.Namespace) -> list[str]:
+    if not has_subject_filter(args):
+        return ["qneuro_outputs_sub-*_ses-*.tar.gz"]
+
+    patterns: list[str] = []
+    for subject_raw, session_raw in selected_pairs(args):
+        subject = norm_label(subject_raw, "sub-")
+        session = norm_label(session_raw, "ses-")
+        if is_empty_label(session):
+            patterns.append(f"qneuro_outputs_sub-{subject}_ses-*.tar.gz")
+        else:
+            patterns.append(f"qneuro_outputs_sub-{subject}_ses-{session}.tar.gz")
+    return patterns
+
+
+def archive_selected(path: Path, args: argparse.Namespace) -> bool:
+    parsed = parse_output_archive_name(path)
+    if parsed is None:
+        return False
+    if not has_subject_filter(args):
+        return True
+
+    subject, session = parsed
+    requested: set[tuple[str, str]] = set()
+    wildcard_subjects: set[str] = set()
+    for subject_raw, session_raw in selected_pairs(args):
+        requested_subject = norm_label(subject_raw, "sub-")
+        requested_session = norm_label(session_raw, "ses-")
+        if is_empty_label(requested_session):
+            wildcard_subjects.add(requested_subject)
+        else:
+            requested.add((requested_subject, requested_session))
+    return subject in wildcard_subjects or (subject, session) in requested
+
+
+def download_remote_outputs(args: argparse.Namespace, outputs_dir: Path) -> None:
+    if not args.remote_host and not args.remote_outputs_dir:
+        return
+    if not args.remote_host or not args.remote_outputs_dir:
+        raise ValueError("--remote-host and --remote-outputs-dir must be used together")
+
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+    remote_dir = args.remote_outputs_dir.rstrip("/")
+    remote_specs = [
+        f"{args.remote_host}:{remote_dir}/{pattern}"
+        for pattern in output_archive_patterns(args)
+    ]
+    print(f"Copying Condor output archive(s) to: {outputs_dir}")
+    subprocess.run(["scp", *remote_specs, str(outputs_dir)], check=True)
+
+
+def collect_target_dir(args: argparse.Namespace) -> Path:
+    if args.derivatives_dir:
+        return Path(args.derivatives_dir).expanduser().resolve()
+    if not args.bids_dir:
+        raise ValueError("Pass either --bids-dir or --derivatives-dir")
+    return Path(args.bids_dir).expanduser().resolve() / "derivatives" / args.derivative_name
+
+
+def safe_tar_member_parts(member_name: str) -> list[str]:
+    parts = [
+        part
+        for part in PurePosixPath(member_name).parts
+        if part not in {"", "."}
+    ]
+    if not parts:
+        return []
+    if PurePosixPath(member_name).is_absolute() or any(part == ".." for part in parts):
+        raise ValueError(f"Unsafe archive member path: {member_name}")
+    return parts
+
+
+def normalize_output_member_path(
+    member_name: str,
+    *,
+    subject: str,
+    session: str,
+    derivative_name: str,
+) -> Path | None:
+    parts = safe_tar_member_parts(member_name)
+    if not parts:
+        return None
+
+    while parts and parts[0] in {"out", "."}:
+        parts = parts[1:]
+    if not parts:
+        return None
+
+    if parts[0] == "derivatives":
+        parts = parts[1:]
+        if parts and parts[0] == derivative_name:
+            parts = parts[1:]
+    elif parts[0] == derivative_name:
+        parts = parts[1:]
+    if not parts:
+        return None
+
+    expected_subject = f"sub-{subject}"
+    expected_session = f"ses-{session}" if session else ""
+    if parts[0].startswith("sub-"):
+        if parts[0] != expected_subject:
+            raise ValueError(
+                f"Archive member subject {parts[0]} does not match archive name {expected_subject}: "
+                f"{member_name}"
+            )
+        if expected_session:
+            if len(parts) < 2 or not parts[1].startswith("ses-"):
+                parts = [parts[0], expected_session, *parts[1:]]
+            elif parts[1] != expected_session:
+                raise ValueError(
+                    f"Archive member session {parts[1]} does not match archive name {expected_session}: "
+                    f"{member_name}"
+                )
+        return Path(*parts)
+
+    if parts[0] in {"dataset_description.json", "README", "CHANGES", "logs", "figures"}:
+        return Path(*parts)
+
+    prefix = [expected_subject]
+    if expected_session:
+        prefix.append(expected_session)
+    return Path(*prefix, *parts)
+
+
+def ensure_derivative_dataset_description(target_dir: Path, derivative_name: str) -> None:
+    desc = target_dir / "dataset_description.json"
+    if desc.exists():
+        return
+    desc.write_text(
+        json.dumps(
+            {
+                "Name": derivative_name,
+                "BIDSVersion": "1.8.0",
+                "DatasetType": "derivative",
+                "GeneratedBy": [{"Name": "qmri-neuropipe"}],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def install_output_archive(
+    archive: Path,
+    target_dir: Path,
+    *,
+    derivative_name: str,
+    overwrite: bool,
+    dry_run: bool,
+) -> int:
+    parsed = parse_output_archive_name(archive)
+    if parsed is None:
+        raise ValueError(f"Output archive name does not match qneuro pattern: {archive.name}")
+    subject, session = parsed
+    installed = 0
+
+    with tarfile.open(archive, "r:*") as tf:
+        for member in tf.getmembers():
+            if member.issym() or member.islnk():
+                print(f"Skipping archive link member: {member.name}")
+                continue
+            rel = normalize_output_member_path(
+                member.name,
+                subject=subject,
+                session=session,
+                derivative_name=derivative_name,
+            )
+            if rel is None:
+                continue
+            dest = target_dir / rel
+            if member.isdir():
+                if dry_run:
+                    print(f"Would create directory: {dest}")
+                else:
+                    dest.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            if dest.exists() and not overwrite:
+                if dest.is_file() and tar_member_matches_file(tf, member, dest):
+                    continue
+                raise FileExistsError(f"Refusing to overwrite existing file without --overwrite: {dest}")
+            if dry_run:
+                print(f"Would install {archive.name}:{member.name} -> {dest}")
+                installed += 1
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            source = tf.extractfile(member)
+            if source is None:
+                continue
+            with source, dest.open("wb") as out:
+                shutil.copyfileobj(source, out)
+            installed += 1
+    return installed
+
+
+def tar_member_matches_file(tf: tarfile.TarFile, member: tarfile.TarInfo, path: Path) -> bool:
+    try:
+        if member.size != path.stat().st_size:
+            return False
+    except OSError:
+        return False
+
+    source = tf.extractfile(member)
+    if source is None:
+        return False
+    with source, path.open("rb") as existing:
+        while True:
+            source_chunk = source.read(1024 * 1024)
+            existing_chunk = existing.read(1024 * 1024)
+            if source_chunk != existing_chunk:
+                return False
+            if not source_chunk:
+                return True
+
+
+def discover_output_archives(outputs_dir: Path, args: argparse.Namespace) -> list[Path]:
+    archives = [
+        path for path in sorted(outputs_dir.glob("qneuro_outputs_sub-*_ses-*.tar.gz"))
+        if path.is_file() and archive_selected(path, args)
+    ]
+    if not archives:
+        raise FileNotFoundError(
+            f"No qneuro output archives matched the requested subject/session selection in: {outputs_dir}"
+        )
+    return archives
+
+
+def cmd_collect_outputs(args: argparse.Namespace) -> int:
+    outputs_dir = Path(args.outputs_dir).expanduser().resolve()
+    download_remote_outputs(args, outputs_dir)
+    if not outputs_dir.is_dir():
+        raise FileNotFoundError(f"Output archive directory not found: {outputs_dir}")
+
+    target_dir = collect_target_dir(args)
+    archives = discover_output_archives(outputs_dir, args)
+    print(f"Installing {len(archives)} output archive(s) into: {target_dir}")
+
+    total_files = 0
+    if not args.dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    for archive in archives:
+        count = install_output_archive(
+            archive,
+            target_dir,
+            derivative_name=args.derivative_name,
+            overwrite=args.overwrite,
+            dry_run=args.dry_run,
+        )
+        total_files += count
+        print(f"Installed {count} file(s) from {archive.name}")
+    if not args.dry_run:
+        ensure_derivative_dataset_description(target_dir, args.derivative_name)
+
+    action = "Would install" if args.dry_run else "Installed"
+    print(f"{action} {total_files} file(s) total.")
+    return 0
+
+
 def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
@@ -1600,6 +1878,63 @@ def main(argv: list[str]) -> int:
     staged.add_argument("--queue-file-name", default="qneuro_inputs.csv")
     staged.add_argument("--no-submit", action="store_true")
     staged.set_defaults(func=cmd_submit_staged)
+
+    collect = subparsers.add_parser(
+        "collect-outputs",
+        help=(
+            "Copy completed Condor output tarballs back from CHTC if requested, "
+            "then install them into a BIDS derivatives folder."
+        ),
+    )
+    collect.add_argument(
+        "--outputs-dir",
+        default=".",
+        help="Local directory containing qneuro_outputs_sub-*_ses-*.tar.gz files.",
+    )
+    collect.add_argument(
+        "--remote-host",
+        default="",
+        help="Optional CHTC login host to copy output tarballs from before installing.",
+    )
+    collect.add_argument(
+        "--remote-outputs-dir",
+        default="",
+        help=(
+            "Remote directory containing qneuro output tarballs, for example "
+            "/staging/<user>/qneuro-outputs."
+        ),
+    )
+    collect_target = collect.add_mutually_exclusive_group(required=True)
+    collect_target.add_argument(
+        "--bids-dir",
+        help="Raw BIDS dataset root; outputs install into <bids-dir>/derivatives/<derivative-name>.",
+    )
+    collect_target.add_argument(
+        "--derivatives-dir",
+        help="Exact derivative dataset directory to install into.",
+    )
+    collect.add_argument(
+        "--derivative-name",
+        default="qneuro",
+        help="Derivative dataset name used under --bids-dir and when stripping archive prefixes.",
+    )
+    collect_selection = collect.add_mutually_exclusive_group()
+    collect_selection.add_argument("--subject")
+    collect_selection.add_argument("--subjects", help="Comma-separated subject labels to install.")
+    collect_selection.add_argument("--subjects-file", help="CSV/text subject/session rows to install.")
+    collect.add_argument("--session", default="")
+    collect.add_argument("--sessions", default="", help="Comma-separated session labels for --subjects.")
+    collect.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow extracted files to replace existing derivative files.",
+    )
+    collect.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned installs without writing files.",
+    )
+    collect.set_defaults(func=cmd_collect_outputs)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -5,6 +5,7 @@ import os
 import multiprocessing
 import argparse
 import contextlib
+import json
 from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union, Any
 import nibabel as nib
@@ -47,6 +48,60 @@ def _build_dmipy_scheme(bvals, bvecs, delta=None, Delta=None):
         kwargs["delta"] = delta
         kwargs["Delta"] = Delta
     return acquisition_scheme.acquisition_scheme_from_bvalues(**kwargs)
+
+
+def _load_sandi_gradients(bval_file, bvec_file):
+    """Load and validate FSL-style gradients in dmipy SI units."""
+    bvals = np.asarray(np.loadtxt(bval_file), dtype=float).reshape(-1)
+    bvecs = np.asarray(np.loadtxt(bvec_file), dtype=float)
+    if bvecs.ndim != 2:
+        raise ValueError("b-vectors must be a two-dimensional 3 x N or N x 3 array.")
+    if bvecs.shape == (3, bvals.size):
+        bvecs = bvecs.T
+    elif bvecs.shape != (bvals.size, 3):
+        raise ValueError(
+            f"b-vector shape {bvecs.shape} is incompatible with {bvals.size} "
+            "b-values; expected 3 x N or N x 3."
+        )
+    if not np.all(np.isfinite(bvals)) or np.any(bvals < 0):
+        raise ValueError("b-values must be finite and non-negative.")
+    if not np.all(np.isfinite(bvecs)):
+        raise ValueError("b-vectors must be finite.")
+    norms = np.linalg.norm(bvecs, axis=1)
+    weighted = bvals > 10.0
+    if np.any(norms[weighted] <= 0):
+        raise ValueError("Every diffusion-weighted volume must have a non-zero b-vector.")
+    if np.any(np.abs(norms[weighted] - 1.0) > 0.1):
+        raise ValueError("Diffusion-weighted b-vectors must have approximately unit norm.")
+    nonzero = norms > 0
+    bvecs[nonzero] /= norms[nonzero, None]
+    return bvals * 1e6, bvecs
+
+
+def _load_sandi_timing(delta_file, Delta_file, n_measurements):
+    """Load required PGSE timing in seconds and validate physical ordering."""
+    if not delta_file or not Delta_file:
+        raise ProcessingError(
+            "DMIPY SANDI sphere fitting requires both small-delta and big-Delta "
+            "timing files, with values in seconds."
+        )
+
+    def load(path, label):
+        values = np.asarray(np.loadtxt(Path(path)), dtype=float).reshape(-1)
+        if values.size not in (1, n_measurements):
+            raise ValueError(
+                f"{label} timing must contain one value or {n_measurements} values; "
+                f"found {values.size}."
+            )
+        if not np.all(np.isfinite(values)) or np.any(values <= 0):
+            raise ValueError(f"{label} timing must be finite and positive seconds.")
+        return np.full(n_measurements, values[0]) if values.size == 1 else values
+
+    delta = load(delta_file, "small-delta")
+    Delta = load(Delta_file, "big-Delta")
+    if np.any(Delta <= delta):
+        raise ValueError("Every big-Delta value must be greater than small-delta.")
+    return delta, Delta
 
 
 def _initialize_param_storage(model, n_voxels: int) -> Dict[str, np.ndarray]:
@@ -147,12 +202,13 @@ def _build_sandi_model(model_config):
         from dmipy.core.modeling_framework import MultiCompartmentSphericalMeanModel
         
 
-    parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
-    iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
+    soma_diffusivity = float(model_config.get('soma_diffusivity', 3.0e-9))
+    if not np.isfinite(soma_diffusivity) or soma_diffusivity <= 0:
+        raise ValueError("soma_diffusivity must be finite and positive.")
 
     stick = cylinder_models.C1Stick()
     extra_cellular = gaussian_models.G1Ball()
-    soma = sphere_models.S4SphereGaussianPhaseApproximation(diffusion_constant=iso_diffusivity)
+    soma = sphere_models.S4SphereGaussianPhaseApproximation(diffusion_constant=soma_diffusivity)
 
     bundle = BundleModel([stick, soma])
 
@@ -169,6 +225,20 @@ def _build_sandi_model(model_config):
     # dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
     
     return sandi_model
+
+
+def _sandi_fraction_maps(full_maps):
+    """Return absolute SANDI compartment fractions from dmipy's nested model."""
+    bundle_fraction = full_maps.get('partial_volume_0')
+    stick_fraction_in_bundle = full_maps.get('BundleModel_1_partial_volume_0')
+    extra_fraction = full_maps.get('partial_volume_1')
+
+    if bundle_fraction is None or stick_fraction_in_bundle is None:
+        return None, None, extra_fraction
+
+    neurite_fraction = bundle_fraction * stick_fraction_in_bundle
+    soma_fraction = bundle_fraction * (1.0 - stick_fraction_in_bundle)
+    return soma_fraction, neurite_fraction, extra_fraction
 
 def _fit_chunk(args):
     """
@@ -358,18 +428,30 @@ def _fit_sandi_chunk(args):
 
     try:
         sandi = _build_sandi_model(model_config)
+        valid = np.asarray([_voxel_signal_is_valid(v) for v in data_chunk])
+        merged = _initialize_param_storage(sandi, len(data_chunk))
+        if not np.any(valid):
+            print(f"[Worker {chunk_id}] SANDI skipped {len(data_chunk)} invalid voxels.")
+            return merged
         with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 fit_obj = sandi.fit(
                     scheme,
-                    data_chunk,
+                    data_chunk[valid],
                     number_of_processors=1,
                     solver=solver,
                     **solver_kwargs
                 )
+        for key, dest in merged.items():
+            fitted = fit_obj.fitted_parameters.get(key)
+            if fitted is not None:
+                dest[valid] = np.asarray(fitted, dtype=np.float32).reshape(dest[valid].shape)
+        invalid_count = int(np.count_nonzero(~valid))
+        if invalid_count:
+            print(f"[Worker {chunk_id}] SANDI skipped {invalid_count} invalid voxels.")
         print(f"[Worker {chunk_id}] Finished SANDI chunk.")
-        return fit_obj.fitted_parameters
+        return merged
     except Exception as e:
         print(f"[Worker {chunk_id}] SANDI crash/error: {e}")
         raise e
@@ -876,11 +958,12 @@ def fit_sandi(
     Delta_file: Optional[Path] = None,
     mask_file: Optional[Path] = None,
     nthreads: int = 1,
-    parallel_diffusivity: float = 1.7e-9,
-    iso_diffusivity: float = 3.0e-9,
+    parallel_diffusivity: Optional[float] = None,
+    iso_diffusivity: Optional[float] = None,
     solver: str = "brute2fine",
     solver_kwargs: Optional[Dict] = None,
     grad_nonlin: Optional[Path] = None,
+    soma_diffusivity: Optional[float] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """Fit a native dmipy SANDI model."""
@@ -894,12 +977,11 @@ def fit_sandi(
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
 
-    if bval_file is None or bvec_file is None:
-        if isinstance(in_file, DWIFile):
-            bval_file = bval_file or in_file.bval
-            bvec_file = bvec_file or in_file.bvec
-            delta_file = delta_file or in_file.delta
-            Delta_file = Delta_file or in_file.Delta
+    if isinstance(in_file, DWIFile):
+        bval_file = bval_file or in_file.bval
+        bvec_file = bvec_file or in_file.bvec
+        delta_file = delta_file or in_file.delta
+        Delta_file = Delta_file or in_file.Delta
 
     if not bval_file or not bvec_file:
         raise ValueError("Gradient files (bval/bvec) are required for SANDI.")
@@ -910,25 +992,36 @@ def fit_sandi(
     img = nib.load(str(in_path))
     data = img.get_fdata()
     affine = img.affine
+    if data.ndim != 4:
+        raise ValueError(f"SANDI input must be a 4D DWI image; found shape {data.shape}.")
+    if not isinstance(nthreads, int) or nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
 
-    bvals_si = np.loadtxt(bval_file) * 1e6
-    bvecs = np.loadtxt(bvec_file).T
+    # Backward compatibility: iso_diffusivity previously controlled the soma
+    # diffusion constant despite its ambiguous name. parallel_diffusivity was
+    # accepted but never used because D_in is a fitted SANDI parameter.
+    if soma_diffusivity is None:
+        soma_diffusivity = iso_diffusivity if iso_diffusivity is not None else 3.0e-9
 
-    delta_arr = np.loadtxt(delta_file) if delta_file and Path(delta_file).exists() else None
-    Delta_arr = np.loadtxt(Delta_file) if Delta_file and Path(Delta_file).exists() else None
-
-    if delta_arr is not None and Delta_arr is not None:
-        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-            bvalues=bvals_si,
-            gradient_directions=bvecs,
-            delta=delta_arr,
-            Delta=Delta_arr,
+    bvals_si, bvecs = _load_sandi_gradients(bval_file, bvec_file)
+    if bvals_si.size != data.shape[-1]:
+        raise ValueError(
+            f"DWI has {data.shape[-1]} volumes but gradients contain {bvals_si.size} measurements."
         )
-    else:
-        gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals_si, bvecs)
+    delta_arr, Delta_arr = _load_sandi_timing(delta_file, Delta_file, bvals_si.size)
+    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
+        bvalues=bvals_si,
+        gradient_directions=bvecs,
+        delta=delta_arr,
+        Delta=Delta_arr,
+    )
 
-    if mask_file and mask_file.exists():
+    if mask_file and Path(mask_file).exists():
         mask_data = nib.load(str(mask_file)).get_fdata().astype(bool)
+        if mask_data.shape != data.shape[:3]:
+            raise ValueError(
+                f"Mask shape {mask_data.shape} does not match DWI shape {data.shape[:3]}."
+            )
         valid_voxels = data[mask_data]
     else:
         mask_data = None
@@ -950,8 +1043,7 @@ def fit_sandi(
     gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
 
     model_config = {
-        'parallel_diffusivity': parallel_diffusivity,
-        'iso_diffusivity': iso_diffusivity,
+        'soma_diffusivity': soma_diffusivity,
     }
 
     chunk_args = []
@@ -999,9 +1091,7 @@ def fit_sandi(
             out_arr = values.reshape(out_arr.shape)
         full_maps[key] = out_arr
 
-    fsoma = full_maps.get('BundleModel_1_partial_volume_1')
-    fneurite = full_maps.get('BundleModel_1_partial_volume_0')
-    fextra = full_maps.get('partial_volume_1')
+    fsoma, fneurite, fextra = _sandi_fraction_maps(full_maps)
     diameter = full_maps.get('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter')
     rsoma = 0.5 * diameter if diameter is not None else None
     d_in = full_maps.get('BundleModel_1_C1Stick_1_lambda_par')
@@ -1009,11 +1099,30 @@ def fit_sandi(
 
     outputs = {}
 
+    entities = get_entities_from_path(in_path)
+    entities.pop('desc', None)
+    entities.pop('suffix', None)
+    entities['model'] = 'SANDI'
+    metadata = {
+        "ModelName": "SANDI (Soma and Neurite Density Imaging)",
+        "FittingSoftware": "dmipy",
+        "FittingMethod": "MultiCompartmentSphericalMeanModel",
+        "SomaDiffusivity": float(soma_diffusivity),
+        "SomaDiffusivityUnits": "m^2/s",
+    }
+    metric_units = {
+        'fsoma': 'unitless', 'fneurite': 'unitless', 'fextra': 'unitless',
+        'Rsoma': 'm', 'd_in': 'm^2/s', 'd_ec': 'm^2/s',
+    }
+
     def save_map(name, array):
         if array is None:
             return
-        out_p = out_dir / f"{name}.nii.gz"
+        out_p = out_dir / build_bids_name(entities, suffix=name)
         nib.save(nib.Nifti1Image(array.astype(np.float32), affine), out_p)
+        sidecar = out_p.with_name(out_p.name[:-7] + '.json')
+        with sidecar.open('w') as f:
+            json.dump({**metadata, "Metric": name, "MetricUnits": metric_units[name]}, f, indent=2)
         outputs[name] = out_p
 
     save_map('fsoma', fsoma)

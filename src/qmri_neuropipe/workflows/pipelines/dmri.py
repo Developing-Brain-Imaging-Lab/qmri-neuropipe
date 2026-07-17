@@ -46,6 +46,85 @@ from .segmentation_workflow import SegmentationWorkflow
 # ============================
 
 
+def _select_dwi_inputs(dwi_files, dmri_cfg):
+    """Select DWI inputs using exact BIDS-entity matches from configuration."""
+    inputs_cfg = (dmri_cfg or {}).get("inputs", {}) or {}
+    select = inputs_cfg.get("select", {}) or {}
+    if not select:
+        return list(dwi_files)
+    if not isinstance(select, dict):
+        raise ValueError("dmri.inputs.select must be a mapping of BIDS entities to values.")
+
+    normalized = {}
+    for entity, values in select.items():
+        if isinstance(values, str) or not isinstance(values, (list, tuple, set)):
+            values = [values]
+        allowed = {str(value) for value in values if value is not None and str(value)}
+        if not allowed:
+            raise ValueError(f"dmri.inputs.select.{entity} must contain at least one value.")
+        normalized[str(entity)] = allowed
+
+    selected = []
+    for dwi in dwi_files:
+        entities = dict(getattr(dwi, "entities", {}) or {})
+        if all(str(entities.get(entity)) in allowed for entity, allowed in normalized.items()):
+            selected.append(dwi)
+    return selected
+
+
+def _partition_dwi_inputs(dwi_files, dmri_cfg):
+    """Partition DWI inputs into independently processed entity groups."""
+    inputs_cfg = (dmri_cfg or {}).get("inputs", {}) or {}
+    separate_by = inputs_cfg.get("separate_by")
+    if not separate_by:
+        return [(None, list(dwi_files))]
+    if isinstance(separate_by, str):
+        separate_by = [separate_by]
+    separate_by = [str(entity).strip() for entity in separate_by if str(entity).strip()]
+    if not separate_by:
+        return [(None, list(dwi_files))]
+
+    groups = {}
+    for dwi in dwi_files:
+        entities = dict(getattr(dwi, "entities", {}) or {})
+        missing = [entity for entity in separate_by if not entities.get(entity)]
+        if missing:
+            raise ValueError(
+                f"Cannot separate {Path(dwi.img).name}: missing BIDS entity/entities "
+                f"{', '.join(missing)}."
+            )
+        key = tuple(str(entities[entity]) for entity in separate_by)
+        groups.setdefault(key, []).append(dwi)
+
+    preserve_as = inputs_cfg.get("preserve_group_as")
+    if preserve_as is None and "desc" in separate_by:
+        preserve_as = "acq"
+    allowed_identity_entities = {"acq", "rec", "run", "task", "dir"}
+    if preserve_as and preserve_as not in allowed_identity_entities:
+        raise ValueError(
+            "dmri.inputs.preserve_group_as must be one of: "
+            + ", ".join(sorted(allowed_identity_entities))
+        )
+
+    partitioned = []
+    for key in sorted(groups):
+        label = "x".join(key)
+        group = groups[key]
+        if preserve_as and preserve_as not in separate_by:
+            for dwi in group:
+                entities = dict(dwi.entities)
+                existing = entities.get(preserve_as)
+                if existing and str(existing) != label:
+                    raise ValueError(
+                        f"Cannot preserve DWI group '{label}' as {preserve_as}: "
+                        f"{Path(dwi.img).name} already has {preserve_as}-{existing}."
+                    )
+                entities[preserve_as] = label
+                dwi.entities = entities
+        partitioned.append((label, group))
+    return partitioned
+
+
 class DMRIPipeline(BasePipeline):
     """
     Diffusion MRI Processing Pipeline.
@@ -158,26 +237,50 @@ class DMRIPipeline(BasePipeline):
                 self.logger.warning(f"PDF generation failed: {e}")
             return
 
-        # Build preprocessing context
-        context = self._build_initial_context(subject, session, dwi_files, t1w_files, t2w_files)
-        
-        # Run preprocessing
-        preprocessed_context = self._run_preprocessing(context, subj_work_dir, output_dir, reporter)
-        
-        # Run modeling if enabled
-        if self.modeling.steps or self.config.get('dmri', {}).get('modeling'):
-            self._run_modeling(preprocessed_context, subj_work_dir, output_dir, reporter)
-        
-        # Run normalization if enabled
-        if self.normalization.steps or self.config.get('dmri', {}).get('normalization', {}).get('enabled'):
-            self._run_normalization(preprocessed_context, subj_work_dir, output_dir, reporter)
-        
-        # Run segmentation if enabled
-        if self.segmentation.steps or self.config.get('dmri', {}).get('analysis'):
-            self._run_segmentation(preprocessed_context, subj_work_dir, output_dir, reporter)
-        
-        # Update study tracker
-        self._update_study_tracker(preprocessed_context, output_dir)
+        dwi_files = _select_dwi_inputs(dwi_files, dmri_cfg)
+        if not dwi_files:
+            select = (dmri_cfg.get("inputs", {}) or {}).get("select", {})
+            raise ValueError(
+                f"No DWI inputs matched dmri.inputs.select={select} for "
+                f"sub-{subject}" + (f" ses-{session}." if session else ".")
+            )
+
+        input_groups = _partition_dwi_inputs(dwi_files, dmri_cfg)
+        for group_label, group_dwis in input_groups:
+            group_work_dir = subj_work_dir
+            if group_label is not None:
+                group_work_dir = subj_work_dir / f"group-{group_label}"
+                group_work_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(
+                    f"Processing DWI group {group_label}: "
+                    f"{len(group_dwis)} input file(s)"
+                )
+
+            context = self._build_initial_context(
+                subject, session, group_dwis, t1w_files, t2w_files
+            )
+            context["dwi_group"] = group_label
+
+            preprocessed_context = self._run_preprocessing(
+                context, group_work_dir, output_dir, reporter
+            )
+
+            if self.modeling.steps or dmri_cfg.get('modeling'):
+                self._run_modeling(
+                    preprocessed_context, group_work_dir, output_dir, reporter
+                )
+
+            if self.normalization.steps or dmri_cfg.get('normalization', {}).get('enabled'):
+                self._run_normalization(
+                    preprocessed_context, group_work_dir, output_dir, reporter
+                )
+
+            if self.segmentation.steps or dmri_cfg.get('analysis'):
+                self._run_segmentation(
+                    preprocessed_context, group_work_dir, output_dir, reporter
+                )
+
+            self._update_study_tracker(preprocessed_context, output_dir)
         
         # Generate final report
         reporter.generate()

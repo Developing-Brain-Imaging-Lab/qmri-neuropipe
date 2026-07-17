@@ -812,16 +812,24 @@ class SANDIFittingStep(BaseProcessingStep):
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_sandi
              fit_kwargs = self.kwargs.copy()
-             d_par = kwargs.get('parallel_diffusivity') or self.config.get('parallel_diffusivity', 1.7e-9)
-             d_iso = kwargs.get('iso_diffusivity') or self.config.get('iso_diffusivity', 3.0e-9)
+             d_soma = kwargs.get('soma_diffusivity') or fit_kwargs.pop(
+                 'soma_diffusivity', None
+             )
+             if d_soma is None:
+                 # Accept the old ambiguous name in existing configurations.
+                 d_soma = fit_kwargs.pop('iso_diffusivity', None)
+             fit_kwargs.pop('parallel_diffusivity', None)
+             if d_soma is None:
+                 d_soma = self.config.get(
+                     'soma_diffusivity', self.config.get('iso_diffusivity', 3.0e-9)
+                 )
              fit_sandi(
                  dwi,
                  model_out,
                  mask_file=mask_path,
                  nthreads=self.nthreads,
                  grad_nonlin=gnl_map,
-                 parallel_diffusivity=d_par,
-                 iso_diffusivity=d_iso,
+                 soma_diffusivity=d_soma,
                  **fit_kwargs,
              )
         elif self.method == 'amico':

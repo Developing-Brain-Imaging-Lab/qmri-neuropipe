@@ -108,6 +108,15 @@ tracker:
 # DMRI PIPELINE CONFIGURATION
 # ============================================================================
 dmri:
+  # Optional input selection and partitioning. Each selected acquisition group
+  # runs through preprocessing and modeling independently.
+  # inputs:
+  #   select:
+  #     acq: prisma          # Process only this acquisition (a list is also accepted)
+  #   separate_by: acq
+  # For legacy raw desc-prisma/desc-trio names, use separate_by: desc and
+  # preserve_group_as: acq because desc is replaced by derivative descriptions.
+
   # Preprocessing steps
   preprocessing:
     # Optional: rerun this step and all later preprocessing steps even when
