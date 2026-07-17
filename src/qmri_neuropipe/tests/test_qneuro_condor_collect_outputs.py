@@ -93,3 +93,20 @@ def test_collect_outputs_strips_existing_derivatives_prefix(tmp_path):
         / "anat"
         / "sub-10021_ses-01_T1w.nii.gz"
     ).read_text() == "nii\n"
+
+
+def test_make_output_tar_does_not_duplicate_directory_subtrees(tmp_path):
+    out_dir = tmp_path / "out" / "sub-10021" / "ses-01" / "dwi"
+    out_dir.mkdir(parents=True)
+    (out_dir / "sub-10021_ses-01_desc-preproc_dwi.bval").write_text("0 1000\n")
+    (out_dir / "sub-10021_ses-01_desc-preproc_dwi.bvec").write_text("1 0 0\n")
+
+    qneuro_condor.make_output_tar(tmp_path, "10021", "01")
+
+    archive = tmp_path / "qneuro_outputs_sub-10021_ses-01.tar.gz"
+    with tarfile.open(archive, "r:gz") as tf:
+        names = tf.getnames()
+
+    assert len(names) == len(set(names))
+    assert names.count("sub-10021/ses-01/dwi/sub-10021_ses-01_desc-preproc_dwi.bval") == 1
+    assert names.count("sub-10021/ses-01/dwi/sub-10021_ses-01_desc-preproc_dwi.bvec") == 1

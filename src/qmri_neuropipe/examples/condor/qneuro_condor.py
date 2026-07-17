@@ -1625,7 +1625,12 @@ def make_output_tar(cwd: Path, subject: str, session_for_name: str) -> None:
     with tarfile.open(tarball, "w:gz") as tf:
         if out_dir.exists():
             for item in out_dir.rglob("*"):
-                tf.add(item, arcname=item.relative_to(out_dir))
+                tf.add(
+                    item,
+                    arcname=item.relative_to(out_dir),
+                    recursive=False,
+                    filter=tarinfo_without_macos_metadata,
+                )
     print(f"Wrote {tarball.name}")
 
 
