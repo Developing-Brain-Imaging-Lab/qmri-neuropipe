@@ -386,6 +386,11 @@ dmri:
 #     t1w_match:
 #       entities:
 #         acq: memprage
+#     # MP2RAGE UNIT1 images are also accepted as T1w inputs; select them by
+#     # their acquisition entity when both MPRAGE and MP2RAGE are present:
+#     # t1w_match:
+#     #   entities:
+#     #     acq: mp2rage
 #     t2w_match:
 #       entities:
 #         acq: space

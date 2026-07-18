@@ -86,16 +86,22 @@ def select_anatomical_candidates(
 
 def bids_find_t1w(root) -> list[ImageFile]:
     """
-    Find Anatomical T1w NIfTI images and their associated JSON files.
+    Find anatomical T1w-like NIfTI images and their associated JSON files.
 
-    Uses the existing `bids_find(root, suffix='t1w', extension='.nii.gz')`.
+    BIDS MP2RAGE ``UNIT1`` images are valid T1-weighted anatomical inputs. They
+    are normalized to the internal ``T1w`` suffix here because the downstream
+    workflow uses that suffix to select T1-specific processing and derivative
+    naming. The original filename and JSON sidecar remain unchanged.
     """
     t1w_ents = bids_find(root, suffix="T1w", extension=".nii.gz")
+    unit1_ents = bids_find(root, suffix="UNIT1", extension=".nii.gz")
     results: list[ImageFile] = []
 
-    for ent in t1w_ents:
+    for ent in sorted(t1w_ents + unit1_ents, key=lambda item: str(item["path"])):
+        ent = dict(ent)
         img = ent["path"]
         json_path = _sidecar(img, ".json")
+        ent["suffix"] = "T1w"
 
         t1w = ImageFile(entities=ent,
                         img=img,
