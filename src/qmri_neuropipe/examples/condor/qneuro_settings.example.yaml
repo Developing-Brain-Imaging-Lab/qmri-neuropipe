@@ -30,6 +30,8 @@ stage_remote:
   remote_host: deaniii@ap2002.chtc.wisc.edu
   remote_stage_dir: /staging/deaniii/qneuro-staging
   bids_dir: /study/dean_k99/Studies/infmri/rawdata
+  # Overlay MPnRAGE anatomical outputs into each subject/session archive.
+  anat_derivatives_dir: /study/dean_k99/Studies/infmri/derivatives/mpnrage
   # For diffusion processing, package only the BIDS datatypes the job needs.
   bids_include_dirs: [anat, dwi]
   # Pair by position: 10021/base, 10022/post, 10023/base.
@@ -42,6 +44,8 @@ submit_staged:
   submit_dir: /home/deaniii/qneuro-condor
   container_image: /staging/deaniii/qneuro.sif
   config_file: /home/deaniii/qneuro-condor/condorproc.yaml
+  # Select files such as *_acq-MPnRAGE_T1w.nii.gz over the raw T1w.
+  t1w_match_acq: MPnRAGE
   freesurfer_license: /home/deaniii/qneuro-condor/license.txt
   # Optional: Condor transfers this file; in condorproc.yaml reference
   # `gw_magnus.dat` or `config/gw_magnus.dat`, not the osdf:/// URL.

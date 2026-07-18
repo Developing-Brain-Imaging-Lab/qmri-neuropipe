@@ -24,7 +24,7 @@ COMMAND_SETTINGS = {
     "submit-local": {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
-        "bids_include_dirs", "bids_exclude_dirs",
+        "bids_include_dirs", "bids_exclude_dirs", "anat_derivatives_dir", "t1w_match_acq", "t1w_match_desc",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
         "package_dir", "requirements", "getenv", "gpu_minimum_capability",
@@ -35,7 +35,7 @@ COMMAND_SETTINGS = {
     "push-submit": {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
         "subject", "subjects", "subjects_file", "session", "sessions",
-        "bids_include_dirs", "bids_exclude_dirs",
+        "bids_include_dirs", "bids_exclude_dirs", "anat_derivatives_dir", "t1w_match_acq", "t1w_match_desc",
         "transfer_uri", "pipeline", "cpus", "gpus", "memory_gb", "disk_gb",
         "require_dwi", "submit_file_name", "queue_file_name", "no_submit",
         "submit_host", "remote_submit_dir", "remote_package_dir",
@@ -45,7 +45,8 @@ COMMAND_SETTINGS = {
     },
     "stage-remote": {
         "remote_host", "remote_stage_dir", "bids_dir", "subject", "subjects",
-        "subjects_file", "session", "sessions", "bids_include_dirs", "bids_exclude_dirs", "manifest_name",
+        "subjects_file", "session", "sessions", "bids_include_dirs", "bids_exclude_dirs",
+        "anat_derivatives_dir", "manifest_name",
         "bundle_name", "create_remote_dir", "bundle", "no_bundle",
         "include_support_files", "config_file", "freesurfer_license", "gnl_coeff_file",
         "copy_script", "no_copy_script",
@@ -55,6 +56,7 @@ COMMAND_SETTINGS = {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "transfer_uri",
         "subject", "subjects", "subjects_file", "session", "sessions",
         "pipeline", "cpus", "gpus", "memory_gb", "disk_gb", "require_dwi",
+        "t1w_match_acq", "t1w_match_desc",
         "submit_file_name", "queue_file_name", "no_submit", "requirements",
         "getenv", "gpu_minimum_capability", "want_flocking", "want_glidein",
         "want_gpu_lab", "gpu_job_length", "notification", "notify_user",
@@ -492,6 +494,7 @@ def create_bids_archive(
     archive_dir: Path,
     include_dirs: list[str] | None = None,
     exclude_dirs: list[str] | None = None,
+    anat_derivatives_dir: Path | None = None,
 ) -> Path:
     input_rel, archive_name = tar_members(subject, session)
     if not (bids_dir / input_rel).is_dir():
@@ -516,6 +519,19 @@ def create_bids_archive(
                 add_filtered_subject_tree(tf, bids_dir, input_rel, include_dirs, exclude_dirs)
         else:
             tf.add(bids_dir / input_rel, arcname=input_rel, filter=tarinfo_without_macos_metadata)
+        if anat_derivatives_dir is not None:
+            derivative_anat = anat_derivatives_dir / input_rel / "anat"
+            if not derivative_anat.is_dir():
+                raise FileNotFoundError(f"Requested anatomical derivatives not found: {derivative_anat}")
+            target_anat = f"{input_rel}/anat"
+            print(f"  Overlaying anatomical derivatives from: {derivative_anat}")
+            for item in sorted(derivative_anat.iterdir()):
+                if item.is_file():
+                    tf.add(
+                        item,
+                        arcname=f"{target_anat}/{item.name}",
+                        filter=tarinfo_without_macos_metadata,
+                    )
     return archive
 
 
@@ -723,6 +739,8 @@ def generate_submit_file(
     disk_gb: int,
     pipeline: str,
     require_dwi: str,
+    t1w_match_acq: str,
+    t1w_match_desc: str,
     requirements: str,
     getenv: str,
     gpu_minimum_capability: str,
@@ -797,8 +815,10 @@ gpus = {gpus}
 memory_gb = {memory_gb}
 disk_gb = {disk_gb}
 require_dwi = {require_dwi}
+t1w_match_acq = {t1w_match_acq}
+t1w_match_desc = {t1w_match_desc}
 
-arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) $(gnl_coeff_name)
+arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) $(gnl_coeff_name) $(t1w_match_acq) $(t1w_match_desc)
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
@@ -827,6 +847,8 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
     transfer_uri = (args.transfer_uri or "").rstrip("/")
     include_dirs = split_csvish(getattr(args, "bids_include_dirs", ""))
     exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
+    anat_derivatives_dir = getattr(args, "anat_derivatives_dir", "")
+    derivative_root = Path(anat_derivatives_dir).expanduser().resolve() if anat_derivatives_dir else None
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -841,6 +863,7 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
             archive_dir,
             include_dirs=include_dirs,
             exclude_dirs=exclude_dirs,
+            anat_derivatives_dir=derivative_root,
         )
         archives.append(archive)
         bids_input = f"{transfer_uri}/{archive.name}" if transfer_uri else htcondor_transfer_source(str(archive))
@@ -855,6 +878,8 @@ def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
     bids_dir = Path(args.bids_dir).resolve()
     include_dirs = split_csvish(getattr(args, "bids_include_dirs", ""))
     exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
+    anat_derivatives_dir = getattr(args, "anat_derivatives_dir", "")
+    derivative_root = Path(anat_derivatives_dir).expanduser().resolve() if anat_derivatives_dir else None
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -869,6 +894,7 @@ def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
             archive_dir,
             include_dirs=include_dirs,
             exclude_dirs=exclude_dirs,
+            anat_derivatives_dir=derivative_root,
         )
         archives.append(archive)
         rows.append([subject, session_arg, session_arg, archive.name])
@@ -926,6 +952,21 @@ def add_submit_common_args(parser: argparse.ArgumentParser) -> None:
         "--bids-exclude-dirs",
         default="",
         help="Comma-separated BIDS datatype directories to omit when packaging.",
+    )
+    parser.add_argument(
+        "--anat-derivatives-dir",
+        default="",
+        help="Derivative dataset root whose sub-*/[ses-*]/anat files are added to each archive.",
+    )
+    parser.add_argument(
+        "--t1w-match-acq",
+        default="",
+        help="Select the staged T1w by its BIDS acq entity, for example MPnRAGE.",
+    )
+    parser.add_argument(
+        "--t1w-match-desc",
+        default="",
+        help="Select the staged T1w by its BIDS desc entity, for example MPnRAGE.",
     )
     parser.add_argument("--cpus", type=int, default=8)
     parser.add_argument("--gpus", type=int, default=0)
@@ -986,6 +1027,8 @@ def cmd_submit_local(args: argparse.Namespace) -> int:
         disk_gb=args.disk_gb,
         pipeline=args.pipeline,
         require_dwi=args.require_dwi,
+        t1w_match_acq=getattr(args, "t1w_match_acq", ""),
+        t1w_match_desc=getattr(args, "t1w_match_desc", ""),
         requirements=args.requirements,
         getenv=args.getenv,
         gpu_minimum_capability=args.gpu_minimum_capability,
@@ -1053,6 +1096,8 @@ def cmd_push_submit(args: argparse.Namespace) -> int:
         disk_gb=args.disk_gb,
         pipeline=args.pipeline,
         require_dwi=args.require_dwi,
+        t1w_match_acq=getattr(args, "t1w_match_acq", ""),
+        t1w_match_desc=getattr(args, "t1w_match_desc", ""),
         requirements=args.requirements,
         getenv=args.getenv,
         gpu_minimum_capability=args.gpu_minimum_capability,
@@ -1227,6 +1272,8 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
         disk_gb=args.disk_gb,
         pipeline=args.pipeline,
         require_dwi=args.require_dwi,
+        t1w_match_acq=getattr(args, "t1w_match_acq", ""),
+        t1w_match_desc=getattr(args, "t1w_match_desc", ""),
         requirements=args.requirements,
         getenv=args.getenv,
         gpu_minimum_capability=args.gpu_minimum_capability,
@@ -1587,6 +1634,38 @@ def stage_gnl_coeff_file(cwd: Path, gnl_coeff_name: str) -> None:
     print(f"Using GNL coefficient file at {candidate.name} and config/{candidate.name}")
 
 
+def apply_t1w_match_entities(config_path: Path, *, acq: str = "", desc: str = "") -> None:
+    """Set requested anat.input.t1w_match entities in the job-local config."""
+    requested = {key: value.strip() for key, value in {"acq": acq, "desc": desc}.items() if value.strip()}
+    if not requested:
+        return
+    import yaml
+
+    payload = yaml.safe_load(config_path.read_text()) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"Pipeline config must contain a mapping: {config_path}")
+    anat = payload.setdefault("anat", {})
+    if not isinstance(anat, dict):
+        raise ValueError("Cannot apply --t1w-match-desc because config 'anat' is not a mapping")
+    anat_input = anat.setdefault("input", {})
+    if not isinstance(anat_input, dict):
+        raise ValueError("Cannot apply --t1w-match-desc because config 'anat.input' is not a mapping")
+    match = anat_input.setdefault("t1w_match", {})
+    if not isinstance(match, dict):
+        raise ValueError("Cannot apply --t1w-match-desc because config 'anat.input.t1w_match' is not a mapping")
+    entities = match.setdefault("entities", {})
+    if not isinstance(entities, dict):
+        raise ValueError("Cannot apply --t1w-match-desc because t1w_match.entities is not a mapping")
+    entities.update(requested)
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False))
+    print(f"Configured anat.input.t1w_match.entities={requested!r}")
+
+
+def apply_t1w_match_desc(config_path: Path, desc: str) -> None:
+    """Backward-compatible wrapper for the original desc-only option."""
+    apply_t1w_match_entities(config_path, desc=desc)
+
+
 def extract_input_archives(cwd: Path, subject: str, session_for_name: str) -> None:
     output_name = f"qneuro_outputs_sub-{subject}_ses-{session_for_name}.tar.gz"
     for archive in sorted(cwd.iterdir()):
@@ -1674,7 +1753,8 @@ def cmd_run(argv: list[str]) -> int:
     if len(argv) < 5:
         eprint(
             "Usage: qneuro_condor.py run <subject> <session|none> <cpus> "
-            "<memory_gb> <pipeline> [config_name] [require_dwi] [license_name] [gnl_coeff_name]"
+            "<memory_gb> <pipeline> [config_name] [require_dwi] [license_name] "
+            "[gnl_coeff_name] [t1w_match_acq] [t1w_match_desc]"
         )
         return 2
 
@@ -1689,6 +1769,8 @@ def cmd_run(argv: list[str]) -> int:
     require_dwi = argv[6] if len(argv) > 6 else "true"
     license_name = argv[7] if len(argv) > 7 else "license.txt"
     gnl_coeff_name = argv[8] if len(argv) > 8 else ""
+    t1w_match_acq = argv[9] if len(argv) > 9 else ""
+    t1w_match_desc = argv[10] if len(argv) > 10 else ""
 
     cwd = Path(os.environ.get("_CONDOR_SCRATCH_DIR", os.getcwd())).resolve()
     os.chdir(cwd)
@@ -1742,6 +1824,7 @@ def cmd_run(argv: list[str]) -> int:
         (cwd / dirname).mkdir(exist_ok=True)
     staged_config = cwd / "config" / config.name
     shutil.copy2(config, staged_config)
+    apply_t1w_match_entities(staged_config, acq=t1w_match_acq, desc=t1w_match_desc)
 
     copy_freesurfer_license(cwd, license_name)
     stage_gnl_coeff_file(cwd, gnl_coeff_name)
@@ -1832,6 +1915,11 @@ def main(argv: list[str]) -> int:
         default="",
         help="Comma-separated BIDS datatype directories to omit when packaging.",
     )
+    stage.add_argument(
+        "--anat-derivatives-dir",
+        default="",
+        help="Derivative dataset root whose sub-*/[ses-*]/anat files are added to each archive.",
+    )
     selection = stage.add_mutually_exclusive_group(required=True)
     selection.add_argument("--subject")
     selection.add_argument("--subjects", help="Comma-separated subject labels, for example: 10021,10022")
@@ -1911,6 +1999,16 @@ def main(argv: list[str]) -> int:
     staged.add_argument("--memory-gb", type=int, default=32)
     staged.add_argument("--disk-gb", type=int, default=40)
     staged.add_argument("--require-dwi", default="true", choices=("true", "false"))
+    staged.add_argument(
+        "--t1w-match-acq",
+        default="",
+        help="Select the staged T1w by its BIDS acq entity, for example MPnRAGE.",
+    )
+    staged.add_argument(
+        "--t1w-match-desc",
+        default="",
+        help="Select the staged T1w by its BIDS desc entity, for example MPnRAGE.",
+    )
     staged.add_argument(
         "--requirements",
         default='(OpSys == "LINUX") && (Arch == "X86_64") && (HasCHTCStaging == true)',
