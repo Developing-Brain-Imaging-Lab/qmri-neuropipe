@@ -1,11 +1,14 @@
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import pytest
 
 from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.workflows.pipelines.dmri import (
     _partition_dwi_inputs,
     _select_dwi_inputs,
+    _validate_dwi_gradient_tables,
 )
 
 
@@ -81,3 +84,31 @@ def test_input_selector_accepts_multiple_values_and_entities():
     )
 
     assert selected == [prisma_ap, trio_ap]
+
+
+def _write_dwi_with_gradients(tmp_path, volumes, bvals, bvec_columns):
+    img = tmp_path / "sub-101_ses-01_dir-PA_desc-trio_dwi.nii.gz"
+    bval = tmp_path / "sub-101_ses-01_dir-PA_desc-trio_dwi.bval"
+    bvec = tmp_path / "sub-101_ses-01_dir-PA_desc-trio_dwi.bvec"
+    nib.Nifti1Image(np.zeros((2, 2, 2, volumes), dtype=np.float32), np.eye(4)).to_filename(img)
+    np.savetxt(bval, np.arange(bvals)[None, :], fmt="%d")
+    np.savetxt(bvec, np.zeros((3, bvec_columns)), fmt="%.1f")
+    return DWIFile(
+        img=img,
+        bval=bval,
+        bvec=bvec,
+        entities={"sub": "101", "ses": "01", "dir": "PA", "desc": "trio", "suffix": "dwi"},
+    )
+
+
+def test_dwi_gradient_validation_accepts_matching_counts(tmp_path):
+    dwi = _write_dwi_with_gradients(tmp_path, volumes=13, bvals=13, bvec_columns=13)
+
+    _validate_dwi_gradient_tables([dwi])
+
+
+def test_dwi_gradient_validation_rejects_mismatched_counts(tmp_path):
+    dwi = _write_dwi_with_gradients(tmp_path, volumes=13, bvals=52, bvec_columns=52)
+
+    with pytest.raises(ValueError, match="image has 13 volume\\(s\\).*52 b-value"):
+        _validate_dwi_gradient_tables([dwi])

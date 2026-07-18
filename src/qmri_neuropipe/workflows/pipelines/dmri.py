@@ -125,6 +125,67 @@ def _partition_dwi_inputs(dwi_files, dmri_cfg):
     return partitioned
 
 
+def _count_bval_entries(path: Path) -> int:
+    values = np.loadtxt(path)
+    return int(np.atleast_1d(values).size)
+
+
+def _count_bvec_entries(path: Path) -> int:
+    values = np.loadtxt(path)
+    values = np.asarray(values)
+    if values.ndim == 1:
+        if values.size % 3 != 0:
+            raise ValueError(
+                f"BVEC file {path} has {values.size} scalar values, which is not divisible by 3."
+            )
+        return int(values.size // 3)
+    if values.ndim != 2:
+        raise ValueError(f"BVEC file {path} must be a 2D table, got shape {values.shape}.")
+    if 3 in values.shape:
+        return int(values.shape[1] if values.shape[0] == 3 else values.shape[0])
+    raise ValueError(f"BVEC file {path} must have one dimension of size 3, got shape {values.shape}.")
+
+
+def _count_dwi_volumes(path: Path) -> int:
+    shape = nib.load(str(path)).shape
+    return int(shape[3]) if len(shape) > 3 else 1
+
+
+def _validate_dwi_gradient_tables(dwi_files) -> None:
+    """Validate that each DWI image has matching bval/bvec gradient counts."""
+    errors = []
+    for dwi in dwi_files:
+        img = Path(dwi.img)
+        bval = Path(dwi.bval) if getattr(dwi, "bval", None) else None
+        bvec = Path(dwi.bvec) if getattr(dwi, "bvec", None) else None
+        if not bval or not bval.exists():
+            errors.append(f"{img.name}: missing matching .bval sidecar")
+            continue
+        if not bvec or not bvec.exists():
+            errors.append(f"{img.name}: missing matching .bvec sidecar")
+            continue
+        try:
+            n_volumes = _count_dwi_volumes(img)
+            n_bvals = _count_bval_entries(bval)
+            n_bvecs = _count_bvec_entries(bvec)
+        except Exception as exc:
+            errors.append(f"{img.name}: failed to read image/gradient sidecars ({exc})")
+            continue
+        if n_bvals != n_volumes or n_bvecs != n_volumes:
+            errors.append(
+                f"{img.name}: image has {n_volumes} volume(s), "
+                f"but {bval.name} has {n_bvals} b-value(s) and "
+                f"{bvec.name} has {n_bvecs} b-vector(s)"
+            )
+
+    if errors:
+        raise ValueError(
+            "DWI gradient sidecars do not match their image volume counts. "
+            "Check BIDS conversion or select the matching acquisition/run before processing:\n"
+            + "\n".join(f"  - {error}" for error in errors)
+        )
+
+
 class DMRIPipeline(BasePipeline):
     """
     Diffusion MRI Processing Pipeline.
@@ -244,6 +305,7 @@ class DMRIPipeline(BasePipeline):
                 f"No DWI inputs matched dmri.inputs.select={select} for "
                 f"sub-{subject}" + (f" ses-{session}." if session else ".")
             )
+        _validate_dwi_gradient_tables(dwi_files)
 
         input_groups = _partition_dwi_inputs(dwi_files, dmri_cfg)
         for group_label, group_dwis in input_groups:

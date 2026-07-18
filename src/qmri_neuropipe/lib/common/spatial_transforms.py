@@ -37,6 +37,16 @@ def write_transform_chain_to_sidecar(json_path: Optional[Path], chain: Optional[
     if not json_path.exists():
         return
     payload = json.loads(json_path.read_text())
+    # Some producers (notably ``mrconvert -json_export`` when the source has
+    # no JSON metadata) emit the valid JSON value ``null``.  Treat that as an
+    # empty sidecar so provenance can still be attached.
+    if payload is None:
+        payload = {}
+    elif not isinstance(payload, dict):
+        raise TypeError(
+            f"Expected a JSON object in sidecar {json_path}, "
+            f"got {type(payload).__name__}"
+        )
     payload["SpatialTransformChain"] = normalize_transform_chain(chain)
     with json_path.open("w") as f:
         json.dump(payload, f, indent=2)

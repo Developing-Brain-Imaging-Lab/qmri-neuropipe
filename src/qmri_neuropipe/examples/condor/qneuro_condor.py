@@ -18,6 +18,7 @@ from pathlib import Path, PurePosixPath
 ROOT_METADATA = ("dataset_description.json", "participants.tsv", "participants.json", "README", "CHANGES")
 COMMANDS = {"submit-local", "push-submit", "stage-remote", "submit-staged", "collect-outputs"}
 OUTPUT_ARCHIVE_RE = re.compile(r"^qneuro_outputs_sub-(?P<subject>.+?)_ses-(?P<session>.+?)\.tar\.gz$")
+STAGED_BIDS_ARCHIVE_RE = re.compile(r"^sub-(?P<subject>.+?)(?:_ses-(?P<session>.+?))?_bids\.tar\.gz$")
 
 COMMAND_SETTINGS = {
     "submit-local": {
@@ -388,7 +389,7 @@ def filter_manifest_rows(
             [f"sub-{s}/ses-{se}" for s, se in sorted(requested)]
             + [f"sub-{s}/<any-session>" for s in sorted(wildcard_subjects)]
         )
-        raise ValueError(f"No staged manifest rows matched requested filter: {requested_text}")
+        raise ValueError(f"No staged input rows matched requested filter: {requested_text}")
     return filtered
 
 
@@ -544,6 +545,35 @@ def read_stage_manifest(path: Path) -> list[list[str]]:
             rows.append([c.strip() for c in row[:4]])
     if not rows:
         raise ValueError(f"No staged inputs found in manifest: {path}")
+    return rows
+
+
+def parse_staged_bids_archive_name(path: Path) -> list[str] | None:
+    match = STAGED_BIDS_ARCHIVE_RE.match(path.name)
+    if not match:
+        return None
+    subject = norm_label(match.group("subject"), "sub-")
+    session = norm_label(match.group("session"), "ses-")
+    session_name = "none" if is_empty_label(session) else session
+    return [subject, session_name, session_name, path.name]
+
+
+def infer_stage_manifest_rows(staging_dir: Path) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for archive in sorted(staging_dir.glob("sub-*_bids.tar.gz")):
+        row = parse_staged_bids_archive_name(archive)
+        if row:
+            rows.append(row)
+    for archive in sorted(staging_dir.glob("sub-*_ses-*_bids.tar.gz")):
+        row = parse_staged_bids_archive_name(archive)
+        if row:
+            rows.append(row)
+    rows = sorted({tuple(row): row for row in rows}.values())
+    if not rows:
+        raise FileNotFoundError(
+            f"No staged BIDS archives found in {staging_dir}. Expected names like "
+            "sub-10021_ses-01_bids.tar.gz or sub-10021_bids.tar.gz."
+        )
     return rows
 
 
@@ -1130,10 +1160,11 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
     submit_dir = Path(args.submit_dir).expanduser().resolve()
     submit_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = Path(args.manifest).expanduser() if args.manifest else staging_dir / args.manifest_name
+    explicit_manifest = bool(args.manifest)
+    manifest = Path(args.manifest).expanduser() if explicit_manifest else staging_dir / args.manifest_name
     if not manifest.is_absolute():
         manifest = staging_dir / manifest
-    if not manifest.is_file():
+    if explicit_manifest and not manifest.is_file():
         raise FileNotFoundError(f"Stage manifest not found: {manifest}")
 
     config_file = Path(args.config_file).expanduser().resolve() if args.config_file else find_default_config(staging_dir)
@@ -1154,7 +1185,12 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
 
     transfer_uri = args.transfer_uri.rstrip("/") or infer_transfer_uri(staging_source)
     queue_rows: list[list[str]] = []
-    manifest_rows = filter_manifest_rows(read_stage_manifest(manifest), args)
+    if manifest.is_file():
+        manifest_rows = filter_manifest_rows(read_stage_manifest(manifest), args)
+        print(f"Using staged manifest: {manifest}")
+    else:
+        manifest_rows = filter_manifest_rows(infer_stage_manifest_rows(staging_dir), args)
+        print(f"No staged manifest found at {manifest}; inferred inputs from staged archive names.")
     for subject, session, session_name, archive_name in manifest_rows:
         archive_path = staging_dir / archive_name
         if transfer_uri:
@@ -1838,8 +1874,19 @@ def main(argv: list[str]) -> int:
     )
     staged.add_argument("--staging-dir", required=True)
     staged.add_argument("--submit-dir", default=".")
-    staged.add_argument("--manifest", default="")
-    staged.add_argument("--manifest-name", default="qneuro_stage.csv")
+    staged.add_argument(
+        "--manifest",
+        default="",
+        help=(
+            "Optional staged CSV. If omitted, submit-staged uses --manifest-name when "
+            "present, otherwise infers rows from sub-*_bids.tar.gz archive names."
+        ),
+    )
+    staged.add_argument(
+        "--manifest-name",
+        default="qneuro_stage.csv",
+        help="Default staged CSV name to use if it exists in --staging-dir.",
+    )
     staged.add_argument("--container-image", required=True)
     staged.add_argument("--config-file", default="")
     staged.add_argument("--freesurfer-license", default="")
@@ -1854,8 +1901,8 @@ def main(argv: list[str]) -> int:
     staged.add_argument("--transfer-uri", default="")
     staged_selection = staged.add_mutually_exclusive_group()
     staged_selection.add_argument("--subject")
-    staged_selection.add_argument("--subjects", help="Comma-separated subject labels to submit from the staged manifest.")
-    staged_selection.add_argument("--subjects-file", help="CSV/text subject/session rows to submit from the staged manifest.")
+    staged_selection.add_argument("--subjects", help="Comma-separated subject labels to submit from staged inputs.")
+    staged_selection.add_argument("--subjects-file", help="CSV/text subject/session rows to submit from staged inputs.")
     staged.add_argument("--session", default="")
     staged.add_argument("--sessions", default="", help="Comma-separated session labels for --subjects.")
     staged.add_argument("--pipeline", default="dmri")
