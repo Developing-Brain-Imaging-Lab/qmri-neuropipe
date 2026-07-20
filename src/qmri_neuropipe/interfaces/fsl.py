@@ -336,6 +336,9 @@ def topup(
     hdr = None
     acqp_lines: list[str] = []
 
+    reference_shape: Optional[tuple[int, int, int]] = None
+    reference_affine: Optional[np.ndarray] = None
+
     for dwi in in_dwis:
         acqp_path, index_path = (acqp, index) if acqp and index else _ensure_acqp_index(
             dwi,
@@ -348,7 +351,10 @@ def topup(
             bvals = np.loadtxt(dwi.bval) if dwi.bval else None
         except Exception:
             bvals = None
-        if bvals is None or not np.any(bvals == 0):
+        # Keep this threshold consistent with the pipeline's b0 extraction.
+        # Scanner-derived b-values are not always exactly zero.
+        bvals = np.atleast_1d(bvals) if bvals is not None else None
+        if bvals is None or not np.any(bvals < 50):
             continue
 
         try:
@@ -356,7 +362,7 @@ def topup(
         except Exception:
             continue
 
-        idx = np.where(np.atleast_1d(bvals) == 0)[0]
+        idx = np.where(bvals < 50)[0]
         
         raw_data = data.get_fdata()
         extracted_vols = []
@@ -373,9 +379,19 @@ def topup(
             for i in range(vols_4d.shape[-1]):
                 extracted_vols.append(vols_4d[..., i])
         
-        if aff is None:
+        spatial_shape = tuple(data.shape[:3])
+        if reference_shape is None:
+            reference_shape = spatial_shape
+            reference_affine = data.affine
             aff = data.affine
             hdr = data.header
+        elif spatial_shape != reference_shape or not np.allclose(
+            data.affine, reference_affine, rtol=1e-5, atol=1e-5
+        ):
+            raise RuntimeError(
+                "TOPUP inputs must share the same voxel grid; "
+                f"{dwi.img} has shape/affine incompatible with the first input."
+            )
 
         try:
             acqp_entries = acqp_path.read_text().strip().splitlines()
@@ -383,12 +399,20 @@ def topup(
         except Exception:
             continue
 
-        # Default to first acqp line if lengths mismatch
         for i, vol_i in enumerate(idx):
             if i < len(extracted_vols): # Safety check
                 b0_vols.append(extracted_vols[i])
-                acqp_idx = index_entries[vol_i] - 1 if vol_i < len(index_entries) else 0
-                acqp_lines.append(acqp_entries[acqp_idx] if acqp_entries else "")
+                if vol_i >= len(index_entries):
+                    raise RuntimeError(
+                        f"TOPUP index file {index_path} has no entry for volume {vol_i}."
+                    )
+                acqp_idx = index_entries[vol_i] - 1
+                if acqp_idx < 0 or acqp_idx >= len(acqp_entries):
+                    raise RuntimeError(
+                        f"TOPUP index value {index_entries[vol_i]} has no matching row "
+                        f"in {acqp_path}."
+                    )
+                acqp_lines.append(acqp_entries[acqp_idx])
 
     
 
@@ -406,7 +430,11 @@ def topup(
     imain = out_base.with_name(out_base.name + "_topup_imain.nii.gz")
     datain = out_base.with_name(out_base.name + "_topup_datain.txt")
 
+    # Preserve input order: each appended acquisition row describes the volume
+    # at the same position along the fourth (time) axis.
     topup_data = np.stack(b0_vols, axis=-1)
+    if topup_data.shape[-1] != len(acqp_lines):
+        raise RuntimeError("TOPUP volume/acquisition-parameter count mismatch.")
     nib.save(nib.Nifti1Image(topup_data, aff, hdr), str(imain))
     datain.write_text("\n".join(acqp_lines) + "\n", encoding="utf-8")
 
@@ -815,46 +843,45 @@ def eddy_quad(
 
 def rotate_bvecs(bvecs: Path, mat: Path, out_bvecs: Path):
     """
-    Rotate b-vectors using a rigid/affine matrix.
-    Uses 'fdt_rotate_bvecs' if available, or manual numpy calculation.
+    Rotate b-vectors using the rotational component of an affine matrix.
+
+    FLIRT-format matrices can contain voxel-size scaling or small numerical
+    shears even when the estimated transform is rigid. Applying the raw 3x3
+    block would bias gradient directions, so use its closest proper rotation.
     """
-    # Robust Implementation using Numpy:
-    # 1. Load bvecs (3xN)
-    # 2. Load transform (FLIRT matrix 4x4)
-    # 3. Apply rotation (upper 3x3) to bvecs: v' = R * v
-    # 4. Save
-    
     try:
-        # Load bvecs
-        bv = np.loadtxt(bvecs)
-        # Handle shape (3, N) or (N, 3). FSL is usually (3, N)
+        bv = np.atleast_2d(np.loadtxt(bvecs))
         transposed = False
         if bv.shape[0] != 3 and bv.shape[1] == 3:
             bv = bv.T
             transposed = True
+        if bv.shape[0] != 3:
+            raise ValueError(f"Expected b-vectors in 3xN or Nx3 layout, got {bv.shape}")
             
-        # Load matrix
-        aff = np.loadtxt(mat) # 4x4
-        rot = aff[:3, :3]
+        aff = np.asarray(np.loadtxt(mat), dtype=float)
+        if aff.shape != (4, 4) or not np.all(np.isfinite(aff)):
+            raise ValueError(f"Expected a finite 4x4 affine matrix, got {aff.shape}")
+
+        u, _, vh = np.linalg.svd(aff[:3, :3])
+        rot = u @ vh
+        if np.linalg.det(rot) < 0:
+            u[:, -1] *= -1
+            rot = u @ vh
+
+        new_bv = rot @ bv
         
-        # Apply rotation
-        new_bv = np.dot(rot, bv)
-        
-        # Renormalize
         norms = np.linalg.norm(new_bv, axis=0)
-        # Avoid divide by zero
-        norms[norms == 0] = 1
-        new_bv = new_bv / norms
+        nonzero = norms > np.finfo(float).eps
+        new_bv[:, nonzero] /= norms[nonzero]
+        new_bv[:, ~nonzero] = 0.0
         
         if transposed:
             new_bv = new_bv.T
             
-        # Use explicit delimiter and padding for readability
+        Path(out_bvecs).parent.mkdir(parents=True, exist_ok=True)
         np.savetxt(out_bvecs, new_bv, fmt='% .8f', delimiter=' ')
         
     except Exception as e:
-        # Fallback to fsl command if numpy fails?
-        # Ideally numpy is safer than relying on shell script
         raise RuntimeError(f"Failed to rotate bvecs: {e}")
 
 

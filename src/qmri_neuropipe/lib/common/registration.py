@@ -9,6 +9,8 @@ from typing import Optional, Literal, Tuple, Dict, Any
 import logging
 import shutil
 import nibabel as nib
+import numpy as np
+from nibabel.processing import resample_from_to
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
@@ -254,6 +256,47 @@ def _ensure_fsl_registration_nifti(
             f"{output_path}"
         )
     return output_path
+
+
+def _native_resolution_reference(
+    anatomical_file: Path,
+    dwi_file: Path,
+    output_file: Path,
+    *,
+    force: bool = False,
+) -> Path:
+    """Create an anatomical-space grid sampled at the DWI voxel sizes."""
+    output_file = Path(output_file)
+    if output_file.exists() and not force:
+        return output_file
+
+    anatomical = nib.load(str(anatomical_file))
+    dwi = nib.load(str(dwi_file))
+    anatomical_shape = np.asarray(anatomical.shape[:3], dtype=int)
+    anatomical_zooms = np.asarray(nib.affines.voxel_sizes(anatomical.affine), dtype=float)
+    dwi_zooms = np.asarray(nib.affines.voxel_sizes(dwi.affine), dtype=float)
+    if np.any(~np.isfinite(dwi_zooms)) or np.any(dwi_zooms <= 0):
+        raise ProcessingError(f"Invalid DWI voxel sizes for native output grid: {dwi_zooms}")
+
+    # Preserve the anatomical center and full center-to-center field of view.
+    new_shape = np.maximum(
+        1,
+        np.ceil((np.maximum(anatomical_shape - 1, 0) * anatomical_zooms) / dwi_zooms).astype(int) + 1,
+    )
+    directions = anatomical.affine[:3, :3] / anatomical_zooms
+    new_affine = np.eye(4, dtype=float)
+    new_affine[:3, :3] = directions * dwi_zooms
+    old_center = nib.affines.apply_affine(anatomical.affine, (anatomical_shape - 1) / 2.0)
+    new_affine[:3, 3] = old_center - new_affine[:3, :3] @ ((new_shape - 1) / 2.0)
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    reference = resample_from_to(
+        anatomical,
+        (tuple(int(value) for value in new_shape), new_affine),
+        order=1,
+    )
+    nib.save(reference, str(output_file))
+    return output_file
 
 
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
@@ -603,6 +646,7 @@ class CoregistrationStep(BaseProcessingStep):
         target_path = self._extract_path(target)
         if not target_path.exists():
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
+        anatomical_target_path = Path(target_path)
 
         merged_options = dict(self.options)
         merged_options.update(_flatten_registration_options(options))
@@ -767,6 +811,26 @@ class CoregistrationStep(BaseProcessingStep):
                  registration_target = resampled_target_path
                  resampled_target_context = resampled_target_path
 
+        # The output grid is distinct from the images used to estimate the
+        # transform. In native mode, retain DWI voxel sizes but use an
+        # anatomical-space field of view so a rigidly moved DWI is not clipped
+        # by its original bounding box.
+        output_grid_ref = registration_target
+        if out_res == "anatomical" and application_fixed is not None:
+            output_grid_ref = application_fixed
+        elif out_res in {"dwi", "native"}:
+            grid_source = application_fixed or anatomical_target_path
+            output_grid_ref = _native_resolution_reference(
+                Path(grid_source),
+                in_path,
+                output_dir / f"{target_modality}_native_dwi_resolution_reference.nii.gz",
+                force=bool(kwargs.get("force", False)),
+            )
+            self.logger.info(
+                "Native resolution mode: applying the transform on an anatomical-space "
+                f"field of view sampled at DWI resolution ({output_grid_ref.name})."
+            )
+
         # Skip main coregistration if output exists and is valid
         should_run = True
         if output_img.exists() and not kwargs.get('force', False):
@@ -799,6 +863,13 @@ class CoregistrationStep(BaseProcessingStep):
                          if in_shape[3] != out_shape[3]:
                              dims_consistent = False
                              self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
+                     expected_spatial_shape = nib.load(str(output_grid_ref)).shape[:3]
+                     if out_shape[:3] != expected_spatial_shape:
+                         dims_consistent = False
+                         self.logger.info(
+                             "Coregistration output grid mismatch "
+                             f"(output={out_shape[:3]}, expected={expected_spatial_shape}). Re-running."
+                         )
                  except Exception as e:
                      # If read fails, assume incompatible/bad output
                      self.logger.warning(f"Could not check dimensions: {e}. Re-running.")
@@ -1035,12 +1106,6 @@ class CoregistrationStep(BaseProcessingStep):
                     elif mrtrix_interp == 'sinc': mrtrix_interp = 'sinc'
                     elif mrtrix_interp == 'cubic': mrtrix_interp = 'cubic'
 
-                    output_grid_ref = registration_target
-                    if application_fixed is not None and out_res == "anatomical":
-                        output_grid_ref = application_fixed
-                    elif out_res in ['native', 'dwi']:
-                        output_grid_ref = in_path
-
                     mt_kwargs = {
                         'in_file': temp_mif_in,
                         'out_file': temp_mif_out,
@@ -1090,13 +1155,8 @@ class CoregistrationStep(BaseProcessingStep):
                         )
     
                         if is_dwi or registration_moving or registration_inputs_stripped:
-                             apply_fixed = registration_target
-                             if application_fixed is not None and out_res == "anatomical":
-                                 apply_fixed = application_fixed
-                             elif out_res in {"dwi", "native"}:
-                                 apply_fixed = in_path
                              apply_kwargs = {
-                                 "fixed_file": apply_fixed,
+                                 "fixed_file": output_grid_ref,
                                  "moving_file": in_path,
                                  "out_file": output_img,
                                  "transforms": prefix,
@@ -1138,11 +1198,7 @@ class CoregistrationStep(BaseProcessingStep):
                         )
                         
                         if is_dwi:
-                            apply_ref = registration_target
-                            if application_fixed is not None and out_res == "anatomical":
-                                apply_ref = application_fixed
-                            elif out_res in {"dwi", "native"}:
-                                apply_ref = in_path
+                            apply_ref = output_grid_ref
                             if estimate_mat != output_mat:
                                 itk_transform = output_dir / f"{output_transform.name}_synthetic_itk.txt"
                                 c3d.fsl2ants(
@@ -1184,9 +1240,7 @@ class CoregistrationStep(BaseProcessingStep):
                                 nthreads=nthreads,
                                 force=bool(kwargs.get("force", False)),
                             )
-                            apply_ref = application_fixed or registration_target
-                            if out_res in {"dwi", "native"}:
-                                apply_ref = in_path
+                            apply_ref = output_grid_ref
                             freesurfer.lta_to_fsl(
                                 reg_lta,
                                 output_mat,
@@ -1216,11 +1270,7 @@ class CoregistrationStep(BaseProcessingStep):
                                 subjects_dir=fs_subjects_dir,
                             )
                         if is_dwi:
-                            apply_ref = registration_target
-                            if application_fixed is not None and out_res == "anatomical":
-                                apply_ref = application_fixed
-                            elif out_res in {"dwi", "native"}:
-                                apply_ref = in_path
+                            apply_ref = output_grid_ref
                             fsl.apply_xfm_4d(
                                 in_file=in_path,
                                 ref_file=apply_ref,
@@ -1257,7 +1307,8 @@ class CoregistrationStep(BaseProcessingStep):
                              try:
                                  fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
                                  rotated_bvecs = new_bvec_path
-                             except Exception: pass
+                             except Exception as e:
+                                 raise ProcessingError(f"FSL b-vector rotation failed: {e}") from e
 
                      elif self.method == 'freesurfer':
                          mat_file = output_transform.with_suffix(".mat")
@@ -1267,7 +1318,7 @@ class CoregistrationStep(BaseProcessingStep):
                                  fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
                                  rotated_bvecs = new_bvec_path
                              except Exception as e:
-                                 self.logger.warning(f"Error during FreeSurfer bvec rotation: {e}")
+                                 raise ProcessingError(f"FreeSurfer b-vector rotation failed: {e}") from e
                      
                      elif self.method == 'ants':
                          # Search for ANTs affine if consistent
@@ -1291,13 +1342,9 @@ class CoregistrationStep(BaseProcessingStep):
                                  
                                  if ref_moving.exists():
                                      if not c3d.is_valid_fsl_affine(fsl_mat):
-                                         rotation_ref = registration_target
+                                         rotation_ref = output_grid_ref
                                          rotation_src = ref_moving
-                                         if application_fixed is not None and out_res == "anatomical":
-                                             rotation_ref = application_fixed
-                                             rotation_src = in_path
-                                         elif out_res in {"dwi", "native"}:
-                                             rotation_ref = in_path
+                                         if is_dwi:
                                              rotation_src = in_path
                                          c3d.ants2fsl(
                                              rotation_ref,
@@ -1312,7 +1359,7 @@ class CoregistrationStep(BaseProcessingStep):
                                          rotated_bvecs = new_bvec_path
 
                              except Exception as e:
-                                 self.logger.warning(f"Error during ANTs bvec rotation: {e}")
+                                 raise ProcessingError(f"ANTs b-vector rotation failed: {e}") from e
 
         # --- Result Construction ---
         if is_dwi:
@@ -1490,13 +1537,13 @@ class CoregistrationStep(BaseProcessingStep):
                         else:
                              self.logger.warning(f"MRTrix transform not found. Falling back to FSL for mask.")
                              if output_mat.exists():
-                                 fsl.flirt(in_file=mask_in_path, ref_file=registration_target, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
+                                 fsl.flirt(in_file=mask_in_path, ref_file=output_grid_ref, out_file=mask_out_path, extra_opts={"applyxfm": True, "init": output_mat, "interp": "nearestneighbour"})
                              
                     elif output_mat.exists():
                         # Default FSL application
                         fsl.flirt(
                             in_file=mask_in_path,
-                            ref_file=target,
+                            ref_file=output_grid_ref,
                             out_file=mask_out_path,
                             extra_opts={
                                 "applyxfm": True,

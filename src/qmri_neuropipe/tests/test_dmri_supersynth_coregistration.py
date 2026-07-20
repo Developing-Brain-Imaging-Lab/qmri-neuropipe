@@ -8,9 +8,11 @@ import numpy as np
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.types import DWIFile, ImageFile
 from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
+from qmri_neuropipe.interfaces.fsl import rotate_bvecs
 from qmri_neuropipe.lib.common.registration import (
     CoregistrationStep,
     _ensure_fsl_registration_nifti,
+    _native_resolution_reference,
 )
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
@@ -223,3 +225,44 @@ def test_fsl_registration_converts_mgz_input_to_nifti(tmp_path: Path):
     assert result.name == "fsl_moving_SynthT1.nii.gz"
     np.testing.assert_allclose(np.asarray(converted.dataobj), data)
     np.testing.assert_allclose(converted.affine, affine)
+
+
+def test_native_resolution_reference_uses_dwi_sampling_and_anatomical_fov(tmp_path: Path):
+    anatomical_path = tmp_path / "anatomical.nii.gz"
+    dwi_path = tmp_path / "dwi.nii.gz"
+    reference_path = tmp_path / "native_reference.nii.gz"
+    anatomical_affine = np.diag([1.0, 1.0, 1.0, 1.0])
+    anatomical_affine[:3, 3] = [-40.0, -50.0, -30.0]
+    dwi_affine = np.diag([2.0, 2.0, 3.0, 1.0])
+    dwi_affine[:3, 3] = [-20.0, -24.0, -12.0]
+    nib.save(nib.Nifti1Image(np.ones((81, 101, 61)), anatomical_affine), anatomical_path)
+    nib.save(nib.Nifti1Image(np.ones((20, 24, 12, 2)), dwi_affine), dwi_path)
+
+    result = _native_resolution_reference(anatomical_path, dwi_path, reference_path)
+
+    reference = nib.load(str(result))
+    np.testing.assert_allclose(nib.affines.voxel_sizes(reference.affine), [2.0, 2.0, 3.0])
+    assert reference.shape == (41, 51, 21)
+    anatomical_center = nib.affines.apply_affine(anatomical_affine, [40, 50, 30])
+    reference_center = nib.affines.apply_affine(reference.affine, [20, 25, 10])
+    np.testing.assert_allclose(reference_center, anatomical_center)
+    # The grid follows the anatomical FOV rather than the much smaller DWI box.
+    assert reference.shape[:3] != (20, 24, 12)
+
+
+def test_bvec_rotation_uses_only_proper_rotation_component(tmp_path: Path):
+    bvec_path = tmp_path / "input.bvec"
+    matrix_path = tmp_path / "transform.mat"
+    output_path = tmp_path / "output.bvec"
+    bvec_path.write_text("1 0 0\n0 1 0\n0 0 0\n")
+    rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    affine = np.eye(4)
+    affine[:3, :3] = rotation @ np.diag([2.0, 3.0, 4.0])
+    np.savetxt(matrix_path, affine)
+
+    rotate_bvecs(bvec_path, matrix_path, output_path)
+
+    rotated = np.loadtxt(output_path)
+    np.testing.assert_allclose(rotated[:, 0], [0.0, 1.0, 0.0], atol=1e-7)
+    np.testing.assert_allclose(rotated[:, 1], [-1.0, 0.0, 0.0], atol=1e-7)
+    np.testing.assert_allclose(rotated[:, 2], [0.0, 0.0, 0.0], atol=1e-7)
