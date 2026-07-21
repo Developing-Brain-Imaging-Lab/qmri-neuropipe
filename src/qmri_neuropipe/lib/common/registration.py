@@ -10,7 +10,6 @@ import logging
 import shutil
 import nibabel as nib
 import numpy as np
-from nibabel.processing import resample_from_to
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
@@ -258,45 +257,28 @@ def _ensure_fsl_registration_nifti(
     return output_path
 
 
-def _native_resolution_reference(
-    anatomical_file: Path,
-    dwi_file: Path,
-    output_file: Path,
-    *,
-    force: bool = False,
+def _coregistration_output_reference(
+    input_image: Path,
+    registration_target: Path,
+    application_fixed: Optional[Path],
+    output_resolution: str,
 ) -> Path:
-    """Create an anatomical-space grid sampled at the DWI voxel sizes."""
-    output_file = Path(output_file)
-    if output_file.exists() and not force:
-        return output_file
+    """Resolve the grid used when applying a coregistration transform."""
+    if str(output_resolution).lower() in {"dwi", "native"}:
+        return Path(input_image)
+    if application_fixed is not None:
+        return Path(application_fixed)
+    return Path(registration_target)
 
-    anatomical = nib.load(str(anatomical_file))
-    dwi = nib.load(str(dwi_file))
-    anatomical_shape = np.asarray(anatomical.shape[:3], dtype=int)
-    anatomical_zooms = np.asarray(nib.affines.voxel_sizes(anatomical.affine), dtype=float)
-    dwi_zooms = np.asarray(nib.affines.voxel_sizes(dwi.affine), dtype=float)
-    if np.any(~np.isfinite(dwi_zooms)) or np.any(dwi_zooms <= 0):
-        raise ProcessingError(f"Invalid DWI voxel sizes for native output grid: {dwi_zooms}")
 
-    # Preserve the anatomical center and full center-to-center field of view.
-    new_shape = np.maximum(
-        1,
-        np.ceil((np.maximum(anatomical_shape - 1, 0) * anatomical_zooms) / dwi_zooms).astype(int) + 1,
+def _spatial_grids_match(first: Path, second: Path, atol: float = 1e-5) -> bool:
+    """Return whether two NIfTI images use the same 3D lattice and affine."""
+    first_image = nib.load(str(first))
+    second_image = nib.load(str(second))
+    return (
+        first_image.shape[:3] == second_image.shape[:3]
+        and np.allclose(first_image.affine, second_image.affine, rtol=1e-5, atol=atol)
     )
-    directions = anatomical.affine[:3, :3] / anatomical_zooms
-    new_affine = np.eye(4, dtype=float)
-    new_affine[:3, :3] = directions * dwi_zooms
-    old_center = nib.affines.apply_affine(anatomical.affine, (anatomical_shape - 1) / 2.0)
-    new_affine[:3, 3] = old_center - new_affine[:3, :3] @ ((new_shape - 1) / 2.0)
-
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    reference = resample_from_to(
-        anatomical,
-        (tuple(int(value) for value in new_shape), new_affine),
-        order=1,
-    )
-    nib.save(reference, str(output_file))
-    return output_file
 
 
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
@@ -646,7 +628,6 @@ class CoregistrationStep(BaseProcessingStep):
         target_path = self._extract_path(target)
         if not target_path.exists():
             raise ProcessingError(f"Coregistration target (reference) image not found: {target_path}")
-        anatomical_target_path = Path(target_path)
 
         merged_options = dict(self.options)
         merged_options.update(_flatten_registration_options(options))
@@ -812,23 +793,19 @@ class CoregistrationStep(BaseProcessingStep):
                  resampled_target_context = resampled_target_path
 
         # The output grid is distinct from the images used to estimate the
-        # transform. In native mode, retain DWI voxel sizes but use an
-        # anatomical-space field of view so a rigidly moved DWI is not clipped
-        # by its original bounding box.
-        output_grid_ref = registration_target
-        if out_res == "anatomical" and application_fixed is not None:
-            output_grid_ref = application_fixed
-        elif out_res in {"dwi", "native"}:
-            grid_source = application_fixed or anatomical_target_path
-            output_grid_ref = _native_resolution_reference(
-                Path(grid_source),
-                in_path,
-                output_dir / f"{target_modality}_native_dwi_resolution_reference.nii.gz",
-                force=bool(kwargs.get("force", False)),
-            )
+        # transform. Native/DWI output means the exact input DWI lattice—not
+        # merely its voxel sizes—so matrix, affine, and field of view remain
+        # unchanged.
+        output_grid_ref = _coregistration_output_reference(
+            in_path,
+            registration_target,
+            application_fixed,
+            out_res,
+        )
+        if out_res in {"dwi", "native"}:
             self.logger.info(
-                "Native resolution mode: applying the transform on an anatomical-space "
-                f"field of view sampled at DWI resolution ({output_grid_ref.name})."
+                "Native resolution mode: applying the transform on the exact input "
+                f"DWI grid ({output_grid_ref.name})."
             )
 
         # Skip main coregistration if output exists and is valid
@@ -863,8 +840,17 @@ class CoregistrationStep(BaseProcessingStep):
                          if in_shape[3] != out_shape[3]:
                              dims_consistent = False
                              self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
-                     expected_spatial_shape = nib.load(str(output_grid_ref)).shape[:3]
-                     if out_shape[:3] != expected_spatial_shape:
+                     expected_image = nib.load(str(output_grid_ref))
+                     expected_spatial_shape = expected_image.shape[:3]
+                     if (
+                         out_shape[:3] != expected_spatial_shape
+                         or not np.allclose(
+                             nib.load(str(output_img)).affine,
+                             expected_image.affine,
+                             rtol=1e-5,
+                             atol=1e-5,
+                         )
+                     ):
                          dims_consistent = False
                          self.logger.info(
                              "Coregistration output grid mismatch "
@@ -1438,6 +1424,13 @@ class CoregistrationStep(BaseProcessingStep):
              
         if not check_nifti_integrity(output_img):
              raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
+
+        if out_res in {"dwi", "native"} and not _spatial_grids_match(output_img, in_path):
+             raise ProcessingError(
+                 "Native coregistration output does not preserve the exact input DWI grid: "
+                 f"input={nib.load(str(in_path)).shape[:3]}, "
+                 f"output={nib.load(str(output_img)).shape[:3]}"
+             )
 
         # Dimension Verification
         try:

@@ -11,8 +11,9 @@ from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
 from qmri_neuropipe.interfaces.fsl import rotate_bvecs
 from qmri_neuropipe.lib.common.registration import (
     CoregistrationStep,
+    _coregistration_output_reference,
     _ensure_fsl_registration_nifti,
-    _native_resolution_reference,
+    _spatial_grids_match,
 )
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
@@ -227,27 +228,42 @@ def test_fsl_registration_converts_mgz_input_to_nifti(tmp_path: Path):
     np.testing.assert_allclose(converted.affine, affine)
 
 
-def test_native_resolution_reference_uses_dwi_sampling_and_anatomical_fov(tmp_path: Path):
-    anatomical_path = tmp_path / "anatomical.nii.gz"
-    dwi_path = tmp_path / "dwi.nii.gz"
-    reference_path = tmp_path / "native_reference.nii.gz"
-    anatomical_affine = np.diag([1.0, 1.0, 1.0, 1.0])
-    anatomical_affine[:3, 3] = [-40.0, -50.0, -30.0]
-    dwi_affine = np.diag([2.0, 2.0, 3.0, 1.0])
-    dwi_affine[:3, 3] = [-20.0, -24.0, -12.0]
-    nib.save(nib.Nifti1Image(np.ones((81, 101, 61)), anatomical_affine), anatomical_path)
-    nib.save(nib.Nifti1Image(np.ones((20, 24, 12, 2)), dwi_affine), dwi_path)
+def test_native_coregistration_uses_exact_input_dwi_grid(tmp_path: Path):
+    dwi = tmp_path / "dwi_128x128x70.nii.gz"
+    synthetic_fixed = tmp_path / "SynthT1.mgz"
+    anatomical = tmp_path / "T1w_256x256x256.nii.gz"
 
-    result = _native_resolution_reference(anatomical_path, dwi_path, reference_path)
+    assert _coregistration_output_reference(
+        dwi,
+        synthetic_fixed,
+        anatomical,
+        "native",
+    ) == dwi
+    assert _coregistration_output_reference(
+        dwi,
+        synthetic_fixed,
+        anatomical,
+        "dwi",
+    ) == dwi
+    assert _coregistration_output_reference(
+        dwi,
+        synthetic_fixed,
+        anatomical,
+        "anatomical",
+    ) == anatomical
 
-    reference = nib.load(str(result))
-    np.testing.assert_allclose(nib.affines.voxel_sizes(reference.affine), [2.0, 2.0, 3.0])
-    assert reference.shape == (41, 51, 21)
-    anatomical_center = nib.affines.apply_affine(anatomical_affine, [40, 50, 30])
-    reference_center = nib.affines.apply_affine(reference.affine, [20, 25, 10])
-    np.testing.assert_allclose(reference_center, anatomical_center)
-    # The grid follows the anatomical FOV rather than the much smaller DWI box.
-    assert reference.shape[:3] != (20, 24, 12)
+
+def test_spatial_grid_check_rejects_same_resolution_with_changed_matrix(tmp_path: Path):
+    original = tmp_path / "original.nii.gz"
+    changed = tmp_path / "changed.nii.gz"
+    same = tmp_path / "same.nii.gz"
+    affine = np.diag([2.0, 2.0, 2.0, 1.0])
+    nib.save(nib.Nifti1Image(np.zeros((128, 128, 70)), affine), original)
+    nib.save(nib.Nifti1Image(np.zeros((129, 129, 129)), affine), changed)
+    nib.save(nib.Nifti1Image(np.zeros((128, 128, 70)), affine), same)
+
+    assert _spatial_grids_match(original, same)
+    assert not _spatial_grids_match(original, changed)
 
 
 def test_bvec_rotation_uses_only_proper_rotation_component(tmp_path: Path):
