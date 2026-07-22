@@ -119,6 +119,27 @@ def ants_brain_extraction(in_file: ImageLike | Path, out_file: Path, nthreads: i
     pass
     return out, mask_out
 
+def _normalize_interpolator(interpolator: str) -> str:
+    """Translate pipeline interpolation aliases to ANTsPy names."""
+    value = str(interpolator or "linear").strip()
+    aliases = {
+        "nearest": "nearestNeighbor",
+        "nearestneighbor": "nearestNeighbor",
+        "trilinear": "linear",
+        "cubic": "bSpline",
+        "bspline": "bSpline",
+        "spline": "bSpline",
+        # ``sinc`` is the generic name exposed by the pipeline and MRtrix/FSL.
+        # ANTs requires callers to select a window; Lanczos is the closest
+        # conventional high-quality default.
+        "sinc": "lanczosWindowedSinc",
+        "lanczos": "lanczosWindowedSinc",
+        "label": "genericLabel",
+        "multilabel": "multiLabel",
+    }
+    return aliases.get(value.lower(), value)
+
+
 def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, out_file: Path, transforms: list[Path], invert_transforms: list[bool] = None, interpolator: str = "linear", nthreads: int = 1, **kwargs):
     """
     Apply ANTs transforms.
@@ -143,7 +164,13 @@ def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path
     if invert_transforms:
         call_kwargs['whichtoinvert'] = invert_transforms 
         
-    warped_img = ants.apply_transforms(fixed=fixed_img, moving=moving_img, transformlist=transform_list, interpolator=interpolator, **call_kwargs)
+    warped_img = ants.apply_transforms(
+        fixed=fixed_img,
+        moving=moving_img,
+        transformlist=transform_list,
+        interpolator=_normalize_interpolator(interpolator),
+        **call_kwargs,
+    )
     
     ants.image_write(warped_img, str(out))
     return out
@@ -265,11 +292,7 @@ def resample_to_image(source_file: ImageLike | Path, reference_file: ImageLike |
     # generic 'nearest' -> ants 'nearestNeighbor'
     # generic 'cubic', 'spline' -> ants 'bspline' or 'cubic' (ants supports: linear, nearestNeighbor, multiLabel, gaussian, bspline, cosineWindowedSinc, welchWindowedSinc, hammingWindowedSinc, lanczosWindowedSinc, blackmanWindowedSinc, cosineWindowedSinc, welchWindowedSinc, hammingWindowedSinc, lanczosWindowedSinc, blackmanWindowedSinc)
     
-    ants_interp = interpolator
-    if interpolator == 'nearest': ants_interp = 'nearestNeighbor'
-    elif interpolator == 'cubic': ants_interp = 'bspline'
-    elif interpolator == 'label': ants_interp = 'genericLabel'
-    elif interpolator == 'multilabel': ants_interp = 'multiLabel'
+    ants_interp = _normalize_interpolator(interpolator)
 
     resampled = ants.resample_image_to_target(
         image=src_img,
