@@ -352,6 +352,37 @@ def _write_header_registered_image(
     return Path(output_file)
 
 
+def _apply_mrtrix_header_transform(
+    input_file: Path,
+    output_file: Path,
+    itk_transform: Path,
+    mrtrix_transform: Path,
+    nthreads: int,
+) -> np.ndarray:
+    """Apply a rigid ITK transform to an image header without reslicing data."""
+    # mrtransform -linear uses the reverse (output/fixed -> input/moving)
+    # scanner-space convention. ANTsPy writes a binary ITK .mat that cannot be
+    # consumed by transformconvert's text-only itk_import, so decode it and
+    # write the required MRtrix matrix explicitly.
+    moving_to_fixed = _ants_affine_to_ras_matrix(itk_transform)
+    fixed_to_moving = np.linalg.inv(moving_to_fixed)
+    Path(mrtrix_transform).parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(mrtrix_transform, fixed_to_moving, fmt="%.15g")
+    mrtrix.mrtransform(
+        in_file=input_file,
+        out_file=output_file,
+        linear_transform=mrtrix_transform,
+        template=None,
+        interp=None,
+        nthreads=nthreads,
+        force=True,
+    )
+    return (
+        nib.load(str(output_file)).affine
+        @ np.linalg.inv(nib.load(str(input_file)).affine)
+    )
+
+
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
     options = options or {}
     explicit = options.get("subject_id") or options.get("fs_subject_id") or options.get("freesurfer_subject_id")
@@ -1240,11 +1271,17 @@ class CoregistrationStep(BaseProcessingStep):
                                          "Header-only coregistration expected exactly one rigid affine transform, "
                                          f"got: {prefix}"
                                      )
-                                 header_world_transform = _ants_affine_to_ras_matrix(affine_transforms[0])
-                                 _write_header_registered_image(
+                                 # Delegate ITK convention conversion and header
+                                 # composition to MRtrix. With -linear and no
+                                 # -template, mrtransform changes the image header
+                                 # transform without reslicing voxel data.
+                                 header_mrtrix_transform = output_dir / "header_transform_mrtrix.txt"
+                                 header_world_transform = _apply_mrtrix_header_transform(
                                      in_path,
                                      output_img,
-                                     header_world_transform,
+                                     affine_transforms[0],
+                                     header_mrtrix_transform,
+                                     nthreads,
                                  )
                              else:
                                  apply_kwargs = {
