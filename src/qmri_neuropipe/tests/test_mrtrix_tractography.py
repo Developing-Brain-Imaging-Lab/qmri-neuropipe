@@ -122,12 +122,24 @@ def test_act_uses_selected_t1w_and_regrids_5tt_to_dwi(tmp_path, monkeypatch):
     monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_check", lambda *a, **k: None)
     monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_to_gmwmi", lambda *a, **k: None)
 
-    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path)
+    config = PipelineConfig(
+        bids_dir=tmp_path,
+        output_dir=tmp_path,
+        config_data={
+            "dmri": {
+                "preprocessing": {
+                    "coregistration": {
+                        "enabled": True,
+                        "options": {"application_mode": "header"},
+                    }
+                }
+            }
+        },
+    )
     step = MRtrixAnatomicalConstraintsStep(config, logging.getLogger("test"), None)
     context = {
         "current_image": SimpleNamespace(img=dwi, entities={"sub": "01", "suffix": "dwi"}),
         "t1w_files": [SimpleNamespace(img=t1w)],
-        "spatial_transform": {"type": "linear", "application_mode": "header"},
     }
 
     result = step.run(context, tmp_path / "modeling")

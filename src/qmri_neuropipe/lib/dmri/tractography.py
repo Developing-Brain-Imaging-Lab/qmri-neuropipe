@@ -78,6 +78,19 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
         self.nthreads = getattr(config, "n_cpus", nthreads)
         self.kwargs = kwargs
 
+    def _has_header_anatomical_alignment(self, context: dict) -> bool:
+        """Recognize live or cached header-only DWI-to-anatomical alignment."""
+        spatial_transform = context.get("spatial_transform") or {}
+        if spatial_transform.get("application_mode") == "header":
+            return True
+
+        coreg = self.config.get("dmri.preprocessing.coregistration", {}) or {}
+        options = coreg.get("options", {}) or {}
+        application_mode = options.get(
+            "application_mode", coreg.get("application_mode", "resample")
+        )
+        return bool(coreg.get("enabled", False)) and str(application_mode).lower() == "header"
+
     def run(self, context: dict, output_dir: Path, mask=None, force=False, **kwargs):
         act_cfg = dict(self.kwargs)
         out_dir = output_dir / "MRtrix" / "ACT"
@@ -117,8 +130,7 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
                 if reference and reference.exists() and not _spatial_grids_match(
                     anatomical_five_tt, reference
                 ):
-                    spatial_transform = context.get("spatial_transform") or {}
-                    if spatial_transform.get("application_mode") != "header":
+                    if not self._has_header_anatomical_alignment(context):
                         raise ValidationError(
                             "The anatomical T1w and diffusion image use different grids, but "
                             "no header-based anatomical-to-diffusion alignment is available "
