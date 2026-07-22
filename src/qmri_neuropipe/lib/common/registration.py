@@ -859,8 +859,6 @@ class CoregistrationStep(BaseProcessingStep):
                     "requires output_resolution: native (or dwi). Use "
                     "application_mode: resample for anatomical-resolution output."
                 )
-        resampled_target_context = None # To store for context update
-        
         registration_target = fs_registration_target or target
         application_fixed = Path(options["application_fixed"]) if options.get("application_fixed") else None
         if application_fixed and not application_fixed.exists():
@@ -881,39 +879,12 @@ class CoregistrationStep(BaseProcessingStep):
             target_path = registration_fixed
             target = registration_fixed
 
-        if (
-            out_res in ['dwi', 'native']
-            and self.method != "freesurfer"
-            and registration_fixed is None
-        ):
+        if out_res in {'dwi', 'native'}:
              self.logger.info(
-                 f"Native resolution mode: Resampling structural target ({target_modality}) to diffusion grid prior to registration..."
+                 "Native output mode: estimating registration against the original "
+                 f"full-resolution {target_modality}; output-grid handling is deferred "
+                 "until transform application."
              )
-             resampled_target_path = output_dir / f"{target_modality}_resampled_to_dwi.nii.gz"
-             resample_source = target_path
-             
-             if not resampled_target_path.exists() or kwargs.get('force', False):
-                 interp = options.get("interpolation", "linear").lower()
-                 if self.method == 'ants':
-                     ants_interp = interp
-                     if interp == 'nearest': ants_interp = 'nearestNeighbor'
-                     elif interp == 'cubic': ants_interp = 'bspline'
-                     ants.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator=ants_interp, nthreads=nthreads)
-                 elif self.method == 'fsl':
-                     fsl_interp = interp
-                     if interp == 'linear': fsl_interp = 'trilinear'
-                     elif interp == 'nearest': fsl_interp = 'nearestneighbour'
-                     fsl.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator=fsl_interp)
-                 else:
-                     # Fallback to ANTs
-                     ants.resample_to_image(resample_source, moving_for_reg, resampled_target_path, interpolator='linear', nthreads=nthreads)
-             
-             if resampled_target_path.exists():
-                 self.logger.info(f"Using resampled structural as registration target: {resampled_target_path.name}")
-                 target_path = resampled_target_path
-                 target = resampled_target_path
-                 registration_target = resampled_target_path
-                 resampled_target_context = resampled_target_path
 
         # The output grid is distinct from the images used to estimate the
         # transform. Native/DWI output means the exact input DWI lattice—not
@@ -1768,14 +1739,6 @@ class CoregistrationStep(BaseProcessingStep):
                   gnl_transforms = context.setdefault("gnl_transform_map", {})
                   gnl_transforms[str(in_path)] = spatial_transform
              
-             # Keep the original structural geometry in context. The resampled structural
-             # is only a temporary helper for registration in native/DWI output mode.
-             if resampled_target_context and out_res not in ['native', 'dwi']:
-                  if target_modality == "T1w" and context.get("t1w_files"):
-                       context["t1w_files"] = [ImageFile(img=resampled_target_context, entities=dict(context["t1w_files"][0].entities))]
-                  elif target_modality == "T2w" and context.get("t2w_files"):
-                       context["t2w_files"] = [ImageFile(img=resampled_target_context, entities=dict(context["t2w_files"][0].entities))]
-
              return context
              
         return result
