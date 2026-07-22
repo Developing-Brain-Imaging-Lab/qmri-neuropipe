@@ -14,6 +14,7 @@ Module Structure:
 
 from pathlib import Path
 from typing import Optional
+import glob
 import shutil
 import nibabel as nib
 import numpy as np
@@ -395,16 +396,22 @@ class DMRIPipeline(BasePipeline):
         if custom_path:
             p = Path(custom_path)
             if p.exists():
-                ent = {"sub": subject, "ses": session, "suffix": modality}
+                ent = parse_bids_filename(p)
+                ent["suffix"] = modality
                 results.append(ImageFile(entities=ent, img=p, json=None))
                 self.logger.info(f"Using custom anatomical file: {p}")
         
         elif custom_pattern:
             p_str = custom_pattern.format(subject=subject, session=session if session else "")
-            matches = list(self.config.bids_dir.glob(p_str))
+            pattern = Path(p_str).expanduser()
+            if pattern.is_absolute():
+                matches = [Path(match) for match in sorted(glob.glob(str(pattern)))]
+            else:
+                matches = sorted(self.config.bids_dir.glob(p_str))
             
             for m in matches:
-                ent = {"sub": subject, "ses": session, "suffix": modality}
+                ent = parse_bids_filename(m)
+                ent["suffix"] = modality
                 json_path = m.with_suffix("").with_suffix(".json")
                 results.append(ImageFile(entities=ent, img=m, json=json_path if json_path.exists() else None))
             
