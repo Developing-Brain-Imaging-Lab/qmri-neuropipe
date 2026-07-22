@@ -63,6 +63,22 @@ def _normalize_skull_strip_method(method: Any) -> str:
     return aliases.get(value, value)
 
 
+def _preserve_header_only_bvec(
+    input_bvec: Path,
+    output_dir: Path,
+    entities: Dict[str, Any],
+    description: str,
+) -> Path:
+    """Copy unchanged image-space gradients for header-only registration."""
+    output_bvec = output_dir / build_bids_name(
+        {**entities, "desc": description},
+        suffix="bvec",
+        extension=".bvec",
+    )
+    shutil.copy(input_bvec, output_bvec)
+    return output_bvec
+
+
 def _flatten_registration_options(options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     flattened = dict(options or {})
     nested = flattened.pop("options", None)
@@ -1236,7 +1252,6 @@ class CoregistrationStep(BaseProcessingStep):
                                      apply_kwargs["imagetype"] = 3
                                  ants.apply_transforms(**apply_kwargs)
                         elif warped and Path(warped).exists():
-                             import shutil
                              shutil.copy(warped, output_img)
 
                     elif self.method == 'fsl':
@@ -1370,12 +1385,12 @@ class CoregistrationStep(BaseProcessingStep):
                          "Header-only coregistration leaves voxel data and image-space b-vectors unchanged."
                      )
                      if input_image.bvec and Path(input_image.bvec).exists():
-                         preserved_bvecs = output_dir / build_bids_name(
-                             {**entities, "desc": new_desc},
-                             suffix="bvec",
-                             extension=".bvec",
+                         preserved_bvecs = _preserve_header_only_bvec(
+                             Path(input_image.bvec),
+                             output_dir,
+                             entities,
+                             new_desc,
                          )
-                         shutil.copy(input_image.bvec, preserved_bvecs)
                          rotated_bvecs = preserved_bvecs
                  elif apply_method == 'mrtrix' and mrtrix_rotated_bvecs:
                      self.logger.info("Using b-vectors rotated by MRTrix.")
@@ -1445,8 +1460,6 @@ class CoregistrationStep(BaseProcessingStep):
         # --- Result Construction ---
         if is_dwi:
              final_bvec = locals().get('rotated_bvecs')
-             import shutil
-             
              if not final_bvec:
                  base_name = output_img.name
                  for ext in ['.nii.gz', '.nii']:
@@ -1597,7 +1610,6 @@ class CoregistrationStep(BaseProcessingStep):
 
             if is_anatomical and struct_mask:
                 self.logger.info(f"Using structural mask for anatomical space: {Path(struct_mask).name}")
-                import shutil
                 shutil.copy(struct_mask, mask_out_path)
                 mask_should_run = False
             else:
