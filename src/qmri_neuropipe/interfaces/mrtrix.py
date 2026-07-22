@@ -496,7 +496,7 @@ def dwi2fod(
     in_bval: Path = None,
     mask_file: Path = None,
     algorithm: str = "msmt_csd",
-    lmax: Optional[Union[int, str]] = None,
+    lmax: Optional[Union[int, str, list[int], tuple[int, ...]]] = None,
     nthreads: int = 1,
     force: bool = False
 ) -> Dict[str, Path]:
@@ -551,11 +551,17 @@ def dwi2fod(
     if mask_file:
         cmd.extend(["-mask", str(mask_file)])
         
-    if lmax:
+    if lmax is not None:
         if isinstance(lmax, (list, tuple)):
             lmax_str = ",".join(map(str, lmax))
         else:
             lmax_str = str(lmax)
+
+            # MRtrix expects one lmax per input tissue for multi-tissue CSD.
+            # A scalar configuration conventionally describes the anisotropic
+            # WM compartment; the GM and CSF compartments are isotropic.
+            if algorithm == "msmt_csd" and len(fods) > 1 and "," not in lmax_str:
+                lmax_str = ",".join([lmax_str, *(["0"] * (len(fods) - 1))])
         cmd.extend(["-lmax", lmax_str])
         
     if nthreads > 1:
