@@ -327,6 +327,18 @@ class ModelingWorkflow(BaseWorkflow):
                                 self.logger.warning(f"Reporting failed: {e}")
                 
                 return context
+
+        # Published modeling outputs are also the durable cache.  Rehydrate any
+        # missing staging entries so a cleaned work directory can resume from
+        # the first model whose validated outputs are absent.
+        if final_output_dir:
+            recovered = self.recover_intermediate_tree(staging_dir, final_dest)
+            if recovered:
+                self.logger.info(
+                    "Recovered %d modeling cache entries from %s",
+                    len(recovered),
+                    final_dest,
+                )
         
         # === Execute modeling ===
         try:

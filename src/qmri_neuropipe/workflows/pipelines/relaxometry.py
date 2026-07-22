@@ -2194,6 +2194,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         fmap_out_dir = dirs["fmap_out_dir"]
         intermediate_dir = dirs["intermediate_dir"]
 
+        # Relaxometry persists its work cache under the final anatomical
+        # derivative tree. Restore it when scratch/work storage was cleared.
+        self.recover_intermediate_tree(
+            intermediate_dir,
+            anat_out_dir / "intermediate",
+        )
+
         relax_cfg = self.relax_config
         preproc_cfg = relax_cfg.preprocessing
 

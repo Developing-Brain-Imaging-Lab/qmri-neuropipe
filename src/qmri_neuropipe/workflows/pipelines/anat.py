@@ -564,7 +564,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         use_freesurfer = (
             is_t1w and self.anat_config.preprocessing.use_freesurfer
         )
-        save_inter = self.config.get("save_intermediate", False)
+        save_inter = self.config.get(
+            "save_intermediates",
+            self.config.get("save_intermediate", False),
+        )
         skip_existing = self.config.get("skip_existing", False)
         force_run = self.anat_config.preprocessing.force_run
         if is_t1w and force_run:
@@ -1280,7 +1283,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             return context, step_metrics
 
         # Save intermediate coregistration result
-        save_inter = self.config.get("save_intermediate", False)
+        save_inter = self.config.get(
+            "save_intermediates",
+            self.config.get("save_intermediate", False),
+        )
         if save_inter and final_output_dir:
             try:
                 img_to_save = context.get("preprocessed_t1w")
@@ -1366,7 +1372,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         self.logger.info(f"Generating binary brain mask using reference: {ref_img_key} ({mask_step.method})")
 
-        save_inter = self.config.get("save_intermediate", False)
+        save_inter = self.config.get(
+            "save_intermediates",
+            self.config.get("save_intermediate", False),
+        )
         skip_existing = self.config.get("skip_existing", False)
         skull_stripped_outputs = bool(self.anat_config.preprocessing.skull_stripped_outputs)
         rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
@@ -2058,7 +2067,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             return context, step_metrics
         norm_space = getattr(norm_step, "space_entity", None) or "Standard"
 
-        save_inter = self.config.get("save_intermediate", False)
+        save_inter = self.config.get(
+            "save_intermediates",
+            self.config.get("save_intermediate", False),
+        )
         skip_existing = self.config.get("skip_existing", False)
         errors = context.setdefault('errors', [])
         rerun_from_step = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(self.config, "anat.preprocessing", "anat")
@@ -2294,7 +2306,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         _update_progress(reporter, advance=True)
 
         # Save intermediates
-        save_inter = self.config.get("save_intermediate", False)
+        save_inter = self.config.get(
+            "save_intermediates",
+            self.config.get("save_intermediate", False),
+        )
         if save_inter and final_output_dir:
             try:
                 if "segmentation" in context:

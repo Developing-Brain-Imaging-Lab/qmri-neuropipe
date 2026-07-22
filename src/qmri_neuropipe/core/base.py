@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, List, Optional, Union, Type, Tuple, Dict
 import logging
+import shutil
 from datetime import datetime
 from dataclasses import dataclass, field
 import os
@@ -534,6 +535,44 @@ class BaseWorkflow(ABC):
                 f"Inserted step {step.__class__.__name__} at position "
                 f"{position} in {self.workflow_name}"
             )
+
+    def recover_intermediate_tree(
+        self,
+        work_dir: Path,
+        saved_intermediate_dir: Path,
+    ) -> list[str]:
+        """Restore missing saved intermediate directories into a work tree.
+
+        Existing work directories take precedence. Individual processing steps
+        remain responsible for validating cached files and deciding whether to
+        reuse or recompute them.
+        """
+        work_dir = Path(work_dir)
+        saved_intermediate_dir = Path(saved_intermediate_dir)
+        if not saved_intermediate_dir.is_dir():
+            self.logger.debug(
+                f"No saved intermediate storage found at {saved_intermediate_dir}"
+            )
+            return []
+        if work_dir.resolve() == saved_intermediate_dir.resolve():
+            return []
+
+        work_dir.mkdir(parents=True, exist_ok=True)
+        recovered = []
+        for saved_path in sorted(saved_intermediate_dir.iterdir()):
+            target = work_dir / saved_path.name
+            if target.exists():
+                self.logger.debug(f"Keeping existing work cache: {target}")
+                continue
+            if saved_path.is_dir():
+                shutil.copytree(saved_path, target)
+            elif saved_path.is_file():
+                shutil.copy2(saved_path, target)
+            else:
+                continue
+            recovered.append(saved_path.name)
+            self.logger.info(f"Recovered intermediate cache: {target}")
+        return recovered
 
     def insert_step_before(self, target: Union[Type[BaseProcessingStep], str], step: BaseProcessingStep) -> None:
         """

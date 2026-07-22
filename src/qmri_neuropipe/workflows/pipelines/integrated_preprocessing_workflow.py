@@ -50,41 +50,10 @@ class PreprocessingWorkflow(BaseWorkflow):
             self.logger.debug(f"No intermediate storage found at {intermediate_store}")
             return
 
-        if (intermediate_store / "topup").exists():
-            target_work = work_dir / "topup"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Topup results from {intermediate_store / 'topup'}")
-                shutil.copytree(intermediate_store / "topup", target_work, dirs_exist_ok=True)
+        recovered = self.recover_intermediate_tree(work_dir, intermediate_store)
 
-        if (intermediate_store / "synb0").exists():
-            target_work = work_dir / "synb0"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Synb0 results from {intermediate_store / 'synb0'}")
-                shutil.copytree(intermediate_store / "synb0", target_work, dirs_exist_ok=True)
-
-        if (intermediate_store / "merge").exists():
-            target_work = work_dir / "merge"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Merge results from {intermediate_store / 'merge'}")
-                shutil.copytree(intermediate_store / "merge", target_work, dirs_exist_ok=True)
-
-        if (intermediate_store / "eddy").exists():
-            target_work = work_dir / "eddy"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Eddy results from {intermediate_store / 'eddy'}")
-                shutil.copytree(intermediate_store / "eddy", target_work, dirs_exist_ok=True)
-
-        if (intermediate_store / "nativedrbuddi").exists():
-            target_work = work_dir / "nativedrbuddi"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Native DRBUDDI results from {intermediate_store / 'nativedrbuddi'}")
-                shutil.copytree(intermediate_store / "nativedrbuddi", target_work, dirs_exist_ok=True)
-
-        if (intermediate_store / "masking").exists():
-            target_work = work_dir / "masking"
-            if not target_work.exists():
-                self.logger.info(f"Recovering Brain Mask results from {intermediate_store / 'masking'}")
-                shutil.copytree(intermediate_store / "masking", target_work, dirs_exist_ok=True)
+        if recovered:
+            self.logger.info(f"Recovered {len(recovered)} intermediate step directorie(s).")
 
     """
     Preprocessing workflow for DWI using ExecutionEngine.

@@ -797,8 +797,6 @@ class ExecutionEngine:
     def _save_global_intermediate(self, step, output_dir: Path, context: Dict):
         """Save global step intermediate results."""
         import shutil
-        from qmri_neuropipe.lib.dmri.topup import TopupStep
-        from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
         
         sub = context.get("subject")
         ses = context.get("session")
@@ -811,15 +809,14 @@ class ExecutionEngine:
         
         dest_inter = final_dwi_dir / "intermediate"
         dest_inter.mkdir(parents=True, exist_ok=True)
-        
-        if isinstance(step, TopupStep):
-            src = output_dir / "topup"
-            if src.exists():
-                shutil.copytree(src, dest_inter / "topup", dirs_exist_ok=True)
-        elif isinstance(step, Synb0EstimationStep):
-            src = output_dir / "synb0"
-            if src.exists():
-                shutil.copytree(src, dest_inter / "synb0", dirs_exist_ok=True)
+
+        # Use the step's canonical directory mapping (for example,
+        # Synb0EstimationStep -> synb0estimation) rather than maintaining a
+        # second, incomplete list of aliases here.
+        src = step.get_step_output_dir(output_dir)
+        if src.exists() and any(src.iterdir()):
+            shutil.copytree(src, dest_inter / src.name, dirs_exist_ok=True)
+            self.logger.info(f"Saved intermediate: {dest_inter / src.name}")
     
     def _save_image_intermediate(self, output_dir: Path, context: Dict, current_arg):
         """Save per-image step intermediate results."""

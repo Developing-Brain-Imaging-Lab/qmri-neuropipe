@@ -509,6 +509,12 @@ class DMRIPipeline(BasePipeline):
                 context["preprocessing_skipped"] = True
                 return context
 
+        # Restore saved step directories before executing the ordered workflow.
+        # Each step remains responsible for validating its cached outputs and
+        # adopting them into the current context; execution therefore resumes
+        # at the first missing, stale, or invalid step.
+        self.preprocessing.recover_intermediates(work_dir, output_dir)
+
         return self.preprocessing.run(work_dir, context, reporter=reporter)
 
     def _run_modeling(self, context: dict, work_dir: Path, output_dir: Path, reporter):
