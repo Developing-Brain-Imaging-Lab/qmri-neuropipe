@@ -281,6 +281,54 @@ def _spatial_grids_match(first: Path, second: Path, atol: float = 1e-5) -> bool:
     )
 
 
+def _ants_affine_to_ras_matrix(transform_file: Path) -> np.ndarray:
+    """Read an ANTs/ITK affine and return its moving-to-fixed RAS matrix."""
+    import ants as antspy
+
+    transform = antspy.read_transform(str(transform_file))
+    parameters = np.asarray(transform.parameters, dtype=float)
+    fixed_parameters = np.asarray(transform.fixed_parameters, dtype=float)
+    if parameters.size != 12 or fixed_parameters.size < 3:
+        raise ProcessingError(
+            "Header-only coregistration requires a 3D affine ANTs transform; "
+            f"got {parameters.size} parameters from {transform_file}."
+        )
+
+    linear = parameters[:9].reshape(3, 3)
+    if not np.allclose(linear.T @ linear, np.eye(3), rtol=1e-5, atol=1e-5) or not np.isclose(
+        np.linalg.det(linear), 1.0, rtol=1e-5, atol=1e-5
+    ):
+        raise ProcessingError(
+            "Header-only coregistration received a transform containing scale, shear, "
+            f"or reflection: {transform_file}"
+        )
+    translation = parameters[9:12]
+    center = fixed_parameters[:3]
+    itk_lps = np.eye(4, dtype=float)
+    itk_lps[:3, :3] = linear
+    itk_lps[:3, 3] = translation + center - linear @ center
+    lps_ras = np.diag([-1.0, -1.0, 1.0, 1.0])
+    return lps_ras @ itk_lps @ lps_ras
+
+
+def _write_header_registered_image(
+    input_file: Path,
+    output_file: Path,
+    world_transform: np.ndarray,
+) -> Path:
+    """Copy voxel data unchanged and compose a rigid transform into qform/sform."""
+    source = nib.load(str(input_file))
+    new_affine = np.asarray(world_transform, dtype=float) @ source.affine
+    output = nib.Nifti1Image(np.asanyarray(source.dataobj), new_affine, source.header.copy())
+    qform_code = int(source.header["qform_code"]) or 1
+    sform_code = int(source.header["sform_code"]) or 1
+    output.set_qform(new_affine, code=qform_code)
+    output.set_sform(new_affine, code=sform_code)
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    nib.save(output, str(output_file))
+    return Path(output_file)
+
+
 def _candidate_freesurfer_subject_ids(context: Optional[dict], input_image=None, options: Optional[Dict[str, Any]] = None):
     options = options or {}
     explicit = options.get("subject_id") or options.get("fs_subject_id") or options.get("freesurfer_subject_id")
@@ -669,6 +717,12 @@ class CoregistrationStep(BaseProcessingStep):
         output_dir = self.get_step_output_dir(output_dir)
         
         apply_method = options.get('apply_method', 'native').lower() # 'native' or 'mrtrix'
+        application_mode = str(options.get("application_mode", "resample")).lower()
+        if application_mode not in {"resample", "header"}:
+            raise ProcessingError(
+                f"Unknown coregistration application_mode={application_mode!r}; "
+                "expected 'resample' or 'header'."
+            )
         
         from ...core.utils import get_nifti_stem
         input_stem = get_nifti_stem(in_path)
@@ -736,6 +790,21 @@ class CoregistrationStep(BaseProcessingStep):
         # --- GRID CONSOLIDATION: Resample target if native resolution requested ---
         options = options or {}
         out_res = options.get('output_resolution', 'anatomical').lower()
+        if application_mode == "header":
+            transform_type = str(options.get("transform_type", "Rigid"))
+            if self.method != "ants":
+                raise ProcessingError("Header-only coregistration currently requires method: ants.")
+            if transform_type.lower() != "rigid":
+                raise ProcessingError(
+                    "Header-only coregistration requires transform_type: Rigid; "
+                    f"got {transform_type!r}."
+                )
+            if out_res not in {"dwi", "native"}:
+                raise ProcessingError(
+                    "Header-only coregistration preserves the DWI grid and therefore "
+                    "requires output_resolution: native (or dwi). Use "
+                    "application_mode: resample for anatomical-resolution output."
+                )
         resampled_target_context = None # To store for context update
         
         registration_target = fs_registration_target or target
@@ -844,12 +913,12 @@ class CoregistrationStep(BaseProcessingStep):
                      expected_spatial_shape = expected_image.shape[:3]
                      if (
                          out_shape[:3] != expected_spatial_shape
-                         or not np.allclose(
+                         or (application_mode != "header" and not np.allclose(
                              nib.load(str(output_img)).affine,
                              expected_image.affine,
                              rtol=1e-5,
                              atol=1e-5,
-                         )
+                         ))
                      ):
                          dims_consistent = False
                          self.logger.info(
@@ -918,7 +987,7 @@ class CoregistrationStep(BaseProcessingStep):
             known_args = [
                 'dof', 'cost', 'extra_args', 'output_resolution', 'interpolation',
                 'enabled', 'reference_image', 'method', 'wm_seg_method',
-                'apply_method', 'transform_type', 'registration_fixed',
+                'apply_method', 'application_mode', 'transform_type', 'registration_fixed',
                 'registration_moving', 'application_fixed', 'registration_fixed_extras',
                 'registration_moving_extras', 'multivariate_metric',
                 'multivariate_weight', 'multivariate_sampling',
@@ -947,7 +1016,7 @@ class CoregistrationStep(BaseProcessingStep):
 
             try:
                 # --- Logic Branch: Application Method ---
-                if apply_method == 'mrtrix':
+                if apply_method == 'mrtrix' and application_mode != "header":
                     # MRTrix-based Coregistration (handles 4D and gradients correctly)
                     res_val = options.get('output_resolution', 'anatomical').lower()
                     self.logger.info(f"Executing Coregistration via MRtrix (Resolution: {res_val})...")
@@ -1141,17 +1210,31 @@ class CoregistrationStep(BaseProcessingStep):
                         )
     
                         if is_dwi or registration_moving or registration_inputs_stripped:
-                             apply_kwargs = {
-                                 "fixed_file": output_grid_ref,
-                                 "moving_file": in_path,
-                                 "out_file": output_img,
-                                 "transforms": prefix,
-                                 "interpolator": options.get("interpolation", "linear"),
-                                 "nthreads": nthreads,
-                             }
-                             if is_dwi:
-                                 apply_kwargs["imagetype"] = 3
-                             ants.apply_transforms(**apply_kwargs)
+                             if application_mode == "header":
+                                 affine_transforms = [Path(t) for t in prefix if str(t).endswith(".mat")]
+                                 if len(affine_transforms) != 1:
+                                     raise ProcessingError(
+                                         "Header-only coregistration expected exactly one rigid affine transform, "
+                                         f"got: {prefix}"
+                                     )
+                                 header_world_transform = _ants_affine_to_ras_matrix(affine_transforms[0])
+                                 _write_header_registered_image(
+                                     in_path,
+                                     output_img,
+                                     header_world_transform,
+                                 )
+                             else:
+                                 apply_kwargs = {
+                                     "fixed_file": output_grid_ref,
+                                     "moving_file": in_path,
+                                     "out_file": output_img,
+                                     "transforms": prefix,
+                                     "interpolator": options.get("interpolation", "linear"),
+                                     "nthreads": nthreads,
+                                 }
+                                 if is_dwi:
+                                     apply_kwargs["imagetype"] = 3
+                                 ants.apply_transforms(**apply_kwargs)
                         elif warped and Path(warped).exists():
                              import shutil
                              shutil.copy(warped, output_img)
@@ -1282,7 +1365,19 @@ class CoregistrationStep(BaseProcessingStep):
             if is_dwi:
                  rotated_bvecs = input_image.bvec
                  
-                 if apply_method == 'mrtrix' and mrtrix_rotated_bvecs:
+                 if application_mode == "header":
+                     self.logger.info(
+                         "Header-only coregistration leaves voxel data and image-space b-vectors unchanged."
+                     )
+                     if input_image.bvec and Path(input_image.bvec).exists():
+                         preserved_bvecs = output_dir / build_bids_name(
+                             {**entities, "desc": new_desc},
+                             suffix="bvec",
+                             extension=".bvec",
+                         )
+                         shutil.copy(input_image.bvec, preserved_bvecs)
+                         rotated_bvecs = preserved_bvecs
+                 elif apply_method == 'mrtrix' and mrtrix_rotated_bvecs:
                      self.logger.info("Using b-vectors rotated by MRTrix.")
                      rotated_bvecs = mrtrix_rotated_bvecs
                  else:
@@ -1425,12 +1520,33 @@ class CoregistrationStep(BaseProcessingStep):
         if not check_nifti_integrity(output_img):
              raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
 
-        if out_res in {"dwi", "native"} and not _spatial_grids_match(output_img, in_path):
+        if (
+             out_res in {"dwi", "native"}
+             and application_mode != "header"
+             and not _spatial_grids_match(output_img, in_path)
+        ):
              raise ProcessingError(
                  "Native coregistration output does not preserve the exact input DWI grid: "
                  f"input={nib.load(str(in_path)).shape[:3]}, "
                  f"output={nib.load(str(output_img)).shape[:3]}"
              )
+        if application_mode == "header":
+             header_output = nib.load(str(output_img))
+             header_input = nib.load(str(in_path))
+             if (
+                 header_output.shape != header_input.shape
+                 or not np.allclose(
+                     nib.affines.voxel_sizes(header_output.affine),
+                     nib.affines.voxel_sizes(header_input.affine),
+                     rtol=1e-5,
+                     atol=1e-5,
+                 )
+             ):
+                 raise ProcessingError(
+                     "Header-only coregistration changed the DWI matrix or voxel sizes."
+                 )
+             if "header_world_transform" not in locals():
+                 header_world_transform = header_output.affine @ np.linalg.inv(header_input.affine)
 
         # Dimension Verification
         try:
@@ -1506,9 +1622,19 @@ class CoregistrationStep(BaseProcessingStep):
             if mask_should_run:
                 self.logger.info(f"Applying coregistration transform to mask: {mask_in_path.name}")
                 try:
+                    if application_mode == "header":
+                        if "header_world_transform" not in locals():
+                            raise ProcessingError(
+                                "Header-only mask update requires the rigid header transform."
+                            )
+                        _write_header_registered_image(
+                            mask_in_path,
+                            mask_out_path,
+                            header_world_transform,
+                        )
                     # Determine which transform to use
                     # Priority 1: MRTrix transform if applying via MRTrix
-                    if apply_method == 'mrtrix':
+                    elif apply_method == 'mrtrix':
                         if not mrtrix_transform.exists() and output_mat.exists():
                              self.logger.info("Converting existing FSL transform to MRTrix for mask application...")
                              mrtrix.transformconvert(output_mat, mrtrix_transform, operation="flirt_import", ref_image=registration_target, in_image=moving_for_reg, force=True)
@@ -1571,6 +1697,7 @@ class CoregistrationStep(BaseProcessingStep):
                             "type": "linear",
                             "registration_method": self.method,
                             "apply_method": apply_method,
+                            "application_mode": application_mode,
                             "usable_for_gnl_mapping": True,
                             "transforms": transform_list,
                             "fsl_affine": str(affine_path) if affine_path else None,

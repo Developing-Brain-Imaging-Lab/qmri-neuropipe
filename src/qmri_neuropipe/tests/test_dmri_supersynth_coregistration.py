@@ -14,6 +14,7 @@ from qmri_neuropipe.lib.common.registration import (
     _coregistration_output_reference,
     _ensure_fsl_registration_nifti,
     _spatial_grids_match,
+    _write_header_registered_image,
 )
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
@@ -264,6 +265,32 @@ def test_spatial_grid_check_rejects_same_resolution_with_changed_matrix(tmp_path
 
     assert _spatial_grids_match(original, same)
     assert not _spatial_grids_match(original, changed)
+
+
+def test_header_registration_preserves_voxels_matrix_and_resolution(tmp_path: Path):
+    source_path = tmp_path / "source_dwi.nii.gz"
+    output_path = tmp_path / "header_coreg_dwi.nii.gz"
+    data = np.arange(5 * 6 * 7 * 2, dtype=np.int16).reshape((5, 6, 7, 2))
+    source_affine = np.diag([2.0, 2.0, 2.0, 1.0])
+    nib.save(nib.Nifti1Image(data, source_affine), source_path)
+    transform = np.eye(4)
+    transform[:3, :3] = np.array(
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    transform[:3, 3] = [10.0, -4.0, 3.0]
+
+    _write_header_registered_image(source_path, output_path, transform)
+
+    source = nib.load(str(source_path))
+    output = nib.load(str(output_path))
+    assert output.shape == source.shape
+    np.testing.assert_array_equal(np.asanyarray(output.dataobj), data)
+    np.testing.assert_allclose(
+        nib.affines.voxel_sizes(output.affine),
+        nib.affines.voxel_sizes(source.affine),
+    )
+    np.testing.assert_allclose(output.affine, transform @ source.affine)
+    np.testing.assert_allclose(output.get_qform(), output.get_sform(), atol=1e-6)
 
 
 def test_bvec_rotation_uses_only_proper_rotation_component(tmp_path: Path):
