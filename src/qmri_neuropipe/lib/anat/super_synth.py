@@ -338,14 +338,16 @@ def ensure_supersynth_t1w(
     mode: Optional[str] = None,
     device: Optional[str] = None,
     sharpen_synths: Optional[bool] = None,
+    b0_threshold: float = 50.0,
+    reuse_context_outputs: bool = True,
     force: bool = False,
     subdir: str = "supersynth",
 ) -> Optional[ImageFile]:
     """
     Generate or reuse a SuperSynth synthetic T1w image for downstream steps.
 
-    ``input_preference`` selects the anatomical source used by SuperSynth:
-    ``"T1w"``, ``"T2w"``, or ``"auto"`` (T1w first, then T2w).
+    ``input_preference`` selects the source used by SuperSynth: ``"T1w"``,
+    ``"T2w"``, ``"DWI"`` (mean b0), or ``"auto"`` (T1w first, then T2w).
     """
     outputs = context.get("super_synth_outputs", {}) or {}
     existing = outputs.get("synth_t1w")
@@ -358,7 +360,7 @@ def ensure_supersynth_t1w(
         }.items() if v
     }
 
-    if existing and Path(existing).exists() and not force:
+    if reuse_context_outputs and existing and Path(existing).exists() and not force:
         logger.info(f"Using existing SuperSynth T1w: {existing}")
         return ImageFile(entities=entities, img=Path(existing), json=None)
 
@@ -376,7 +378,25 @@ def ensure_supersynth_t1w(
     ]
     preference = str(input_preference or "auto").lower()
     anat_input = None
-    if preference == "t2w":
+    if preference in {"dwi", "b0", "diffusion", "mean_b0"}:
+        dwi_input = context.get("current_image")
+        if not isinstance(dwi_input, DWIFile):
+            dwi_candidates = context.get("preprocessed_dwis") or context.get("dwi_files") or []
+            dwi_input = dwi_candidates[0] if dwi_candidates else None
+        if isinstance(dwi_input, DWIFile):
+            mean_b0 = extract_mean_b0_for_supersynth(
+                dwi_input,
+                Path(output_dir) / subdir / "desc-meanB0_supersynthInput.nii.gz",
+                logger,
+                b0_threshold=float(b0_threshold),
+                force=force,
+            )
+            anat_input = ImageFile(
+                entities={**entities, "desc": "meanB0", "suffix": "dwi"},
+                img=mean_b0,
+                json=None,
+            )
+    elif preference == "t2w":
         anat_input = t2w_files[0] if t2w_files else None
     elif preference == "t1w":
         anat_input = t1w_files[0] if t1w_files else None

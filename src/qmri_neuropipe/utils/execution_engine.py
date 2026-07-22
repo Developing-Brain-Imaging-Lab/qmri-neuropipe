@@ -7,6 +7,7 @@ with progress tracking, error handling, and state management.
 
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Callable
+import logging
 import time
 from ..core.step_control import get_rerun_from_step, step_force_active
 from ..lib.common.spatial_transforms import normalize_transform_chain, append_transform
@@ -35,7 +36,7 @@ class ExecutionEngine:
             Logger instance
         """
         self.config = config
-        self.logger = logger
+        self.logger = logger or logging.getLogger(self.__class__.__name__)
         
     def execute_steps(
         self,

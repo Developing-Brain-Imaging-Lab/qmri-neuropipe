@@ -333,6 +333,30 @@ class DMRIPipeline(BasePipeline):
                     preprocessed_context, group_work_dir, output_dir, reporter
                 )
 
+            if self.config.get("gratio", {}).get("enabled", False):
+                from .gratio import run_aggregate_gratio_subject
+                current_dwi = preprocessed_context.get("current_image")
+                gratio_results = run_aggregate_gratio_subject(
+                    self.config,
+                    subject,
+                    session,
+                    logger=self.logger,
+                    entity_filter=getattr(current_dwi, "entities", None),
+                )
+                bucket = preprocessed_context.setdefault("modeling_results", {}).setdefault(
+                    "AggregateGRatio", {}
+                )
+                image_metrics = {
+                    "MVF", "AVF", "FVF", "gratio", "ConductionFactor",
+                    "myelinThickness", "RushtonCVIndex", "WaxmanBennettCVIndex",
+                    "RushtonCV", "WaxmanBennettCV",
+                }
+                for result_index, result in enumerate(gratio_results, start=1):
+                    for metric, path in result.items():
+                        if metric in image_metrics:
+                            key = metric if len(gratio_results) == 1 else f"{metric}_set{result_index}"
+                            bucket[key] = path
+
             if self.normalization.steps or dmri_cfg.get('normalization', {}).get('enabled'):
                 self._run_normalization(
                     preprocessed_context, group_work_dir, output_dir, reporter

@@ -1136,6 +1136,10 @@ def main(
             from .workflows.pipelines.relaxometry import RelaxometryPipeline
 
             pipeline_obj = RelaxometryPipeline(config)
+        elif pipeline_name == "gratio":
+            from .workflows.pipelines.gratio import AggregateGRatioPipeline
+
+            pipeline_obj = AggregateGRatioPipeline(config)
         elif pipeline_name == "fmri":
             from .workflows.pipelines.fmri_workflow import FmriWorkflow
 
@@ -1143,7 +1147,7 @@ def main(
         else:
             raise ConfigurationError(
                 f"Unsupported pipeline: {pipeline_name}",
-                details="Available pipelines: dmri, anat, relaxometry, fmri",
+                details="Available pipelines: dmri, anat, relaxometry, gratio, fmri",
             )
 
         console.print("\n[bold green]Starting pipeline execution...[/bold green]\n")

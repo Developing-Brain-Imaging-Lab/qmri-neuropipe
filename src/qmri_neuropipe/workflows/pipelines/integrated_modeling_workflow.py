@@ -619,6 +619,16 @@ class ModelingWorkflow(BaseWorkflow):
                     tract_dir = output_dir / 'MRtrix' / 'tractography'
                     if not any(tract_dir.glob('*_desc-wholebrain*_tractography.tck')):
                         return False
+                    tdi_cfg = getattr(step, "kwargs", {}).get("tdi", {}) or {}
+                    if isinstance(tdi_cfg, bool):
+                        tdi_cfg = {"enabled": tdi_cfg}
+                    if tdi_cfg.get("enabled", False):
+                        if not any(tract_dir.glob('*_desc-wholebrain_TDI.nii.gz')):
+                            return False
+                        if tdi_cfg.get("normalize", False) and not any(
+                            tract_dir.glob('*_desc-wholebrainNormalized_TDI.nii.gz')
+                        ):
+                            return False
                     continue
                 elif step_name == 'TractSegStep':
                     if not any((output_dir / 'TractSeg').glob('**/*.nii.gz')):
@@ -712,6 +722,14 @@ class ModelingWorkflow(BaseWorkflow):
             weights = next(tract_dir.glob("*_desc-sift2_weights.tsv"), None)
             if weights:
                 tract["sift2_weights"] = weights
+            tdi = next(tract_dir.glob("*_desc-wholebrain_TDI.nii.gz"), None)
+            normalized_tdi = next(
+                tract_dir.glob("*_desc-wholebrainNormalized_TDI.nii.gz"), None
+            )
+            if tdi:
+                tract["tdi"] = tdi
+            if normalized_tdi:
+                tract["tdi_normalized"] = normalized_tdi
             act_dir = tract_root / "ACT"
             five_tt = next(act_dir.glob("*_desc-act5tt_probseg.nii.gz"), None) if act_dir.exists() else None
             gmwmi = next(act_dir.glob("*_desc-gmwmi_mask.nii.gz"), None) if act_dir.exists() else None

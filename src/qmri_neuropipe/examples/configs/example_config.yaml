@@ -376,6 +376,54 @@ dmri:
 # ============================================================================
 # ANATOMICAL PIPELINE CONFIGURATION (if needed)
 # ============================================================================
+# AGGREGATE G-RATIO (mcDESPOT/generic myelin + NODDI/generic AVF)
+# gratio:
+#   enabled: false
+#   inputs:
+#     myelin:
+#       source: mcdespot
+#       metric: VFm
+#       interpretation: myelin_water_fraction
+#     axonal:
+#       source: noddi
+#       intracellular_metric: ICVF
+#       isotropic_metric: FISO
+#       interpretation: conditional_intracellular_fraction
+#     axon_diameter:
+#       enabled: false
+#       path: null
+#       interpretation: inner_axon_diameter
+#       summary: effective
+#       weighting: volume
+#       units: um
+#   calibration:
+#     # identity is explicitly uncalibrated: MVF = VFm
+#     # linear requires slope and intercept: MVF = slope * VFm + intercept
+#     mode: identity
+#   registration:
+#     tool: ants
+#     transform: rigid       # rigid (default) or affine
+#     assume_aligned: false  # true skips registration but requires matching grids
+#     skull_strip:
+#       enabled: true
+#       method: fsl
+#   validity:
+#     epsilon: 1.0e-6
+#     clipping_tolerance: 1.0e-6
+#   recommended_mask:
+#     enabled: true
+#     prefer_subject_native_wm: true
+#     fiso_max: 0.5
+#     wm_probability_min: 0.5
+#   conduction:
+#     conduction_factor: true
+#     rushton:
+#       enabled: true
+#       calibration_coefficient: null
+#     waxman_bennett:
+#       enabled: true
+#       calibration_coefficient: null
+
 # anat:
 #   input:
 #     # Optional: force anatomical processing to use only one modality.

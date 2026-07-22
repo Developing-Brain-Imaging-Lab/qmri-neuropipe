@@ -181,6 +181,89 @@ def test_act_requires_alignment_before_regridding_anatomical_5tt(tmp_path, monke
         step.run(context, tmp_path / "modeling")
 
 
+def test_act_can_request_dwi_derived_supersynth_t1w(tmp_path, monkeypatch):
+    import logging
+    from qmri_neuropipe.core.config import PipelineConfig
+    from qmri_neuropipe.core.types import DWIFile, ImageFile
+    from qmri_neuropipe.lib.dmri.tractography import MRtrixAnatomicalConstraintsStep
+
+    dwi = tmp_path / "dwi.nii.gz"
+    synth = tmp_path / "synth_T1w.nii.gz"
+    nib.Nifti1Image(np.zeros((4, 4, 4, 2)), np.eye(4)).to_filename(dwi)
+    nib.Nifti1Image(np.zeros((4, 4, 4)), np.eye(4)).to_filename(synth)
+    calls = {}
+
+    def fake_supersynth(context, output_dir, config, logger, **kwargs):
+        calls["input"] = kwargs["input_preference"]
+        return ImageFile(img=synth, entities={"suffix": "T1w"})
+
+    def fake_five_tt_gen(algorithm, in_file, out_file, **kwargs):
+        calls["five_tt_input"] = Path(in_file)
+        calls["five_tt_options"] = kwargs["options"]
+        nib.Nifti1Image(np.zeros((4, 4, 4, 5)), np.eye(4)).to_filename(out_file)
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.anat.super_synth.ensure_supersynth_t1w", fake_supersynth
+    )
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_gen", fake_five_tt_gen)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_check", lambda *a, **k: None)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_to_gmwmi", lambda *a, **k: None)
+
+    step = MRtrixAnatomicalConstraintsStep(
+        PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path),
+        logging.getLogger("test"),
+        None,
+        anatomical_source="supersynth",
+        supersynth={"input": "dwi"},
+    )
+    context = {
+        "current_image": DWIFile(img=dwi, entities={"sub": "01", "suffix": "dwi"}),
+    }
+    step.run(context, tmp_path / "modeling")
+
+    assert calls == {
+        "input": "dwi",
+        "five_tt_input": synth,
+        "five_tt_options": {"premasked": True},
+    }
+
+
+def test_tractography_outputs_raw_and_streamline_normalized_tdi(tmp_path, monkeypatch):
+    import logging
+    from qmri_neuropipe.core.config import PipelineConfig
+    from qmri_neuropipe.lib.dmri.tractography import MRtrixTractographyStep
+
+    dwi, fod = tmp_path / "dwi.nii.gz", tmp_path / "fod.nii.gz"
+    nib.Nifti1Image(np.zeros((3, 3, 3, 2)), np.eye(4)).to_filename(dwi)
+    fod.touch()
+
+    def fake_tckgen(in_file, out_file, **kwargs):
+        Path(out_file).write_bytes(b"mrtrix tracks\ncount: 4\nEND\n")
+
+    def fake_tckmap(tracks, out_file, **kwargs):
+        nib.Nifti1Image(np.full((3, 3, 3), 8.0), np.eye(4)).to_filename(out_file)
+
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.tckgen", fake_tckgen)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.tckmap", fake_tckmap)
+    step = MRtrixTractographyStep(
+        PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path),
+        logging.getLogger("test"),
+        None,
+        select=4,
+        tdi={"enabled": True, "normalize": True},
+    )
+    context = {
+        "current_image": SimpleNamespace(img=dwi, entities={"sub": "01", "suffix": "dwi"}),
+        "modeling_results": {"CSD": {"wmFOD": fod}},
+    }
+    result = step.run(context, tmp_path / "modeling")
+
+    raw = nib.load(result["tractography"]["tdi"]).get_fdata()
+    normalized = nib.load(result["tractography"]["tdi_normalized"]).get_fdata()
+    assert np.all(raw == 8.0)
+    assert np.all(normalized == 2.0)
+
+
 def test_tractography_outputs_use_source_entities_and_sidecar(tmp_path, monkeypatch):
     import json
     import logging

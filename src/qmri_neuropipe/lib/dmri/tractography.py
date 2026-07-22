@@ -60,6 +60,28 @@ def _sanitize_five_tt_fractions(path: Path) -> int:
     return int(corrected)
 
 
+def _tck_streamline_count(path: Path) -> int:
+    """Read the declared streamline count from an MRtrix TCK header."""
+    with Path(path).open("rb") as stream:
+        header = stream.read(65536).split(b"END\n", 1)[0].decode("utf-8", errors="replace")
+    for line in header.splitlines():
+        if line.lower().startswith("count:"):
+            return int(line.split(":", 1)[1].strip())
+    raise ValidationError(f"Could not determine streamline count from TCK header: {path}")
+
+
+def _normalize_tdi(in_file: Path, out_file: Path, denominator: float) -> Path:
+    """Divide a TDI by total streamline contribution while preserving its grid."""
+    if not np.isfinite(denominator) or denominator <= 0:
+        raise ValidationError("TDI normalization requires a positive streamline contribution")
+    image = nib.load(str(in_file))
+    data = np.asanyarray(image.dataobj).astype(np.float32) / np.float32(denominator)
+    header = image.header.copy()
+    header.set_data_dtype(np.float32)
+    nib.Nifti1Image(data, image.affine, header).to_filename(str(out_file))
+    return out_file
+
+
 def _bids_label(value: Any) -> str:
     """Return a conservative alphanumeric BIDS entity label."""
     return re.sub(r"[^A-Za-z0-9]+", "", str(value)) or "unknown"
@@ -127,12 +149,44 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
                 shutil.copyfile(five_tt, bids_five_tt)
             five_tt = bids_five_tt
         else:
+            anatomical_source = str(
+                act_cfg.pop("anatomical_source", act_cfg.pop("t1w_source", "t1w"))
+            ).lower()
+            supersynth_cfg = dict(act_cfg.pop("supersynth", {}) or {})
+            supersynth_anatomical = None
+            supersynth_from_dwi = False
+            if anatomical_source in {"supersynth", "syntht1w", "synthetic_t1w"}:
+                from ..anat.super_synth import ensure_supersynth_t1w
+
+                supersynth_input = str(supersynth_cfg.get("input", "auto")).lower()
+                supersynth_from_dwi = supersynth_input in {
+                    "dwi", "b0", "diffusion", "mean_b0"
+                }
+                supersynth_anatomical = ensure_supersynth_t1w(
+                    context,
+                    out_dir,
+                    self.config,
+                    self.logger,
+                    input_preference=supersynth_input,
+                    mode=supersynth_cfg.get("mode"),
+                    device=supersynth_cfg.get("device"),
+                    sharpen_synths=supersynth_cfg.get("sharpen_synths"),
+                    b0_threshold=supersynth_cfg.get("b0_threshold", 50.0),
+                    reuse_context_outputs=False,
+                    force=force,
+                    subdir="supersynth_5tt",
+                )
             anatomical = (
                 act_cfg.pop("anatomical", None)
+                or supersynth_anatomical
                 or context.get("preprocessed_anat_coreg")
                 or context.get("preprocessed_t1w")
                 or _first(context.get("t1w_files"))
             )
+            if anatomical_source in {"supersynth", "syntht1w", "synthetic_t1w"} and not supersynth_anatomical:
+                raise ValidationError(
+                    "ACT requested a SuperSynth T1w, but no usable SuperSynth input was available"
+                )
             if not anatomical:
                 raise ValidationError(
                     "ACT requires an existing five_tt image or an anatomical T1w image"
@@ -140,17 +194,23 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
             five_tt = _bids_path(out_dir, context, desc="act5tt", suffix="probseg", extension=".nii.gz")
             reference = _path(context.get("current_image"))
             if force or not five_tt.exists():
+                five_tt_options = dict(act_cfg.pop("options", {}) or {})
+                if anatomical_source in {"supersynth", "syntht1w", "synthetic_t1w"}:
+                    five_tt_options.setdefault("premasked", True)
                 anatomical_five_tt = _bids_path(
                     out_dir, context, desc="act5ttAnat", suffix="probseg", extension=".nii.gz"
                 )
                 mrtrix.five_tt_gen(
                     act_cfg.pop("algorithm", "fsl"), _path(anatomical), anatomical_five_tt,
-                    options=act_cfg.pop("options", {}), nthreads=self.nthreads, force=force,
+                    options=five_tt_options, nthreads=self.nthreads, force=force,
                 )
                 if reference and reference.exists() and not _spatial_grids_match(
                     anatomical_five_tt, reference
                 ):
-                    if not self._has_header_anatomical_alignment(context):
+                    if not (
+                        supersynth_from_dwi
+                        or self._has_header_anatomical_alignment(context)
+                    ):
                         raise ValidationError(
                             "The anatomical T1w and diffusion image use different grids, but "
                             "no header-based anatomical-to-diffusion alignment is available "
@@ -209,6 +269,7 @@ class MRtrixTractographyStep(BaseProcessingStep):
 
     def run(self, context: dict, output_dir: Path, mask=None, force=False, **kwargs):
         cfg = dict(self.kwargs)
+        tdi_cfg = cfg.pop("tdi", {}) or {}
         out_dir = output_dir / "MRtrix" / "tractography"
         out_dir.mkdir(parents=True, exist_ok=True)
         algorithm = cfg.pop("algorithm", "iFOD2")
@@ -277,6 +338,54 @@ class MRtrixTractographyStep(BaseProcessingStep):
             })
         elif method not in {"none", "false", ""}:
             raise ValidationError("tractography filtering method must be none, sift, or sift2")
+
+        if isinstance(tdi_cfg, bool):
+            tdi_cfg = {"enabled": tdi_cfg}
+        if tdi_cfg.get("enabled", False):
+            map_tracks = Path(tract_ctx["whole_brain"])
+            use_weights = bool(tdi_cfg.get("use_sift2_weights", True))
+            map_weights = tract_ctx.get("sift2_weights") if use_weights else None
+            tdi = _bids_path(
+                out_dir, context, desc="wholebrain", suffix="TDI", extension=".nii.gz"
+            )
+            map_options = dict(tdi_cfg.get("options", {}) or {})
+            map_options.setdefault("contrast", "tdi")
+            mrtrix.tckmap(
+                map_tracks,
+                tdi,
+                template=_path(context.get("current_image")),
+                weights=_path(map_weights),
+                options=map_options,
+                nthreads=self.nthreads,
+                force=force,
+            )
+            tract_ctx["tdi"] = tdi
+            _write_json_sidecar(tdi, {
+                "Sources": [str(map_tracks)],
+                "MapType": "TrackDensityImage",
+                "Normalization": "none",
+                "SIFT2Weights": str(map_weights) if map_weights else None,
+            })
+
+            if tdi_cfg.get("normalize", False):
+                if map_weights:
+                    denominator = float(np.sum(np.loadtxt(str(map_weights), ndmin=1)))
+                    normalization = "sum_of_sift2_weights"
+                else:
+                    denominator = float(_tck_streamline_count(map_tracks))
+                    normalization = "streamline_count"
+                normalized_tdi = _bids_path(
+                    out_dir, context, desc="wholebrainNormalized", suffix="TDI", extension=".nii.gz"
+                )
+                if force or not normalized_tdi.exists():
+                    _normalize_tdi(tdi, normalized_tdi, denominator)
+                tract_ctx["tdi_normalized"] = normalized_tdi
+                _write_json_sidecar(normalized_tdi, {
+                    "Sources": [str(tdi)],
+                    "MapType": "NormalizedTrackDensityImage",
+                    "Normalization": normalization,
+                    "NormalizationDenominator": denominator,
+                })
         return context
 
 

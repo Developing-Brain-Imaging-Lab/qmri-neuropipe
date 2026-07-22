@@ -24,12 +24,29 @@ dmri:
         act:
           enabled: true
           algorithm: fsl
+          # Use "t1w" (default) or "supersynth" for 5ttgen.
+          anatomical_source: supersynth
+          supersynth:
+            # auto prefers T1w then T2w; dwi generates SuperSynth from the mean b0.
+            input: dwi
+            mode: invivo
+            device: cpu
+            sharpen_synths: false
+            b0_threshold: 50
           validate: true
           seed_gmwmi: true
           backtrack: true
           crop_at_gmwmi: true
         filtering:
           method: sift2
+        tdi:
+          enabled: true
+          # Also write a map divided by sum(SIFT2 weights), or by streamline
+          # count when SIFT2 weights are not used.
+          normalize: true
+          use_sift2_weights: true
+          options:
+            precise: true
       tractseg:
         enabled: true
         options:
