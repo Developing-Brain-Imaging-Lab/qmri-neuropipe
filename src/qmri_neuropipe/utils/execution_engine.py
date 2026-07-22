@@ -550,6 +550,14 @@ class ExecutionEngine:
                     ),
                 )
                 if prepared is None:
+                    self.logger.warning(
+                        "Skipping CoregistrationStep: reference_image=%s could not "
+                        "be prepared because no usable anatomical reference was loaded "
+                        "(T1w=%d, T2w=%d).",
+                        target_modality,
+                        len(t1w_files),
+                        len(t2w_files),
+                    )
                     return None
                 target_img, actual_modality, flat_opts = prepared
             
@@ -575,7 +583,14 @@ class ExecutionEngine:
                     actual_modality = "T2w"
             
             if not target_img:
-                return None  # Skip this step
+                self.logger.warning(
+                    "Skipping CoregistrationStep: reference_image=%s was requested, "
+                    "but no usable anatomical reference was loaded (T1w=%d, T2w=%d).",
+                    target_modality,
+                    len(t1w_files),
+                    len(t2w_files),
+                )
+                return None
             
             step_kwargs["target"] = target_img
             step_kwargs["options"] = flat_opts
