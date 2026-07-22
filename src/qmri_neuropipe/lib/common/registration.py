@@ -298,7 +298,13 @@ def _spatial_grids_match(first: Path, second: Path, atol: float = 1e-5) -> bool:
 
 
 def _ants_affine_to_ras_matrix(transform_file: Path) -> np.ndarray:
-    """Read an ANTs/ITK affine and return its moving-to-fixed RAS matrix."""
+    """Read an ANTs/ITK affine and return its moving-to-fixed RAS matrix.
+
+    ANTs stores the affine used by image resampling as a fixed-to-moving
+    (output-to-input) pull transform.  Header-only registration needs the
+    opposite, moving-to-fixed mapping before composing it with the input
+    voxel-to-world affine.
+    """
     import ants as antspy
 
     transform = antspy.read_transform(str(transform_file))
@@ -324,7 +330,8 @@ def _ants_affine_to_ras_matrix(transform_file: Path) -> np.ndarray:
     itk_lps[:3, :3] = linear
     itk_lps[:3, 3] = translation + center - linear @ center
     lps_ras = np.diag([-1.0, -1.0, 1.0, 1.0])
-    return lps_ras @ itk_lps @ lps_ras
+    fixed_to_moving_ras = lps_ras @ itk_lps @ lps_ras
+    return np.linalg.inv(fixed_to_moving_ras)
 
 
 def _write_header_registered_image(

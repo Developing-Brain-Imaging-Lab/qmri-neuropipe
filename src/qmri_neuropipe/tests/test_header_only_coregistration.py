@@ -1,6 +1,13 @@
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
-from qmri_neuropipe.lib.common.registration import _preserve_header_only_bvec
+import numpy as np
+
+from qmri_neuropipe.lib.common.registration import (
+    _ants_affine_to_ras_matrix,
+    _preserve_header_only_bvec,
+)
 
 
 def test_header_only_coregistration_copies_bvec_without_modification(tmp_path: Path):
@@ -16,3 +23,23 @@ def test_header_only_coregistration_copies_bvec_without_modification(tmp_path: P
 
     assert output == tmp_path / "sub-01_ses-02_desc-coreg_bvec.bvec"
     assert output.read_bytes() == source.read_bytes()
+
+
+def test_ants_pull_affine_is_inverted_for_header_composition(monkeypatch, tmp_path: Path):
+    # ITK parameters describe fixed -> moving. Here that mapping translates
+    # fixed points +4 mm in LPS x, so moving -> fixed must translate -4 mm in
+    # LPS x, which is +4 mm in RAS x.
+    transform = SimpleNamespace(
+        parameters=[1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0, 0],
+        fixed_parameters=[0, 0, 0],
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "ants",
+        SimpleNamespace(read_transform=lambda _: transform),
+    )
+
+    matrix = _ants_affine_to_ras_matrix(tmp_path / "affine.mat")
+
+    assert np.allclose(matrix[:3, :3], np.eye(3))
+    assert np.allclose(matrix[:3, 3], [4, 0, 0])
