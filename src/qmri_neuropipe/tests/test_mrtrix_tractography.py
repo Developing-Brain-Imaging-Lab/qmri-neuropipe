@@ -115,11 +115,19 @@ def test_act_uses_selected_t1w_and_regrids_5tt_to_dwi(tmp_path, monkeypatch):
 
     def fake_mrtransform(in_file, out_file, **kwargs):
         calls["template"] = Path(kwargs["template"])
-        nib.Nifti1Image(np.zeros((4, 4, 4, 5)), np.eye(4)).to_filename(out_file)
+        data = np.zeros((4, 4, 4, 5))
+        data[0, 0, 0, 0] = -1e-7
+        data[0, 0, 0, 1] = 1.0000001
+        nib.Nifti1Image(data, np.eye(4)).to_filename(out_file)
+
+    def fake_five_tt_check(in_file, **kwargs):
+        data = np.asanyarray(nib.load(in_file).dataobj)
+        assert data.min() >= 0.0
+        assert data.max() <= 1.0
 
     monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_gen", fake_five_tt_gen)
     monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.mrtransform", fake_mrtransform)
-    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_check", lambda *a, **k: None)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_check", fake_five_tt_check)
     monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_to_gmwmi", lambda *a, **k: None)
 
     config = PipelineConfig(

@@ -40,6 +40,26 @@ def _spatial_grids_match(first: Path, second: Path) -> bool:
     )
 
 
+def _sanitize_five_tt_fractions(path: Path) -> int:
+    """Clamp only numerical interpolation round-off near the physical PVE range."""
+    image = nib.load(str(path))
+    data = np.asanyarray(image.dataobj)
+    tolerance = 1e-5
+    roundoff = ((data < 0.0) & (data >= -tolerance)) | (
+        (data > 1.0) & (data <= 1.0 + tolerance)
+    )
+    corrected = np.count_nonzero(roundoff)
+    if not corrected:
+        return 0
+
+    clipped = np.array(data, dtype=np.float32, copy=True)
+    clipped[roundoff] = np.clip(clipped[roundoff], 0.0, 1.0)
+    header = image.header.copy()
+    header.set_data_dtype(np.float32)
+    nib.Nifti1Image(clipped, image.affine, header).to_filename(str(path))
+    return int(corrected)
+
+
 def _bids_label(value: Any) -> str:
     """Return a conservative alphanumeric BIDS entity label."""
     return re.sub(r"[^A-Za-z0-9]+", "", str(value)) or "unknown"
@@ -148,6 +168,12 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
                     )
                 elif anatomical_five_tt.resolve() != five_tt.resolve():
                     shutil.copyfile(anatomical_five_tt, five_tt)
+        corrected_fractions = _sanitize_five_tt_fractions(five_tt)
+        if corrected_fractions:
+            self.logger.info(
+                "Clamped %d interpolated 5TT partial-volume value(s) to [0, 1]",
+                corrected_fractions,
+            )
         if act_cfg.pop("validate", True):
             mrtrix.five_tt_check(five_tt, nthreads=self.nthreads)
         reference = _path(context.get("current_image"))
