@@ -522,7 +522,10 @@ class DMRIPipeline(BasePipeline):
         # at the first missing, stale, or invalid step.
         self.preprocessing.recover_intermediates(work_dir, output_dir)
 
-        return self.preprocessing.run(work_dir, context, reporter=reporter)
+        result = self.preprocessing.run(work_dir, context, reporter=reporter)
+        if rerun_hits_preprocessing:
+            result["preprocessing_rerun_from_step"] = rerun_from_step
+        return result
 
     def _run_modeling(self, context: dict, work_dir: Path, output_dir: Path, reporter):
         """Run modeling workflow."""

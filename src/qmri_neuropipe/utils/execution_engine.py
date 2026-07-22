@@ -362,6 +362,11 @@ class ExecutionEngine:
             # Run step
             try:
                 start_time = time.time()
+                self.logger.info(
+                    "Input to %s: %s",
+                    step_name,
+                    getattr(dwi, "img", dwi),
+                )
                 force_run = self.config.get("dmri", {}).get("force_run", False) or force_from_step
                 if force_from_step:
                     self.logger.info(f"Forcing {step_name} because rerun_from_step has been reached.")

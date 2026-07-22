@@ -302,7 +302,18 @@ class ModelingWorkflow(BaseWorkflow):
         # === FAST-PATH: Batch validation ===
         rerun_from_step = get_rerun_from_step(self.config, "dmri.modeling", "modeling")
         rerun_hits_modeling = any_step_matches(self.steps, rerun_from_step)
-        if self.config.skip_existing and not self.config.get('force', False) and not rerun_hits_modeling:
+        upstream_rerun = context.get("preprocessing_rerun_from_step")
+        if upstream_rerun:
+            self.logger.info(
+                "Preprocessing was rerun from %s; invalidating cached modeling outputs.",
+                upstream_rerun,
+            )
+        if (
+            self.config.skip_existing
+            and not self.config.get('force', False)
+            and not rerun_hits_modeling
+            and not upstream_rerun
+        ):
             all_exist = self._check_all_outputs_exist(
                 preprocessed_dwis,
                 final_dest
@@ -499,7 +510,7 @@ class ModelingWorkflow(BaseWorkflow):
                     context.pop('gnl_map', None)
             
             rerun_from_step = get_rerun_from_step(self.config, "dmri.modeling", "modeling")
-            force_from_step_active = False
+            force_from_step_active = bool(context.get("preprocessing_rerun_from_step"))
             for step in self.steps:
                 step_name = step.__class__.__name__
                 force_from_step_active = step_force_active(force_from_step_active, step, rerun_from_step)

@@ -10,6 +10,7 @@ from typing import Optional
 import shutil
 
 from qmri_neuropipe.core import BaseWorkflow, PipelineContext
+from qmri_neuropipe.core.step_control import get_rerun_from_step
 from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.utils.data_io import DataIOManager
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
@@ -571,7 +572,21 @@ class PreprocessingWorkflow(BaseWorkflow):
         try:
             io_manager = DataIOManager(self.config, self.logger)
             io_manager.normalize_context_derivative_entities(context)
-            skip_existing = self.config.get("skip_existing", True)
+            rerun_from_step = get_rerun_from_step(
+                self.config,
+                "dmri.preprocessing",
+                "preprocessing",
+            )
+            skip_existing = (
+                self.config.get("skip_existing", True)
+                and not self.config.get("force", False)
+                and not rerun_from_step
+            )
+            if rerun_from_step:
+                self.logger.info(
+                    "Publishing refreshed final outputs after rerun_from_step=%s.",
+                    rerun_from_step,
+                )
             io_manager.save_final_outputs(context, self.config.output_dir, skip_existing=skip_existing)
         except Exception as e:
             self.logger.warning(f"Failed to save final outputs: {e}")

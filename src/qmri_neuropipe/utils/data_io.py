@@ -371,8 +371,16 @@ class DataIOManager:
             
             copy_image = True
             if skip_existing and target_img.exists():
-                self.logger.debug(f"Skipping existing image file but refreshing sidecars: {target_img}")
-                copy_image = False
+                source_mtime = dwi.img.stat().st_mtime
+                target_mtime = target_img.stat().st_mtime
+                if source_mtime > target_mtime:
+                    self.logger.info(
+                        "Refreshing stale final image from newer workflow output: %s",
+                        target_img,
+                    )
+                else:
+                    self.logger.debug(f"Skipping existing image file but refreshing sidecars: {target_img}")
+                    copy_image = False
             
             # Copy files
             if copy_image:
@@ -478,7 +486,11 @@ class DataIOManager:
                 
                 target_mask = target_dir / mask_name
                 
-                if not (skip_existing and target_mask.exists()):
+                mask_is_newer = (
+                    target_mask.exists()
+                    and mask_src.stat().st_mtime > target_mask.stat().st_mtime
+                )
+                if not (skip_existing and target_mask.exists() and not mask_is_newer):
                     self.logger.info(f"Saving mask: {target_mask}")
                     shutil.copy(mask_src, target_mask)
         
