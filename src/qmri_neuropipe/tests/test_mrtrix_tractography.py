@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import nibabel as nib
+import numpy as np
 import pytest
 
 
@@ -93,6 +95,70 @@ def test_tractography_step_requires_fod(tmp_path):
     step = MRtrixTractographyStep(config, logging.getLogger("test"), None)
     with pytest.raises(ValidationError, match="CSD FOD"):
         step.run({}, tmp_path)
+
+
+def test_act_uses_selected_t1w_and_regrids_5tt_to_dwi(tmp_path, monkeypatch):
+    import logging
+    from qmri_neuropipe.core.config import PipelineConfig
+    from qmri_neuropipe.lib.dmri.tractography import MRtrixAnatomicalConstraintsStep
+
+    t1w = tmp_path / "sub-01_acq-MPnRAGE_desc-preproc_T1w.nii.gz"
+    dwi = tmp_path / "sub-01_desc-preproc_dwi.nii.gz"
+    nib.Nifti1Image(np.zeros((8, 8, 8)), np.eye(4)).to_filename(t1w)
+    nib.Nifti1Image(np.zeros((4, 4, 4, 2)), np.eye(4)).to_filename(dwi)
+
+    calls = {}
+
+    def fake_five_tt_gen(algorithm, in_file, out_file, **kwargs):
+        calls["anatomical"] = Path(in_file)
+        nib.Nifti1Image(np.zeros((8, 8, 8, 5)), np.eye(4)).to_filename(out_file)
+
+    def fake_mrtransform(in_file, out_file, **kwargs):
+        calls["template"] = Path(kwargs["template"])
+        nib.Nifti1Image(np.zeros((4, 4, 4, 5)), np.eye(4)).to_filename(out_file)
+
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_gen", fake_five_tt_gen)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.mrtransform", fake_mrtransform)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_check", lambda *a, **k: None)
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_to_gmwmi", lambda *a, **k: None)
+
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path)
+    step = MRtrixAnatomicalConstraintsStep(config, logging.getLogger("test"), None)
+    context = {
+        "current_image": SimpleNamespace(img=dwi, entities={"sub": "01", "suffix": "dwi"}),
+        "t1w_files": [SimpleNamespace(img=t1w)],
+        "spatial_transform": {"type": "linear", "application_mode": "header"},
+    }
+
+    result = step.run(context, tmp_path / "modeling")
+
+    assert calls == {"anatomical": t1w, "template": dwi}
+    assert nib.load(result["tractography"]["act_5tt"]).shape == (4, 4, 4, 5)
+
+
+def test_act_requires_alignment_before_regridding_anatomical_5tt(tmp_path, monkeypatch):
+    import logging
+    from qmri_neuropipe.core.config import PipelineConfig
+    from qmri_neuropipe.core.exceptions import ValidationError
+    from qmri_neuropipe.lib.dmri.tractography import MRtrixAnatomicalConstraintsStep
+
+    t1w, dwi = tmp_path / "T1w.nii.gz", tmp_path / "dwi.nii.gz"
+    nib.Nifti1Image(np.zeros((8, 8, 8)), np.eye(4)).to_filename(t1w)
+    nib.Nifti1Image(np.zeros((4, 4, 4, 2)), np.eye(4)).to_filename(dwi)
+
+    def fake_five_tt_gen(algorithm, in_file, out_file, **kwargs):
+        nib.Nifti1Image(np.zeros((8, 8, 8, 5)), np.eye(4)).to_filename(out_file)
+
+    monkeypatch.setattr("qmri_neuropipe.interfaces.mrtrix.five_tt_gen", fake_five_tt_gen)
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path)
+    step = MRtrixAnatomicalConstraintsStep(config, logging.getLogger("test"), None)
+    context = {
+        "current_image": SimpleNamespace(img=dwi, entities={"sub": "01", "suffix": "dwi"}),
+        "t1w_files": [SimpleNamespace(img=t1w)],
+    }
+
+    with pytest.raises(ValidationError, match="no header-based anatomical-to-diffusion alignment"):
+        step.run(context, tmp_path / "modeling")
 
 
 def test_tractography_outputs_use_source_entities_and_sidecar(tmp_path, monkeypatch):

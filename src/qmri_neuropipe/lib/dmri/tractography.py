@@ -28,6 +28,18 @@ def _path(value):
     return Path(getattr(value, "img", value))
 
 
+def _first(values):
+    """Return the first item from an optional sequence."""
+    return values[0] if values else None
+
+
+def _spatial_grids_match(first: Path, second: Path) -> bool:
+    first_img, second_img = nib.load(str(first)), nib.load(str(second))
+    return first_img.shape[:3] == second_img.shape[:3] and np.allclose(
+        first_img.affine, second_img.affine, atol=1e-3
+    )
+
+
 def _bids_label(value: Any) -> str:
     """Return a conservative alphanumeric BIDS entity label."""
     return re.sub(r"[^A-Za-z0-9]+", "", str(value)) or "unknown"
@@ -86,24 +98,49 @@ class MRtrixAnatomicalConstraintsStep(BaseProcessingStep):
                 act_cfg.pop("anatomical", None)
                 or context.get("preprocessed_anat_coreg")
                 or context.get("preprocessed_t1w")
+                or _first(context.get("t1w_files"))
             )
             if not anatomical:
                 raise ValidationError(
                     "ACT requires an existing five_tt image or an anatomical T1w image"
                 )
             five_tt = _bids_path(out_dir, context, desc="act5tt", suffix="probseg", extension=".nii.gz")
-            mrtrix.five_tt_gen(
-                act_cfg.pop("algorithm", "fsl"), _path(anatomical), five_tt,
-                options=act_cfg.pop("options", {}), nthreads=self.nthreads, force=force,
-            )
+            reference = _path(context.get("current_image"))
+            if force or not five_tt.exists():
+                anatomical_five_tt = _bids_path(
+                    out_dir, context, desc="act5ttAnat", suffix="probseg", extension=".nii.gz"
+                )
+                mrtrix.five_tt_gen(
+                    act_cfg.pop("algorithm", "fsl"), _path(anatomical), anatomical_five_tt,
+                    options=act_cfg.pop("options", {}), nthreads=self.nthreads, force=force,
+                )
+                if reference and reference.exists() and not _spatial_grids_match(
+                    anatomical_five_tt, reference
+                ):
+                    spatial_transform = context.get("spatial_transform") or {}
+                    if spatial_transform.get("application_mode") != "header":
+                        raise ValidationError(
+                            "The anatomical T1w and diffusion image use different grids, but "
+                            "no header-based anatomical-to-diffusion alignment is available "
+                            "for ACT"
+                        )
+                    self.logger.info("Resampling anatomical 5TT image onto the diffusion grid")
+                    mrtrix.mrtransform(
+                        anatomical_five_tt,
+                        five_tt,
+                        template=reference,
+                        interp="linear",
+                        datatype="float32",
+                        nthreads=self.nthreads,
+                        force=True,
+                    )
+                elif anatomical_five_tt.resolve() != five_tt.resolve():
+                    shutil.copyfile(anatomical_five_tt, five_tt)
         if act_cfg.pop("validate", True):
             mrtrix.five_tt_check(five_tt, nthreads=self.nthreads)
         reference = _path(context.get("current_image"))
         if reference and reference.exists():
-            five_img, ref_img = nib.load(str(five_tt)), nib.load(str(reference))
-            if five_img.shape[:3] != ref_img.shape[:3] or not np.allclose(
-                five_img.affine, ref_img.affine, atol=1e-3
-            ):
+            if not _spatial_grids_match(five_tt, reference):
                 raise ValidationError(
                     "ACT 5TT image is not on the diffusion grid; supply a DWI-space "
                     "five_tt image or a DWI-coregistered anatomical image"
