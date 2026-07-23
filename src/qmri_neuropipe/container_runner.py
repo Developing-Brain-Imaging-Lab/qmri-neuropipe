@@ -33,6 +33,7 @@ SETTING_KEYS = {
     "dry_run",
     "keep_going",
     "cleanenv",
+    "contain_all",
     "nv",
     "participant_label",
     "session_label",
@@ -190,7 +191,7 @@ def expand_settings_args(argv: list[str]) -> list[str]:
             continue
 
         flag = "--" + normalized.replace("_", "-")
-        if normalized in {"dry_run", "keep_going", "cleanenv"}:
+        if normalized in {"dry_run", "keep_going", "cleanenv", "contain_all"}:
             if bool(value) and not has_flag(argv, flag):
                 inserted.append(flag)
             continue
@@ -304,9 +305,6 @@ def build_container_command(
     subject: str,
     session: str,
 ) -> list[str]:
-    # Preserve site-visible aliases such as /study rather than resolving them to
-    # backing paths such as /study2. The same spelling must remain valid inside
-    # the container for paths embedded elsewhere in the pipeline config.
     bids_dir = Path(args.bids_dir).expanduser().absolute()
     output_dir = Path(args.output_dir).expanduser().absolute()
     work_dir = Path(args.work_dir).expanduser().absolute() if args.work_dir else output_dir / "work"
@@ -322,16 +320,18 @@ def build_container_command(
     ]
     if args.cleanenv:
         cmd.append("--cleanenv")
+    if args.contain_all:
+        cmd.append("--containall")
     if args.nv:
         cmd.append("--nv")
 
     cmd.extend([
         "--bind",
-        bind_arg(bids_dir, str(bids_dir), "ro"),
+        bind_arg(bids_dir, "/data", "ro"),
         "--bind",
-        bind_arg(output_dir, str(output_dir)),
+        bind_arg(output_dir, "/out"),
         "--bind",
-        bind_arg(work_dir, str(work_dir)),
+        bind_arg(work_dir, "/work"),
         "--bind",
         bind_arg(support_dir, "/config", "ro"),
     ])
@@ -348,11 +348,11 @@ def build_container_command(
         "--config",
         f"config/{config_name}",
         "--bids-dir",
-        str(bids_dir),
+        "/data",
         "--output-dir",
-        str(output_dir),
+        "/out",
         "--work-dir",
-        str(work_dir),
+        "/work",
     ])
 
     if args.pipeline:
@@ -470,6 +470,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Print container command(s) without running.")
     parser.add_argument("--keep-going", action="store_true", help="Continue after a failed subject/session.")
     parser.add_argument("--cleanenv", action="store_true", help="Run container with --cleanenv.")
+    parser.add_argument(
+        "--contain-all",
+        action="store_true",
+        help="Run the container with Apptainer/Singularity --containall isolation.",
+    )
     parser.add_argument("--no-nv", dest="nv", action="store_false", help="Do not pass --nv to the container runtime.")
     parser.set_defaults(nv=True)
     return parser

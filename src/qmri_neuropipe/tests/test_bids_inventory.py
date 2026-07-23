@@ -296,6 +296,7 @@ def test_container_run_forwards_help_to_legacy_runner():
     assert "--config" in result.output
     assert "--participant-label" in result.output
     assert "--n-cpus" in result.output
+    assert "--contain-all" in result.output
 
 
 def test_container_command_accepts_native_pipeline_options(tmp_path, monkeypatch):
@@ -323,7 +324,7 @@ def test_container_command_accepts_native_pipeline_options(tmp_path, monkeypatch
     assert result == 0
 
 
-def test_container_paths_preserve_symlink_spelling(tmp_path, monkeypatch, capsys):
+def test_container_uses_canonical_internal_paths_and_containall(tmp_path, monkeypatch, capsys):
     from qmri_neuropipe import container_runner
 
     real_study = tmp_path / "study2"
@@ -344,10 +345,14 @@ def test_container_paths_preserve_symlink_spelling(tmp_path, monkeypatch, capsys
     result = container_runner.main([
         "--container-image", str(image),
         "--config", str(config),
+        "--contain-all",
         "--dry-run",
     ])
 
     assert result == 0
     command = capsys.readouterr().out
-    assert str(study_alias / "rawdata") in command
-    assert str(real_study / "rawdata") not in command
+    assert "--containall" in command
+    assert f"{study_alias / 'rawdata'}:/data:ro" in command
+    assert f"{output_dir}:/out" in command
+    assert "--bids-dir /data" in command
+    assert "--output-dir /out" in command
