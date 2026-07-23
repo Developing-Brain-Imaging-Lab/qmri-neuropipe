@@ -17,6 +17,7 @@ from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
+from .dmipy_backend import DmipyRuntime, acquisition_scheme_from_bvalues
 
 
 def _reshape_gnl_tensor(vox_gnl):
@@ -40,14 +41,12 @@ def _rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
 
 
 def _build_dmipy_scheme(bvals, bvecs, delta=None, Delta=None):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy.core import acquisition_scheme
-    kwargs = {"bvalues": bvals, "gradient_directions": bvecs}
-    if delta is not None and Delta is not None:
-        kwargs["delta"] = delta
-        kwargs["Delta"] = Delta
-    return acquisition_scheme.acquisition_scheme_from_bvalues(**kwargs)
+    return acquisition_scheme_from_bvalues(
+        bvals,
+        bvecs,
+        delta=delta,
+        Delta=Delta,
+    )
 
 
 def _load_sandi_gradients(bval_file, bvec_file):
@@ -159,9 +158,9 @@ def _safe_rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
 def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = None):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
 
     parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
     iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
@@ -196,10 +195,10 @@ def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = No
 def _build_sandi_model(model_config):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions.distribute_models import BundleModel
-        #from dmipy.core.modeling_framework import MultiCompartmentModel
-        from dmipy.core.modeling_framework import MultiCompartmentSphericalMeanModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy_fit.distributions.distribute_models import BundleModel
+        #from dmipy_fit.core.modeling_framework import MultiCompartmentModel
+        from dmipy_fit.core.modeling_framework import MultiCompartmentSphericalMeanModel
         
 
     soma_diffusivity = float(model_config.get('soma_diffusivity', 3.0e-9))
@@ -257,9 +256,9 @@ def _fit_chunk(args):
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
 
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
@@ -547,6 +546,7 @@ def fit_noddi(
     iso_diffusivity: float = 3.0e-9,
     distribution: str = "Watson",
     solver: str = "brute2fine",
+    device: str = "auto",
     solver_kwargs: Optional[Dict] = None,
     # New options
     model_type: str = "standard", # 'standard' or 'smt'
@@ -601,10 +601,9 @@ def fit_noddi(
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from dmipy.signal_models import cylinder_models, gaussian_models
-            from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-            from dmipy.distributions import distribute_models
-            from dmipy.core import acquisition_scheme
+            from dmipy_fit.signal_models import cylinder_models, gaussian_models
+            from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+            from dmipy_fit.distributions import distribute_models
     except ImportError as exc:
         raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
 
@@ -620,8 +619,11 @@ def fit_noddi(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required for NODDI.")
 
+    runtime = DmipyRuntime.resolve(solver=solver, device=device)
     if solver_kwargs is None:
         solver_kwargs = {}
+    else:
+        solver_kwargs = dict(solver_kwargs)
     
     # Load data
     img = nib.load(str(in_path))
@@ -637,7 +639,7 @@ def fit_noddi(
     # qmri-neuropipe inputs are likely standard.
     
     # Warning: acquisition_scheme_from_bvalues_bvecs expects bvals in s/mm^2 and bvecs normalized.
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals*1e6, bvecs)
+    gtab = _build_dmipy_scheme(bvals * 1e6, bvecs)
     
     # Define Mask
     if mask_file and mask_file.exists():
@@ -706,7 +708,9 @@ def fit_noddi(
     print(f"Total voxels to fit: {n_voxels}")
     
     # 2. Split into chunks
-    n_chunks = nthreads
+    # dmipy-fit's JAX solver vectorizes internally and must not be replicated
+    # across the legacy multiprocessing pool.
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     
     # Split FISO data if present
@@ -825,7 +829,7 @@ def fit_noddi(
     print(f"Starting process pool (method: {ctx.get_start_method()})...")
     
     # We use explicit try/finally to ensure termination if needed
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     try:
         # CRITICAL FIX: Use pool.imap (ordered) instead of imap_unordered.
         # imap yields results in the same order as chunk_args.
@@ -961,19 +965,13 @@ def fit_sandi(
     parallel_diffusivity: Optional[float] = None,
     iso_diffusivity: Optional[float] = None,
     solver: str = "brute2fine",
+    device: str = "auto",
     solver_kwargs: Optional[Dict] = None,
     grad_nonlin: Optional[Path] = None,
     soma_diffusivity: Optional[float] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """Fit a native dmipy SANDI model."""
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy.core import acquisition_scheme
-    except ImportError as exc:
-        raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
-
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
 
@@ -986,8 +984,11 @@ def fit_sandi(
     if not bval_file or not bvec_file:
         raise ValueError("Gradient files (bval/bvec) are required for SANDI.")
 
+    runtime = DmipyRuntime.resolve(solver=solver, device=device)
     if solver_kwargs is None:
         solver_kwargs = {}
+    else:
+        solver_kwargs = dict(solver_kwargs)
 
     img = nib.load(str(in_path))
     data = img.get_fdata()
@@ -1009,9 +1010,9 @@ def fit_sandi(
             f"DWI has {data.shape[-1]} volumes but gradients contain {bvals_si.size} measurements."
         )
     delta_arr, Delta_arr = _load_sandi_timing(delta_file, Delta_file, bvals_si.size)
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-        bvalues=bvals_si,
-        gradient_directions=bvecs,
+    gtab = _build_dmipy_scheme(
+        bvals_si,
+        bvecs,
         delta=delta_arr,
         Delta=Delta_arr,
     )
@@ -1038,7 +1039,7 @@ def fit_sandi(
         else:
             gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
 
-    n_chunks = nthreads
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
 
@@ -1063,7 +1064,7 @@ def fit_sandi(
 
     worker = _fit_sandi_chunk_gnl if gnl_data_flat is not None else _fit_sandi_chunk
     results = []
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     try:
         for res in pool.imap(worker, chunk_args):
             results.append(res)
@@ -1105,7 +1106,7 @@ def fit_sandi(
     entities['model'] = 'SANDI'
     metadata = {
         "ModelName": "SANDI (Soma and Neurite Density Imaging)",
-        "FittingSoftware": "dmipy",
+        **runtime.provenance(),
         "FittingMethod": "MultiCompartmentSphericalMeanModel",
         "SomaDiffusivity": float(soma_diffusivity),
         "SomaDiffusivityUnits": "m^2/s",

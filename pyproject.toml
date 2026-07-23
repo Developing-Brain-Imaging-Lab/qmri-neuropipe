@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qmri-neuropipe"
 version = "0.0.1"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
@@ -14,10 +16,10 @@ dependencies = [
     "jinja2>=3.1", 
     "matplotlib>=3.8", 
     "antspyx>=0.3", 
-    "dmipy>=1.0",
+    "dmipy-fit>=2.1,<2.2",
     "setuptools>=68,<82",
     "nibabel>=5.0",
-    "numpy>=1.24,<2.0",
+    "numpy>=2.0,<3",
     "numba",
     "scipy>=1.10",
     "dipy>=1.8",
@@ -29,6 +31,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dmipy-jax = [
+    "dmipy-fit[jax]>=2.1,<2.2"
+]
+dmipy-cuda12 = [
+    "dmipy-fit[jax-gpu]>=2.1,<2.2"
+]
+dmipy-legacy = [
+    "dmipy-fit[legacy]>=2.1,<2.2"
+]
 amico = [
     "dmri-amico"
 ]

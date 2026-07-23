@@ -9,7 +9,7 @@ autodoc_mock_imports = [
     'ants', 
     'antspyx',
     'dipy', 
-    'dmipy', 
+    'dmipy_fit',
     'nibabel', 
     'numpy', 
     'scipy', 

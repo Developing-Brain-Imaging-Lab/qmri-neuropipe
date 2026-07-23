@@ -19,6 +19,20 @@ Robust neuroimaging pipeline for BIDS datasets.
 pip install -e .
 ```
 
+The default installation includes the released dmipy 2.1 CPU fitting stack.
+Install a JAX execution backend explicitly when vectorized fitting is needed:
+
+```bash
+# JAX on CPU
+pip install -e ".[dmipy-jax]"
+
+# JAX with CUDA 12 support
+pip install -e ".[dmipy-cuda12]"
+
+# Optional legacy CSD/visualization optimizer dependencies
+pip install -e ".[dmipy-legacy]"
+```
+
 ### Quick Start
 
 ```bash
@@ -108,3 +122,16 @@ For cached reruns, set `rerun_from_step` under the relevant workflow scope
 (`dmri.preprocessing`, `dmri.modeling`, `anat.preprocessing`, or
 `relaxometry.preprocessing`) to force that step and all later steps while
 leaving earlier cached outputs intact.
+
+## License
+
+Copyright © the qmri-neuropipe contributors.
+
+qmri-neuropipe is licensed under the GNU Affero General Public License,
+version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE). If a modified version
+is made available as a network service, its users must be offered the
+Corresponding Source for the version they are using.
+
+The dmipy 2.x fitting backend is separately distributed under
+`AGPL-3.0-only OR LicenseRef-Commercial`. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for dependency notices.

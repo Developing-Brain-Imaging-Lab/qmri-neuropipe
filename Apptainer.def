@@ -229,7 +229,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         --no-build-isolation \
         --prefer-binary \
         "${PACKAGE_SPEC}"
-    ${CONDA_DIR}/bin/python -c "import amico; import dmipy; import pkg_resources"
+    ${CONDA_DIR}/bin/python -c "import amico; import dmipy_fit; import pkg_resources"
     # Synb0 weights total several GB. Fetch them while building so contained
     # HPC jobs never try to place them in a small ephemeral $HOME.
     export DIPY_HOME=/opt/dipy

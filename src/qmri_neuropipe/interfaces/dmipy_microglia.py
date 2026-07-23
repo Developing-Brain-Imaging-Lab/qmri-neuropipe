@@ -19,6 +19,7 @@ from qmri_neuropipe.interfaces.dmipy import (
     _voxel_signal_is_valid,
     _safe_rotate_gradients_for_gnl,
 )
+from qmri_neuropipe.interfaces.dmipy_backend import DmipyRuntime
 
 
 def _load_microglia_gradients(bval_file, bvec_file):
@@ -271,9 +272,9 @@ def _fit_microglia_chunk(args):
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
@@ -315,9 +316,9 @@ def _fit_microglia_chunk_gnl(args):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
@@ -423,6 +424,7 @@ def fit_microglia(
     small_diameter_bounds=(5e-6, 11e-6),
     large_diameter_bounds=(12e-6, 18e-6),
     solver: str = "brute2fine",
+    device: str = "auto",
     solver_kwargs: Optional[Dict] = None,
     Ns: int = 5,
     maxiter: int = 300,
@@ -450,13 +452,6 @@ def fit_microglia(
     except (ImportError, RuntimeError):
         pass
 
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy.core import acquisition_scheme
-    except ImportError as exc:
-        raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
-
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
     
@@ -469,6 +464,7 @@ def fit_microglia(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required.")
 
+    runtime = DmipyRuntime.resolve(solver=solver, device=device)
     if solver_kwargs is None:
         solver_kwargs = {}
     else:
@@ -490,9 +486,9 @@ def fit_microglia(
     delta_arr, Delta_arr = _load_microglia_timing(
         delta_file, Delta_file, bvals.size
     )
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-        bvalues=bvals,
-        gradient_directions=bvecs,
+    gtab = _build_dmipy_scheme(
+        bvals,
+        bvecs,
         delta=delta_arr,
         Delta=Delta_arr,
     )
@@ -516,7 +512,7 @@ def fit_microglia(
             gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
         
     n_voxels = valid_voxels.shape[0]
-    n_chunks = nthreads
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
     
@@ -549,7 +545,7 @@ def fit_microglia(
     except ValueError:
          ctx = multiprocessing.get_context('fork')
          
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     results = []
     try:
         worker = _fit_microglia_chunk_gnl if gnl_data_flat is not None else _fit_microglia_chunk
@@ -609,7 +605,7 @@ def fit_microglia(
     sidecar = {
         "ModelName": "Microglia (4-Compartment)",
         "ModelReference": "https://doi.org/10.1126/sciadv.abq2923",
-        "FittingSoftware": "Dmipy",
+        **runtime.provenance(),
         "InputData": in_path.name,
         "BValueInputUnits": "s/mm^2",
         "BValueFittingUnits": "s/m^2",

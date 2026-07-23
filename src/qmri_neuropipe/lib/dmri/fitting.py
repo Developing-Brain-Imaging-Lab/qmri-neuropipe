@@ -646,9 +646,11 @@ class NODDIFittingStep(BaseProcessingStep):
 
         outputs = {}
         outputs = {}
+        dmipy_runtime_metadata = {}
         gnl_map = _resolve_context_gnl_map(context, dwi)
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
+             from ...interfaces.dmipy_backend import DmipyRuntime
              
              # Extract config options
              # Priority: kwargs > config > default
@@ -668,6 +670,12 @@ class NODDIFittingStep(BaseProcessingStep):
              iso_diff = get_cfg('iso_diffusivity', 3.0e-9)
              model_type = get_cfg('model_type', 'standard')
              fiso_map = get_cfg('fiso_map', None)
+             solver_name = noddi_kwargs.get('solver', 'brute2fine')
+             device_name = noddi_kwargs.get('device', 'auto')
+             dmipy_runtime_metadata = DmipyRuntime.resolve(
+                 solver=solver_name,
+                 device=device_name,
+             ).provenance()
              
              # Pass to fit_noddi
              outputs = fit_noddi(
@@ -723,7 +731,8 @@ class NODDIFittingStep(BaseProcessingStep):
                     "ModelName": "NODDI",
                     "FittingSoftware": "Dmipy" if self.method == 'dmipy' else "AMICO",
                     "InputData": dwi.img.name,
-                    "Metric": suffix
+                    "Metric": suffix,
+                    **dmipy_runtime_metadata,
                 }
                 import json
                 with open(str(new_path).replace('.nii.gz', '.json'), 'w') as f:

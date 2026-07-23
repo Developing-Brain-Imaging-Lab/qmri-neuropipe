@@ -13,11 +13,11 @@ from qmri_neuropipe.interfaces.dmipy_microglia import (
 
 
 def _make_model(config=None):
-    pytest.importorskip("dmipy")
+    pytest.importorskip("dmipy_fit")
 
-    from dmipy.core.modeling_framework import MultiCompartmentModel
-    from dmipy.distributions import distribute_models
-    from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
+    from dmipy_fit.core.modeling_framework import MultiCompartmentModel
+    from dmipy_fit.distributions import distribute_models
+    from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
 
     model = _build_microglia_model(
         cylinder_models,

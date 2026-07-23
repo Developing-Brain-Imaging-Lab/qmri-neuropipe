@@ -165,12 +165,12 @@ RUN QMRI_FIT_SRC=/opt/container-assets/qmri-fit; \
 # 8. qmri-neuropipe and Python dependencies
 # --------------------------------------------------------------------------------
 WORKDIR /app
-COPY pyproject.toml /app/pyproject.toml
+COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md /app/
 COPY src /app/src
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel && \
     ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
-    ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources" && \
+    ${CONDA_DIR}/bin/python -c "import dmipy_fit; import pkg_resources" && \
     mkdir -p "${DIPY_HOME}" && \
     ${CONDA_DIR}/bin/python -c "from dipy.data import fetch_synb0_weights; fetch_synb0_weights()" && \
     chmod -R a+rX "${DIPY_HOME}"
