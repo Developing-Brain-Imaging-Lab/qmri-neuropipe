@@ -102,6 +102,30 @@ class Synb0EstimationStep(BaseProcessingStep):
             or (source in {"supersynth", "prefer_supersynth"} and preference in {"dwi", "b0", "diffusion", "mean_b0"})
         )
 
+    def _bias_correct_t1(self, t1w_mgz: Path, output_dir: Path) -> Path:
+        """Bias-correct the Synb0 T1, using ANTs when FreeSurfer lacks MINC."""
+        t1w_n3 = output_dir / "t1w_n3.mgz"
+        try:
+            freesurfer.mri_nu_correct(in_file=t1w_mgz, out_file=t1w_n3)
+        except Exception as exc:
+            self.logger.warning(
+                "FreeSurfer mri_nu_correct failed during Synb0 T1 preprocessing "
+                "(%s). Falling back to ANTs N4 bias correction.",
+                exc,
+            )
+            if t1w_n3.exists():
+                t1w_n3.unlink()
+            t1w_n4_input = output_dir / "t1w_n4_input.nii.gz"
+            t1w_n4 = output_dir / "t1w_n4.nii.gz"
+            freesurfer.mri_convert(in_file=t1w_mgz, out_file=t1w_n4_input)
+            ants.n4bias(
+                in_file=t1w_n4_input,
+                out_file=t1w_n4,
+                nthreads=int(getattr(self.config, "n_cpus", 1) or 1),
+            )
+            freesurfer.mri_convert(in_file=t1w_n4, out_file=t1w_n3)
+        return t1w_n3
+
     def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
         if b0_path.exists() and not force:
             return b0_path
@@ -343,26 +367,7 @@ class Synb0EstimationStep(BaseProcessingStep):
             t1w_mgz = output_dir / "t1w.mgz"
             freesurfer.mri_convert(in_file=t1w_path, out_file=t1w_mgz)
     
-            t1w_n3 = output_dir / "t1w_n3.mgz"
-            try:
-                freesurfer.mri_nu_correct(in_file=t1w_mgz, out_file=t1w_n3)
-            except Exception as exc:
-                self.logger.warning(
-                    "FreeSurfer mri_nu_correct failed during Synb0 T1 preprocessing "
-                    "(%s). Falling back to ANTs N4 bias correction.",
-                    exc,
-                )
-                if t1w_n3.exists():
-                    t1w_n3.unlink()
-                t1w_n4_input = output_dir / "t1w_n4_input.nii.gz"
-                t1w_n4 = output_dir / "t1w_n4.nii.gz"
-                freesurfer.mri_convert(in_file=t1w_mgz, out_file=t1w_n4_input)
-                ants.n4bias(
-                    in_file=t1w_n4_input,
-                    out_file=t1w_n4,
-                    nthreads=int(getattr(self.config, "n_cpus", 1) or 1),
-                )
-                freesurfer.mri_convert(in_file=t1w_n4, out_file=t1w_n3)
+            t1w_n3 = self._bias_correct_t1(t1w_mgz, output_dir)
     
             t1w_norm = output_dir / "t1w_norm.mgz"
             freesurfer.mri_normalize(in_file=t1w_n3, out_file=t1w_norm)
