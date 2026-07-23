@@ -27,6 +27,7 @@ ENV MNI_DIR=${FREESURFER_HOME}/mni
 ENV C3DPATH=/opt/c3d/bin
 ENV TORTOISE_HOME=/opt/tortoise
 ENV QMRI_FIT_HOME=/opt/qmri-fit
+ENV DIPY_HOME=/opt/dipy
 ENV LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:${QMRI_FIT_HOME}/lib:$LD_LIBRARY_PATH
 ENV PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:${FREESURFER_HOME}/bin:${FREESURFER_HOME}/python/bin:${FREESURFER_HOME}/python/scripts:${C3DPATH}:${TORTOISE_HOME}/bin:${QMRI_FIT_HOME}/bin:$PATH
 
@@ -169,7 +170,10 @@ COPY src /app/src
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel && \
     ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
-    ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources"
+    ${CONDA_DIR}/bin/python -c "import dmipy; import pkg_resources" && \
+    mkdir -p "${DIPY_HOME}" && \
+    ${CONDA_DIR}/bin/python -c "from dipy.data import fetch_synb0_weights; fetch_synb0_weights()" && \
+    chmod -R a+rX "${DIPY_HOME}"
 
 # --------------------------------------------------------------------------------
 # 9. Runtime wrapper

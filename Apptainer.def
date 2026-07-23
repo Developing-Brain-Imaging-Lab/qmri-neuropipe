@@ -230,6 +230,13 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         --prefer-binary \
         "${PACKAGE_SPEC}"
     ${CONDA_DIR}/bin/python -c "import amico; import dmipy; import pkg_resources"
+    # Synb0 weights total several GB. Fetch them while building so contained
+    # HPC jobs never try to place them in a small ephemeral $HOME.
+    export DIPY_HOME=/opt/dipy
+    mkdir -p "${DIPY_HOME}"
+    ${CONDA_DIR}/bin/python -c \
+        "from dipy.data import fetch_synb0_weights; fetch_synb0_weights()"
+    chmod -R a+rX "${DIPY_HOME}"
 
     # Remove package caches and temporary build content before Apptainer
     # compresses the root filesystem into the final SIF.
@@ -268,6 +275,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 %environment
     export CONDA_DIR=/opt/conda
     export PATH=${CONDA_DIR}/bin:$PATH
+    export DIPY_HOME=/opt/dipy
 
     export FSLDIR=/usr/local/fsl
     export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:$PATH
