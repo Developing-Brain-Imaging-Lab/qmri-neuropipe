@@ -18,17 +18,45 @@ def _mrtrix_config_args() -> list[str]:
     return ["-config", "TmpFileDir", tmpdir, "-config", "ScriptScratchDir", tmpdir]
 
 
+_SCRIPT_COMMANDS_WITH_SELECTOR = {
+    "5ttgen",
+    "dwi2response",
+    "dwibiascorrect",
+}
+
+
+def _global_option_index(parts: list[str]) -> int:
+    """Return where MRtrix global options may be inserted safely."""
+    if parts and Path(str(parts[0])).name in _SCRIPT_COMMANDS_WITH_SELECTOR:
+        # These scripts require an algorithm/backend selector immediately
+        # after the executable (for example, ``dwibiascorrect ants``).
+        return min(2, len(parts))
+    return min(1, len(parts))
+
+
 def _mrtrix_cmd(parts: list[str]) -> str:
     if not parts:
         return ""
-    return " ".join([str(parts[0]), *_mrtrix_config_args(), *map(str, parts[1:])])
+    index = _global_option_index(parts)
+    configured = [
+        *map(str, parts[:index]),
+        *_mrtrix_config_args(),
+        *map(str, parts[index:]),
+    ]
+    return " ".join(configured)
 
 
 def _mrtrix_script_parts(parts: list[str]) -> list[str]:
     """Add MRtrix Python-script scratch directory without affecting compiled tools."""
     if any(str(part) == "-scratch" for part in parts):
         return parts
-    return [str(parts[0]), "-scratch", _writable_tmpdir(), *map(str, parts[1:])]
+    index = _global_option_index(parts)
+    return [
+        *map(str, parts[:index]),
+        "-scratch",
+        _writable_tmpdir(),
+        *map(str, parts[index:]),
+    ]
 
 
 def _run_mrtrix(parts: list[str], *, label: str, script: bool = False, n_threads: int = None) -> None:
