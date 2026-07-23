@@ -86,7 +86,6 @@ all = [
 qmri-neuropipe = "qmri_neuropipe.cli:app"
 qmri-tools = "qmri_neuropipe.tools:app"
 qneuro-condor = "qmri_neuropipe.examples.condor.qneuro_condor:console_main"
-qneuro-container = "qmri_neuropipe.container_runner:console_main"
 
 [tool.setuptools.package-data]
 "qmri_neuropipe.lib.reporting" = ["*.html"]

@@ -40,8 +40,6 @@ from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
 
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
-container_app = typer.Typer(help="Run qmri-neuropipe through an Apptainer/Singularity container.")
-app.add_typer(container_app, name="container")
 
 
 def _counts_table(title: str, counts: dict[str, int]) -> Table:
@@ -328,13 +326,13 @@ def inspect_command(
         _print_inventory(inventory, details=details)
 
 
-@container_app.command(
-    "run",
+@app.command(
+    "container",
     add_help_option=False,
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 def container_run(ctx: typer.Context):
-    """Run using the existing container runner; use --help for its options."""
+    """Run qmri-neuropipe through an Apptainer/Singularity container."""
     from qmri_neuropipe.container_runner import main as container_main
 
     exit_code = container_main(list(ctx.args))

@@ -25,6 +25,7 @@ SETTING_KEYS = {
     "sessions",
     "pipeline",
     "cpus",
+    "n_cpus",
     "memory_gb",
     "runtime",
     "bind",
@@ -33,6 +34,14 @@ SETTING_KEYS = {
     "keep_going",
     "cleanenv",
     "nv",
+    "participant_label",
+    "session_label",
+    "config",
+}
+
+SETTING_ALIASES = {
+    "config_file": "config",
+    "cpus": "n_cpus",
 }
 
 
@@ -70,6 +79,16 @@ def load_settings_file(path: Path) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError(f"Settings file must contain a mapping: {path}")
     return data
+
+
+def pipeline_path_defaults(path: Path) -> dict[str, object]:
+    """Read wrapper-relevant top-level paths from a pipeline config."""
+    data = load_settings_file(path)
+    return {
+        key: data[key]
+        for key in ("bids_dir", "output_dir", "work_dir")
+        if data.get(key) not in (None, "")
+    }
 
 
 def pop_settings_arg(argv: list[str]) -> tuple[list[str], Path | None]:
@@ -158,7 +177,11 @@ def expand_settings_args(argv: list[str]) -> list[str]:
         if normalized not in SETTING_KEYS or value is None or value == "":
             continue
 
-        if normalized in {"subject", "subjects", "subjects_file"} and any(has_flag(argv, flag) for flag in subject_flags):
+        normalized = SETTING_ALIASES.get(normalized, normalized)
+
+        if normalized in {"subject", "subjects", "subjects_file", "participant_label"} and any(
+            has_flag(argv, flag) for flag in subject_flags | {"--participant-label", "-p"}
+        ):
             continue
 
         if normalized == "nv":
@@ -301,11 +324,11 @@ def build_container_command(
 
     cmd.extend([
         "--bind",
-        bind_arg(bids_dir, "/data", "ro"),
+        bind_arg(bids_dir, str(bids_dir), "ro"),
         "--bind",
-        bind_arg(output_dir, "/out"),
+        bind_arg(output_dir, str(output_dir)),
         "--bind",
-        bind_arg(work_dir, "/work"),
+        bind_arg(work_dir, str(work_dir)),
         "--bind",
         bind_arg(support_dir, "/config", "ro"),
     ])
@@ -322,18 +345,19 @@ def build_container_command(
         "--config",
         f"config/{config_name}",
         "--bids-dir",
-        "data",
+        str(bids_dir),
         "--output-dir",
-        "out",
+        str(output_dir),
         "--work-dir",
-        "work",
-        "--pipeline",
-        args.pipeline,
-        "--n-cpus",
-        str(args.cpus),
-        "--memory-gb",
-        str(args.memory_gb),
+        str(work_dir),
     ])
+
+    if args.pipeline:
+        cmd.extend(["--pipeline", args.pipeline])
+    if args.n_cpus is not None:
+        cmd.extend(["--n-cpus", str(args.n_cpus)])
+    if args.memory_gb is not None:
+        cmd.extend(["--memory-gb", str(args.memory_gb)])
 
     subject = norm_label(subject, "sub-")
     session = norm_label(session, "ses-")
@@ -350,6 +374,17 @@ def run(args: argparse.Namespace) -> int:
     runtime = find_container_runtime(args.runtime)
     check_container_image(args.container_image)
 
+    config_path = Path(args.config).expanduser()
+    config_defaults = pipeline_path_defaults(config_path)
+    args.bids_dir = args.bids_dir or config_defaults.get("bids_dir")
+    args.output_dir = args.output_dir or config_defaults.get("output_dir")
+    args.work_dir = args.work_dir or config_defaults.get("work_dir") or ""
+    if not args.bids_dir or not args.output_dir:
+        raise ValueError(
+            "bids_dir and output_dir must be provided either in --config or as "
+            "--bids-dir/--output-dir wrapper overrides"
+        )
+
     bids_dir = Path(args.bids_dir).expanduser().resolve()
     if not bids_dir.is_dir():
         raise FileNotFoundError(f"BIDS directory not found: {bids_dir}")
@@ -360,7 +395,7 @@ def run(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="qneuro_container.") as tmp:
         support_dir = Path(tmp) / "config"
         support_dir.mkdir()
-        config_name = copy_support_file(args.config_file, support_dir, label="Config file", required=True)
+        config_name = copy_support_file(args.config, support_dir, label="Config file", required=True)
         fs_license_name = copy_support_file(args.freesurfer_license, support_dir, label="FreeSurfer license")
         if args.gnl_coeff_file:
             copy_support_file(args.gnl_coeff_file, support_dir, label="GNL coefficient file")
@@ -407,25 +442,25 @@ def build_parser() -> argparse.ArgumentParser:
             "with automatic path binds."
         )
     )
-    parser.add_argument("--settings", help="YAML/JSON settings file. CLI flags override settings values.")
+    parser.add_argument("--settings", help="YAML/JSON defaults for this container wrapper. CLI flags override settings values.")
     parser.add_argument("--container-image", required=True, help="Path or URI to qneuro/qmri-neuropipe SIF/image.")
-    parser.add_argument("--config-file", required=True, help="qmri-neuropipe YAML/JSON config file.")
-    parser.add_argument("--bids-dir", required=True, help="Host BIDS dataset directory.")
-    parser.add_argument("--output-dir", required=True, help="Host output directory.")
-    parser.add_argument("--work-dir", default="", help="Host work directory. Defaults to <output-dir>/work.")
+    parser.add_argument("--config", "-c", "--config-file", dest="config", required=True, help="qmri-neuropipe YAML/JSON config file.")
+    parser.add_argument("--bids-dir", default="", help="Host BIDS dataset directory. Defaults to bids_dir in --config.")
+    parser.add_argument("--output-dir", default="", help="Host output directory. Defaults to output_dir in --config.")
+    parser.add_argument("--work-dir", default="", help="Host work directory. Defaults to work_dir in --config, then <output-dir>/work.")
     parser.add_argument("--freesurfer-license", default="", help="Optional FreeSurfer license file.")
     parser.add_argument("--gnl-coeff-file", default="", help="Optional GNL coefficient file copied into /config.")
 
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--subject", help="Single subject label, with or without sub- prefix.")
-    selection.add_argument("--subjects", help="Comma-separated subject labels.")
+    selection.add_argument("--participant-label", "-p", "--subject", dest="subject", help="Single subject label, with or without sub- prefix.")
+    selection.add_argument("--subjects", help="Comma-separated participant labels.")
     selection.add_argument("--subjects-file", help="CSV/text file with subject,session rows.")
-    parser.add_argument("--session", default="none", help="Single session label, with or without ses- prefix.")
+    parser.add_argument("--session-label", "-s", "--session", dest="session", default="none", help="Single session label, with or without ses- prefix.")
     parser.add_argument("--sessions", default="", help="Comma-separated sessions paired with --subjects.")
 
-    parser.add_argument("--pipeline", default="dmri", help="Pipeline passed to qmri-neuropipe.")
-    parser.add_argument("--cpus", type=int, default=8, help="CPU count passed to qmri-neuropipe.")
-    parser.add_argument("--memory-gb", type=int, default=32, help="Memory GB passed to qmri-neuropipe.")
+    parser.add_argument("--pipeline", default=None, help="Pipeline passed to qmri-neuropipe (otherwise read from config).")
+    parser.add_argument("--n-cpus", "--cpus", dest="n_cpus", type=int, default=None, help="CPU count passed to qmri-neuropipe (otherwise read from config).")
+    parser.add_argument("--memory-gb", type=float, default=None, help="Memory GB passed to qmri-neuropipe (otherwise read from config).")
     parser.add_argument("--runtime", default="", help="Container runtime executable. Defaults to apptainer, then singularity.")
     parser.add_argument("--bind", action="append", default=[], help="Additional bind spec, e.g. /host/path:/container/path:ro.")
     parser.add_argument("--extra-arg", action="append", default=[], help="Additional argument passed through to qmri-neuropipe.")
@@ -440,7 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     argv = expand_settings_args(argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args, passthrough = parser.parse_known_args(argv)
+    args.extra_arg.extend(passthrough)
     try:
         return run(args)
     except Exception as exc:

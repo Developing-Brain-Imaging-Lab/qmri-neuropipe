@@ -289,8 +289,35 @@ def test_inspect_cli_details_shows_per_model_coverage(tmp_path: Path):
 
 
 def test_container_run_forwards_help_to_legacy_runner():
-    result = CliRunner().invoke(app, ["container", "run", "--help"])
+    result = CliRunner().invoke(app, ["container", "--help"])
 
     assert result.exit_code == 0
     assert "--container-image" in result.output
-    assert "--config-file" in result.output
+    assert "--config" in result.output
+    assert "--participant-label" in result.output
+    assert "--n-cpus" in result.output
+
+
+def test_container_command_accepts_native_pipeline_options(tmp_path, monkeypatch):
+    from qmri_neuropipe import container_runner
+
+    bids_dir = tmp_path / "bids"
+    bids_dir.mkdir()
+    output_dir = tmp_path / "out"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"bids_dir: {bids_dir}\noutput_dir: {output_dir}\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "qmri-neuropipe.sif"
+    image.touch()
+
+    monkeypatch.setattr(container_runner, "find_container_runtime", lambda _: "/usr/bin/apptainer")
+    result = container_runner.main([
+        "--container-image", str(image),
+        "--config", str(config),
+        "--no-gpu",
+        "--dry-run",
+    ])
+
+    assert result == 0

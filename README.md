@@ -32,6 +32,33 @@ qmri-neuropipe run \
 
 ## Containers
 
+Run the pipeline through an Apptainer/Singularity image with the same pipeline
+options used by the native command:
+
+```bash
+qmri-neuropipe container \
+  --container-image /path/to/qmri-neuropipe.sif \
+  --config config.yaml \
+  --participant-label 001 \
+  --session-label 01
+```
+
+`bids_dir`, `output_dir`, and `work_dir` may live in `config.yaml`; the wrapper
+mounts those host directories at the same absolute paths inside the container.
+This allows the same config to be used for native and container runs. You may
+instead supply `--bids-dir`, `--output-dir`, or `--work-dir` to override the
+config.
+
+Any other absolute path referenced by the pipeline config must also be visible
+inside the container. Add it with `--bind /host/path:/host/path` when the
+container runtime does not expose it automatically.
+
+The optional `--settings` YAML/JSON file contains defaults for the container
+wrapper—such as `container_image`, runtime, extra binds, and host-path or
+resource overrides. It is not a second pipeline configuration. Command-line
+options override settings, and pipeline behavior remains in the file passed to
+`--config`.
+
 GPU-enabled tools such as `eddy_cuda` require the host NVIDIA driver libraries at
 runtime. Those are not reliably solved by baking `libcuda.so.1` into the image.
 Use the container with GPU passthrough enabled:
