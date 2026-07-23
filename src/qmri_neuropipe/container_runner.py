@@ -311,6 +311,8 @@ def build_container_command(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
+    container_tmp_dir = work_dir / ".tmp"
+    container_tmp_dir.mkdir(parents=True, exist_ok=True)
 
     cmd: list[str] = [
         runtime,
@@ -324,6 +326,12 @@ def build_container_command(
         cmd.append("--containall")
     if args.nv:
         cmd.append("--nv")
+
+    # Under --containall, the container's default /tmp is a small ephemeral
+    # filesystem. MRtrix scripts may expand an entire 4D DWI there, so route
+    # temporary data to the persistent work bind instead.
+    for name in ("TMPDIR", "TEMP", "TMP", "MRTRIX_TMPFILE_DIR"):
+        cmd.extend(["--env", f"{name}=/work/.tmp"])
 
     cmd.extend([
         "--bind",

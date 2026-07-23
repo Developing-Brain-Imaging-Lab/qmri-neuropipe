@@ -354,5 +354,8 @@ def test_container_uses_canonical_internal_paths_and_containall(tmp_path, monkey
     assert "--containall" in command
     assert f"{study_alias / 'rawdata'}:/data:ro" in command
     assert f"{output_dir}:/out" in command
+    assert "TMPDIR=/work/.tmp" in command
+    assert "MRTRIX_TMPFILE_DIR=/work/.tmp" in command
+    assert (output_dir / "work" / ".tmp").is_dir()
     assert "--bids-dir /data" in command
     assert "--output-dir /out" in command
