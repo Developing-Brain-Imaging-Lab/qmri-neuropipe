@@ -304,9 +304,12 @@ def build_container_command(
     subject: str,
     session: str,
 ) -> list[str]:
-    bids_dir = Path(args.bids_dir).expanduser().resolve()
-    output_dir = Path(args.output_dir).expanduser().resolve()
-    work_dir = Path(args.work_dir).expanduser().resolve() if args.work_dir else output_dir / "work"
+    # Preserve site-visible aliases such as /study rather than resolving them to
+    # backing paths such as /study2. The same spelling must remain valid inside
+    # the container for paths embedded elsewhere in the pipeline config.
+    bids_dir = Path(args.bids_dir).expanduser().absolute()
+    output_dir = Path(args.output_dir).expanduser().absolute()
+    work_dir = Path(args.work_dir).expanduser().absolute() if args.work_dir else output_dir / "work"
 
     output_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -385,7 +388,7 @@ def run(args: argparse.Namespace) -> int:
             "--bids-dir/--output-dir wrapper overrides"
         )
 
-    bids_dir = Path(args.bids_dir).expanduser().resolve()
+    bids_dir = Path(args.bids_dir).expanduser().absolute()
     if not bids_dir.is_dir():
         raise FileNotFoundError(f"BIDS directory not found: {bids_dir}")
 

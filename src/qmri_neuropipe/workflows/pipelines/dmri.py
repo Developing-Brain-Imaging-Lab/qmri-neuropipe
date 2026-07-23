@@ -441,6 +441,12 @@ class DMRIPipeline(BasePipeline):
             
             if matches:
                 self.logger.info(f"Found {len(matches)} custom anatomical files.")
+            else:
+                self.logger.error(
+                    "Custom %s search pattern matched no files: %s",
+                    modality,
+                    pattern,
+                )
         
         return results
 

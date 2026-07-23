@@ -321,3 +321,33 @@ def test_container_command_accepts_native_pipeline_options(tmp_path, monkeypatch
     ])
 
     assert result == 0
+
+
+def test_container_paths_preserve_symlink_spelling(tmp_path, monkeypatch, capsys):
+    from qmri_neuropipe import container_runner
+
+    real_study = tmp_path / "study2"
+    bids_dir = real_study / "rawdata"
+    bids_dir.mkdir(parents=True)
+    study_alias = tmp_path / "study"
+    study_alias.symlink_to(real_study, target_is_directory=True)
+    output_dir = study_alias / "derivatives"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"bids_dir: {study_alias / 'rawdata'}\noutput_dir: {output_dir}\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "qmri-neuropipe.sif"
+    image.touch()
+
+    monkeypatch.setattr(container_runner, "find_container_runtime", lambda _: "/usr/bin/apptainer")
+    result = container_runner.main([
+        "--container-image", str(image),
+        "--config", str(config),
+        "--dry-run",
+    ])
+
+    assert result == 0
+    command = capsys.readouterr().out
+    assert str(study_alias / "rawdata") in command
+    assert str(real_study / "rawdata") not in command
