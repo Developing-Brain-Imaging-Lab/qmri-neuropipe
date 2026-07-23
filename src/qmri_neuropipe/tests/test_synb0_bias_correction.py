@@ -54,3 +54,29 @@ def test_synb0_falls_back_to_ants_when_freesurfer_minc_is_missing(
             tmp_path / "t1w_n3.mgz",
         ),
     ]
+
+
+def test_synb0_uses_bias_corrected_t1_when_normalization_fails(
+    tmp_path: Path, monkeypatch
+):
+    step = Synb0EstimationStep.__new__(Synb0EstimationStep)
+    step.logger = logging.getLogger(__name__)
+    t1w_n3 = tmp_path / "t1w_n3.mgz"
+    t1w_n3.touch()
+    calls = []
+
+    def fail_normalize(**kwargs):
+        Path(kwargs["out_file"]).touch()
+        raise RuntimeError("could not find enough control points")
+
+    def record_convert(**kwargs):
+        calls.append((kwargs["in_file"], kwargs["out_file"]))
+
+    monkeypatch.setattr(freesurfer, "mri_normalize", fail_normalize)
+    monkeypatch.setattr(freesurfer, "mri_convert", record_convert)
+
+    result = step._normalize_t1(t1w_n3, tmp_path)
+
+    assert result == tmp_path / "t1w_norm.mgz"
+    assert not result.exists()
+    assert calls == [(t1w_n3, tmp_path / "t1w_norm.mgz")]

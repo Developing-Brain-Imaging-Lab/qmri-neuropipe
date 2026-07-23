@@ -126,6 +126,28 @@ class Synb0EstimationStep(BaseProcessingStep):
             freesurfer.mri_convert(in_file=t1w_n4, out_file=t1w_n3)
         return t1w_n3
 
+    def _normalize_t1(self, t1w_bias_corrected: Path, output_dir: Path) -> Path:
+        """Normalize T1 intensities when FreeSurfer can identify control points."""
+        t1w_norm = output_dir / "t1w_norm.mgz"
+        try:
+            freesurfer.mri_normalize(
+                in_file=t1w_bias_corrected,
+                out_file=t1w_norm,
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "FreeSurfer mri_normalize failed during Synb0 T1 preprocessing "
+                "(%s). Continuing with the bias-corrected T1.",
+                exc,
+            )
+            if t1w_norm.exists():
+                t1w_norm.unlink()
+            freesurfer.mri_convert(
+                in_file=t1w_bias_corrected,
+                out_file=t1w_norm,
+            )
+        return t1w_norm
+
     def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
         if b0_path.exists() and not force:
             return b0_path
@@ -369,8 +391,7 @@ class Synb0EstimationStep(BaseProcessingStep):
     
             t1w_n3 = self._bias_correct_t1(t1w_mgz, output_dir)
     
-            t1w_norm = output_dir / "t1w_norm.mgz"
-            freesurfer.mri_normalize(in_file=t1w_n3, out_file=t1w_norm)
+            t1w_norm = self._normalize_t1(t1w_n3, output_dir)
     
             t1w_norm_nii = output_dir / "t1w_norm.nii.gz"
             freesurfer.mri_convert(in_file=t1w_norm, out_file=t1w_norm_nii)
