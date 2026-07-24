@@ -20,6 +20,7 @@ from .dmipy_backend import (
     acquisition_scheme_from_bvalues,
     collect_pool_results_with_heartbeat,
     dmipy_fit_output,
+    install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
 )
 
@@ -278,6 +279,11 @@ def _fit_chunk(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
     
     try:
         # --- Reconstruct Model Locally ---
@@ -362,6 +368,11 @@ def _fit_chunk_gnl(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]
@@ -458,6 +469,11 @@ def _fit_sandi_chunk(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         sandi = _build_sandi_model(model_config)
@@ -505,6 +521,11 @@ def _fit_sandi_chunk_gnl(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]

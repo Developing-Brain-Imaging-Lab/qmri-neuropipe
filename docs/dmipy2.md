@@ -93,6 +93,14 @@ The cache directory must not be writable by untrusted users. Use
 dmipy progress remain visible, and qmri-neuropipe prints a liveness heartbeat
 every 30 seconds by default; change this with `--heartbeat-interval`.
 
+dmipy-fit 2.1.0 performs its final nested-volume-fraction conversion with one
+small JAX dispatch per voxel. On whole-brain masks this post-processing step can
+take substantially longer than the GPU optimization after the progress bar
+reaches 100%. qmri-neuropipe detects that released implementation inside each
+JAX worker and substitutes the mathematically equivalent NumPy conversion.
+Future dmipy versions that no longer contain the per-voxel JAX call are not
+modified.
+
 Gradient-nonlinearity correction currently requires a distinct acquisition
 scheme for each voxel. That path remains per-voxel even with the JAX solver and
 will not realize normal whole-mask GPU throughput.

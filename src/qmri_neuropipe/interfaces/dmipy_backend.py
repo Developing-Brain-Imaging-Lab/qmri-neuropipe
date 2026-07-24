@@ -113,15 +113,45 @@ class DmipyRuntime:
 
         resolved_cache_dir = None
         if gpu_device is not None:
-            requested_visibility = str(gpu_device)
+            requested_selector = str(gpu_device)
+            configured_selector = os.environ.get("QMRI_DMIPY_GPU_SELECTOR")
             if "jax" in sys.modules:
-                current_visibility = os.environ.get("JAX_CUDA_VISIBLE_DEVICES")
-                if current_visibility != requested_visibility:
+                if configured_selector != requested_selector:
                     raise ProcessingError(
                         "gpu_device must be selected before JAX is imported. "
                         "Start a fresh process and set --gpu-device again."
                     )
-            os.environ["JAX_CUDA_VISIBLE_DEVICES"] = requested_visibility
+            if configured_selector is None:
+                scheduler_visibility = os.environ.get("CUDA_VISIBLE_DEVICES")
+                if scheduler_visibility in {"", "-1"}:
+                    raise ProcessingError(
+                        "CUDA_VISIBLE_DEVICES hides all GPUs; cannot apply "
+                        "--gpu-device."
+                    )
+                if scheduler_visibility is not None and scheduler_visibility != "all":
+                    visible_tokens = [
+                        token.strip()
+                        for token in scheduler_visibility.split(",")
+                        if token.strip()
+                    ]
+                    if gpu_device >= len(visible_tokens):
+                        raise ProcessingError(
+                            f"gpu_device={gpu_device} is outside the "
+                            f"{len(visible_tokens)} CUDA device(s) exposed by "
+                            "the scheduler or container."
+                        )
+                    selected_cuda_device = visible_tokens[gpu_device]
+                else:
+                    selected_cuda_device = requested_selector
+                os.environ["CUDA_VISIBLE_DEVICES"] = selected_cuda_device
+                os.environ["QMRI_DMIPY_GPU_SELECTOR"] = requested_selector
+            elif configured_selector != requested_selector:
+                raise ProcessingError(
+                    "A different GPU was already selected in this process. "
+                    "Start a fresh process to change --gpu-device."
+                )
+            # CUDA visibility now contains one device, exposed to JAX as index 0.
+            os.environ["JAX_CUDA_VISIBLE_DEVICES"] = "0"
         if jax_cache_dir is not None:
             resolved_cache_dir = str(Path(jax_cache_dir).expanduser().resolve())
             os.environ["JAX_COMPILATION_CACHE_DIR"] = resolved_cache_dir
@@ -154,8 +184,11 @@ class DmipyRuntime:
                 "solver='jax' requires the dmipy-jax or dmipy-cuda12 optional extra."
             ) from exc
 
-        available = tuple(str(item) for item in jax.devices())
-        platforms = {getattr(item, "platform", "") for item in jax.devices()}
+        jax_devices = (
+            jax.local_devices() if hasattr(jax, "local_devices") else jax.devices()
+        )
+        available = tuple(str(item) for item in jax_devices)
+        platforms = {getattr(item, "platform", "") for item in jax_devices}
         has_gpu = "gpu" in platforms or "cuda" in platforms
         if (device == "gpu" or gpu_device is not None) and not has_gpu:
             raise ProcessingError(
@@ -165,6 +198,17 @@ class DmipyRuntime:
             backend = "cpu"
         else:
             backend = "gpu" if has_gpu else "cpu"
+        if gpu_device is not None:
+            visible_gpus = [
+                item
+                for item in jax_devices
+                if getattr(item, "platform", "") in {"gpu", "cuda"}
+            ]
+            if len(visible_gpus) != 1:
+                raise ProcessingError(
+                    "--gpu-device did not isolate exactly one JAX GPU; "
+                    f"JAX reports {len(visible_gpus)} visible GPUs."
+                )
         return cls(
             installed,
             solver,
@@ -199,6 +243,56 @@ def dmipy_fit_output(solver: str):
     with open(os.devnull, "w") as sink:
         with redirect_stdout(sink), redirect_stderr(sink):
             yield
+
+
+def _nested_to_normalized_fractions_numpy(nested: np.ndarray) -> np.ndarray:
+    """Convert one nested fraction vector without a per-voxel JAX dispatch."""
+    nested = np.asarray(nested)
+    dtype = nested.dtype
+    normalized = np.empty(nested.size + 1, dtype=dtype)
+    remaining = dtype.type(1.0)
+    for index, value in enumerate(nested):
+        fraction = remaining * value
+        normalized[index] = fraction
+        remaining = remaining - fraction
+    normalized[-1] = dtype.type(1.0) - normalized[:-1].sum(dtype=dtype)
+    return normalized
+
+
+def install_dmipy_jax_postprocessing_workaround() -> bool:
+    """Replace dmipy 2.1's per-row JAX fraction conversion with NumPy.
+
+    dmipy-fit 2.1 converts every fitted voxel from nested to normalized volume
+    fractions in a Python loop. Its released implementation dispatches a tiny
+    JAX operation for every row, which can take longer than the GPU fit for a
+    whole-brain mask. Patch only implementations that still contain that JAX
+    call; future dmipy releases with a native fix are left untouched.
+    """
+    module = import_module("dmipy_fit.jax.optimizers_jax")
+    optimizer_class = module.JaxOptimizer
+    current = optimizer_class._unnest_model
+    if getattr(current, "_qmri_numpy_postprocessing", False):
+        return False
+    try:
+        source = inspect.getsource(current)
+    except (OSError, TypeError):
+        return False
+    if "nested_to_normalized_fractions_jax" not in source:
+        return False
+
+    def _unnest_model_numpy(self, x_model_nested):
+        x_model_nested = np.asarray(x_model_nested)
+        if self._is_multi:
+            n_non_vf = len(self._scales) - self._N_models
+            non_vf = x_model_nested[:n_non_vf]
+            nested_vf = x_model_nested[n_non_vf:]
+            normalized_vf = _nested_to_normalized_fractions_numpy(nested_vf)
+            return np.concatenate([non_vf, normalized_vf])
+        return x_model_nested
+
+    _unnest_model_numpy._qmri_numpy_postprocessing = True
+    optimizer_class._unnest_model = _unnest_model_numpy
+    return True
 
 
 def jax_run_summary(

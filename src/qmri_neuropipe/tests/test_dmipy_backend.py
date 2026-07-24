@@ -69,7 +69,9 @@ def test_jax_runtime_configures_device_cache_and_compile_logging(
 ):
     monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
     monkeypatch.delitem(sys.modules, "jax", raising=False)
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.delenv("JAX_CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("QMRI_DMIPY_GPU_SELECTOR", raising=False)
     monkeypatch.delenv("JAX_COMPILATION_CACHE_DIR", raising=False)
     monkeypatch.delenv("JAX_LOG_COMPILES", raising=False)
     fake_device = SimpleNamespace(platform="gpu")
@@ -91,9 +93,34 @@ def test_jax_runtime_configures_device_cache_and_compile_logging(
     assert runtime.backend == "gpu"
     assert runtime.gpu_device == 2
     assert runtime.jax_cache_dir == str((tmp_path / "jax-cache").resolve())
-    assert os.environ["JAX_CUDA_VISIBLE_DEVICES"] == "2"
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "2"
+    assert os.environ["JAX_CUDA_VISIBLE_DEVICES"] == "0"
+    assert os.environ["QMRI_DMIPY_GPU_SELECTOR"] == "2"
     assert os.environ["JAX_COMPILATION_CACHE_DIR"] == runtime.jax_cache_dir
     assert os.environ["JAX_LOG_COMPILES"] == "1"
+
+
+def test_gpu_selector_respects_scheduler_visible_device_order(monkeypatch):
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.delitem(sys.modules, "jax", raising=False)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3,7")
+    monkeypatch.delenv("QMRI_DMIPY_GPU_SELECTOR", raising=False)
+    fake_device = SimpleNamespace(platform="gpu")
+    fake_jax = SimpleNamespace(devices=lambda: [fake_device])
+    monkeypatch.setattr(
+        dmipy_backend,
+        "import_module",
+        lambda name: fake_jax if name == "jax" else SimpleNamespace(),
+    )
+
+    dmipy_backend.DmipyRuntime.resolve(
+        "jax",
+        "gpu",
+        gpu_device=1,
+    )
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "7"
+    assert os.environ["JAX_CUDA_VISIBLE_DEVICES"] == "0"
 
 
 def test_jax_run_summary_distinguishes_worker_input_from_optimizer_batches():
@@ -127,6 +154,34 @@ def test_jax_fit_output_is_visible_but_native_output_is_quiet(capsys):
     captured = capsys.readouterr()
     assert "visible JAX setup" in captured.out
     assert "hidden native setup" not in captured.out
+
+
+def test_dmipy_jax_postprocessing_workaround_uses_equivalent_numpy_fractions(
+    monkeypatch,
+):
+    class FakeOptimizer:
+        def _unnest_model(self, x_model_nested):
+            nested_to_normalized_fractions_jax = None
+            return nested_to_normalized_fractions_jax(x_model_nested)
+
+    monkeypatch.setattr(
+        dmipy_backend,
+        "import_module",
+        lambda _: SimpleNamespace(JaxOptimizer=FakeOptimizer),
+    )
+
+    assert dmipy_backend.install_dmipy_jax_postprocessing_workaround()
+    optimizer = FakeOptimizer()
+    optimizer._is_multi = True
+    optimizer._scales = np.ones(4)
+    optimizer._N_models = 3
+
+    converted = optimizer._unnest_model(
+        np.array([0.25, 0.6, 0.5], dtype=np.float32)
+    )
+
+    assert converted == pytest.approx([0.25, 0.6, 0.2, 0.2])
+    assert not dmipy_backend.install_dmipy_jax_postprocessing_workaround()
 
 
 def test_pool_collection_emits_heartbeat(capsys):

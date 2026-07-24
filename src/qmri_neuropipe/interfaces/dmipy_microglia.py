@@ -22,6 +22,7 @@ from qmri_neuropipe.interfaces.dmipy_backend import (
     DmipyRuntime,
     collect_pool_results_with_heartbeat,
     dmipy_fit_output,
+    install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
 )
 
@@ -294,6 +295,11 @@ def _fit_microglia_chunk(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
     
     try:
         microglia_model = _build_microglia_model(
@@ -346,6 +352,11 @@ def _fit_microglia_chunk_gnl(args):
     os.environ["OMP_NUM_THREADS"] = worker_threads
     os.environ["MKL_NUM_THREADS"] = worker_threads
     os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]
