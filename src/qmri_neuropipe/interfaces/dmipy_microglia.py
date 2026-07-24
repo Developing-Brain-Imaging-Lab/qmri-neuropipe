@@ -4,7 +4,6 @@ from typing import Optional, Dict, Union
 import nibabel as nib
 import numpy as np
 import warnings
-import contextlib
 import multiprocessing
 
 from qmri_neuropipe.core import ProcessingError
@@ -19,7 +18,12 @@ from qmri_neuropipe.interfaces.dmipy import (
     _voxel_signal_is_valid,
     _safe_rotate_gradients_for_gnl,
 )
-from qmri_neuropipe.interfaces.dmipy_backend import DmipyRuntime
+from qmri_neuropipe.interfaces.dmipy_backend import (
+    DmipyRuntime,
+    collect_pool_results_with_heartbeat,
+    dmipy_fit_output,
+    jax_run_summary,
+)
 
 
 def _load_microglia_gradients(bval_file, bvec_file):
@@ -268,7 +272,13 @@ def _build_microglia_model(
 
 def _fit_microglia_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
-    print(f"[Worker {chunk_id}] Started Microglia chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} Microglia voxels"
+        f"{batch_note}. Initializing dmipy fit...",
+        flush=True,
+    )
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -276,9 +286,14 @@ def _fit_microglia_chunk(args):
         from dmipy_fit.distributions import distribute_models
         from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
     
     try:
         microglia_model = _build_microglia_model(
@@ -291,7 +306,7 @@ def _fit_microglia_chunk(args):
         )
         
         # Fit
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+        with dmipy_fit_output(solver):
              with warnings.catch_warnings():
                  warnings.simplefilter("ignore")
                  fit_obj = microglia_model.fit(
@@ -302,7 +317,7 @@ def _fit_microglia_chunk(args):
                     **solver_kwargs
                 )
         
-        print(f"[Worker {chunk_id}] Finished fitting.")
+        print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
         return fit_obj.fitted_parameters
         
     except Exception as e:
@@ -312,7 +327,10 @@ def _fit_microglia_chunk(args):
 
 def _fit_microglia_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
-    print(f"[Worker {chunk_id}] Started GNL-aware Microglia chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware Microglia voxels.",
+        flush=True,
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -320,9 +338,14 @@ def _fit_microglia_chunk_gnl(args):
         from dmipy_fit.distributions import distribute_models
         from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
 
     try:
         n_voxels = data_chunk.shape[0]
@@ -353,7 +376,7 @@ def _fit_microglia_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = model.fit(
@@ -366,7 +389,7 @@ def _fit_microglia_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = model.fit(
@@ -425,6 +448,10 @@ def fit_microglia(
     large_diameter_bounds=(12e-6, 18e-6),
     solver: str = "brute2fine",
     device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     Ns: int = 5,
     maxiter: int = 300,
@@ -435,17 +462,22 @@ def fit_microglia(
     """
     Fit the 4-compartment Microglia model using Dmipy.
     """
+    if not isinstance(nthreads, int) or nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
+
     # 1. Environment Variables and Numba setup
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    os.environ["NUMBA_NUM_THREADS"] = str(worker_threads)
     os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
     os.environ["JOBLIB_START_METHOD"] = "fork"
 
     try:
         import numba
-        numba.set_num_threads(1)
+        numba.set_num_threads(worker_threads)
         if hasattr(numba, 'config'):
             numba.config.THREADING_LAYER = 'workqueue'
         numba.set_num_threads = lambda n: None
@@ -464,7 +496,14 @@ def fit_microglia(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required.")
 
-    runtime = DmipyRuntime.resolve(solver=solver, device=device)
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
     if solver_kwargs is None:
         solver_kwargs = {}
     else:
@@ -538,6 +577,8 @@ def fit_microglia(
             )
 
     print(f"Fitting Microglia Model ({n_voxels} voxels)...")
+    for line in jax_run_summary(runtime, n_voxels, solver_kwargs):
+        print(line, flush=True)
     
     # Run Pool
     try:
@@ -549,15 +590,23 @@ def fit_microglia(
     results = []
     try:
         worker = _fit_microglia_chunk_gnl if gnl_data_flat is not None else _fit_microglia_chunk
-        iterator = pool.imap(worker, chunk_args)
-        import time
-        start_t = time.time()
-        for i, res in enumerate(iterator):
-            results.append(res)
-            if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
-                 elapsed = time.time() - start_t
-                 print(f"  - Collected {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
-    finally:
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="Microglia JAX fitting",
+            )
+        else:
+            for i, res in enumerate(pool.imap(worker, chunk_args)):
+                results.append(res)
+                print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
         pool.join()
         

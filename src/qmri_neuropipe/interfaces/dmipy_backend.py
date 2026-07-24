@@ -9,13 +9,17 @@ interfaces.
 
 from __future__ import annotations
 
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, Callable, Mapping
 import inspect
+import multiprocessing
 import os
 import sys
+import time
 
 import numpy as np
 
@@ -49,6 +53,9 @@ class DmipyRuntime:
     requested_device: str
     backend: str
     devices: tuple[str, ...] = ()
+    gpu_device: int | None = None
+    jax_cache_dir: str | None = None
+    jax_log_compiles: bool = False
 
     @property
     def uses_jax(self) -> bool:
@@ -60,7 +67,9 @@ class DmipyRuntime:
         solver: str = "brute2fine",
         device: str = "auto",
         *,
-        require_device: bool = False,
+        gpu_device: int | None = None,
+        jax_cache_dir: str | os.PathLike[str] | None = None,
+        jax_log_compiles: bool = False,
     ) -> "DmipyRuntime":
         solver = str(solver).lower()
         device = str(device).lower()
@@ -72,6 +81,17 @@ class DmipyRuntime:
             raise ValueError(f"Unknown dmipy device {device!r}; choose one of: {choices}.")
         if solver != "jax" and device == "gpu":
             raise ValueError("device='gpu' requires solver='jax'.")
+        if gpu_device is not None:
+            if solver != "jax":
+                raise ValueError("gpu_device requires solver='jax'.")
+            if device == "cpu":
+                raise ValueError("gpu_device cannot be combined with device='cpu'.")
+            if not isinstance(gpu_device, int) or gpu_device < 0:
+                raise ValueError("gpu_device must be a non-negative integer.")
+        if solver != "jax" and jax_cache_dir is not None:
+            raise ValueError("jax_cache_dir requires solver='jax'.")
+        if solver != "jax" and jax_log_compiles:
+            raise ValueError("jax_log_compiles requires solver='jax'.")
 
         try:
             installed = version("dmipy-fit")
@@ -90,6 +110,31 @@ class DmipyRuntime:
 
         if solver != "jax":
             return cls(installed, solver, device, "native-cpu")
+
+        resolved_cache_dir = None
+        if gpu_device is not None:
+            requested_visibility = str(gpu_device)
+            if "jax" in sys.modules:
+                current_visibility = os.environ.get("JAX_CUDA_VISIBLE_DEVICES")
+                if current_visibility != requested_visibility:
+                    raise ProcessingError(
+                        "gpu_device must be selected before JAX is imported. "
+                        "Start a fresh process and set --gpu-device again."
+                    )
+            os.environ["JAX_CUDA_VISIBLE_DEVICES"] = requested_visibility
+        if jax_cache_dir is not None:
+            resolved_cache_dir = str(Path(jax_cache_dir).expanduser().resolve())
+            os.environ["JAX_COMPILATION_CACHE_DIR"] = resolved_cache_dir
+        elif os.environ.get("JAX_COMPILATION_CACHE_DIR"):
+            resolved_cache_dir = os.environ["JAX_COMPILATION_CACHE_DIR"]
+        if jax_log_compiles:
+            os.environ["JAX_LOG_COMPILES"] = "1"
+        resolved_log_compiles = os.environ.get("JAX_LOG_COMPILES", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
         if device == "cpu":
             if "jax" in sys.modules:
@@ -112,16 +157,24 @@ class DmipyRuntime:
         available = tuple(str(item) for item in jax.devices())
         platforms = {getattr(item, "platform", "") for item in jax.devices()}
         has_gpu = "gpu" in platforms or "cuda" in platforms
-        if device == "gpu" and not has_gpu:
-            message = "device='gpu' was requested but JAX reports no usable GPU."
-            if require_device:
-                raise ProcessingError(message)
-            backend = "cpu"
+        if (device == "gpu" or gpu_device is not None) and not has_gpu:
+            raise ProcessingError(
+                "A GPU was explicitly requested but JAX reports no usable GPU."
+            )
         elif device == "cpu":
             backend = "cpu"
         else:
             backend = "gpu" if has_gpu else "cpu"
-        return cls(installed, solver, device, backend, available)
+        return cls(
+            installed,
+            solver,
+            device,
+            backend,
+            available,
+            gpu_device=gpu_device,
+            jax_cache_dir=resolved_cache_dir,
+            jax_log_compiles=resolved_log_compiles,
+        )
 
     def provenance(self) -> dict[str, Any]:
         return {
@@ -131,7 +184,98 @@ class DmipyRuntime:
             "RequestedDevice": self.requested_device,
             "ExecutionBackend": self.backend,
             "JAXDevices": list(self.devices),
+            "GPUDeviceSelection": self.gpu_device,
+            "JAXCompilationCacheDirectory": self.jax_cache_dir,
+            "JAXCompileLogging": self.jax_log_compiles,
         }
+
+
+@contextmanager
+def dmipy_fit_output(solver: str):
+    """Keep JAX progress visible while retaining quiet native fits."""
+    if str(solver).lower() == "jax":
+        yield
+        return
+    with open(os.devnull, "w") as sink:
+        with redirect_stdout(sink), redirect_stderr(sink):
+            yield
+
+
+def jax_run_summary(
+    runtime: DmipyRuntime,
+    n_voxels: int,
+    solver_kwargs: Mapping[str, Any] | None = None,
+) -> tuple[str, ...]:
+    """Return user-facing JAX execution details before a long fit starts."""
+    if not runtime.uses_jax:
+        return ()
+    options = dict(solver_kwargs or {})
+    lines = [
+        f"JAX execution backend: {runtime.backend}",
+        "JAX devices: " + (", ".join(runtime.devices) if runtime.devices else "none"),
+    ]
+    if runtime.backend == "cpu":
+        lines.append(
+            "WARNING: JAX is running on CPU; use --device gpu to require a GPU."
+        )
+    if runtime.gpu_device is not None:
+        lines.append(f"Requested JAX CUDA device selector: {runtime.gpu_device}")
+    batch_size = options.get("batch_size")
+    if batch_size is not None:
+        batch_size = int(batch_size)
+        if batch_size < 1:
+            raise ValueError("batch_size must be a positive integer.")
+        expected = (int(n_voxels) + batch_size - 1) // batch_size
+        lines.append(
+            f"JAX optimizer batch size: {batch_size} voxels "
+            f"({expected} expected batches for {n_voxels} voxels)"
+        )
+    else:
+        lines.append("JAX optimizer batch size: automatic")
+    if runtime.jax_cache_dir:
+        lines.append(f"JAX persistent compilation cache: {runtime.jax_cache_dir}")
+    else:
+        lines.append("JAX persistent compilation cache: disabled")
+    if runtime.jax_log_compiles:
+        lines.append("JAX compilation logging: enabled")
+    return tuple(lines)
+
+
+def collect_pool_results_with_heartbeat(
+    pool,
+    worker: Callable[[Any], Any],
+    chunk_args: list[Any],
+    *,
+    heartbeat_interval: float = 30.0,
+    label: str = "JAX fitting",
+) -> list[Any]:
+    """Collect ordered worker results and report that long JAX work is alive."""
+    if heartbeat_interval <= 0:
+        raise ValueError("heartbeat_interval must be greater than zero.")
+    pending = [pool.apply_async(worker, (args,)) for args in chunk_args]
+    results = []
+    started = time.monotonic()
+    for index, result in enumerate(pending):
+        while True:
+            try:
+                value = result.get(timeout=heartbeat_interval)
+            except multiprocessing.TimeoutError:
+                elapsed = time.monotonic() - started
+                print(
+                    f"{label} is still running "
+                    f"(elapsed {elapsed / 60:.1f} min; worker "
+                    f"{index + 1}/{len(pending)}).",
+                    flush=True,
+                )
+            else:
+                results.append(value)
+                print(
+                    f"Collected worker {index + 1}/{len(pending)} "
+                    f"after {(time.monotonic() - started) / 60:.1f} min.",
+                    flush=True,
+                )
+                break
+    return results
 
 
 @dataclass(frozen=True)

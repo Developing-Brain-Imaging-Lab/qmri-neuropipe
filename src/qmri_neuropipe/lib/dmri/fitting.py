@@ -672,9 +672,13 @@ class NODDIFittingStep(BaseProcessingStep):
              fiso_map = get_cfg('fiso_map', None)
              solver_name = noddi_kwargs.get('solver', 'brute2fine')
              device_name = noddi_kwargs.get('device', 'auto')
+             gpu_device = noddi_kwargs.get('gpu_device')
              dmipy_runtime_metadata = DmipyRuntime.resolve(
                  solver=solver_name,
                  device=device_name,
+                 gpu_device=gpu_device,
+                 jax_cache_dir=noddi_kwargs.get('jax_cache_dir'),
+                 jax_log_compiles=noddi_kwargs.get('jax_log_compiles', False),
              ).provenance()
              
              # Pass to fit_noddi

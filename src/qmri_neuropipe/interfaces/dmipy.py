@@ -4,9 +4,7 @@ from pathlib import Path
 import os
 import multiprocessing
 import argparse
-import contextlib
 import json
-from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union, Any
 import nibabel as nib
 import numpy as np
@@ -17,7 +15,13 @@ from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from ..io.bids import build_bids_name, get_entities_from_path
-from .dmipy_backend import DmipyRuntime, acquisition_scheme_from_bvalues
+from .dmipy_backend import (
+    DmipyRuntime,
+    acquisition_scheme_from_bvalues,
+    collect_pool_results_with_heartbeat,
+    dmipy_fit_output,
+    jax_run_summary,
+)
 
 
 def _reshape_gnl_tensor(vox_gnl):
@@ -246,13 +250,19 @@ def _fit_chunk(args):
     """
     chunk_id, data_chunk, scheme, model_config, chunk_fixed_params, keys_to_keep, solver, solver_kwargs = args
     
-    print(f"[Worker {chunk_id}] Started chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} voxels{batch_note}. "
+        "Initializing dmipy fit...",
+        flush=True,
+    )
     
-    # Enforce single-threaded execution within the worker
+    # Native workers are single-threaded; the sole JAX worker may use the
+    # CPU-thread allowance requested by the caller for setup and compilation.
     import os
     import sys
     import warnings
-    import contextlib
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -260,9 +270,14 @@ def _fit_chunk(args):
         from dmipy_fit.distributions import distribute_models
         from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
     
     try:
         # --- Reconstruct Model Locally ---
@@ -302,8 +317,8 @@ def _fit_chunk(args):
                     noddi.set_fixed_parameter(param_key, param_val)
 
         # --- Fit ---
-        # Suppress dmipy print statements (optimizer setup) and warnings
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+        # JAX setup and compilation can be lengthy, so keep its progress visible.
+        with dmipy_fit_output(solver):
              with warnings.catch_warnings():
                  warnings.simplefilter("ignore")
                  fit_obj = noddi.fit(
@@ -323,7 +338,7 @@ def _fit_chunk(args):
         else:
             ret = full_params
             
-        print(f"[Worker {chunk_id}] Finished fitting.")
+        print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
         return ret
         
     except Exception as e:
@@ -334,11 +349,19 @@ def _fit_chunk(args):
 def _fit_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, model_config, chunk_fixed_params, solver, solver_kwargs, gnl_chunk = args
 
-    print(f"[Worker {chunk_id}] Started GNL-aware chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware voxels.",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
 
     try:
         n_voxels = data_chunk.shape[0]
@@ -367,7 +390,7 @@ def _fit_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = model.fit(
@@ -380,7 +403,7 @@ def _fit_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = model.fit(
@@ -419,11 +442,22 @@ def _fit_chunk_gnl(args):
 
 def _fit_sandi_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
-    print(f"[Worker {chunk_id}] Started SANDI chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} SANDI voxels"
+        f"{batch_note}. Initializing dmipy fit...",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
 
     try:
         sandi = _build_sandi_model(model_config)
@@ -432,7 +466,7 @@ def _fit_sandi_chunk(args):
         if not np.any(valid):
             print(f"[Worker {chunk_id}] SANDI skipped {len(data_chunk)} invalid voxels.")
             return merged
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+        with dmipy_fit_output(solver):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 fit_obj = sandi.fit(
@@ -449,7 +483,7 @@ def _fit_sandi_chunk(args):
         invalid_count = int(np.count_nonzero(~valid))
         if invalid_count:
             print(f"[Worker {chunk_id}] SANDI skipped {invalid_count} invalid voxels.")
-        print(f"[Worker {chunk_id}] Finished SANDI chunk.")
+        print(f"[Worker {chunk_id}] Finished SANDI chunk.", flush=True)
         return merged
     except Exception as e:
         print(f"[Worker {chunk_id}] SANDI crash/error: {e}")
@@ -458,11 +492,19 @@ def _fit_sandi_chunk(args):
 
 def _fit_sandi_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
-    print(f"[Worker {chunk_id}] Started GNL-aware SANDI chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware SANDI voxels.",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
 
     try:
         n_voxels = data_chunk.shape[0]
@@ -486,7 +528,7 @@ def _fit_sandi_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = sandi.fit(
@@ -499,7 +541,7 @@ def _fit_sandi_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = sandi.fit(
@@ -547,6 +589,10 @@ def fit_noddi(
     distribution: str = "Watson",
     solver: str = "brute2fine",
     device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     # New options
     model_type: str = "standard", # 'standard' or 'smt'
@@ -560,27 +606,41 @@ def fit_noddi(
     nthreads : int
         Number of CPUs for parallel processing.
     """
+    if not isinstance(nthreads, int) or nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
+
     # --- Parallelization Config (MUST BE FIRST) ---
     # These configurations must run before any imports that might initialize libraries
     import os
     import multiprocessing
-    from threadpoolctl import threadpool_limits
 
     # 1. Environment Variables
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(worker_threads)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(worker_threads)
+    os.environ["NUMBA_NUM_THREADS"] = str(worker_threads)
     os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
     os.environ["JOBLIB_START_METHOD"] = "fork"
 
+    # Device visibility and JAX diagnostics must be configured before any
+    # dmipy module has an opportunity to import JAX.
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
+
     # 2. Numba Monkeypatch
-    # Critical: Must run before dmipy imports numba
     try:
         import numba
-        numba.set_num_threads(1)
+        numba.set_num_threads(worker_threads)
         if hasattr(numba, 'config'):
             numba.config.THREADING_LAYER = 'workqueue'
         
@@ -619,7 +679,6 @@ def fit_noddi(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required for NODDI.")
 
-    runtime = DmipyRuntime.resolve(solver=solver, device=device)
     if solver_kwargs is None:
         solver_kwargs = {}
     else:
@@ -706,6 +765,8 @@ def fit_noddi(
         
     n_voxels = valid_voxels.shape[0]
     print(f"Total voxels to fit: {n_voxels}")
+    for line in jax_run_summary(runtime, n_voxels, solver_kwargs):
+        print(line, flush=True)
     
     # 2. Split into chunks
     # dmipy-fit's JAX solver vectorizes internally and must not be replicated
@@ -831,28 +892,26 @@ def fit_noddi(
     # We use explicit try/finally to ensure termination if needed
     pool = ctx.Pool(processes=n_chunks)
     try:
-        # CRITICAL FIX: Use pool.imap (ordered) instead of imap_unordered.
-        # imap yields results in the same order as chunk_args.
-        # Since we use np.array_split to create chunks in order, we MUST reassemble them in order.
         worker = _fit_chunk_gnl if gnl_data_flat is not None else _fit_chunk
-        iterator = pool.imap(worker, chunk_args)
-        
-        # Collect results with progress
-        import time
-        start_t = time.time()
-        for i, res in enumerate(iterator):
-            results.append(res)
-            # Parent process logging
-            if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
-                 elapsed = time.time() - start_t
-                 print(f"  - Collected {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
-            elif len(chunk_args) <= 10:
-                 print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
-
-    finally:
-        # Ensure we close the pool
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="NODDI JAX fitting",
+            )
+        else:
+            # Ordered collection preserves the spatial order of the chunks.
+            for i, res in enumerate(pool.imap(worker, chunk_args)):
+                results.append(res)
+                print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
-        # Wait for workers to exit
         print("Waiting for workers to exit (joining pool)...")
         pool.join()
         
@@ -966,6 +1025,10 @@ def fit_sandi(
     iso_diffusivity: Optional[float] = None,
     solver: str = "brute2fine",
     device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     grad_nonlin: Optional[Path] = None,
     soma_diffusivity: Optional[float] = None,
@@ -984,7 +1047,19 @@ def fit_sandi(
     if not bval_file or not bvec_file:
         raise ValueError("Gradient files (bval/bvec) are required for SANDI.")
 
-    runtime = DmipyRuntime.resolve(solver=solver, device=device)
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
     if solver_kwargs is None:
         solver_kwargs = {}
     else:
@@ -1057,6 +1132,8 @@ def fit_sandi(
             chunk_args.append((i, chunks[i], gtab, model_config, solver, solver_kwargs))
 
     print(f"Fitting native dmipy SANDI ({valid_voxels.shape[0]} voxels)...")
+    for line in jax_run_summary(runtime, valid_voxels.shape[0], solver_kwargs):
+        print(line, flush=True)
     try:
         ctx = multiprocessing.get_context('spawn')
     except ValueError:
@@ -1066,9 +1143,22 @@ def fit_sandi(
     results = []
     pool = ctx.Pool(processes=n_chunks)
     try:
-        for res in pool.imap(worker, chunk_args):
-            results.append(res)
-    finally:
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="SANDI JAX fitting",
+            )
+        else:
+            for res in pool.imap(worker, chunk_args):
+                results.append(res)
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
         pool.join()
 

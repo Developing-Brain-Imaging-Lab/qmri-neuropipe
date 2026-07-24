@@ -1,3 +1,6 @@
+import multiprocessing
+import os
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -58,7 +61,99 @@ def test_jax_gpu_requirement_is_explicit(monkeypatch):
     monkeypatch.setattr(dmipy_backend, "import_module", lambda _: fake_jax)
 
     with pytest.raises(Exception, match="no usable GPU"):
-        dmipy_backend.DmipyRuntime.resolve("jax", "gpu", require_device=True)
+        dmipy_backend.DmipyRuntime.resolve("jax", "gpu")
+
+
+def test_jax_runtime_configures_device_cache_and_compile_logging(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.delitem(sys.modules, "jax", raising=False)
+    monkeypatch.delenv("JAX_CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.delenv("JAX_COMPILATION_CACHE_DIR", raising=False)
+    monkeypatch.delenv("JAX_LOG_COMPILES", raising=False)
+    fake_device = SimpleNamespace(platform="gpu")
+    fake_jax = SimpleNamespace(devices=lambda: [fake_device])
+    monkeypatch.setattr(
+        dmipy_backend,
+        "import_module",
+        lambda name: fake_jax if name == "jax" else SimpleNamespace(),
+    )
+
+    runtime = dmipy_backend.DmipyRuntime.resolve(
+        "jax",
+        "gpu",
+        gpu_device=2,
+        jax_cache_dir=tmp_path / "jax-cache",
+        jax_log_compiles=True,
+    )
+
+    assert runtime.backend == "gpu"
+    assert runtime.gpu_device == 2
+    assert runtime.jax_cache_dir == str((tmp_path / "jax-cache").resolve())
+    assert os.environ["JAX_CUDA_VISIBLE_DEVICES"] == "2"
+    assert os.environ["JAX_COMPILATION_CACHE_DIR"] == runtime.jax_cache_dir
+    assert os.environ["JAX_LOG_COMPILES"] == "1"
+
+
+def test_jax_run_summary_distinguishes_worker_input_from_optimizer_batches():
+    runtime = dmipy_backend.DmipyRuntime(
+        version="2.1.0",
+        solver="jax",
+        requested_device="gpu",
+        backend="gpu",
+        devices=("CudaDevice(id=0)",),
+        gpu_device=0,
+        jax_cache_dir="/private/cache",
+    )
+
+    summary = dmipy_backend.jax_run_summary(
+        runtime,
+        188_941,
+        {"batch_size": 4_000},
+    )
+
+    assert "JAX execution backend: gpu" in summary
+    assert any("48 expected batches" in line for line in summary)
+    assert any("/private/cache" in line for line in summary)
+
+
+def test_jax_fit_output_is_visible_but_native_output_is_quiet(capsys):
+    with dmipy_backend.dmipy_fit_output("jax"):
+        print("visible JAX setup")
+    with dmipy_backend.dmipy_fit_output("brute2fine"):
+        print("hidden native setup")
+
+    captured = capsys.readouterr()
+    assert "visible JAX setup" in captured.out
+    assert "hidden native setup" not in captured.out
+
+
+def test_pool_collection_emits_heartbeat(capsys):
+    class FakeResult:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                raise multiprocessing.TimeoutError
+            return {"result": 1}
+
+    class FakePool:
+        def apply_async(self, worker, args):
+            return FakeResult()
+
+    results = dmipy_backend.collect_pool_results_with_heartbeat(
+        FakePool(),
+        lambda value: value,
+        [("chunk",)],
+        heartbeat_interval=0.01,
+        label="Test JAX fit",
+    )
+
+    assert results == [{"result": 1}]
+    assert "Test JAX fit is still running" in capsys.readouterr().out
 
 
 def test_fit_model_translates_cpu_parallelism(monkeypatch):
