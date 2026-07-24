@@ -166,6 +166,17 @@ dmri:
       method: topup          # Options: none, topup, synb0, drbuddi, topup+drbuddi
       fallback: true
       config: /apps/fsl-6.0.7.13/x86_64_al9/fsl/etc/flirtsch/b02b0_1.cnf
+      # Synb0 prefers an acquired T1w. If only another undistorted anatomical
+      # contrast is available, SuperSynth creates the T1w used by Synb0.
+      # `anatomical_input` can select its BIDS suffix (for example T2w/FLAIR).
+      # With registration: supersynth, a separate DWI-derived synthetic T1w
+      # is used only to improve registration.
+      synb0:
+        anatomical_input: auto
+        # VFA/SPGR/SSFP series are averaged by default. To select one volume:
+        # anatomical_series_mode: representative
+        # anatomical_series_index: 0
+        registration: direct  # Options: direct, supersynth
       drbuddi:
         transform_type: SyNOnly
         interpolator: linear
