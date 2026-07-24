@@ -26,7 +26,12 @@ from qmri_neuropipe.core.types import ImageFile, DWIFile
 
 # BIDS I/O
 from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
-from qmri_neuropipe.io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
+from qmri_neuropipe.io.anat.bids import (
+    bids_find_other_anat,
+    bids_find_t1w,
+    bids_find_t2w,
+    select_anatomical_candidates,
+)
 from qmri_neuropipe.io.dmri.bids import bids_find_dwi, find_reversed_phase_groups
 
 # External interfaces
@@ -270,6 +275,7 @@ class DMRIPipeline(BasePipeline):
         # Find input files
         t1w_files = self._find_anat_files(subject, session, 'T1w')
         t2w_files = self._find_anat_files(subject, session, 'T2w')
+        other_anat_files = self._find_other_anat_files(subject, session)
         dwi_files = bids_find_dwi(subj_dir / 'dwi')
         
         if not dwi_files:
@@ -283,9 +289,15 @@ class DMRIPipeline(BasePipeline):
 
         # Run anatomical preprocessing if enabled
         anat_cfg = self.config.get("anat", {}).get("preprocessing", {})
-        if anat_cfg:
+        if anat_cfg and (t1w_files or t2w_files):
             t1w_files, t2w_files = self._run_anatomical_preprocessing(
                 subject, session, t1w_files, t2w_files, anat_work_dir, reporter
+            )
+        elif anat_cfg and other_anat_files:
+            self.logger.info(
+                "Skipping the T1w/T2w anatomical preprocessing workflow; "
+                "the available anatomical contrast will be handled by "
+                "SuperSynth within Synb0."
             )
 
         # Check if dMRI processing is enabled
@@ -320,7 +332,12 @@ class DMRIPipeline(BasePipeline):
                 )
 
             context = self._build_initial_context(
-                subject, session, group_dwis, t1w_files, t2w_files
+                subject,
+                session,
+                group_dwis,
+                t1w_files,
+                t2w_files,
+                other_anat_files,
             )
             context["dwi_group"] = group_label
 
@@ -411,6 +428,15 @@ class DMRIPipeline(BasePipeline):
             files = []
 
         return select_anatomical_candidates(files, selector, modality, logger=self.logger)
+
+    def _find_other_anat_files(
+        self, subject: str, session: Optional[str]
+    ) -> list[ImageFile]:
+        """Expose other undistorted BIDS anatomical scans to SuperSynth/Synb0."""
+        search_dir = self.config.bids_dir / f"sub-{subject}"
+        if session:
+            search_dir /= f"ses-{session}"
+        return bids_find_other_anat(search_dir / "anat")
 
     def _find_custom_files(self, subject: str, session: Optional[str], modality: str, 
                           custom_path: Optional[str], custom_pattern: Optional[str]) -> list[ImageFile]:
@@ -510,7 +536,8 @@ class DMRIPipeline(BasePipeline):
         return t1w_files, t2w_files
 
     def _build_initial_context(self, subject: str, session: Optional[str], 
-                               dwi_files: list, t1w_files: list, t2w_files: list) -> PipelineContext:
+                               dwi_files: list, t1w_files: list, t2w_files: list,
+                               other_anat_files: Optional[list] = None) -> PipelineContext:
         """Build initial processing context."""
         topup_groups = find_reversed_phase_groups(dwi_files)
         
@@ -522,6 +549,10 @@ class DMRIPipeline(BasePipeline):
             "topup_groups": topup_groups,
             "t1w_files": t1w_files,
             "t2w_files": t2w_files,
+            "anatomical_files": [
+                *t2w_files,
+                *(other_anat_files or []),
+            ],
             "study_name": self.config.get('study_name')
         })
 

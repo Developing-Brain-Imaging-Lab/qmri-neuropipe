@@ -153,21 +153,10 @@ class PreprocessingWorkflow(BaseWorkflow):
         topup_groups = context.get("topup_groups", [])
         has_reverse_pe = len(topup_groups) > 0
         t1w_files = context.get("t1w_files", [])
-        t2w_files = context.get("t2w_files", [])
-        dwi_files = context.get("dwi_files", [])
-        synb0_cfg = distcorr_cfg.get("synb0", {}) or {}
-        synb0_t1w_source = str(synb0_cfg.get("t1w_source", "raw")).lower()
-        synb0_supersynth_input = str(synb0_cfg.get("supersynth_input", "auto")).lower()
-        uses_dwi_supersynth = (
-            synb0_t1w_source in {"dwi_supersynth", "supersynth_dwi", "diffusion_supersynth", "b0_supersynth"}
-            or (
-                synb0_t1w_source in {"supersynth", "prefer_supersynth"}
-                and synb0_supersynth_input in {"dwi", "b0", "diffusion", "mean_b0"}
-            )
-        )
-        has_synb0_anat = bool(t1w_files) or (
-            synb0_t1w_source in {"supersynth", "prefer_supersynth"} and bool(t2w_files)
-        ) or (uses_dwi_supersynth and bool(dwi_files))
+        # Synb0 requires an undistorted anatomical scan. An acquired T1w is
+        # preferred; other anatomical contrasts are converted to T1w by
+        # SuperSynth before model inference.
+        has_synb0_anat = bool(t1w_files or context.get("anatomical_files"))
 
         if dist_method == 'synb0':
             if has_synb0_anat:
@@ -180,7 +169,7 @@ class PreprocessingWorkflow(BaseWorkflow):
                 ))
                 context['do_topup'] = True
             else:
-                self.logger.warning("Synb0 requested but no usable anatomical reference found")
+                self.logger.warning("Synb0 requested but no anatomical image was found")
                 
         elif dist_method in {'topup', 'topup+drbuddi'}:
             if has_reverse_pe:
