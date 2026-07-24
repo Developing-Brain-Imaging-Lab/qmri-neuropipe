@@ -155,6 +155,17 @@ class Synb0EstimationStep(BaseProcessingStep):
         output_dir: Path,
     ) -> Tuple[Path, Path]:
         """Estimate rigid T1w↔DWI transforms using the selected fixed contrast."""
+        # SuperSynth commonly writes SynthT1.mgz.  FLIRT can return success
+        # without creating either requested output when given an MGZ fixed
+        # image, so normalize the registration boundary to NIfTI explicitly.
+        if registration_ref_path.suffix.lower() == ".mgz":
+            registration_ref_nii = output_dir / "registration_ref.nii.gz"
+            freesurfer.mri_convert(
+                in_file=registration_ref_path,
+                out_file=registration_ref_nii,
+            )
+            registration_ref_path = registration_ref_nii
+
         t1w_brain_reg = output_dir / "t1w_brain_reg.nii.gz"
         t1w_2_dwi_fslmat = output_dir / "t1w_2_dwi.mat"
         t1w_2_dwi_antsmat = output_dir / "t1w_2_dwi.txt"

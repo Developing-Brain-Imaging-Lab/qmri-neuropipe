@@ -139,6 +139,10 @@ def test_supersynth_image_is_used_only_as_registration_fixed_image(
     dwi_synth_t1w = tmp_path / "dwi_SynthT1.mgz"
     calls = []
 
+    def fake_mri_convert(**kwargs):
+        calls.append(("mri_convert", kwargs))
+        return kwargs["out_file"]
+
     def fake_flirt(**kwargs):
         calls.append(("flirt", kwargs))
         return kwargs["out_file"], kwargs["omat"]
@@ -151,17 +155,44 @@ def test_supersynth_image_is_used_only_as_registration_fixed_image(
         calls.append(("fsl2ants", kwargs))
         return kwargs["out_file"]
 
+    monkeypatch.setattr(freesurfer, "mri_convert", fake_mri_convert)
     monkeypatch.setattr(fsl, "flirt", fake_flirt)
     monkeypatch.setattr(fsl, "convert_xfm", fake_convert_xfm)
     monkeypatch.setattr(c3d, "fsl2ants", fake_fsl2ants)
 
     step._register_t1w_to_dwi(supplied_t1w_brain, dwi_synth_t1w, tmp_path)
 
-    flirt_call = calls[0][1]
+    assert calls[0][0] == "mri_convert"
+    assert calls[0][1]["in_file"] == dwi_synth_t1w
+    assert calls[0][1]["out_file"] == tmp_path / "registration_ref.nii.gz"
+
+    flirt_call = calls[1][1]
     assert flirt_call["in_file"] == supplied_t1w_brain
-    assert flirt_call["ref_file"] == dwi_synth_t1w
-    assert calls[1][1]["ref_file"] == dwi_synth_t1w
-    assert calls[1][1]["in_file"] == supplied_t1w_brain
+    assert flirt_call["ref_file"] == tmp_path / "registration_ref.nii.gz"
+    assert calls[2][1]["ref_file"] == tmp_path / "registration_ref.nii.gz"
+    assert calls[2][1]["in_file"] == supplied_t1w_brain
+
+
+def test_nifti_registration_reference_does_not_require_conversion(
+    tmp_path: Path, monkeypatch
+):
+    step = _step({"registration": "supersynth"})
+    supplied_t1w_brain = tmp_path / "supplied_t1w_brain.nii.gz"
+    dwi_synth_t1w = tmp_path / "dwi_SynthT1.nii.gz"
+
+    def unexpected_convert(**kwargs):
+        pytest.fail("A NIfTI registration reference must not be reconverted")
+
+    monkeypatch.setattr(freesurfer, "mri_convert", unexpected_convert)
+    monkeypatch.setattr(
+        fsl, "flirt", lambda **kwargs: (kwargs["out_file"], kwargs["omat"])
+    )
+    monkeypatch.setattr(
+        fsl, "convert_xfm", lambda **kwargs: kwargs["out_file"]
+    )
+    monkeypatch.setattr(c3d, "fsl2ants", lambda **kwargs: kwargs["out_file"])
+
+    step._register_t1w_to_dwi(supplied_t1w_brain, dwi_synth_t1w, tmp_path)
 
 
 def test_other_anatomical_discovery_excludes_t1_t2_and_segmentations(tmp_path: Path):
