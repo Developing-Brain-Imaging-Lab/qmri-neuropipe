@@ -63,7 +63,9 @@ def run_tractseg(
         uncertainty: Enable uncertainty estimation.
         tract_definition: 'TractSeg' or 'AutoPTX'.
         preprocess: If True, registers input to MNI space, segment, and warp back to native.
-        bundle_names: List of specific bundles to segment (defaults to all).
+        bundle_names: Requested downstream bundle names. TractSeg's CLI does not
+            support selecting a subset, so segmentation still generates all
+            standard bundles.
         extra_args: Additional arguments for TractSeg.
 
     Returns:
@@ -122,8 +124,11 @@ def run_tractseg(
         cmd_parts.append("--preprocess")
         
     if bundle_names:
-        bundles_str = " ".join(bundle_names)
-        cmd_parts.append(f"--bundles {bundles_str}")
+        logger.info(
+            "TractSeg does not support selecting bundles at segmentation time; "
+            "generating all standard bundles. Requested bundles will be selected "
+            "by downstream tract-specific analysis."
+        )
 
     # GPU handling not standard flag in CLI? Checking docs...
     # Regular TractSeg uses pytorch, so it uses CUDA_VISIBLE_DEVICESenv.
