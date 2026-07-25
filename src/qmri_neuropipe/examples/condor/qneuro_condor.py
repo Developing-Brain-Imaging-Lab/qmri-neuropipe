@@ -1355,7 +1355,7 @@ def download_remote_outputs(args: argparse.Namespace, outputs_dir: Path) -> None
             shlex.quote(remote_dir),
             "&&",
             "tar",
-            "-czf",
+            "-cf",
             "-",
             "--wildcards",
             "--",
@@ -1363,15 +1363,18 @@ def download_remote_outputs(args: argparse.Namespace, outputs_dir: Path) -> None
         ]
     )
     print(f"Copying Condor output archive(s) in one SSH transfer to: {outputs_dir}")
-    with tempfile.TemporaryFile() as bundle:
-        subprocess.run(
-            ["ssh", args.remote_host, remote_command],
-            stdout=bundle,
-            check=True,
-        )
-        bundle.seek(0)
-        with tarfile.open(fileobj=bundle, mode="r:gz") as tf:
-            for member in tf.getmembers():
+    process = subprocess.Popen(
+        ["ssh", args.remote_host, remote_command],
+        stdout=subprocess.PIPE,
+    )
+    if process.stdout is None:
+        process.kill()
+        raise RuntimeError("Could not read the remote output tar stream")
+
+    received = 0
+    try:
+        with process.stdout, tarfile.open(fileobj=process.stdout, mode="r|") as tf:
+            for member in tf:
                 name = PurePosixPath(member.name)
                 if (
                     not member.isfile()
@@ -1384,8 +1387,35 @@ def download_remote_outputs(args: argparse.Namespace, outputs_dir: Path) -> None
                 source = tf.extractfile(member)
                 if source is None:
                     raise ValueError(f"Could not read remote output archive: {member.name}")
-                with source, destination.open("wb") as output:
-                    shutil.copyfileobj(source, output)
+                print(f"Receiving {name.name} ({member.size / (1024 ** 3):.2f} GiB)")
+                temporary_path: Path | None = None
+                try:
+                    with source, tempfile.NamedTemporaryFile(
+                        dir=outputs_dir,
+                        prefix=f".{name.name}.",
+                        suffix=".part",
+                        delete=False,
+                    ) as output:
+                        temporary_path = Path(output.name)
+                        shutil.copyfileobj(source, output)
+                    temporary_path.replace(destination)
+                    received += 1
+                except BaseException:
+                    if temporary_path is not None:
+                        temporary_path.unlink(missing_ok=True)
+                    raise
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+
+    returncode = process.wait()
+    if returncode:
+        raise subprocess.CalledProcessError(
+            returncode,
+            ["ssh", args.remote_host, remote_command],
+        )
+    print(f"Received {received} Condor output archive(s).")
 
 
 def collect_target_dir(args: argparse.Namespace) -> Path:

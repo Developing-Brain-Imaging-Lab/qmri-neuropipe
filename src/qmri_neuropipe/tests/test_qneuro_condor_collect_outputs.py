@@ -110,7 +110,7 @@ def test_download_remote_outputs_uses_one_ssh_tar_transfer(tmp_path):
     )
 
     archive_payload = io.BytesIO()
-    with tarfile.open(fileobj=archive_payload, mode="w:gz") as tf:
+    with tarfile.open(fileobj=archive_payload, mode="w:") as tf:
         for subject in ("10021", "10022"):
             name = f"qneuro_outputs_sub-{subject}_ses-01.tar.gz"
             data = f"output-{subject}".encode()
@@ -119,18 +119,26 @@ def test_download_remote_outputs_uses_one_ssh_tar_transfer(tmp_path):
             tf.addfile(info, io.BytesIO(data))
     bundle = archive_payload.getvalue()
 
-    def fake_run(command, *, stdout, check):
-        assert check is True
-        assert command[0:2] == ["ssh", "dean@inca"]
-        assert "cd '/staging/dean/qneuro outputs'" in command[2]
-        assert "qneuro_outputs_sub-10021_ses-01.tar.gz" in command[2]
-        assert "qneuro_outputs_sub-10022_ses-01.tar.gz" in command[2]
-        stdout.write(bundle)
+    class FakeProcess:
+        def __init__(self, command, *, stdout):
+            assert stdout == qneuro_condor.subprocess.PIPE
+            assert command[0:2] == ["ssh", "dean@inca"]
+            assert "cd '/staging/dean/qneuro outputs'" in command[2]
+            assert "tar -cf -" in command[2]
+            assert "qneuro_outputs_sub-10021_ses-01.tar.gz" in command[2]
+            assert "qneuro_outputs_sub-10022_ses-01.tar.gz" in command[2]
+            self.stdout = io.BytesIO(bundle)
 
-    with patch.object(qneuro_condor.subprocess, "run", side_effect=fake_run) as run:
+        def wait(self):
+            return 0
+
+        def kill(self):
+            raise AssertionError("Successful transfer should not be killed")
+
+    with patch.object(qneuro_condor.subprocess, "Popen", side_effect=FakeProcess) as popen:
         qneuro_condor.download_remote_outputs(args, outputs_dir)
 
-    assert run.call_count == 1
+    assert popen.call_count == 1
     assert (outputs_dir / "qneuro_outputs_sub-10021_ses-01.tar.gz").read_bytes() == b"output-10021"
     assert (outputs_dir / "qneuro_outputs_sub-10022_ses-01.tar.gz").read_bytes() == b"output-10022"
 
