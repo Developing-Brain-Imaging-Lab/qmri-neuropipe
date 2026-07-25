@@ -324,6 +324,34 @@ def test_released_cpu_solver_recovers_synthetic_ball_diffusivity():
     assert recovered == pytest.approx(expected, rel=1e-3)
 
 
+def test_released_mix_solver_recovers_synthetic_ball_diffusivity():
+    pytest.importorskip("dmipy_fit")
+
+    rng = np.random.default_rng(14)
+    bvalues = np.r_[0.0, np.full(6, 1e9), np.full(6, 2e9)]
+    directions = rng.normal(size=(12, 3))
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+    bvecs = np.vstack([np.zeros((1, 3)), directions])
+    scheme = dmipy_backend.acquisition_scheme_from_bvalues(bvalues, bvecs)
+    expected = 1.2e-9
+    signal = dmipy_backend.build_reference_model("ball").simulate_signal(
+        scheme,
+        {"G1Ball_1_lambda_iso": expected},
+    )
+
+    fitted, runtime = dmipy_backend.fit_model(
+        dmipy_backend.build_reference_model("ball"),
+        scheme,
+        signal[None, :],
+        solver="mix",
+        solver_kwargs={"maxiter": 100},
+    )
+
+    recovered = fitted.fitted_parameters["G1Ball_1_lambda_iso"][0]
+    assert runtime.solver == "mix"
+    assert recovered == pytest.approx(expected, rel=1e-3)
+
+
 def test_custom_noddi_keeps_reference_model_parameter_contract():
     pytest.importorskip("dmipy_fit")
     from dmipy_fit.custom_optimizers.reference_models import noddi

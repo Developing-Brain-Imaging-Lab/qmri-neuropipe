@@ -213,9 +213,36 @@ will not realize normal whole-mask GPU throughput.
 ## Model registry
 
 `qmri_neuropipe.interfaces.dmipy_backend.MODEL_REGISTRY` provides stable,
-allow-listed identifiers for the published dmipy-fit 2.1 reference factories.
-It includes Gaussian/tensor, NODDI/SMT, axon-diameter, soma, exchange,
-time-dependent, and multi-TE model families.
+allow-listed identifiers for the published dmipy-fit 2.1 reference factories
+and project-maintained models such as `microglia`. It includes
+Gaussian/tensor, NODDI/SMT, axon-diameter, soma, exchange, time-dependent, and
+multi-TE model families.
+
+Inspect the registry without running a fit:
+
+```bash
+qmri-tools dmipy-models
+qmri-tools dmipy-models --format json
+qmri-tools dmipy-model-info --model nexi
+```
+
+`dmipy-model-info` resolves the factory and reports parameter names,
+cardinalities, physical bounds, output aliases, acquisition requirements, and
+references. Add `--probe` to either command to construct the selected models
+and simulate deterministic signals using an in-range validation parameter set:
+
+```bash
+qmri-tools dmipy-models --probe
+qmri-tools dmipy-model-info --model microglia --probe
+```
+
+The solver list in this report describes the shared dmipy fitting interfaces;
+it is not by itself a numerical-validation claim. The automated capability
+matrix separately constructs and simulates every registry model. When JAX is
+installed, representative Gaussian, dispersion, exchange, glial, and multi-TE
+forward models are compared with their native NumPy implementations. Optimizer
+recovery is tested independently so forward-model parity is not confused with
+fitting convergence.
 
 The existing NODDI, SANDI, and microglia workflows remain model-specific
 compatibility wrappers and publish their established metrics through the shared

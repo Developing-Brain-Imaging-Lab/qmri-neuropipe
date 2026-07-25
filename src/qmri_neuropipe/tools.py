@@ -528,6 +528,140 @@ def fit_microglia_cli(
         raise typer.Exit(code=1)
 
 
+@app.command("dmipy-models")
+def dmipy_models_cli(
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json.",
+    ),
+    probe: bool = typer.Option(
+        False,
+        "--probe",
+        help="Construct and simulate every model using a compact validation scheme.",
+    ),
+):
+    """List registered dmipy models and their declared capabilities."""
+    import json
+
+    from qmri_neuropipe.interfaces.dmipy_capabilities import (
+        probe_registry,
+        registry_summary,
+    )
+
+    output_format = output_format.lower()
+    if output_format not in {"table", "json"}:
+        console.print("[bold red]Error:[/bold red] --format must be table or json.")
+        raise typer.Exit(code=2)
+    records = registry_summary()
+    if probe:
+        probe_by_name = {item["name"]: item for item in probe_registry()}
+        records = [
+            {**record, "probe": probe_by_name[record["name"]]}
+            for record in records
+        ]
+    if output_format == "json":
+        typer.echo(json.dumps(records, indent=2))
+        return
+
+    from rich.table import Table
+
+    table = Table(title="dmipy 2.x model registry")
+    table.add_column("Model")
+    table.add_column("Family")
+    table.add_column("Source")
+    table.add_column("Required acquisition")
+    table.add_column("Solver interfaces")
+    if probe:
+        table.add_column("Smoke probe")
+    for record in records:
+        values = [
+            record["name"],
+            record["family"],
+            record["source"],
+            ", ".join(record["acquisition_requirements"]) or "bval/bvec",
+            ", ".join(record["solver_interfaces"]),
+        ]
+        if probe:
+            probe_result = record["probe"]
+            values.append(
+                "passed"
+                if probe_result["simulation"] == "passed"
+                else probe_result["error"] or probe_result["simulation"]
+            )
+        table.add_row(*values)
+    console.print(table)
+
+
+@app.command("dmipy-model-info")
+def dmipy_model_info_cli(
+    model: str = typer.Option(..., "--model", help="Registered dmipy model name."),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json.",
+    ),
+    probe: bool = typer.Option(
+        False,
+        "--probe",
+        help="Construct and simulate the model using the validation scheme.",
+    ),
+):
+    """Inspect a resolved dmipy model parameter contract."""
+    import json
+
+    from qmri_neuropipe.interfaces.dmipy_capabilities import (
+        model_details,
+        probe_model,
+    )
+
+    output_format = output_format.lower()
+    if output_format not in {"table", "json"}:
+        console.print("[bold red]Error:[/bold red] --format must be table or json.")
+        raise typer.Exit(code=2)
+    try:
+        details = model_details(model)
+        if probe:
+            details["probe"] = probe_model(model)
+    except Exception as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    if output_format == "json":
+        typer.echo(json.dumps(details, indent=2))
+        return
+
+    console.print(f"[bold]{details['name']}[/bold] ({details['family']})")
+    console.print(f"  Factory: {details['factory']}")
+    console.print(
+        "  Required acquisition: "
+        + (", ".join(details["acquisition_requirements"]) or "bval/bvec")
+    )
+    console.print("  Solver interfaces: " + ", ".join(details["solver_interfaces"]))
+    if details["references"]:
+        console.print("  References: " + ", ".join(details["references"]))
+    if probe:
+        console.print(f"  Smoke probe: {details['probe']['simulation']}")
+
+    from rich.table import Table
+
+    table = Table(title=f"{details['parameter_count']} fitted parameters")
+    table.add_column("Parameter")
+    table.add_column("Cardinality")
+    table.add_column("Type")
+    table.add_column("Alias")
+    table.add_column("Physical range")
+    for parameter in details["parameters"]:
+        table.add_row(
+            parameter["name"],
+            str(parameter["cardinality"]),
+            str(parameter["type"]),
+            parameter["output_alias"] or "",
+            json.dumps(parameter["physical_range"]),
+        )
+    console.print(table)
+
+
 @app.command("fit-dmipy")
 def fit_dmipy_cli(
     model: str = typer.Option(..., "--model", help="dmipy 2.x reference-model name."),
