@@ -118,6 +118,11 @@ pip install -e .[reporting]
 
 Full documentation is available in the [docs/](docs/) directory.
 
+Users upgrading from the legacy dmipy backend should read the
+[dmipy 2.x migration guide](docs/dmipy2_migration.md). The complete backend,
+model registry, solver, GPU, and gradient-nonlinearity reference is in
+[dmipy2.md](docs/dmipy2.md).
+
 For cached reruns, set `rerun_from_step` under the relevant workflow scope
 (`dmri.preprocessing`, `dmri.modeling`, `anat.preprocessing`, or
 `relaxometry.preprocessing`) to force that step and all later steps while

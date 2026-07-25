@@ -77,7 +77,7 @@ dmri:
 The `dmipy.models` list runs any allow-listed dmipy 2.x registry model, and
 multiple models can be fitted in the same pipeline. Models that require PGSE
 timing automatically use the DWI's separate small-delta and big-Delta files.
-See [dmipy 2.x backend](dmipy2.md#pipeline-configuration) for model factories,
+See [dmipy 2.x backend](dmipy2.md) for model factories,
 solver options, GPU selection, gradient-nonlinearity handling, and validation
 rules.
 
