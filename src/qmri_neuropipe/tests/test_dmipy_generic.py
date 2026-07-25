@@ -8,7 +8,11 @@ from typer.testing import CliRunner
 
 from qmri_neuropipe import tools
 from qmri_neuropipe.interfaces import dmipy_generic
-from qmri_neuropipe.interfaces.dmipy_backend import DmipyRuntime, MODEL_REGISTRY
+from qmri_neuropipe.interfaces.dmipy_backend import (
+    DmipyFitExecution,
+    DmipyRuntime,
+    MODEL_REGISTRY,
+)
 
 
 def _write_dwi_inputs(tmp_path):
@@ -103,18 +107,26 @@ def test_generic_nexi_fit_passes_separate_timings_and_writes_bids_outputs(
         backend="native-cpu",
     )
 
-    def fake_fit(model, scheme, data, **kwargs):
-        captured["fit"] = (model, scheme, data.shape, kwargs)
+    def fake_execute(request):
+        captured["fit"] = request
         result = SimpleNamespace(
             fitted_parameters={
-                "X0GeneralizedKarger_1_kappa": np.ones(data.shape[:3])
+                "X0GeneralizedKarger_1_kappa": np.ones(
+                    request.data.shape[:3]
+                )
             }
         )
-        return result, runtime
+        return DmipyFitExecution(
+            fitted=result,
+            runtime=runtime,
+            model_name=request.model_name,
+            voxel_count=8,
+            used_gradient_nonlinearity=False,
+        )
 
     monkeypatch.setattr(dmipy_generic, "acquisition_scheme_from_bvalues", fake_scheme)
     monkeypatch.setattr(dmipy_generic, "build_reference_model", lambda name: name)
-    monkeypatch.setattr(dmipy_generic, "fit_model", fake_fit)
+    monkeypatch.setattr(dmipy_generic, "execute_dmipy_fit", fake_execute)
     monkeypatch.setattr(
         dmipy_generic.DmipyRuntime,
         "resolve",
@@ -140,6 +152,8 @@ def test_generic_nexi_fit_passes_separate_timings_and_writes_bids_outputs(
         [0.030, 0.032, 0.034]
     )
     assert captured["scheme_kwargs"]["TE"] is None
+    assert captured["fit"].model_name == "nexi"
+    assert captured["fit"].solver_options == {"Ns": 3}
     parameter = "X0GeneralizedKarger_1_kappa"
     output = outputs[parameter]
     assert output.name == (

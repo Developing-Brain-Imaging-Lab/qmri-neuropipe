@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -384,6 +385,35 @@ class ModelSpec:
     factory_module: str = "dmipy_fit.custom_optimizers.reference_models"
     output_adapter_name: str | None = None
     references: tuple[str, ...] = ()
+    jax_supported: bool = True
+    jax_gnl_supported: bool = True
+
+
+@dataclass(frozen=True)
+class DmipyFitRequest:
+    """Complete execution request for one constructed dmipy model."""
+
+    model_name: str
+    model: Any
+    acquisition_scheme: Any
+    data: np.ndarray
+    runtime: DmipyRuntime
+    mask: np.ndarray | None = None
+    gradient_tensors: np.ndarray | None = None
+    nthreads: int = 1
+    solver_options: Mapping[str, Any] = field(default_factory=dict)
+    heartbeat_interval: float | None = 30.0
+
+
+@dataclass(frozen=True)
+class DmipyFitExecution:
+    """Result and immutable runtime information from a shared fit request."""
+
+    fitted: Any
+    runtime: DmipyRuntime
+    model_name: str
+    voxel_count: int
+    used_gradient_nonlinearity: bool
 
 
 MODEL_REGISTRY: dict[str, ModelSpec] = {
@@ -413,7 +443,12 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         "bingham_noddi", "bingham_noddi", "orientation-dispersion"
     ),
     "noddida": ModelSpec("noddida", "noddida", "orientation-dispersion"),
-    "mcsmt": ModelSpec("mcsmt", "mcsmt", "spherical-mean"),
+    "mcsmt": ModelSpec(
+        "mcsmt",
+        "mcsmt",
+        "spherical-mean",
+        jax_gnl_supported=False,
+    ),
     "two_fascicle_noddi": ModelSpec(
         "two_fascicle_noddi", "two_fascicle_noddi", "multi-fascicle"
     ),
@@ -429,7 +464,14 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     "verdict": ModelSpec("verdict", "verdict", "soma", ("delta", "Delta")),
     "sandi": ModelSpec("sandi", "sandi", "soma", ("delta", "Delta")),
     "impulsed": ModelSpec("impulsed", "impulsed", "soma", ("delta", "Delta")),
-    "nexi": ModelSpec("nexi", "nexi", "exchange", ("delta", "Delta")),
+    "nexi": ModelSpec(
+        "nexi",
+        "nexi",
+        "exchange",
+        ("delta", "Delta"),
+        jax_supported=False,
+        jax_gnl_supported=False,
+    ),
     "karger_two_compartment": ModelSpec(
         "karger_two_compartment",
         "karger_two_compartment",
@@ -510,6 +552,125 @@ def build_reference_model(name: str, **factory_kwargs):
     reference_models = import_module(spec.factory_module)
     factory: Callable[[], Any] = getattr(reference_models, spec.factory_name)
     return factory(**factory_kwargs)
+
+
+def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
+    """Execute native or JAX fitting through one registry-facing boundary."""
+    spec = get_model_spec(request.model_name)
+    if request.runtime.uses_jax and not spec.jax_supported:
+        raise ValueError(
+            f"dmipy model {spec.name!r} does not have a validated JAX "
+            "implementation in dmipy-fit 2.1."
+        )
+    if not isinstance(request.nthreads, int) or request.nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
+    if (
+        request.heartbeat_interval is not None
+        and request.heartbeat_interval < 1
+    ):
+        raise ValueError("heartbeat_interval must be at least one second.")
+
+    data = np.asarray(request.data)
+    if data.ndim < 2:
+        raise ValueError("dmipy data must contain voxels and measurements.")
+    if request.mask is not None:
+        mask = np.asarray(request.mask, dtype=bool)
+        if mask.shape != data.shape[:-1]:
+            raise ValueError(
+                f"Mask shape {mask.shape} does not match data shape "
+                f"{data.shape[:-1]}."
+            )
+        voxel_count = int(mask.sum())
+    else:
+        mask = None
+        voxel_count = int(np.prod(data.shape[:-1]))
+
+    gradient_tensors = request.gradient_tensors
+    if gradient_tensors is not None:
+        if not spec.jax_gnl_supported:
+            raise ValueError(
+                f"dmipy model {spec.name!r} does not support voxel-parallel "
+                "JAX gradient-nonlinearity fitting."
+            )
+        gradient_tensors = np.asarray(gradient_tensors)
+        if gradient_tensors.shape[: data.ndim - 1] != data.shape[:-1]:
+            raise ValueError(
+                "Gradient tensor spatial shape does not match the dmipy data."
+            )
+        if gradient_tensors.shape[data.ndim - 1 :] not in {(9,), (3, 3)}:
+            raise ValueError(
+                "Gradient tensors must contain 9 values or a 3 x 3 matrix "
+                "per voxel."
+            )
+        if not request.runtime.uses_jax:
+            raise ValueError(
+                "Registry-driven gradient-nonlinearity fitting currently "
+                "requires solver='jax'. Dedicated legacy adapters retain their "
+                "native per-voxel fallback."
+            )
+
+    options = dict(request.solver_options)
+    print(
+        f"Fitting dmipy model {request.model_name} ({voxel_count} voxels)...",
+        flush=True,
+    )
+    for line in jax_run_summary(request.runtime, voxel_count, options):
+        print(line, flush=True)
+
+    def run():
+        with dmipy_fit_output(request.runtime.solver):
+            if gradient_tensors is not None:
+                from .dmipy_jax_gnl import fit_model_jax_gnl
+
+                fitted = fit_model_jax_gnl(
+                    request.model,
+                    request.acquisition_scheme,
+                    data,
+                    gradient_tensors,
+                    mask=mask,
+                    solver_kwargs=options,
+                )
+                return fitted
+            fitted, _ = fit_model(
+                request.model,
+                request.acquisition_scheme,
+                data,
+                mask=mask,
+                solver=request.runtime.solver,
+                nthreads=request.nthreads,
+                solver_kwargs=options,
+                runtime=request.runtime,
+            )
+            return fitted
+
+    if request.runtime.uses_jax and request.heartbeat_interval is not None:
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(run)
+            while True:
+                try:
+                    fitted = pending.result(
+                        timeout=request.heartbeat_interval
+                    )
+                except FutureTimeout:
+                    elapsed = (time.monotonic() - started) / 60.0
+                    print(
+                        f"dmipy {request.model_name} JAX fit is still running "
+                        f"(elapsed {elapsed:.1f} min).",
+                        flush=True,
+                    )
+                else:
+                    break
+    else:
+        fitted = run()
+
+    return DmipyFitExecution(
+        fitted=fitted,
+        runtime=request.runtime,
+        model_name=request.model_name,
+        voxel_count=voxel_count,
+        used_gradient_nonlinearity=gradient_tensors is not None,
+    )
 
 
 def model_output_maps(name: str, fit_result: Any) -> Mapping[str, np.ndarray]:

@@ -977,6 +977,111 @@ class MicrogliaFittingStep(BaseProcessingStep):
         return context
 
 
+class DmipyModelFittingStep(BaseProcessingStep):
+    """Registry-driven pipeline step for any dmipy-fit 2.x reference model."""
+
+    def __init__(
+        self,
+        config,
+        logger,
+        provenance,
+        *,
+        model_name: str,
+        nthreads: int = 1,
+        solver: str = "brute2fine",
+        device: str = "auto",
+        factory_kwargs: Optional[dict] = None,
+        solver_options: Optional[dict] = None,
+        **kwargs,
+    ):
+        super().__init__(config, logger, provenance)
+        from ...interfaces.dmipy_backend import get_model_spec
+
+        self.model_name = get_model_spec(model_name).name
+        self.nthreads = int(nthreads)
+        if self.nthreads < 1:
+            raise ValueError("nthreads must be a positive integer.")
+        self.solver = solver
+        self.device = device
+        self.factory_kwargs = dict(factory_kwargs or {})
+        self.solver_options = dict(solver_options or {})
+        self.kwargs = dict(kwargs)
+
+    def run(
+        self,
+        context: dict | object,
+        output_dir: Path,
+        mask=None,
+        **kwargs,
+    ) -> dict | object:
+        from ...interfaces.dmipy_generic import fit_dmipy_reference
+
+        dwi = context if not isinstance(context, dict) else context.get(
+            "current_image"
+        )
+        if dwi is None:
+            raise ValueError(
+                f"No current DWI is available for dmipy model {self.model_name}."
+            )
+        model_out = output_dir / f"dmipy-{self.model_name}"
+        model_out.mkdir(parents=True, exist_ok=True)
+        force = bool(
+            kwargs.get("force", False)
+            or self.kwargs.get("force", False)
+            or self.config.get("force", False)
+            or self.config.get("force_run", False)
+        )
+        existing = {
+            path.stem: path
+            for path in model_out.glob("*.nii.gz")
+            if self.check_output_validity(path)
+        }
+        result_key = f"dmipy:{self.model_name}"
+        if existing and not force:
+            self.logger.info(
+                "Skipping dmipy model %s (found %d valid outputs).",
+                self.model_name,
+                len(existing),
+            )
+            context.setdefault("modeling_results", {})[result_key] = existing
+            return context
+
+        mask_path = mask.img if mask is not None and hasattr(mask, "img") else mask
+        use_gnl = self.kwargs.get("gradient_nonlinearity", True)
+        gnl_map = _resolve_context_gnl_map(context, dwi) if use_gnl else None
+        options = dict(self.solver_options)
+        options.update(self.kwargs.get("solver_kwargs", {}))
+        runtime_keys = {
+            "gpu_device",
+            "jax_cache_dir",
+            "jax_log_compiles",
+            "heartbeat_interval",
+        }
+        runtime = {
+            key: self.kwargs[key]
+            for key in runtime_keys
+            if key in self.kwargs
+        }
+        outputs = fit_dmipy_reference(
+            dwi,
+            model_out,
+            model_name=self.model_name,
+            mask_file=mask_path,
+            grad_nonlin=gnl_map,
+            delta_file=self.kwargs.get("delta_file"),
+            Delta_file=self.kwargs.get("Delta_file"),
+            TE_file=self.kwargs.get("TE_file"),
+            solver=self.solver,
+            device=self.device,
+            nthreads=self.nthreads,
+            solver_kwargs=options,
+            factory_kwargs=self.factory_kwargs,
+            **runtime,
+        )
+        context.setdefault("modeling_results", {})[result_key] = dict(outputs)
+        return context
+
+
 class NEXIFittingStep(BaseProcessingStep):
     def __init__(self, config, logger, provenance, method='nexi', nthreads=1, **kwargs):
         super().__init__(config, logger, provenance)

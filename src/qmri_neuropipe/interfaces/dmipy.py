@@ -1,6 +1,5 @@
 
 from pathlib import Path
-from pathlib import Path
 import os
 import multiprocessing
 import argparse
@@ -15,9 +14,11 @@ from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
 from .dmipy_backend import (
     DmipyRuntime,
+    DmipyFitRequest,
     acquisition_scheme_from_bvalues,
     collect_pool_results_with_heartbeat,
     dmipy_fit_output,
+    execute_dmipy_fit,
     install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
 )
@@ -160,74 +161,25 @@ def _safe_rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
 
 
 def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = None):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy_fit.signal_models import cylinder_models, gaussian_models
-        from dmipy_fit.distributions import distribute_models
-        from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+    from .dmipy_models import noddi_variant
 
-    parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
-    iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
-    distribution = model_config.get('distribution', 'Watson')
-    model_type = model_config.get('model_type', 'standard')
-
-    ball = gaussian_models.G1Ball()
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-
-    if distribution.lower() == "bingham":
-        dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-    else:
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-
-    if model_type == 'smt':
-        noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
-    else:
-        noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
-
-    noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-    for param_key, param_val in (fixed_params or {}).items():
-        if param_val is not None:
-            noddi.set_fixed_parameter(param_key, param_val)
-    return noddi
+    return noddi_variant(
+        parallel_diffusivity=float(
+            model_config.get("parallel_diffusivity", 1.7e-9)
+        ),
+        iso_diffusivity=float(model_config.get("iso_diffusivity", 3.0e-9)),
+        distribution=model_config.get("distribution", "Watson"),
+        model_type=model_config.get("model_type", "standard"),
+        fixed_parameters=fixed_params,
+    )
 
 
 def _build_sandi_model(model_config):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy_fit.distributions.distribute_models import BundleModel
-        #from dmipy_fit.core.modeling_framework import MultiCompartmentModel
-        from dmipy_fit.core.modeling_framework import MultiCompartmentSphericalMeanModel
-        
+    from .dmipy_models import sandi_spherical_mean
 
-    soma_diffusivity = float(model_config.get('soma_diffusivity', 3.0e-9))
-    if not np.isfinite(soma_diffusivity) or soma_diffusivity <= 0:
-        raise ValueError("soma_diffusivity must be finite and positive.")
-
-    stick = cylinder_models.C1Stick()
-    extra_cellular = gaussian_models.G1Ball()
-    soma = sphere_models.S4SphereGaussianPhaseApproximation(diffusion_constant=soma_diffusivity)
-
-    bundle = BundleModel([stick, soma])
-
-    sandi_model = MultiCompartmentSphericalMeanModel(models=[bundle, extra_cellular])
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter',[2e-6, 24e-6])
-    sandi_model.set_parameter_optimization_bounds('G1Ball_1_lambda_iso',[1e-10, 3e-9]) #D_ec
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_C1Stick_1_lambda_par',[1e-10, 3e-9]) #D_in
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_partial_volume_0',[0.01, 0.99]) #f_in
-    sandi_model.set_parameter_optimization_bounds('partial_volume_1',[0.01, 0.99]) #f_ec
-
-    # dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    # dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    # dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    # dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-    
-    return sandi_model
+    return sandi_spherical_mean(
+        soma_diffusivity=float(model_config.get("soma_diffusivity", 3.0e-9))
+    )
 
 
 def _sandi_fraction_maps(full_maps):
@@ -337,12 +289,6 @@ def _fit_chunk(args):
     import sys
     import warnings
     
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy_fit.signal_models import cylinder_models, gaussian_models
-        from dmipy_fit.distributions import distribute_models
-        from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-
     worker_threads = (
         os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
         if solver == "jax"
@@ -358,54 +304,28 @@ def _fit_chunk(args):
         )
     
     try:
-        # --- Reconstruct Model Locally ---
-        # Unpack config
-        parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
-        iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
-        distribution = model_config.get('distribution', 'Watson')
-        model_type = model_config.get('model_type', 'standard') # 'standard' or 'smt'
-        
-        # Core Models
-        ball = gaussian_models.G1Ball()
-        stick = cylinder_models.C1Stick()
-        zeppelin = gaussian_models.G2Zeppelin()
+        noddi = _build_noddi_model(
+            model_config,
+            fixed_params={
+                key: value
+                for key, value in (chunk_fixed_params or {}).items()
+                if value is not None
+            },
+        )
 
-        if distribution.lower() == "bingham":
-            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-        else:
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-        dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
-        dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-        dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-
-        if model_type == 'smt':
-            # SMT-NODDI: Spherical Mean of Stick + Zeppelin + Ball
-            noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])        
-        else:
-            # Standard NODDI            
-            noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
-            
-        noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-        # --- Apply Chunk-Specific Fixed Parameters ---
-        if chunk_fixed_params:
-            for param_key, param_val in chunk_fixed_params.items():
-                # param_val is an array matching data_chunk length
-                if param_val is not None:
-                    noddi.set_fixed_parameter(param_key, param_val)
-
-        # --- Fit ---
-        # JAX setup and compilation can be lengthy, so keep its progress visible.
-        with dmipy_fit_output(solver):
-             with warnings.catch_warnings():
-                 warnings.simplefilter("ignore")
-                 fit_obj = noddi.fit(
-                    scheme, 
-                    data_chunk, 
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="noddi",
+                model=noddi,
+                acquisition_scheme=scheme,
+                data=data_chunk,
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         
         # Return only the requested parameters
         full_params = fit_obj.fitted_parameters
@@ -453,17 +373,22 @@ def _fit_chunk_gnl(args):
             and not chunk_fixed_params
             and str(model_config.get("model_type", "standard")).lower() != "smt"
         ):
-            from .dmipy_jax_gnl import fit_model_jax_gnl
-
             model = _build_noddi_model(model_config, fixed_params={})
             scheme = _build_dmipy_scheme(bvals, bvecs)
-            fit_obj = fit_model_jax_gnl(
-                model,
-                scheme,
-                data_chunk,
-                gnl_chunk,
-                solver_kwargs=solver_kwargs,
-            )
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="noddi",
+                    model=model,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
             print(
                 f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
                 flush=True,
@@ -578,16 +503,19 @@ def _fit_sandi_chunk(args):
         if not np.any(valid):
             print(f"[Worker {chunk_id}] SANDI skipped {len(data_chunk)} invalid voxels.")
             return merged
-        with dmipy_fit_output(solver):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                fit_obj = sandi.fit(
-                    scheme,
-                    data_chunk[valid],
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="sandi",
+                model=sandi,
+                acquisition_scheme=scheme,
+                data=data_chunk[valid],
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         for key, dest in merged.items():
             fitted = fit_obj.fitted_parameters.get(key)
             if fitted is not None:
@@ -625,23 +553,31 @@ def _fit_sandi_chunk_gnl(args):
 
     try:
         n_voxels = data_chunk.shape[0]
-        if solver == "jax":
-            from .dmipy_jax_gnl import fit_model_jax_gnl
-
-            sandi = _build_sandi_model(model_config)
+        sandi = _build_sandi_model(model_config)
+        if (
+            solver == "jax"
+            and sandi.__class__.__name__ != "MultiCompartmentSphericalMeanModel"
+        ):
             scheme = _build_dmipy_scheme(
                 bvals,
                 bvecs,
                 delta=delta_arr,
                 Delta=Delta_arr,
             )
-            fit_obj = fit_model_jax_gnl(
-                sandi,
-                scheme,
-                data_chunk,
-                gnl_chunk,
-                solver_kwargs=solver_kwargs,
-            )
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="sandi",
+                    model=sandi,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
             print(
                 f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
                 flush=True,
@@ -798,14 +734,15 @@ def fit_noddi(
     # except RuntimeError:
     #     pass
         
-    # Imports for NODDI
-    # Imports for NODDI
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy_fit.signal_models import cylinder_models, gaussian_models
-            from dmipy_fit.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-            from dmipy_fit.distributions import distribute_models
+        dummy_model = _build_noddi_model(
+            {
+                "model_type": model_type,
+                "distribution": distribution,
+                "parallel_diffusivity": parallel_diffusivity,
+                "iso_diffusivity": iso_diffusivity,
+            }
+        )
     except ImportError as exc:
         raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
 
@@ -930,29 +867,6 @@ def fit_noddi(
     
     print(f"Inspecting model parameters for type: {model_type}...")
     
-    # Dummy models
-    ball = gaussian_models.G1Ball()
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-    
-    if distribution.lower() == "watson":
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    elif distribution.lower() == "bingham":
-        # Try/Except for older dmipy versions if needed
-        try:
-            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-        except AttributeError:
-            # Fallback or error
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    else:
-        # Default
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    
-    if model_type == 'smt':
-         dummy_model = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
-    else:
-         dummy_model = MultiCompartmentModel(models=[dispersed_bundle, ball])
-
     all_params = dummy_model.parameter_names
     param_map = {}
     

@@ -266,6 +266,105 @@ def test_fit_model_rejects_unknown_solver_options(monkeypatch):
         )
 
 
+def test_shared_execution_routes_native_fit_and_records_request(monkeypatch):
+    runtime = dmipy_backend.DmipyRuntime(
+        version="2.1.0",
+        solver="brute2fine",
+        requested_device="auto",
+        backend="native-cpu",
+    )
+    captured = {}
+
+    def fake_fit(model, scheme, data, **kwargs):
+        captured.update(
+            model=model,
+            scheme=scheme,
+            shape=data.shape,
+            kwargs=kwargs,
+        )
+        return "fitted", runtime
+
+    monkeypatch.setattr(dmipy_backend, "fit_model", fake_fit)
+    execution = dmipy_backend.execute_dmipy_fit(
+        dmipy_backend.DmipyFitRequest(
+            model_name="ball",
+            model="model",
+            acquisition_scheme="scheme",
+            data=np.ones((2, 3)),
+            runtime=runtime,
+            nthreads=2,
+            solver_options={"Ns": 4},
+            heartbeat_interval=None,
+        )
+    )
+
+    assert execution.fitted == "fitted"
+    assert execution.voxel_count == 2
+    assert not execution.used_gradient_nonlinearity
+    assert captured["kwargs"]["nthreads"] == 2
+    assert captured["kwargs"]["solver_kwargs"] == {"Ns": 4}
+
+
+def test_shared_execution_routes_jax_gradient_tensors(monkeypatch):
+    from qmri_neuropipe.interfaces import dmipy_jax_gnl
+
+    runtime = dmipy_backend.DmipyRuntime(
+        version="2.1.0",
+        solver="jax",
+        requested_device="gpu",
+        backend="gpu",
+    )
+    captured = {}
+
+    def fake_gnl(model, scheme, data, tensors, **kwargs):
+        captured.update(
+            model=model,
+            scheme=scheme,
+            shape=data.shape,
+            tensor_shape=tensors.shape,
+            kwargs=kwargs,
+        )
+        return "gnl-fitted"
+
+    monkeypatch.setattr(dmipy_jax_gnl, "fit_model_jax_gnl", fake_gnl)
+    execution = dmipy_backend.execute_dmipy_fit(
+        dmipy_backend.DmipyFitRequest(
+            model_name="noddi",
+            model="model",
+            acquisition_scheme="scheme",
+            data=np.ones((2, 3)),
+            gradient_tensors=np.tile(np.eye(3), (2, 1, 1)),
+            runtime=runtime,
+            heartbeat_interval=None,
+        )
+    )
+
+    assert execution.fitted == "gnl-fitted"
+    assert execution.used_gradient_nonlinearity
+    assert captured["tensor_shape"] == (2, 3, 3)
+
+
+def test_shared_execution_rejects_unvalidated_nexi_jax():
+    runtime = dmipy_backend.DmipyRuntime(
+        version="2.1.0",
+        solver="jax",
+        requested_device="gpu",
+        backend="gpu",
+    )
+
+    with pytest.raises(ValueError, match="does not have a validated JAX"):
+        dmipy_backend.execute_dmipy_fit(
+            dmipy_backend.DmipyFitRequest(
+                model_name="nexi",
+                model="model",
+                acquisition_scheme="scheme",
+                data=np.ones((1, 3)),
+                runtime=runtime,
+                heartbeat_interval=None,
+            )
+        )
+
+
 def test_released_reference_factories_match_registry():
     pytest.importorskip("dmipy_fit")
     from dmipy_fit.custom_optimizers import reference_models

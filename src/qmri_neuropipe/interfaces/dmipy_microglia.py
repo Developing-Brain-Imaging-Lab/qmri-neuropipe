@@ -19,8 +19,10 @@ from qmri_neuropipe.interfaces.dmipy import (
 )
 from qmri_neuropipe.interfaces.dmipy_backend import (
     DmipyRuntime,
+    DmipyFitRequest,
     collect_pool_results_with_heartbeat,
     dmipy_fit_output,
+    execute_dmipy_fit,
     install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
 )
@@ -213,17 +215,19 @@ def _fit_microglia_chunk(args):
             model_config,
         )
         
-        # Fit
-        with dmipy_fit_output(solver):
-             with warnings.catch_warnings():
-                 warnings.simplefilter("ignore")
-                 fit_obj = microglia_model.fit(
-                    scheme, 
-                    data_chunk, 
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="microglia",
+                model=microglia_model,
+                acquisition_scheme=scheme,
+                data=data_chunk,
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         
         print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
         return fit_obj.fitted_parameters
@@ -263,8 +267,6 @@ def _fit_microglia_chunk_gnl(args):
     try:
         n_voxels = data_chunk.shape[0]
         if solver == "jax":
-            from .dmipy_jax_gnl import fit_model_jax_gnl
-
             model = _build_microglia_model(
                 cylinder_models,
                 gaussian_models,
@@ -279,13 +281,20 @@ def _fit_microglia_chunk_gnl(args):
                 delta=delta_arr,
                 Delta=Delta_arr,
             )
-            fit_obj = fit_model_jax_gnl(
-                model,
-                scheme,
-                data_chunk,
-                gnl_chunk,
-                solver_kwargs=solver_kwargs,
-            )
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="microglia",
+                    model=model,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
             print(
                 f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
                 flush=True,

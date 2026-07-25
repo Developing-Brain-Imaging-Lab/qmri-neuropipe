@@ -10,6 +10,110 @@ import numpy as np
 MICROGLIA_MODEL_REFERENCE = "https://doi.org/10.1126/sciadv.abq2923"
 
 
+def noddi_variant(
+    *,
+    parallel_diffusivity: float = 1.7e-9,
+    iso_diffusivity: float = 3.0e-9,
+    distribution: str = "Watson",
+    model_type: str = "standard",
+    fixed_parameters: Mapping[str, Any] | None = None,
+):
+    """Build the configurable NODDI variant used by the dedicated adapter."""
+    from dmipy_fit.core.modeling_framework import (
+        MultiCompartmentModel,
+        MultiCompartmentSphericalMeanModel,
+    )
+    from dmipy_fit.distributions import distribute_models
+    from dmipy_fit.signal_models import cylinder_models, gaussian_models
+
+    distribution_key = str(distribution).lower()
+    if distribution_key not in {"watson", "bingham"}:
+        raise ValueError("NODDI distribution must be 'Watson' or 'Bingham'.")
+    model_type_key = str(model_type).lower()
+    if model_type_key not in {"standard", "smt"}:
+        raise ValueError("NODDI model_type must be 'standard' or 'smt'.")
+
+    ball = gaussian_models.G1Ball()
+    stick = cylinder_models.C1Stick()
+    zeppelin = gaussian_models.G2Zeppelin()
+    if distribution_key == "bingham":
+        bundle = distribute_models.SD2BinghamDistributed(
+            models=[stick, zeppelin]
+        )
+    else:
+        bundle = distribute_models.SD1WatsonDistributed(
+            models=[stick, zeppelin]
+        )
+    bundle.set_tortuous_parameter(
+        "G2Zeppelin_1_lambda_perp",
+        "C1Stick_1_lambda_par",
+        "partial_volume_0",
+    )
+    bundle.set_equal_parameter(
+        "G2Zeppelin_1_lambda_par",
+        "C1Stick_1_lambda_par",
+    )
+    bundle.set_fixed_parameter(
+        "G2Zeppelin_1_lambda_par",
+        float(parallel_diffusivity),
+    )
+    model_class = (
+        MultiCompartmentSphericalMeanModel
+        if model_type_key == "smt"
+        else MultiCompartmentModel
+    )
+    model = model_class(models=[bundle, ball])
+    model.set_fixed_parameter("G1Ball_1_lambda_iso", float(iso_diffusivity))
+    for name, value in (fixed_parameters or {}).items():
+        if value is not None:
+            model.set_fixed_parameter(name, value)
+    return model
+
+
+def sandi_spherical_mean(
+    *,
+    soma_diffusivity: float = 3.0e-9,
+):
+    """Build the historical spherical-mean SANDI dedicated-command model."""
+    from dmipy_fit.core.modeling_framework import (
+        MultiCompartmentSphericalMeanModel,
+    )
+    from dmipy_fit.distributions.distribute_models import BundleModel
+    from dmipy_fit.signal_models import (
+        cylinder_models,
+        gaussian_models,
+        sphere_models,
+    )
+
+    soma_diffusivity = float(soma_diffusivity)
+    if not np.isfinite(soma_diffusivity) or soma_diffusivity <= 0:
+        raise ValueError("soma_diffusivity must be finite and positive.")
+    stick = cylinder_models.C1Stick()
+    soma = sphere_models.S4SphereGaussianPhaseApproximation(
+        diffusion_constant=soma_diffusivity
+    )
+    model = MultiCompartmentSphericalMeanModel(
+        models=[BundleModel([stick, soma]), gaussian_models.G1Ball()]
+    )
+    model.set_parameter_optimization_bounds(
+        "BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter",
+        [2e-6, 24e-6],
+    )
+    model.set_parameter_optimization_bounds(
+        "G1Ball_1_lambda_iso", [1e-10, 3e-9]
+    )
+    model.set_parameter_optimization_bounds(
+        "BundleModel_1_C1Stick_1_lambda_par", [1e-10, 3e-9]
+    )
+    model.set_parameter_optimization_bounds(
+        "BundleModel_1_partial_volume_0", [0.01, 0.99]
+    )
+    model.set_parameter_optimization_bounds(
+        "partial_volume_1", [0.01, 0.99]
+    )
+    return model
+
+
 def microglia(
     *,
     parallel_diffusivity: float = 1.0e-9,

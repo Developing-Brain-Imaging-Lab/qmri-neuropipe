@@ -43,7 +43,13 @@ def model_summary(name: str) -> dict[str, Any]:
         ),
         "factory": f"{spec.factory_module}.{spec.factory_name}",
         "acquisition_requirements": list(spec.acquisition_requirements),
-        "solver_interfaces": sorted(SUPPORTED_SOLVERS),
+        "solver_interfaces": sorted(
+            SUPPORTED_SOLVERS
+            if spec.jax_supported
+            else SUPPORTED_SOLVERS - {"jax"}
+        ),
+        "jax_supported": spec.jax_supported,
+        "jax_gnl_supported": spec.jax_gnl_supported,
         "output_alias_count": len(spec.output_aliases),
         "references": list(spec.references),
     }

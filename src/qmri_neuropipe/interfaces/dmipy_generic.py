@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
-from typing import Mapping
-import time
+from typing import Any, Mapping
 
 import nibabel as nib
 import numpy as np
@@ -14,12 +12,11 @@ from ..core.types import DWIFile, ImageLike
 from ..core.utils import ensure_dir, extract_image_path
 from .dmipy_backend import (
     DmipyRuntime,
+    DmipyFitRequest,
     acquisition_scheme_from_bvalues,
     build_reference_model,
-    dmipy_fit_output,
-    fit_model,
+    execute_dmipy_fit,
     get_model_spec,
-    jax_run_summary,
     model_output_maps,
 )
 from .dmipy_derivatives import write_dmipy_derivatives
@@ -154,6 +151,7 @@ def fit_dmipy_reference(
     heartbeat_interval: float = 30.0,
     nthreads: int = 1,
     solver_kwargs: Mapping[str, object] | None = None,
+    factory_kwargs: Mapping[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Fit any allow-listed dmipy reference model and write all parameters."""
     spec = get_model_spec(model_name)
@@ -219,7 +217,6 @@ def fit_dmipy_reference(
                 "GNL map must contain 9 tensor elements or a 3 x 3 tensor "
                 f"per voxel; found shape {gnl_tensors.shape}."
             )
-    voxel_count = int(mask.sum()) if mask is not None else int(np.prod(data.shape[:3]))
     options = dict(solver_kwargs or {})
     # Resolve GPU visibility before constructing a model, in case a future
     # reference-model module imports JAX while it is being initialized.
@@ -230,59 +227,23 @@ def fit_dmipy_reference(
         jax_cache_dir=jax_cache_dir,
         jax_log_compiles=jax_log_compiles,
     )
-    model = build_reference_model(spec.name)
-    print(f"Fitting dmipy model {spec.name} ({voxel_count} voxels)...", flush=True)
-    for line in jax_run_summary(runtime, voxel_count, options):
-        print(line, flush=True)
-
-    def run_fit():
-        with dmipy_fit_output(runtime.solver):
-            if gnl_tensors is not None and runtime.uses_jax:
-                from .dmipy_jax_gnl import fit_model_jax_gnl
-
-                fitted = fit_model_jax_gnl(
-                    model,
-                    scheme,
-                    data,
-                    gnl_tensors,
-                    mask=mask,
-                    solver_kwargs=options,
-                )
-                return fitted, runtime
-            if gnl_tensors is not None:
-                raise ValueError(
-                    "Generic dmipy gradient-nonlinearity correction currently "
-                    "requires solver='jax'."
-                )
-            return fit_model(
-                model,
-                scheme,
-                data,
-                mask=mask,
-                solver=runtime.solver,
-                nthreads=nthreads,
-                solver_kwargs=options,
-                runtime=runtime,
-            )
-
-    if runtime.uses_jax:
-        started = time.monotonic()
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            pending = executor.submit(run_fit)
-            while True:
-                try:
-                    fitted, runtime = pending.result(timeout=heartbeat_interval)
-                except FutureTimeout:
-                    elapsed = (time.monotonic() - started) / 60.0
-                    print(
-                        f"dmipy {spec.name} JAX fit is still running "
-                        f"(elapsed {elapsed:.1f} min).",
-                        flush=True,
-                    )
-                else:
-                    break
-    else:
-        fitted, runtime = run_fit()
+    model = build_reference_model(spec.name, **dict(factory_kwargs or {}))
+    execution = execute_dmipy_fit(
+        DmipyFitRequest(
+            model_name=spec.name,
+            model=model,
+            acquisition_scheme=scheme,
+            data=data,
+            runtime=runtime,
+            mask=mask,
+            gradient_tensors=gnl_tensors,
+            nthreads=nthreads,
+            solver_options=options,
+            heartbeat_interval=heartbeat_interval,
+        )
+    )
+    fitted = execution.fitted
+    runtime = execution.runtime
 
     return write_dmipy_derivatives(
         out_dir,
@@ -298,6 +259,7 @@ def fit_dmipy_reference(
             "GradientNonlinearityTensorFile": (
                 Path(grad_nonlin).name if grad_nonlin is not None else None
             ),
+            "ModelFactoryOptions": dict(factory_kwargs or {}),
             **timing_metadata,
         },
     )

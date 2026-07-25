@@ -18,6 +18,10 @@ def test_registry_summary_covers_every_model_without_importing_dmipy():
     assert microglia["source"] == "qmri-neuropipe"
     assert microglia["acquisition_requirements"] == ["delta", "Delta"]
     assert microglia["solver_interfaces"] == ["brute2fine", "jax", "mix"]
+    nexi = next(record for record in records if record["name"] == "nexi")
+    assert nexi["solver_interfaces"] == ["brute2fine", "mix"]
+    assert not nexi["jax_supported"]
+    assert not nexi["jax_gnl_supported"]
 
 
 def test_representative_parameters_use_physical_midpoints_and_equal_fractions():

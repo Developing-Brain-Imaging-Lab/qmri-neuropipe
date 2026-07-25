@@ -279,8 +279,60 @@ fitting convergence.
 
 The existing NODDI, SANDI, and microglia workflows remain model-specific
 compatibility wrappers and publish their established metrics through the shared
-writer. A generic model execution CLI and acquisition-waveform support are
-separate from this output layer.
+writer. Their model construction and fit dispatch now use the same registered
+factories and execution boundary as the generic interface.
+
+## Pipeline configuration
+
+Any number of allow-listed dmipy models can be added to an integrated modeling
+run:
+
+```yaml
+dmri:
+  modeling:
+    dmipy:
+      models:
+        - name: verdict
+          solver: jax
+          device: gpu
+          gpu_device: 0
+          jax_cache_dir: /private/scratch/qmri-jax-cache
+          solver_options:
+            batch_size: 4000
+        - name: mte_sandi
+          solver: brute2fine
+          TE_file: /data/sub-01_echo_times.txt
+```
+
+A mapping form is also accepted:
+
+```yaml
+dmri:
+  modeling:
+    dmipy:
+      models:
+        ball: {}
+        zeppelin:
+          enabled: false
+```
+
+Each entry accepts `solver`, `device`, `gpu_device`, `jax_cache_dir`,
+`jax_log_compiles`, `heartbeat_interval`, `factory_kwargs`, `solver_options`,
+and `gradient_nonlinearity`. Timing-sensitive models automatically use the
+separate `delta` and `Delta` paths stored on the pipeline's `DWIFile`; explicit
+`delta_file`, `Delta_file`, and `TE_file` values override those inputs.
+
+Model names and execution capabilities are validated against the registry.
+Duplicate entries are rejected. NODDI, SANDI, and microglia cannot be enabled
+both in this list and in their legacy model-specific configuration block.
+Unsupported combinations, such as dmipy-fit 2.1 NEXI with JAX, fail before
+optimization begins.
+
+The dedicated `fit-sandi` compatibility command uses the historical
+spherical-mean SANDI model. Its GNL correction remains an exact per-voxel fit
+because a voxel-specific GNL tensor changes shell membership. The registered
+full-signal model selected by `fit-dmipy --model sandi` supports the accelerated
+voxel-parallel JAX GNL path.
 
 ## Provenance
 
