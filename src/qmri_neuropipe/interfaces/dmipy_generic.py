@@ -142,6 +142,7 @@ def fit_dmipy_reference(
     bval_file: Path | None = None,
     bvec_file: Path | None = None,
     mask_file: Path | None = None,
+    grad_nonlin: Path | None = None,
     delta_file: Path | None = None,
     Delta_file: Path | None = None,
     TE_file: Path | None = None,
@@ -205,6 +206,19 @@ def fit_dmipy_reference(
             raise ValueError(
                 f"Mask shape {mask.shape} does not match DWI shape {data.shape[:3]}."
             )
+    gnl_tensors = None
+    if grad_nonlin is not None:
+        gnl_tensors = nib.load(str(grad_nonlin)).get_fdata()
+        if gnl_tensors.shape[:3] != data.shape[:3]:
+            raise ValueError(
+                f"GNL map shape {gnl_tensors.shape} does not match DWI shape "
+                f"{data.shape[:3]}."
+            )
+        if gnl_tensors.shape[3:] not in {(9,), (3, 3)}:
+            raise ValueError(
+                "GNL map must contain 9 tensor elements or a 3 x 3 tensor "
+                f"per voxel; found shape {gnl_tensors.shape}."
+            )
     voxel_count = int(mask.sum()) if mask is not None else int(np.prod(data.shape[:3]))
     options = dict(solver_kwargs or {})
     # Resolve GPU visibility before constructing a model, in case a future
@@ -223,6 +237,23 @@ def fit_dmipy_reference(
 
     def run_fit():
         with dmipy_fit_output(runtime.solver):
+            if gnl_tensors is not None and runtime.uses_jax:
+                from .dmipy_jax_gnl import fit_model_jax_gnl
+
+                fitted = fit_model_jax_gnl(
+                    model,
+                    scheme,
+                    data,
+                    gnl_tensors,
+                    mask=mask,
+                    solver_kwargs=options,
+                )
+                return fitted, runtime
+            if gnl_tensors is not None:
+                raise ValueError(
+                    "Generic dmipy gradient-nonlinearity correction currently "
+                    "requires solver='jax'."
+                )
             return fit_model(
                 model,
                 scheme,
@@ -263,6 +294,10 @@ def fit_dmipy_reference(
         base_metadata={
             "FittingMethod": "dmipy-fit reference model",
             "SolverOptions": options,
+            "GradientNonlinearityCorrection": gnl_tensors is not None,
+            "GradientNonlinearityTensorFile": (
+                Path(grad_nonlin).name if grad_nonlin is not None else None
+            ),
             **timing_metadata,
         },
     )

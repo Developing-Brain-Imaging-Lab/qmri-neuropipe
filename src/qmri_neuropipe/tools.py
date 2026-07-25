@@ -670,6 +670,12 @@ def fit_dmipy_cli(
     bval: Path = typer.Option(..., "--bval", help="FSL b-values in s/mm^2.", exists=True),
     bvec: Path = typer.Option(..., "--bvec", help="FSL b-vectors.", exists=True),
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Brain mask.", exists=True),
+    grad_nonlin: Optional[Path] = typer.Option(
+        None,
+        "--grad-nonlin",
+        help="Voxelwise 3 x 3 gradient-nonlinearity tensor map.",
+        exists=True,
+    ),
     delta: Optional[Path] = typer.Option(
         None,
         "--delta",
@@ -761,6 +767,7 @@ def fit_dmipy_cli(
             bval_file=bval,
             bvec_file=bvec,
             mask_file=mask,
+            grad_nonlin=grad_nonlin,
             delta_file=delta,
             Delta_file=big_delta,
             TE_file=te,

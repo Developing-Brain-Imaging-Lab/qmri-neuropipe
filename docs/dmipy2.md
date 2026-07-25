@@ -197,18 +197,51 @@ qmri-tools fit-dmipy \
 ```
 
 The dedicated `fit-microglia` command remains available when custom sphere
-diameter bounds, initial diameters, fixed diffusivities, or
-gradient-nonlinearity correction are needed. Both commands use the same
-registered model factory and publish the paper-facing stick, extracellular,
-tissue, sphere-radius, dispersion, and orientation maps.
+diameter bounds, initial diameters, or fixed diffusivities are needed. Both
+commands use the same registered model factory and publish the paper-facing
+stick, extracellular, tissue, sphere-radius, dispersion, and orientation maps.
+The generic command also accepts `--grad-nonlin` when `--solver jax` is used.
 
 dmipy-fit 2.1 exposes optional surface-relaxivity parameters on its restricted
 sphere implementation. The diffusion-only microglia model fixes both to zero,
 because they cannot be identified without a relaxation-sensitive acquisition.
 
-Gradient-nonlinearity correction currently requires a distinct acquisition
-scheme for each voxel. That path remains per-voxel even with the JAX solver and
-will not realize normal whole-mask GPU throughput.
+Gradient-nonlinearity correction uses a distinct acquisition scheme for each
+voxel. With `--solver jax`, qmri-neuropipe now passes those schemes through a
+vectorized loss and optimizer, retaining `--batch-size` batching on JAX CPU or
+GPU. The nominal scheme is used only for the global brute-grid initializer;
+every LBFGS-B objective and gradient evaluation uses the voxel-corrected
+b-values, directions, q-values, and gradient strengths.
+
+This accelerated path supports full-signal PGSE models, including NODDI,
+SANDI, and microglia models that have dmipy JAX forward support. It does
+not apply to arbitrary waveform/OGSE schemes or spherical-mean models, because
+GNL changes the acquisition directions and shell membership at each voxel.
+NODDI with an external voxelwise FISO constraint and SMT-NODDI retain the
+existing exact per-voxel path.
+
+The oriented Kärger/NEXI model is also excluded in dmipy-fit 2.1: its released
+JAX forward expects obsolete parameter names and does not reproduce the native
+relaxation model. qmri-neuropipe raises a clear error instead of silently using
+an approximate objective.
+
+Example:
+
+```bash
+qmri-tools fit-dmipy \
+  --model sandi \
+  --input sub-01_dwi.nii.gz \
+  --bval sub-01_dwi.bval \
+  --bvec sub-01_dwi.bvec \
+  --mask sub-01_mask.nii.gz \
+  --delta sub-01_small_delta.txt \
+  --big-delta sub-01_big_delta.txt \
+  --grad-nonlin sub-01_desc-gradnonlin_tensor.nii.gz \
+  --solver jax \
+  --device gpu \
+  --batch-size 4000 \
+  --output-dir sandi-jax-gnl
+```
 
 ## Model registry
 

@@ -448,6 +448,30 @@ def _fit_chunk_gnl(args):
 
     try:
         n_voxels = data_chunk.shape[0]
+        if (
+            solver == "jax"
+            and not chunk_fixed_params
+            and str(model_config.get("model_type", "standard")).lower() != "smt"
+        ):
+            from .dmipy_jax_gnl import fit_model_jax_gnl
+
+            model = _build_noddi_model(model_config, fixed_params={})
+            scheme = _build_dmipy_scheme(bvals, bvecs)
+            fit_obj = fit_model_jax_gnl(
+                model,
+                scheme,
+                data_chunk,
+                gnl_chunk,
+                solver_kwargs=solver_kwargs,
+            )
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -601,6 +625,31 @@ def _fit_sandi_chunk_gnl(args):
 
     try:
         n_voxels = data_chunk.shape[0]
+        if solver == "jax":
+            from .dmipy_jax_gnl import fit_model_jax_gnl
+
+            sandi = _build_sandi_model(model_config)
+            scheme = _build_dmipy_scheme(
+                bvals,
+                bvecs,
+                delta=delta_arr,
+                Delta=Delta_arr,
+            )
+            fit_obj = fit_model_jax_gnl(
+                sandi,
+                scheme,
+                data_chunk,
+                gnl_chunk,
+                solver_kwargs=solver_kwargs,
+            )
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0

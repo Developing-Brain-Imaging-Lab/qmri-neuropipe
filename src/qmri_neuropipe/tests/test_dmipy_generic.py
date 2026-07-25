@@ -161,6 +161,7 @@ def test_fit_dmipy_cli_exposes_independent_timing_options():
     assert "--delta" in result.stdout
     assert "--big-delta" in result.stdout
     assert "--te" in result.stdout
+    assert "--grad-nonlin" in result.stdout
     assert "--gpu-device" in result.stdout
     assert "--heartbeat-interval" in result.stdout
 

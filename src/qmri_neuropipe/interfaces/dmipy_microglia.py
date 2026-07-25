@@ -262,6 +262,38 @@ def _fit_microglia_chunk_gnl(args):
 
     try:
         n_voxels = data_chunk.shape[0]
+        if solver == "jax":
+            from .dmipy_jax_gnl import fit_model_jax_gnl
+
+            model = _build_microglia_model(
+                cylinder_models,
+                gaussian_models,
+                sphere_models,
+                distribute_models,
+                MultiCompartmentModel,
+                model_config,
+            )
+            scheme = _build_dmipy_scheme(
+                bvals,
+                bvecs,
+                delta=delta_arr,
+                Delta=Delta_arr,
+            )
+            fit_obj = fit_model_jax_gnl(
+                model,
+                scheme,
+                data_chunk,
+                gnl_chunk,
+                solver_kwargs=solver_kwargs,
+            )
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
