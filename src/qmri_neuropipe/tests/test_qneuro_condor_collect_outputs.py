@@ -1,6 +1,8 @@
 import argparse
+import io
 import tarfile
 from pathlib import Path
+from unittest.mock import patch
 
 from qmri_neuropipe.examples.condor import qneuro_condor
 
@@ -93,6 +95,44 @@ def test_collect_outputs_strips_existing_derivatives_prefix(tmp_path):
         / "anat"
         / "sub-10021_ses-01_T1w.nii.gz"
     ).read_text() == "nii\n"
+
+
+def test_download_remote_outputs_uses_one_ssh_tar_transfer(tmp_path):
+    outputs_dir = tmp_path / "outputs"
+    args = argparse.Namespace(
+        remote_host="dean@inca",
+        remote_outputs_dir="/staging/dean/qneuro outputs",
+        subject="",
+        subjects="10021,10022",
+        subjects_file="",
+        session="01",
+        sessions="",
+    )
+
+    archive_payload = io.BytesIO()
+    with tarfile.open(fileobj=archive_payload, mode="w:gz") as tf:
+        for subject in ("10021", "10022"):
+            name = f"qneuro_outputs_sub-{subject}_ses-01.tar.gz"
+            data = f"output-{subject}".encode()
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    bundle = archive_payload.getvalue()
+
+    def fake_run(command, *, stdout, check):
+        assert check is True
+        assert command[0:2] == ["ssh", "dean@inca"]
+        assert "cd '/staging/dean/qneuro outputs'" in command[2]
+        assert "qneuro_outputs_sub-10021_ses-01.tar.gz" in command[2]
+        assert "qneuro_outputs_sub-10022_ses-01.tar.gz" in command[2]
+        stdout.write(bundle)
+
+    with patch.object(qneuro_condor.subprocess, "run", side_effect=fake_run) as run:
+        qneuro_condor.download_remote_outputs(args, outputs_dir)
+
+    assert run.call_count == 1
+    assert (outputs_dir / "qneuro_outputs_sub-10021_ses-01.tar.gz").read_bytes() == b"output-10021"
+    assert (outputs_dir / "qneuro_outputs_sub-10022_ses-01.tar.gz").read_bytes() == b"output-10022"
 
 
 def test_make_output_tar_does_not_duplicate_directory_subtrees(tmp_path):

@@ -101,6 +101,111 @@ JAX worker and substitutes the mathematically equivalent NumPy conversion.
 Future dmipy versions that no longer contain the per-voxel JAX call are not
 modified.
 
+dmipy outputs use a model-independent BIDS-style derivative writer. Input
+entities such as subject, session, acquisition, run, and space are preserved;
+the input preprocessing description is removed and a stable `model-<Model>`
+entity is added.
+
+Curated output aliases use a compact metric suffix. For example, NODDI writes:
+
+```text
+sub-01_ses-01_model-NODDI_ODI.nii.gz
+sub-01_ses-01_model-NODDI_ICVF.nii.gz
+sub-01_ses-01_model-NODDI_EXVF.nii.gz
+sub-01_ses-01_model-NODDI_FISO.nii.gz
+```
+
+Each image has a matching JSON sidecar containing the dmipy version, solver,
+resolved execution device, model configuration, metric description, and units.
+The NODDI, SANDI, and microglia interfaces all use this shared writer.
+
+The same writer supports every reference model in the dmipy registry, as well
+as custom models. Parameters with no curated alias use a deterministic fallback
+that is valid for BIDS entities:
+
+```text
+sub-01_model-BallAndStick_desc-BundleModel1C1Stick1LambdaPar_parameter.nii.gz
+```
+
+The complete, unsanitized dmipy parameter name is retained in the JSON sidecar
+under `Parameter`, so the filename conversion is lossless. Vector-valued
+parameters are stored as 4D NIfTI images and their component count is recorded
+as `ParameterCardinality`. `write_dmipy_fit_result` can write all
+`fitted_parameters` returned by any model fitted through the shared
+`fit_model` API; model-specific interfaces can pass derived maps to
+`write_dmipy_derivatives`.
+
+Output serialization is shared, but acquisition construction remains
+model-specific. The model registry records requirements such as `delta`,
+`Delta`, and echo time, and includes those requirements in each sidecar.
+
+## Generic reference-model command
+
+`fit-dmipy` fits any allow-listed dmipy-fit 2.1 reference model and sends every
+fitted parameter through the shared derivative writer. Models based on PGSE
+timing receive small-delta and big-Delta from separate files:
+
+```bash
+qmri-tools fit-dmipy \
+  --model nexi \
+  --input sub-01_dwi.nii.gz \
+  --bval sub-01_dwi.bval \
+  --bvec sub-01_dwi.bvec \
+  --mask sub-01_mask.nii.gz \
+  --delta sub-01_small_delta.txt \
+  --big-delta sub-01_big_delta.txt \
+  --solver jax \
+  --device gpu \
+  --gpu-device 0 \
+  --batch-size 4000 \
+  --output-dir nexi-dmipy
+```
+
+Each timing file may contain one value to broadcast to all measurements or one
+value per DWI volume. Values are in seconds. dmipy's NEXI and Kärger models
+calculate the effective diffusion time as `Delta - delta/3`, so both files are
+required rather than a single derived diffusion-time file. Use filenames that
+differ by more than capitalization so they remain distinct on case-insensitive
+filesystems. Multi-echo models add an independent `--te` file, also in seconds.
+
+The existing `fit-nexi` command uses the separate `nexi` package and retains
+its noise-map-based interface. Use `fit-dmipy --model nexi` to select the
+dmipy-fit 2.x reference model.
+
+### Microglia and astrocyte activation model
+
+`microglia` is a project-maintained dmipy-fit 2.x model based on
+Garcia-Hernandez et al. (2022). It combines:
+
+- a Watson-dispersed stick and zeppelin bundle;
+- a fitted small restricted sphere for microglial cell bodies;
+- a fitted large restricted sphere for astrocytes;
+- an isotropic free-water compartment.
+
+Run the default registered model through the generic interface:
+
+```bash
+qmri-tools fit-dmipy \
+  --model microglia \
+  --input sub-01_dwi.nii.gz \
+  --bval sub-01_dwi.bval \
+  --bvec sub-01_dwi.bvec \
+  --mask sub-01_mask.nii.gz \
+  --delta sub-01_small_delta.txt \
+  --big-delta sub-01_big_delta.txt \
+  --output-dir microglia-dmipy
+```
+
+The dedicated `fit-microglia` command remains available when custom sphere
+diameter bounds, initial diameters, fixed diffusivities, or
+gradient-nonlinearity correction are needed. Both commands use the same
+registered model factory and publish the paper-facing stick, extracellular,
+tissue, sphere-radius, dispersion, and orientation maps.
+
+dmipy-fit 2.1 exposes optional surface-relaxivity parameters on its restricted
+sphere implementation. The diffusion-only microglia model fixes both to zero,
+because they cannot be identified without a relaxation-sensitive acquisition.
+
 Gradient-nonlinearity correction currently requires a distinct acquisition
 scheme for each voxel. That path remains per-voxel even with the JAX solver and
 will not realize normal whole-mask GPU throughput.
@@ -112,10 +217,10 @@ allow-listed identifiers for the published dmipy-fit 2.1 reference factories.
 It includes Gaussian/tensor, NODDI/SMT, axon-diameter, soma, exchange,
 time-dependent, and multi-TE model families.
 
-The existing NODDI, SANDI, and microglia workflows remain compatibility
-wrappers with their established derivative names. New generic model workflow
-and acquisition-waveform support will be added after CPU parity of these
-existing outputs is established.
+The existing NODDI, SANDI, and microglia workflows remain model-specific
+compatibility wrappers and publish their established metrics through the shared
+writer. A generic model execution CLI and acquisition-waveform support are
+separate from this output layer.
 
 ## Provenance
 

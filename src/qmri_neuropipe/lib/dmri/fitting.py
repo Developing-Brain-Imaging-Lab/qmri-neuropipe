@@ -14,6 +14,7 @@ Refactored to delegate logic to interface modules.
 
 from pathlib import Path
 from typing import Optional, Any
+import json
 import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
@@ -728,18 +729,27 @@ class NODDIFittingStep(BaseProcessingStep):
             new_path = model_out / new_name
             
             if path.exists():
-                path.rename(new_path)
+                if path != new_path:
+                    path.rename(new_path)
                 
                 # Sidecar
+                sidecar_path = Path(str(new_path).replace('.nii.gz', '.json'))
+                existing_sidecar = {}
+                if sidecar_path.exists():
+                    try:
+                        with sidecar_path.open() as f:
+                            existing_sidecar = json.load(f)
+                    except (OSError, ValueError):
+                        existing_sidecar = {}
                 sidecar = {
                     "ModelName": "NODDI",
                     "FittingSoftware": "Dmipy" if self.method == 'dmipy' else "AMICO",
                     "InputData": dwi.img.name,
                     "Metric": suffix,
+                    **existing_sidecar,
                     **dmipy_runtime_metadata,
                 }
-                import json
-                with open(str(new_path).replace('.nii.gz', '.json'), 'w') as f:
+                with sidecar_path.open('w') as f:
                     json.dump(sidecar, f, indent=4)
              
         # Update Context outputs

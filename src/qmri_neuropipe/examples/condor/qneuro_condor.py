@@ -1348,12 +1348,44 @@ def download_remote_outputs(args: argparse.Namespace, outputs_dir: Path) -> None
 
     outputs_dir.mkdir(parents=True, exist_ok=True)
     remote_dir = args.remote_outputs_dir.rstrip("/")
-    remote_specs = [
-        f"{args.remote_host}:{remote_dir}/{pattern}"
-        for pattern in output_archive_patterns(args)
-    ]
-    print(f"Copying Condor output archive(s) to: {outputs_dir}")
-    subprocess.run(["scp", *remote_specs, str(outputs_dir)], check=True)
+    patterns = output_archive_patterns(args)
+    remote_command = " ".join(
+        [
+            "cd",
+            shlex.quote(remote_dir),
+            "&&",
+            "tar",
+            "-czf",
+            "-",
+            "--wildcards",
+            "--",
+            *(shlex.quote(pattern) for pattern in patterns),
+        ]
+    )
+    print(f"Copying Condor output archive(s) in one SSH transfer to: {outputs_dir}")
+    with tempfile.TemporaryFile() as bundle:
+        subprocess.run(
+            ["ssh", args.remote_host, remote_command],
+            stdout=bundle,
+            check=True,
+        )
+        bundle.seek(0)
+        with tarfile.open(fileobj=bundle, mode="r:gz") as tf:
+            for member in tf.getmembers():
+                name = PurePosixPath(member.name)
+                if (
+                    not member.isfile()
+                    or name.is_absolute()
+                    or len(name.parts) != 1
+                    or parse_output_archive_name(Path(name.name)) is None
+                ):
+                    raise ValueError(f"Unexpected file in remote output bundle: {member.name}")
+                destination = outputs_dir / name.name
+                source = tf.extractfile(member)
+                if source is None:
+                    raise ValueError(f"Could not read remote output archive: {member.name}")
+                with source, destination.open("wb") as output:
+                    shutil.copyfileobj(source, output)
 
 
 def collect_target_dir(args: argparse.Namespace) -> Path:

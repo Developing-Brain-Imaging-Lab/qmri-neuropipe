@@ -9,7 +9,6 @@ import multiprocessing
 from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.utils import ensure_dir, extract_image_path
 from qmri_neuropipe.core.types import ImageLike, DWIFile
-from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 from qmri_neuropipe.interfaces.dmipy import (
     _rotate_gradients_for_gnl,
     _build_dmipy_scheme,
@@ -24,6 +23,12 @@ from qmri_neuropipe.interfaces.dmipy_backend import (
     dmipy_fit_output,
     install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
+)
+from qmri_neuropipe.interfaces.dmipy_derivatives import write_dmipy_derivatives
+from qmri_neuropipe.interfaces.dmipy_models import (
+    microglia as build_microglia_reference_model,
+    microglia_output_alias,
+    microglia_output_maps,
 )
 
 
@@ -84,33 +89,7 @@ def _load_microglia_timing(delta_file, Delta_file, n_measurements):
 
 def _microglia_metric_name(parameter_name):
     """Map dmipy parameter names to stable, interpretable derivative suffixes."""
-    exact = {
-        "partial_volume_0": "f_bundle",
-        "partial_volume_1": "f_small_sphere",
-        "partial_volume_2": "f_large_sphere",
-        "partial_volume_3": "f_iso",
-        "derived_f_stick": "f_stick",
-        "derived_f_extracellular": "f_extracellular",
-        "derived_f_tissue": "f_tissue",
-        "derived_small_sphere_radius": "small_sphere_radius",
-        "derived_large_sphere_radius": "large_sphere_radius",
-        "derived_watson_kappa": "watson_kappa",
-    }
-    if parameter_name in exact:
-        return exact[parameter_name]
-    if parameter_name.endswith("SD1Watson_1_mu"):
-        return "mu"
-    if parameter_name.endswith("SD1Watson_1_odi"):
-        return "odi"
-    if parameter_name.endswith("G2Zeppelin_1_lambda_perp"):
-        return "bundle_radial_diffusivity"
-    if parameter_name.endswith("SD1WatsonDistributed_1_partial_volume_0"):
-        return "bundle_stick_fraction"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_1_diameter"):
-        return "small_sphere_diameter"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_2_diameter"):
-        return "large_sphere_diameter"
-    return parameter_name.replace("SD1WatsonDistributed_1_", "")
+    return microglia_output_alias(parameter_name)
 
 
 def _microglia_metric_metadata(metric):
@@ -159,28 +138,7 @@ def _microglia_metric_metadata(metric):
 
 def _add_paper_microglia_maps(full_maps):
     """Add paper-facing fractions, radii, and Watson concentration in place."""
-    f_bundle = full_maps.get('partial_volume_0')
-    bundle_stick = full_maps.get('SD1WatsonDistributed_1_partial_volume_0')
-    f_iso = full_maps.get('partial_volume_3')
-    small_diameter = full_maps.get(
-        'S2SphereStejskalTannerApproximation_1_diameter'
-    )
-    large_diameter = full_maps.get(
-        'S2SphereStejskalTannerApproximation_2_diameter'
-    )
-    odi = full_maps.get('SD1WatsonDistributed_1_SD1Watson_1_odi')
-    if f_bundle is not None and bundle_stick is not None:
-        full_maps['derived_f_stick'] = f_bundle * bundle_stick
-        full_maps['derived_f_extracellular'] = f_bundle * (1.0 - bundle_stick)
-    if f_iso is not None:
-        full_maps['derived_f_tissue'] = 1.0 - f_iso
-    if small_diameter is not None:
-        full_maps['derived_small_sphere_radius'] = 0.5 * small_diameter
-    if large_diameter is not None:
-        full_maps['derived_large_sphere_radius'] = 0.5 * large_diameter
-    if odi is not None:
-        safe_odi = np.clip(odi, np.finfo(float).eps, 1.0 - np.finfo(float).eps)
-        full_maps['derived_watson_kappa'] = 1.0 / np.tan(0.5 * np.pi * safe_odi)
+    full_maps.update(microglia_output_maps(full_maps))
     return full_maps
 
 
@@ -192,83 +150,27 @@ def _build_microglia_model(
     MultiCompartmentModel,
     model_config,
 ):
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-    # Fit the Watson mean orientation (mu) independently from its orientation
-    # dispersion index (odi). The model makes no tortuosity assumption.
-    dispersed_bundle.set_equal_parameter(
-        'G2Zeppelin_1_lambda_par',
-        'C1Stick_1_lambda_par',
+    return build_microglia_reference_model(
+        parallel_diffusivity=float(
+            model_config.get("parallel_diffusivity", 1.0e-9)
+        ),
+        iso_diffusivity=float(model_config.get("iso_diffusivity", 3.0e-9)),
+        small_diameter=float(model_config.get("small_diameter", 8e-6)),
+        large_diameter=float(model_config.get("large_diameter", 16e-6)),
+        small_diameter_bounds=tuple(
+            model_config.get("small_diameter_bounds", (5e-6, 11e-6))
+        ),
+        large_diameter_bounds=tuple(
+            model_config.get("large_diameter_bounds", (12e-6, 18e-6))
+        ),
+        _components={
+            "cylinder_models": cylinder_models,
+            "gaussian_models": gaussian_models,
+            "sphere_models": sphere_models,
+            "distribute_models": distribute_models,
+            "MultiCompartmentModel": MultiCompartmentModel,
+        },
     )
-    dispersed_bundle.set_fixed_parameter(
-        'G2Zeppelin_1_lambda_par',
-        float(model_config.get('parallel_diffusivity', 1.0e-9))
-    )
-
-    small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-    large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-    ball = gaussian_models.G1Ball()
-
-    model = MultiCompartmentModel(
-        models=[dispersed_bundle, small_sphere, large_sphere, ball]
-    )
-
-    microglia_diameter = list(
-        map(float, model_config.get('small_diameter_bounds', [5e-6, 11e-6]))
-    )
-    astrocyte_diameter = list(
-        map(float, model_config.get('large_diameter_bounds', [12e-6, 18e-6]))
-    )
-    for label, bounds in (
-        ('small-sphere', microglia_diameter),
-        ('large-sphere', astrocyte_diameter),
-    ):
-        if len(bounds) != 2 or not 0 < bounds[0] < bounds[1]:
-            raise ValueError(
-                f"{label} diameter bounds must contain two increasing positive values."
-            )
-    if microglia_diameter[1] >= astrocyte_diameter[0]:
-        raise ValueError("Small- and large-sphere diameter bounds must not overlap.")
-    microglia_initial_diameter = float(
-        model_config.get('small_diameter', 8e-6)
-    )
-    astrocyte_initial_diameter = float(
-        model_config.get('large_diameter', 16e-6)
-    )
-
-    for label, initial, bounds in (
-        ('microglia', microglia_initial_diameter, microglia_diameter),
-        ('astrocyte', astrocyte_initial_diameter, astrocyte_diameter),
-    ):
-        if not bounds[0] <= initial <= bounds[1]:
-            raise ValueError(
-                f"Initial {label} diameter {initial:g} m is outside the "
-                f"optimization bounds [{bounds[0]:g}, {bounds[1]:g}] m."
-            )
-
-    model.set_parameter_optimization_bounds(
-        'S2SphereStejskalTannerApproximation_1_diameter',
-        microglia_diameter,
-    )
-    model.set_parameter_optimization_bounds(
-        'S2SphereStejskalTannerApproximation_2_diameter',
-        astrocyte_diameter,
-    )
-    model.set_initial_guess_parameter(
-        'S2SphereStejskalTannerApproximation_1_diameter',
-        microglia_initial_diameter,
-    )
-    model.set_initial_guess_parameter(
-        'S2SphereStejskalTannerApproximation_2_diameter',
-        astrocyte_initial_diameter,
-    )
-    model.set_fixed_parameter(
-        'G1Ball_1_lambda_iso',
-        float(model_config.get('iso_diffusivity', 3.0e-9))
-    )
-    return model
 
 
 def _fit_microglia_chunk(args):
@@ -648,25 +550,10 @@ def fit_microglia(
     # parameterization. Raw fitted maps remain available alongside these maps.
     _add_paper_microglia_maps(full_maps)
         
-    # Standardize map names
-    # dmipy name resolution:
-    # partial_volume_0 = dispersed_bundle
-    # partial_volume_1 = SmallSphere
-    # partial_volume_2 = LargeSphere
-    # partial_volume_3 = free water (implicitly 1 - others)
-    # The actual keys depend on order. We will save all keys out.
-    
-    outputs = {}
-    ent_base = get_entities_from_path(in_path)
-    if 'desc' in ent_base: del ent_base['desc']
-    ent_base['model'] = 'Microglia'
-    
-    import json
+    aliases = {key: _microglia_metric_name(key) for key in full_maps}
     sidecar = {
         "ModelName": "Microglia (4-Compartment)",
         "ModelReference": "https://doi.org/10.1126/sciadv.abq2923",
-        **runtime.provenance(),
-        "InputData": in_path.name,
         "BValueInputUnits": "s/mm^2",
         "BValueFittingUnits": "s/m^2",
         "SmallDeltaSeconds": {
@@ -686,24 +573,22 @@ def fit_microglia(
         "SolverOptions": solver_kwargs,
         "WatsonMeanOrientationFitted": True,
     }
-    
-    for k, array in full_maps.items():
-        suffix = _microglia_metric_name(k)
-        
-        out_name = build_bids_name({**ent_base, 'suffix': suffix})
-        out_p = out_dir / out_name
-        nib.save(nib.Nifti1Image(array, affine), out_p)
-        outputs[suffix] = out_p
-        
-        with open(str(out_p).replace('.nii.gz', '.json'), 'w') as f:
-             json.dump(
-                 {
-                     **sidecar,
-                     "Metric": suffix,
-                     **_microglia_metric_metadata(suffix),
-                 },
-                 f,
-                 indent=4,
-             )
-             
-    return outputs
+    written = write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        full_maps,
+        runtime,
+        model_name="microglia",
+        model_label="Microglia",
+        output_aliases=aliases,
+        base_metadata=sidecar,
+        parameter_metadata={
+            key: {
+                "Metric": alias,
+                **_microglia_metric_metadata(alias),
+            }
+            for key, alias in aliases.items()
+        },
+    )
+    return {aliases[key]: path for key, path in written.items()}

@@ -273,9 +273,26 @@ def test_released_reference_factories_match_registry():
     missing = [
         spec.factory_name
         for spec in dmipy_backend.MODEL_REGISTRY.values()
+        if spec.factory_module
+        == "dmipy_fit.custom_optimizers.reference_models"
         if not hasattr(reference_models, spec.factory_name)
     ]
     assert missing == []
+
+
+def test_project_model_factories_match_registry():
+    project_specs = [
+        spec
+        for spec in dmipy_backend.MODEL_REGISTRY.values()
+        if spec.factory_module
+        != "dmipy_fit.custom_optimizers.reference_models"
+    ]
+
+    assert {spec.name for spec in project_specs} == {"microglia"}
+    for spec in project_specs:
+        module = dmipy_backend.import_module(spec.factory_module)
+        assert callable(getattr(module, spec.factory_name))
+        assert callable(getattr(module, spec.output_adapter_name))
 
 
 def test_released_cpu_solver_recovers_synthetic_ball_diffusivity():

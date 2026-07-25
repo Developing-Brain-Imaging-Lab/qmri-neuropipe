@@ -381,13 +381,16 @@ class ModelSpec:
     family: str
     acquisition_requirements: tuple[str, ...] = ()
     output_aliases: Mapping[str, str] = field(default_factory=dict)
+    factory_module: str = "dmipy_fit.custom_optimizers.reference_models"
+    output_adapter_name: str | None = None
+    references: tuple[str, ...] = ()
 
 
 MODEL_REGISTRY: dict[str, ModelSpec] = {
     "ball": ModelSpec("ball", "ball", "gaussian"),
     "zeppelin": ModelSpec("zeppelin", "zeppelin", "gaussian"),
     "temporal_zeppelin": ModelSpec(
-        "temporal_zeppelin", "temporal_zeppelin", "time-dependent", ("diffusion_time",)
+        "temporal_zeppelin", "temporal_zeppelin", "time-dependent", ("delta", "Delta")
     ),
     "ball_and_stick": ModelSpec("ball_and_stick", "ball_and_stick", "white-matter"),
     "ball_and_zeppelin": ModelSpec(
@@ -425,28 +428,26 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
     ),
     "verdict": ModelSpec("verdict", "verdict", "soma", ("delta", "Delta")),
     "sandi": ModelSpec("sandi", "sandi", "soma", ("delta", "Delta")),
-    "impulsed": ModelSpec(
-        "impulsed", "impulsed", "soma", ("composite_waveform",)
-    ),
-    "nexi": ModelSpec("nexi", "nexi", "exchange", ("diffusion_time",)),
+    "impulsed": ModelSpec("impulsed", "impulsed", "soma", ("delta", "Delta")),
+    "nexi": ModelSpec("nexi", "nexi", "exchange", ("delta", "Delta")),
     "karger_two_compartment": ModelSpec(
         "karger_two_compartment",
         "karger_two_compartment",
         "exchange",
-        ("diffusion_time",),
+        ("delta", "Delta"),
     ),
-    "fexi": ModelSpec("fexi", "fexi", "exchange", ("composite_waveform",)),
+    "fexi": ModelSpec("fexi", "fexi", "exchange", ("delta", "Delta")),
     "sandix": ModelSpec(
-        "sandix", "sandix", "exchange", ("delta", "Delta", "diffusion_time")
+        "sandix", "sandix", "exchange", ("delta", "Delta")
     ),
     "exchange_impulsed": ModelSpec(
-        "exchange_impulsed", "exchange_impulsed", "exchange", ("composite_waveform",)
+        "exchange_impulsed", "exchange_impulsed", "exchange", ("delta", "Delta")
     ),
     "temporal_zeppelin_model": ModelSpec(
         "temporal_zeppelin_model",
         "temporal_zeppelin_model",
         "time-dependent",
-        ("diffusion_time",),
+        ("delta", "Delta"),
     ),
     "mte_ball_stick": ModelSpec(
         "mte_ball_stick", "mte_ball_stick", "relaxometry", ("TE",)
@@ -462,7 +463,34 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         "noddida_mte", "noddida_mte", "relaxometry", ("TE",)
     ),
     "mte_impulsed": ModelSpec(
-        "mte_impulsed", "mte_impulsed", "relaxometry", ("composite_waveform", "TE")
+        "mte_impulsed", "mte_impulsed", "relaxometry", ("delta", "Delta", "TE")
+    ),
+    "microglia": ModelSpec(
+        "microglia",
+        "microglia",
+        "glial-activation",
+        ("delta", "Delta"),
+        output_aliases={
+            "SD1WatsonDistributed_1_G2Zeppelin_1_lambda_perp": "bundle_radial_diffusivity",
+            "SD1WatsonDistributed_1_SD1Watson_1_mu": "mu",
+            "SD1WatsonDistributed_1_SD1Watson_1_odi": "odi",
+            "SD1WatsonDistributed_1_partial_volume_0": "bundle_stick_fraction",
+            "S2SphereStejskalTannerApproximation_1_diameter": "small_sphere_diameter",
+            "S2SphereStejskalTannerApproximation_2_diameter": "large_sphere_diameter",
+            "partial_volume_0": "f_bundle",
+            "partial_volume_1": "f_small_sphere",
+            "partial_volume_2": "f_large_sphere",
+            "partial_volume_3": "f_iso",
+            "derived_f_stick": "f_stick",
+            "derived_f_extracellular": "f_extracellular",
+            "derived_f_tissue": "f_tissue",
+            "derived_small_sphere_radius": "small_sphere_radius",
+            "derived_large_sphere_radius": "large_sphere_radius",
+            "derived_watson_kappa": "watson_kappa",
+        },
+        factory_module="qmri_neuropipe.interfaces.dmipy_models",
+        output_adapter_name="microglia_output_maps",
+        references=("https://doi.org/10.1126/sciadv.abq2923",),
     ),
 }
 
@@ -476,12 +504,27 @@ def get_model_spec(name: str) -> ModelSpec:
         raise ValueError(f"Unknown dmipy model {name!r}. Available models: {available}.") from exc
 
 
-def build_reference_model(name: str):
+def build_reference_model(name: str, **factory_kwargs):
     """Build an allow-listed dmipy-fit reference model."""
     spec = get_model_spec(name)
-    reference_models = import_module("dmipy_fit.custom_optimizers.reference_models")
+    reference_models = import_module(spec.factory_module)
     factory: Callable[[], Any] = getattr(reference_models, spec.factory_name)
-    return factory()
+    return factory(**factory_kwargs)
+
+
+def model_output_maps(name: str, fit_result: Any) -> Mapping[str, np.ndarray]:
+    """Return raw or model-adapted fitted parameter maps."""
+    spec = get_model_spec(name)
+    parameter_maps = getattr(fit_result, "fitted_parameters", None)
+    if not isinstance(parameter_maps, Mapping):
+        raise TypeError(
+            "dmipy fit result must expose fitted_parameters as a mapping."
+        )
+    if spec.output_adapter_name is None:
+        return parameter_maps
+    adapter_module = import_module(spec.factory_module)
+    adapter = getattr(adapter_module, spec.output_adapter_name)
+    return adapter(parameter_maps)
 
 
 def acquisition_scheme_from_bvalues(
@@ -515,11 +558,22 @@ def fit_model(
     mask: np.ndarray | None = None,
     solver: str = "brute2fine",
     device: str = "auto",
+    gpu_device: int | None = None,
+    jax_cache_dir: str | os.PathLike[str] | None = None,
+    jax_log_compiles: bool = False,
     nthreads: int = 1,
     solver_kwargs: Mapping[str, Any] | None = None,
+    runtime: DmipyRuntime | None = None,
 ):
     """Fit a model using the released dmipy-fit API and return runtime metadata."""
-    runtime = DmipyRuntime.resolve(solver, device)
+    if runtime is None:
+        runtime = DmipyRuntime.resolve(
+            solver,
+            device,
+            gpu_device=gpu_device,
+            jax_cache_dir=jax_cache_dir,
+            jax_log_compiles=jax_log_compiles,
+        )
     options = dict(solver_kwargs or {})
     options["solver"] = runtime.solver
     if mask is not None:
@@ -530,6 +584,7 @@ def fit_model(
     elif runtime.solver == "jax":
         options.pop("use_parallel_processing", None)
         options.pop("number_of_processors", None)
+        install_dmipy_jax_postprocessing_workaround()
 
     accepted = set(inspect.signature(model.fit).parameters)
     unknown = sorted(set(options) - accepted)

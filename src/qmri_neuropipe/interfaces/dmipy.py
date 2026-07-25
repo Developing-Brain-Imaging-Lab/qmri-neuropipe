@@ -4,7 +4,6 @@ from pathlib import Path
 import os
 import multiprocessing
 import argparse
-import json
 from typing import Optional, Dict, Union, Any
 import nibabel as nib
 import numpy as np
@@ -14,7 +13,6 @@ import warnings
 from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
-from ..io.bids import build_bids_name, get_entities_from_path
 from .dmipy_backend import (
     DmipyRuntime,
     acquisition_scheme_from_bvalues,
@@ -23,6 +21,7 @@ from .dmipy_backend import (
     install_dmipy_jax_postprocessing_workaround,
     jax_run_summary,
 )
+from .dmipy_derivatives import write_dmipy_derivatives
 
 
 def _reshape_gnl_tensor(vox_gnl):
@@ -243,6 +242,79 @@ def _sandi_fraction_maps(full_maps):
     neurite_fraction = bundle_fraction * stick_fraction_in_bundle
     soma_fraction = bundle_fraction * (1.0 - stick_fraction_in_bundle)
     return soma_fraction, neurite_fraction, extra_fraction
+
+
+_NODDI_OUTPUT_SPECS = {
+    "odi": (
+        "ODI",
+        "Orientation dispersion index.",
+    ),
+    "fiso": (
+        "FISO",
+        "Isotropic free-water signal fraction.",
+    ),
+    "vf_intra": (
+        "ICVF",
+        "Absolute intracellular neurite signal fraction.",
+    ),
+    "vf_extra": (
+        "EXVF",
+        "Absolute extracellular tissue signal fraction.",
+    ),
+}
+
+
+def _save_noddi_outputs(
+    out_dir: Path,
+    in_path: Path,
+    affine: np.ndarray,
+    metric_arrays: Dict[str, Optional[np.ndarray]],
+    runtime: DmipyRuntime,
+    *,
+    model_type: str,
+    distribution: str,
+    parallel_diffusivity: float,
+    iso_diffusivity: float,
+    solver_kwargs: Dict[str, Any],
+    fiso_constrained: bool,
+) -> Dict[str, Path]:
+    """Write NODDI maps and sidecars using the project BIDS derivative scheme."""
+    aliases = {
+        key: suffix
+        for key, (suffix, _) in _NODDI_OUTPUT_SPECS.items()
+    }
+    parameter_metadata = {
+        key: {
+            "Metric": suffix,
+            "MetricDescription": description,
+            "MetricUnits": "unitless",
+        }
+        for key, (suffix, description) in _NODDI_OUTPUT_SPECS.items()
+    }
+    return write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        metric_arrays,
+        runtime,
+        model_name="noddi",
+        output_aliases=aliases,
+        base_metadata={
+            "ModelName": (
+                "NODDI (Neurite Orientation Dispersion and Density Imaging)"
+            ),
+            "FittingMethod": "dmipy-fit multi-compartment optimization",
+            "ModelType": model_type,
+            "OrientationDistribution": distribution,
+            "ParallelDiffusivity": float(parallel_diffusivity),
+            "IsotropicDiffusivity": float(iso_diffusivity),
+            "DiffusivityUnits": "m^2/s",
+            "ExternalFISOConstraint": bool(fiso_constrained),
+            "SolverOptions": dict(solver_kwargs),
+        },
+        parameter_metadata=parameter_metadata,
+    )
+
 
 def _fit_chunk(args):
     """
@@ -1015,22 +1087,24 @@ def fit_noddi(
         vf_extra = (1 - pv0) * f_intra
 
         
-    # Save Outputs
-    outputs = {}
-    
-    # Helper to save
-    def save_map(name, array):
-        if array is None: return
-        out_p = out_dir / f"{name}.nii.gz"
-        nib.save(nib.Nifti1Image(array, affine), out_p)
-        outputs[name] = out_p
-        
-    save_map('odi', odi_map)
-    save_map('fiso', f_iso) # also save fiso as it is useful
-    save_map('vf_intra', vf_intra)  # Volume Fraction Intra
-    save_map('vf_extra', vf_extra) # Volume Fraction Extra
-    
-    return outputs
+    return _save_noddi_outputs(
+        out_dir,
+        in_path,
+        affine,
+        {
+            "odi": odi_map,
+            "fiso": f_iso,
+            "vf_intra": vf_intra,
+            "vf_extra": vf_extra,
+        },
+        runtime,
+        model_type=model_type,
+        distribution=distribution,
+        parallel_diffusivity=parallel_diffusivity,
+        iso_diffusivity=iso_diffusivity,
+        solver_kwargs=solver_kwargs,
+        fiso_constrained=fiso_file is not None,
+    )
 
 
 def fit_sandi(
@@ -1209,39 +1283,34 @@ def fit_sandi(
     d_in = full_maps.get('BundleModel_1_C1Stick_1_lambda_par')
     d_ec = full_maps.get('G1Ball_1_lambda_iso')
 
-    outputs = {}
-
-    entities = get_entities_from_path(in_path)
-    entities.pop('desc', None)
-    entities.pop('suffix', None)
-    entities['model'] = 'SANDI'
-    metadata = {
-        "ModelName": "SANDI (Soma and Neurite Density Imaging)",
-        **runtime.provenance(),
-        "FittingMethod": "MultiCompartmentSphericalMeanModel",
-        "SomaDiffusivity": float(soma_diffusivity),
-        "SomaDiffusivityUnits": "m^2/s",
-    }
     metric_units = {
         'fsoma': 'unitless', 'fneurite': 'unitless', 'fextra': 'unitless',
         'Rsoma': 'm', 'd_in': 'm^2/s', 'd_ec': 'm^2/s',
     }
-
-    def save_map(name, array):
-        if array is None:
-            return
-        out_p = out_dir / build_bids_name(entities, suffix=name)
-        nib.save(nib.Nifti1Image(array.astype(np.float32), affine), out_p)
-        sidecar = out_p.with_name(out_p.name[:-7] + '.json')
-        with sidecar.open('w') as f:
-            json.dump({**metadata, "Metric": name, "MetricUnits": metric_units[name]}, f, indent=2)
-        outputs[name] = out_p
-
-    save_map('fsoma', fsoma)
-    save_map('fneurite', fneurite)
-    save_map('fextra', fextra)
-    save_map('Rsoma', rsoma)
-    save_map('d_in', d_in)
-    save_map('d_ec', d_ec)
-
-    return outputs
+    metric_maps = {
+        'fsoma': fsoma,
+        'fneurite': fneurite,
+        'fextra': fextra,
+        'Rsoma': rsoma,
+        'd_in': d_in,
+        'd_ec': d_ec,
+    }
+    return write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        metric_maps,
+        runtime,
+        model_name="sandi",
+        output_aliases={name: name for name in metric_maps},
+        base_metadata={
+            "ModelName": "SANDI (Soma and Neurite Density Imaging)",
+            "FittingMethod": "MultiCompartmentSphericalMeanModel",
+            "SomaDiffusivity": float(soma_diffusivity),
+            "SomaDiffusivityUnits": "m^2/s",
+        },
+        parameter_metadata={
+            name: {"Metric": name, "MetricUnits": units}
+            for name, units in metric_units.items()
+        },
+    )

@@ -70,6 +70,12 @@ def test_microglia_model_fits_orientation_and_dispersion_independently():
         assert model.x0_parameters[parameter] == pytest.approx(expected_initial)
         assert model.parameter_optimization_flags[parameter]
 
+    # dmipy-fit 2.1 adds optional sphere surface-relaxivity parameters. They
+    # are not identifiable in this diffusion-only model and must remain fixed.
+    assert not any(
+        name.endswith("surface_relaxivity") for name in model.parameter_names
+    )
+
 
 @pytest.mark.parametrize(
     ("config", "label"),
@@ -172,3 +178,55 @@ def test_paper_maps_are_derived_from_nested_dmipy_parameters():
     assert maps["derived_small_sphere_radius"] == pytest.approx([4e-6])
     assert maps["derived_large_sphere_radius"] == pytest.approx([8e-6])
     assert maps["derived_watson_kappa"] == pytest.approx([1.0])
+
+
+def test_registered_microglia_model_simulates_finite_signal():
+    pytest.importorskip("dmipy_fit")
+    from qmri_neuropipe.interfaces.dmipy_backend import (
+        acquisition_scheme_from_bvalues,
+        build_reference_model,
+        get_model_spec,
+    )
+
+    model = build_reference_model("microglia")
+    bvalues = np.array([0.0, 1e9, 1e9, 1e9, 2e9, 2e9, 2e9])
+    directions = np.array(
+        [
+            [0, 0, 0],
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ],
+        dtype=float,
+    )
+    scheme = acquisition_scheme_from_bvalues(
+        bvalues,
+        directions,
+        delta=np.full(bvalues.size, 0.012),
+        Delta=np.full(bvalues.size, 0.035),
+    )
+    parameters = {
+        "SD1WatsonDistributed_1_G2Zeppelin_1_lambda_perp": 0.5e-9,
+        "SD1WatsonDistributed_1_SD1Watson_1_mu": np.array([np.pi / 2, 0]),
+        "SD1WatsonDistributed_1_SD1Watson_1_odi": 0.3,
+        "SD1WatsonDistributed_1_partial_volume_0": 0.6,
+        "S2SphereStejskalTannerApproximation_1_diameter": 8e-6,
+        "S2SphereStejskalTannerApproximation_2_diameter": 16e-6,
+        "partial_volume_0": 0.4,
+        "partial_volume_1": 0.1,
+        "partial_volume_2": 0.1,
+        "partial_volume_3": 0.4,
+    }
+
+    signal = model.simulate_signal(scheme, parameters)
+
+    assert get_model_spec("microglia").acquisition_requirements == (
+        "delta",
+        "Delta",
+    )
+    assert signal[0] == pytest.approx(1.0)
+    assert np.all(np.isfinite(signal))
+    assert np.all((signal >= 0) & (signal <= 1.0))

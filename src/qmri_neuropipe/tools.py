@@ -528,6 +528,128 @@ def fit_microglia_cli(
         raise typer.Exit(code=1)
 
 
+@app.command("fit-dmipy")
+def fit_dmipy_cli(
+    model: str = typer.Option(..., "--model", help="dmipy 2.x reference-model name."),
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file.", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory."),
+    bval: Path = typer.Option(..., "--bval", help="FSL b-values in s/mm^2.", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="FSL b-vectors.", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Brain mask.", exists=True),
+    delta: Optional[Path] = typer.Option(
+        None,
+        "--delta",
+        help="Small-delta file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    big_delta: Optional[Path] = typer.Option(
+        None,
+        "--big-delta",
+        help="Big-Delta file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    te: Optional[Path] = typer.Option(
+        None,
+        "--te",
+        help="Echo-time file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", min=1, help="CPU threads."),
+    solver: str = typer.Option(
+        "brute2fine",
+        "--solver",
+        help="Optimization solver (brute2fine, mix, or jax).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="Execution device (auto, cpu, or gpu; gpu requires jax).",
+    ),
+    gpu_device: Optional[int] = typer.Option(
+        None,
+        "--gpu-device",
+        min=0,
+        help="CUDA device index within scheduler visibility.",
+    ),
+    jax_cache_dir: Optional[Path] = typer.Option(
+        None,
+        "--jax-cache-dir",
+        help="Private JAX persistent compilation-cache directory.",
+    ),
+    jax_log_compiles: bool = typer.Option(
+        False,
+        "--jax-log-compiles",
+        help="Print JAX tracing and compilation diagnostics.",
+    ),
+    heartbeat_interval: float = typer.Option(
+        30.0,
+        "--heartbeat-interval",
+        min=1.0,
+        help="Seconds between JAX liveness messages.",
+    ),
+    grid_samples: int = typer.Option(
+        5,
+        "--grid-samples",
+        min=1,
+        help="Brute-grid samples per non-orientation parameter.",
+    ),
+    orientation_samples: int = typer.Option(
+        30,
+        "--orientation-samples",
+        min=1,
+        help="Brute-grid spherical orientation samples.",
+    ),
+    maxiter: int = typer.Option(
+        300,
+        "--maxiter",
+        min=1,
+        help="Maximum optimizer iterations.",
+    ),
+    batch_size: Optional[int] = typer.Option(
+        None,
+        "--batch-size",
+        min=1,
+        help="JAX voxel batch size; omit for automatic sizing.",
+    ),
+):
+    """Fit any allow-listed dmipy 2.x reference model."""
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[bold blue]Running generic dmipy fit ({model})[/bold blue]")
+
+    from qmri_neuropipe.interfaces.dmipy_generic import fit_dmipy_reference
+
+    try:
+        fit_dmipy_reference(
+            input,
+            output_dir,
+            model_name=model,
+            bval_file=bval,
+            bvec_file=bvec,
+            mask_file=mask,
+            delta_file=delta,
+            Delta_file=big_delta,
+            TE_file=te,
+            solver=solver,
+            device=device,
+            gpu_device=gpu_device,
+            jax_cache_dir=jax_cache_dir,
+            jax_log_compiles=jax_log_compiles,
+            heartbeat_interval=heartbeat_interval,
+            nthreads=nthreads,
+            solver_kwargs={
+                "Ns": grid_samples,
+                "N_sphere_samples": orientation_samples,
+                "maxiter": maxiter,
+                **({"batch_size": batch_size} if batch_size is not None else {}),
+            },
+        )
+        console.print("[bold green]Success![/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+
 @app.command("fit-nexi")
 def fit_nexi_cli(
     input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file", exists=True),
