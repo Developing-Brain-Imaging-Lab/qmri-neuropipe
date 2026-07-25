@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 import numpy as np
 
 from .dmipy_backend import (
     MODEL_REGISTRY,
+    DmipyFitRequest,
+    DmipyRuntime,
     SUPPORTED_SOLVERS,
     acquisition_scheme_from_bvalues,
     build_reference_model,
     get_model_spec,
+    execute_dmipy_fit,
+)
+
+
+@dataclass(frozen=True)
+class RecoveryCase:
+    """One identifiable scalar used as an optimizer merge gate."""
+
+    model_name: str
+    parameter: str
+    truth: float
+    relative_tolerance: float = 0.02
+    absolute_tolerance: float = 1e-12
+
+
+RECOVERY_CASES: tuple[RecoveryCase, ...] = (
+    RecoveryCase("ball", "G1Ball_1_lambda_iso", 1.2e-9),
+    RecoveryCase("zeppelin", "G2Zeppelin_1_lambda_par", 1.8e-9),
 )
 
 
@@ -195,3 +216,87 @@ def probe_model(name: str) -> dict[str, Any]:
 def probe_registry() -> list[dict[str, Any]]:
     """Run the construction/simulation smoke probe for every model."""
     return [probe_model(name) for name in sorted(MODEL_REGISTRY)]
+
+
+def parameter_recovery_probe(
+    case: RecoveryCase,
+    *,
+    solver: str,
+    device: str = "auto",
+    n_voxels: int = 2,
+    solver_options: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fit noiseless synthetic data and quantify recovery of a known parameter.
+
+    Non-target parameters are fixed to deterministic in-range values. This
+    deliberately tests optimizer scaling, parameter conversion, batching, and
+    result extraction without confounding the merge gate with multi-parameter
+    identifiability.
+    """
+    if n_voxels < 1:
+        raise ValueError("n_voxels must be a positive integer.")
+    simulation_model = build_reference_model(case.model_name)
+    truth = representative_parameters(simulation_model)
+    if case.parameter not in truth:
+        raise ValueError(
+            f"Recovery parameter {case.parameter!r} is not exposed by "
+            f"{case.model_name!r}."
+        )
+    truth[case.parameter] = float(case.truth)
+    scheme = validation_acquisition_scheme()
+    signal = np.asarray(
+        simulation_model.simulate_signal(scheme, truth),
+        dtype=float,
+    )
+
+    fitting_model = build_reference_model(case.model_name)
+    for parameter, value in truth.items():
+        if parameter != case.parameter:
+            fitting_model.set_fixed_parameter(parameter, value)
+    if fitting_model.parameter_names != [case.parameter]:
+        raise ValueError(
+            f"Recovery case for {case.model_name!r} must leave only "
+            f"{case.parameter!r} optimized; found {fitting_model.parameter_names}."
+        )
+
+    options = {"Ns": 7, "maxiter": 100, **dict(solver_options or {})}
+    if str(solver).lower() == "jax":
+        options.setdefault("batch_size", n_voxels)
+    runtime = DmipyRuntime.resolve(solver, device)
+    execution = execute_dmipy_fit(
+        DmipyFitRequest(
+            model_name=case.model_name,
+            model=fitting_model,
+            acquisition_scheme=scheme,
+            data=np.repeat(signal[None, :], n_voxels, axis=0),
+            runtime=runtime,
+            solver_options=options,
+            heartbeat_interval=None,
+        )
+    )
+    estimates = np.asarray(
+        execution.fitted.fitted_parameters[case.parameter],
+        dtype=float,
+    ).reshape(-1)
+    absolute_error = np.abs(estimates - case.truth)
+    relative_error = absolute_error / max(abs(case.truth), np.finfo(float).eps)
+    passed = bool(
+        np.all(
+            absolute_error
+            <= case.absolute_tolerance
+            + case.relative_tolerance * abs(case.truth)
+        )
+    )
+    return {
+        "model_name": case.model_name,
+        "parameter": case.parameter,
+        "solver": runtime.solver,
+        "backend": runtime.backend,
+        "truth": case.truth,
+        "estimates": estimates.tolist(),
+        "maximum_absolute_error": float(absolute_error.max()),
+        "maximum_relative_error": float(relative_error.max()),
+        "relative_tolerance": case.relative_tolerance,
+        "absolute_tolerance": case.absolute_tolerance,
+        "passed": passed,
+    }

@@ -166,6 +166,10 @@ def test_generic_nexi_fit_passes_separate_timings_and_writes_bids_outputs(
     assert metadata["AcquisitionRequirements"] == ["delta", "Delta"]
     assert metadata["deltaFile"] == "small_delta.txt"
     assert metadata["DeltaFile"] == "big_delta.txt"
+    manifest = json.loads((tmp_path / "out" / "dmipy-completion.json").read_text())
+    assert manifest["status"] == "complete"
+    assert manifest["request"]["solver_options"] == {"Ns": 3}
+    assert manifest["outputs"][parameter]["image"] == output.name
 
 
 def test_fit_dmipy_cli_exposes_independent_timing_options():

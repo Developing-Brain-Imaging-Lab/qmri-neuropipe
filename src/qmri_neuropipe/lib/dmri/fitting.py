@@ -1014,7 +1014,11 @@ class DmipyModelFittingStep(BaseProcessingStep):
         mask=None,
         **kwargs,
     ) -> dict | object:
-        from ...interfaces.dmipy_generic import fit_dmipy_reference
+        from ...interfaces.dmipy_generic import (
+            dmipy_run_spec_for_fit,
+            fit_dmipy_reference,
+        )
+        from ...interfaces.dmipy_manifest import completed_outputs
 
         dwi = context if not isinstance(context, dict) else context.get(
             "current_image"
@@ -1031,26 +1035,46 @@ class DmipyModelFittingStep(BaseProcessingStep):
             or self.config.get("force", False)
             or self.config.get("force_run", False)
         )
-        existing = {
-            path.stem: path
-            for path in model_out.glob("*.nii.gz")
-            if self.check_output_validity(path)
-        }
         result_key = f"dmipy:{self.model_name}"
-        if existing and not force:
+        mask_path = mask.img if mask is not None and hasattr(mask, "img") else mask
+        use_gnl = self.kwargs.get("gradient_nonlinearity", True)
+        gnl_map = _resolve_context_gnl_map(context, dwi) if use_gnl else None
+        options = dict(self.solver_options)
+        options.update(self.kwargs.get("solver_kwargs", {}))
+        run_spec = dmipy_run_spec_for_fit(
+            dwi,
+            model_name=self.model_name,
+            mask_file=mask_path,
+            grad_nonlin=gnl_map,
+            delta_file=self.kwargs.get("delta_file"),
+            Delta_file=self.kwargs.get("Delta_file"),
+            TE_file=self.kwargs.get("TE_file"),
+            solver=self.solver,
+            device=self.device,
+            solver_kwargs=options,
+            factory_kwargs=self.factory_kwargs,
+        )
+        existing = None if force else completed_outputs(
+            model_out,
+            run_spec=run_spec,
+            validate_image=self.check_output_validity,
+        )
+        if existing is not None:
             self.logger.info(
-                "Skipping dmipy model %s (found %d valid outputs).",
+                "Skipping dmipy model %s (validated completion manifest with "
+                "%d outputs).",
                 self.model_name,
                 len(existing),
             )
             context.setdefault("modeling_results", {})[result_key] = existing
             return context
 
-        mask_path = mask.img if mask is not None and hasattr(mask, "img") else mask
-        use_gnl = self.kwargs.get("gradient_nonlinearity", True)
-        gnl_map = _resolve_context_gnl_map(context, dwi) if use_gnl else None
-        options = dict(self.solver_options)
-        options.update(self.kwargs.get("solver_kwargs", {}))
+        if any(model_out.glob("*.nii.gz")) and not force:
+            self.logger.info(
+                "Re-running dmipy model %s because its completion manifest is "
+                "missing, incomplete, or does not match the current request.",
+                self.model_name,
+            )
         runtime_keys = {
             "gpu_device",
             "jax_cache_dir",

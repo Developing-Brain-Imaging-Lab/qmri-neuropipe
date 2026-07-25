@@ -10,6 +10,8 @@ from dmipy_fit.jax.jax_compat import scheme_to_jax
 
 from qmri_neuropipe.interfaces.dmipy_backend import build_reference_model
 from qmri_neuropipe.interfaces.dmipy_capabilities import (
+    RECOVERY_CASES,
+    parameter_recovery_probe,
     representative_parameters,
     validation_acquisition_scheme,
 )
@@ -54,3 +56,11 @@ def test_voxel_scheme_jax_forward_matches_nominal_jax_forward(model_name):
     )
 
     np.testing.assert_allclose(dynamic, nominal, rtol=5e-3, atol=5e-4)
+
+
+@pytest.mark.parametrize("case", RECOVERY_CASES, ids=lambda case: case.model_name)
+def test_jax_optimizer_recovers_identifiable_synthetic_parameter(case):
+    result = parameter_recovery_probe(case, solver="jax", device="cpu")
+
+    assert result["passed"], result
+    assert result["backend"] == "cpu"

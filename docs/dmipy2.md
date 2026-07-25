@@ -334,6 +334,43 @@ because a voxel-specific GNL tensor changes shell membership. The registered
 full-signal model selected by `fit-dmipy --model sandi` supports the accelerated
 voxel-parallel JAX GNL path.
 
+## Merge-gate numerical validation
+
+The automated dmipy validation is deliberately split into three levels:
+
+1. Every registry model must construct and simulate a finite signal.
+2. Representative native and JAX forward models must agree numerically.
+3. Native and JAX optimizers must recover known parameters from noiseless
+   synthetic data within explicit tolerances.
+
+The parameter-recovery gate currently uses identifiable scalar fits from the
+Ball and Zeppelin model families. All non-target parameters are fixed to
+deterministic in-range values, which tests parameter scaling, solver dispatch,
+JAX batching, and fitted-parameter conversion without treating a
+multi-parameter identifiability problem as an optimizer failure. New solver
+implementations should add or extend recovery cases before they are considered
+merge-ready.
+
+## Completion manifests and safe restart
+
+Registry-driven pipeline and CLI fits write `dmipy-completion.json` only after
+all declared NIfTI derivatives and JSON sidecars have been written. The
+manifest records:
+
+- the dmipy-fit version, model, solver, device, solver options, and model
+  factory options;
+- signatures for the DWI, gradients, mask, `delta`, `Delta`, echo-time, and
+  gradient-nonlinearity inputs;
+- the exact output and sidecar set, file sizes, and integrity metadata;
+- the resolved runtime provenance.
+
+Pipeline skipping requires a valid completion manifest whose request
+fingerprint exactly matches the current configuration and inputs. Missing,
+partial, modified, or stale results are fitted again. Beginning a new or forced
+fit removes only the old completion marker; a new marker is installed with an
+atomic rename after successful serialization, so an interrupted rerun cannot
+be mistaken for a completed one.
+
 ## Provenance
 
 dmipy-generated sidecars record:

@@ -389,7 +389,10 @@ dmri:
 The same model cannot be enabled twice, or in both this registry list and its
 legacy `noddi`, `sandi`, or `microglia` block. Unsupported model/solver/GNL
 combinations fail during capability validation rather than silently falling
-back to another objective.
+back to another objective. Completed registry fits are skipped only when their
+atomic `dmipy-completion.json` manifest matches the current inputs, dmipy-fit
+version, solver options, and factory options and every declared derivative
+remains valid.
 
 ### MRtrix tractography options
 

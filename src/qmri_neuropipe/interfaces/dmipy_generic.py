@@ -20,6 +20,11 @@ from .dmipy_backend import (
     model_output_maps,
 )
 from .dmipy_derivatives import write_dmipy_derivatives
+from .dmipy_manifest import (
+    build_dmipy_run_spec,
+    invalidate_completion_manifest,
+    write_completion_manifest,
+)
 
 
 def _load_gradients(
@@ -131,6 +136,48 @@ def _load_acquisition_values(
     return arrays, metadata
 
 
+def dmipy_run_spec_for_fit(
+    in_file: Path | ImageLike,
+    *,
+    model_name: str,
+    bval_file: Path | None = None,
+    bvec_file: Path | None = None,
+    mask_file: Path | None = None,
+    grad_nonlin: Path | None = None,
+    delta_file: Path | None = None,
+    Delta_file: Path | None = None,
+    TE_file: Path | None = None,
+    solver: str = "brute2fine",
+    device: str = "auto",
+    solver_kwargs: Mapping[str, object] | None = None,
+    factory_kwargs: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Describe the exact scientific request used for restart validation."""
+    in_path = extract_image_path(in_file)
+    if isinstance(in_file, DWIFile):
+        bval_file = bval_file or in_file.bval
+        bvec_file = bvec_file or in_file.bvec
+        delta_file = delta_file or in_file.delta
+        Delta_file = Delta_file or in_file.Delta
+    if bval_file is None or bvec_file is None:
+        raise ValueError("Generic dmipy fitting requires --bval and --bvec.")
+    return build_dmipy_run_spec(
+        model_name=model_name,
+        in_file=in_path,
+        bval_file=Path(bval_file),
+        bvec_file=Path(bvec_file),
+        mask_file=Path(mask_file) if mask_file is not None else None,
+        grad_nonlin=Path(grad_nonlin) if grad_nonlin is not None else None,
+        delta_file=Path(delta_file) if delta_file is not None else None,
+        Delta_file=Path(Delta_file) if Delta_file is not None else None,
+        TE_file=Path(TE_file) if TE_file is not None else None,
+        solver=solver,
+        device=device,
+        solver_options=solver_kwargs,
+        factory_options=factory_kwargs,
+    )
+
+
 def fit_dmipy_reference(
     in_file: Path | ImageLike,
     out_dir: Path,
@@ -168,6 +215,25 @@ def fit_dmipy_reference(
         raise ValueError("nthreads must be a positive integer.")
     if heartbeat_interval < 1:
         raise ValueError("heartbeat_interval must be at least one second.")
+    options = dict(solver_kwargs or {})
+    run_spec = dmipy_run_spec_for_fit(
+        in_file,
+        model_name=spec.name,
+        bval_file=Path(bval_file),
+        bvec_file=Path(bvec_file),
+        mask_file=mask_file,
+        grad_nonlin=grad_nonlin,
+        delta_file=delta_file,
+        Delta_file=Delta_file,
+        TE_file=TE_file,
+        solver=solver,
+        device=device,
+        solver_kwargs=options,
+        factory_kwargs=factory_kwargs,
+    )
+    # The marker is restored only after every new derivative and sidecar has
+    # been written, so an interrupted forced rerun cannot appear complete.
+    invalidate_completion_manifest(out_dir)
 
     image = nib.load(str(in_path))
     data = image.get_fdata()
@@ -217,7 +283,6 @@ def fit_dmipy_reference(
                 "GNL map must contain 9 tensor elements or a 3 x 3 tensor "
                 f"per voxel; found shape {gnl_tensors.shape}."
             )
-    options = dict(solver_kwargs or {})
     # Resolve GPU visibility before constructing a model, in case a future
     # reference-model module imports JAX while it is being initialized.
     runtime = DmipyRuntime.resolve(
@@ -244,12 +309,18 @@ def fit_dmipy_reference(
     )
     fitted = execution.fitted
     runtime = execution.runtime
+    parameter_maps = model_output_maps(spec.name, fitted)
+    expected_parameters = {
+        name
+        for name, values in parameter_maps.items()
+        if values is not None and np.any(np.isfinite(np.asarray(values)))
+    }
 
-    return write_dmipy_derivatives(
+    outputs = write_dmipy_derivatives(
         out_dir,
         in_path,
         image.affine,
-        model_output_maps(spec.name, fitted),
+        parameter_maps,
         runtime,
         model_name=spec.name,
         base_metadata={
@@ -263,3 +334,17 @@ def fit_dmipy_reference(
             **timing_metadata,
         },
     )
+    if set(outputs) != expected_parameters:
+        missing = sorted(expected_parameters - set(outputs))
+        unexpected = sorted(set(outputs) - expected_parameters)
+        raise RuntimeError(
+            "dmipy derivative serialization did not produce the expected "
+            f"parameter set (missing={missing}, unexpected={unexpected})."
+        )
+    write_completion_manifest(
+        out_dir,
+        run_spec=run_spec,
+        outputs=outputs,
+        runtime=runtime,
+    )
+    return outputs
