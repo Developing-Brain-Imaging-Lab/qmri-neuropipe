@@ -5,7 +5,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # Install optional features that currently resolve together. MRIQC and
     # Nifreeze are excluded for now because their nitransforms requirements
     # conflict.
-    PYTHON_EXTRAS=amico,nexi,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
+    PYTHON_EXTRAS=dmipy-cuda12,amico,nexi,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
     # ANTsPyNet contains more than 100 networks spanning human, animal, lung,
     # and X-ray applications. Cache the MRI brain-extraction networks used by
     # qmri-neuropipe by default. Override this comma-separated list at build
@@ -236,7 +236,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         "${PACKAGE_SPEC}"
     ${CONDA_DIR}/bin/python -m pip check
     ${CONDA_DIR}/bin/python -c \
-        "import amico; import ants; import antspynet; import dmipy_fit; import pkg_resources; import torch; import tractseg"
+        "import amico; import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import pkg_resources; import torch; import tractseg"
     for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
         command -v "${executable}" >/dev/null
     done
@@ -358,7 +358,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     set -e
     /opt/conda/bin/python -m pip check
     /opt/conda/bin/python -c \
-        "import ants; import antspynet; import dmipy_fit; import torch; import tractseg"
+        "import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg"
     /opt/conda/bin/python -c \
         "import h5py; from pathlib import Path; from antspynet.utilities import get_antsxnet_cache_directory; cache = Path(get_antsxnet_cache_directory()); model_names = [line.strip() for line in (cache / 'models.txt').read_text().splitlines() if line.strip()]; models = [cache / (name + '.h5') for name in model_names]; assert cache == Path('/opt/antsxnet'); assert (cache / 'S_template3.nii.gz').is_file(); assert models; assert all(model.is_file() and h5py.is_hdf5(model) for model in models)"
     /opt/conda/bin/python -c \

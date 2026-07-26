@@ -22,8 +22,10 @@ def test_docker_prefetches_synb0_weights_to_persistent_image_path():
 def test_apptainer_installs_and_checks_segmentation_tools():
     definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
 
+    assert "PYTHON_EXTRAS=dmipy-cuda12," in definition
     assert "hdbet,antspynet,tractseg" in definition
     assert "import ants; import antspynet" in definition
+    assert "import dmipy_fit; import jax; import jaxopt" in definition
     assert "import torch; import tractseg" in definition
     assert "antsRegistration TractSeg Tracking hd-bet dwi2response" in definition
     assert "from tractseg.libs.pytorch_utils import load_checkpoint" in definition
