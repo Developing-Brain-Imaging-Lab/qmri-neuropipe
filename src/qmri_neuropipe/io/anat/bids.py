@@ -131,4 +131,26 @@ def bids_find_t2w(root) -> list[ImageFile]:
         results.append(t2w)
 
     return results
+
+
+def bids_find_other_anat(root) -> list[ImageFile]:
+    """Find raw anatomical NIfTIs other than images already treated as T1w/T2w."""
+    excluded_suffixes = {
+        "T1w", "UNIT1", "T2w",
+        "mask", "dseg", "probseg", "seg", "xfm",
+    }
+    results: list[ImageFile] = []
+    for ent in bids_find(root, extension=(".nii", ".nii.gz")):
+        if ent.get("suffix") in excluded_suffixes:
+            continue
+        img = ent["path"]
+        json_path = _sidecar(img, ".json")
+        results.append(
+            ImageFile(
+                entities=ent,
+                img=img,
+                json=json_path if json_path.exists() else None,
+            )
+        )
+    return sorted(results, key=lambda image: str(image.img))
     

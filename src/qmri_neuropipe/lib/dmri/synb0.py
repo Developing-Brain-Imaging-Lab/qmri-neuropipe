@@ -148,6 +148,62 @@ class Synb0EstimationStep(BaseProcessingStep):
             )
         return t1w_norm
 
+    def _register_t1w_to_dwi(
+        self,
+        t1w_brain_path: Path,
+        registration_ref_path: Path,
+        output_dir: Path,
+    ) -> Tuple[Path, Path]:
+        """Estimate rigid T1w↔DWI transforms using the selected fixed contrast."""
+        # SuperSynth commonly writes SynthT1.mgz.  FLIRT can return success
+        # without creating either requested output when given an MGZ fixed
+        # image, so normalize the registration boundary to NIfTI explicitly.
+        if registration_ref_path.suffix.lower() == ".mgz":
+            registration_ref_nii = output_dir / "registration_ref.nii.gz"
+            freesurfer.mri_convert(
+                in_file=registration_ref_path,
+                out_file=registration_ref_nii,
+            )
+            registration_ref_path = registration_ref_nii
+
+        t1w_brain_reg = output_dir / "t1w_brain_reg.nii.gz"
+        t1w_2_dwi_fslmat = output_dir / "t1w_2_dwi.mat"
+        t1w_2_dwi_antsmat = output_dir / "t1w_2_dwi.txt"
+
+        _, t1w_2_dwi_fslmat = fsl.flirt(
+            in_file=t1w_brain_path,
+            ref_file=registration_ref_path,
+            out_file=t1w_brain_reg,
+            omat=t1w_2_dwi_fslmat,
+            cost="normmi",
+            dof=6,
+            extra_args=(
+                "-searchcost normmi -searchrx -180 180 "
+                "-searchry -180 180 -searchrz -180 180"
+            ),
+        )
+        c3d.fsl2ants(
+            ref_file=registration_ref_path,
+            in_file=t1w_brain_path,
+            transform_file=t1w_2_dwi_fslmat,
+            out_file=t1w_2_dwi_antsmat,
+        )
+
+        dwi_2_t1w_fslmat = output_dir / "dwi_2_t1w.mat"
+        fsl.convert_xfm(
+            in_file=t1w_2_dwi_fslmat,
+            out_file=dwi_2_t1w_fslmat,
+            inverse=True,
+        )
+        dwi_2_t1w_antsmat = output_dir / "dwi_2_t1w.txt"
+        c3d.fsl2ants(
+            ref_file=t1w_brain_path,
+            in_file=registration_ref_path,
+            transform_file=dwi_2_t1w_fslmat,
+            out_file=dwi_2_t1w_antsmat,
+        )
+        return t1w_2_dwi_antsmat, dwi_2_t1w_antsmat
+
     def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
         if b0_path.exists() and not force:
             return b0_path
@@ -183,7 +239,181 @@ class Synb0EstimationStep(BaseProcessingStep):
         nib.Nifti1Image(b0_vol, img.affine, img.header).to_filename(b0_path)
         return b0_path
 
-    def _select_anatomical_reference(
+    def _prepare_anatomical_series(
+        self,
+        images: list[ImageFile],
+        output_dir: Path,
+        *,
+        force: bool = False,
+    ) -> ImageFile:
+        """Collapse a VFA-like or 4-D anatomical series to one 3-D image."""
+        first = images[0]
+        suffix = str(first.entities.get("suffix", "")).lower()
+        vfa_like = suffix in {"vfa", "spgr", "ssfp", "flash"}
+        selected = images if vfa_like else [first]
+
+        first_img = nib.load(str(first.img))
+        if len(selected) == 1 and first_img.ndim == 3:
+            return first
+
+        mode = str(
+            self.synb0_cfg.get("anatomical_series_mode", "mean")
+        ).lower()
+        if mode not in {"mean", "representative", "first"}:
+            raise ProcessingError(
+                "synb0.anatomical_series_mode must be 'mean' or 'representative'."
+            )
+
+        prepared_path = output_dir / (
+            f"anatomical_desc-{'mean' if mode == 'mean' else 'representative'}"
+            "_supersynthInput.nii.gz"
+        )
+        if prepared_path.exists() and not force:
+            return ImageFile(
+                entities={**first.entities, "desc": f"{mode}SupersynthInput"},
+                img=prepared_path,
+                json=None,
+            )
+
+        volumes: list[np.ndarray] = []
+        reference_img = None
+        for image in selected:
+            loaded = nib.load(str(image.img))
+            data = loaded.get_fdata()
+            image_volumes = (
+                [data[..., index] for index in range(data.shape[-1])]
+                if data.ndim == 4
+                else [data]
+            )
+            if reference_img is None:
+                reference_img = loaded
+            elif (
+                loaded.shape[:3] != reference_img.shape[:3]
+                or not np.allclose(loaded.affine, reference_img.affine)
+            ):
+                raise ProcessingError(
+                    "VFA/SPGR/SSFP anatomical images must share geometry "
+                    "before they can be averaged for SuperSynth."
+                )
+            volumes.extend(image_volumes)
+
+        if mode == "mean":
+            prepared_data = np.mean(np.stack(volumes, axis=-1), axis=-1)
+        else:
+            index = int(self.synb0_cfg.get("anatomical_series_index", 0))
+            if index < 0 or index >= len(volumes):
+                raise ProcessingError(
+                    f"anatomical_series_index={index} is outside the available "
+                    f"range 0..{len(volumes) - 1}."
+                )
+            prepared_data = volumes[index]
+
+        assert reference_img is not None
+        nib.Nifti1Image(
+            prepared_data,
+            reference_img.affine,
+            reference_img.header,
+        ).to_filename(prepared_path)
+        return ImageFile(
+            entities={**first.entities, "desc": f"{mode}SupersynthInput"},
+            img=prepared_path,
+            json=None,
+        )
+
+    def _prepare_anatomical_t1w(
+        self,
+        context: dict,
+        output_dir: Path,
+        *,
+        force: bool = False,
+    ) -> Optional[ImageFile]:
+        """Return an acquired T1w or synthesize one from another anatomy scan."""
+        t1w_files = context.get("t1w_files", [])
+        if t1w_files:
+            context["synb0_t1w_source"] = "acquired_t1w"
+            return t1w_files[0]
+
+        candidates = list(context.get("anatomical_files") or [])
+        if not candidates:
+            candidates = list(context.get("t2w_files") or [])
+        if not candidates:
+            return None
+
+        preference = str(self.synb0_cfg.get("anatomical_input", "auto")).lower()
+        if preference != "auto":
+            matches = [
+                image
+                for image in candidates
+                if str(image.entities.get("suffix", "")).lower() == preference
+            ]
+            if not matches:
+                raise ProcessingError(
+                    f"Synb0 anatomical_input={preference!r} did not match an "
+                    "available anatomical scan."
+                )
+        else:
+            first_suffix = str(candidates[0].entities.get("suffix", "")).lower()
+            matches = [
+                image
+                for image in candidates
+                if str(image.entities.get("suffix", "")).lower() == first_suffix
+            ]
+
+        anatomical = self._prepare_anatomical_series(
+            matches,
+            output_dir,
+            force=force,
+        )
+
+        ss_dir = output_dir / "supersynth_from_anatomical"
+        from ..anat.super_synth import expected_supersynth_output, find_supersynth_outputs
+
+        ss_outputs = find_supersynth_outputs(ss_dir)
+        synth_path = ss_outputs.get(
+            "synth_t1w", expected_supersynth_output(ss_dir, "synth_t1w")
+        )
+        if not synth_path.exists() or force:
+            self.logger.info(
+                "Generating the Synb0 T1w input with SuperSynth from %s",
+                anatomical.img.name,
+            )
+            freesurfer.mri_super_synth(
+                in_file=anatomical.img,
+                out_dir=ss_dir,
+                mode=self.synb0_cfg.get(
+                    "supersynth_mode",
+                    self.config.get("anat.super_synth.mode", "invivo"),
+                ),
+                threads=getattr(self.config, "n_cpus", -1),
+                device=self.synb0_cfg.get(
+                    "supersynth_device",
+                    self.config.get("anat.super_synth.device"),
+                ),
+                sharpen_synths=bool(
+                    self.synb0_cfg.get(
+                        "supersynth_sharpen_synths",
+                        self.config.get("anat.super_synth.sharpen_synths", False),
+                    )
+                ),
+                overwrite=force,
+            )
+            ss_outputs = find_supersynth_outputs(ss_dir)
+            synth_path = ss_outputs.get("synth_t1w", synth_path)
+
+        _validate_nifti(synth_path, self.logger, "Anatomical SuperSynth T1w")
+        context["synb0_anatomical_input"] = anatomical
+        context["synb0_t1w_source"] = "supersynth_anatomical"
+        return ImageFile(
+            entities={
+                **anatomical.entities,
+                "desc": "synthT1w",
+                "suffix": "T1w",
+            },
+            img=synth_path,
+            json=None,
+        )
+
+    def _prepare_supersynth_registration_reference(
         self,
         context: dict,
         output_dir: Path,
@@ -191,125 +421,101 @@ class Synb0EstimationStep(BaseProcessingStep):
         input_dwi: Optional[DWIFile] = None,
         b0_path: Optional[Path] = None,
         force: bool = False,
-    ) -> Optional[ImageFile]:
+    ) -> Optional[Path]:
         """
-        Select the anatomical image used by Synb0.
+        Generate a DWI-derived T1-like image used only for T1w-to-DWI registration.
 
-        Defaults to the existing behavior (first T1w in context). When
-        ``dmri.preprocessing.distcorr.synb0.t1w_source`` is ``supersynth`` or
-        ``prefer_supersynth``, generate or reuse a SuperSynth T1w image from the
-        configured input. Set ``supersynth_input: dwi`` or
-        ``t1w_source: dwi_supersynth`` to generate that T1w from the extracted
-        diffusion b0 image.
+        The returned image must never replace the supplied T1w as the anatomical
+        input to the Synb0 model.
         """
-        t1w_files = context.get("t1w_files", [])
-        t2w_files = context.get("t2w_files", [])
+        registration_method = str(
+            self.synb0_cfg.get(
+                "registration",
+                self.synb0_cfg.get("registration_method", "direct"),
+            )
+        ).lower()
         source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
         preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
+        enabled = (
+            registration_method in {"supersynth", "super_synth"}
+            or bool(self.synb0_cfg.get("use_supersynth_registration", False))
+            # Backward compatibility for configurations written before
+            # SuperSynth was restricted to registration assistance.
+            or source in {"supersynth", "prefer_supersynth"}
+            or self._is_dwi_supersynth_source(source, preference)
+        )
+        if not enabled:
+            return None
 
-        def _image_file(path: Path, desc: str = "synthT1w") -> ImageFile:
-            entities = {
-                "sub": context.get("subject"),
-                "ses": context.get("session"),
-                "desc": desc,
-                "suffix": "T1w",
-            }
-            return ImageFile(
-                entities={k: v for k, v in entities.items() if v},
-                img=Path(path),
-                json=None,
+        supersynth_b0_path = output_dir / "real_b0_desc-supersynthInput.nii.gz"
+        if input_dwi is not None:
+            supersynth_b0_path = self._extract_mean_b0(
+                input_dwi,
+                supersynth_b0_path,
+                force=force,
+                as_4d=False,
+            )
+        elif b0_path is not None and Path(b0_path).exists():
+            supersynth_b0_path = Path(b0_path)
+        else:
+            raise ProcessingError(
+                "SuperSynth-assisted Synb0 registration requires an extracted DWI b0."
             )
 
-        outputs = context.get("super_synth_outputs", {}) or {}
-        existing_synth = outputs.get("synth_t1w")
-        dwi_supersynth_requested = self._is_dwi_supersynth_source(source, preference)
-        if source in {"supersynth", "prefer_supersynth"} and not dwi_supersynth_requested and existing_synth:
-            synth_path = Path(existing_synth)
-            if synth_path.exists():
-                self.logger.info(f"Using existing SuperSynth T1w for Synb0: {synth_path}")
-                return _image_file(synth_path)
+        ss_dir = output_dir / "supersynth_from_dwi"
+        from ..anat.super_synth import expected_supersynth_output, find_supersynth_outputs
 
-        if source in {"supersynth", "prefer_supersynth"} or dwi_supersynth_requested:
-            anat_input = None
-            ss_subdir = "supersynth"
-            if dwi_supersynth_requested:
-                supersynth_b0_path = output_dir / "real_b0_desc-supersynthInput.nii.gz"
-                if input_dwi is not None:
-                    supersynth_b0_path = self._extract_mean_b0(
-                        input_dwi,
-                        supersynth_b0_path,
-                        force=force,
-                        as_4d=False,
+        ss_outputs = find_supersynth_outputs(ss_dir)
+        synth_path = ss_outputs.get(
+            "synth_t1w", expected_supersynth_output(ss_dir, "synth_t1w")
+        )
+        if not synth_path.exists() or force:
+            self.logger.info(
+                "Generating a DWI-derived SuperSynth T1w for registration assistance"
+            )
+            freesurfer.mri_super_synth(
+                in_file=supersynth_b0_path,
+                out_dir=ss_dir,
+                mode=self.synb0_cfg.get(
+                    "supersynth_mode",
+                    self.config.get("anat.super_synth.mode", "invivo"),
+                ),
+                threads=getattr(self.config, "n_cpus", -1),
+                device=self.synb0_cfg.get(
+                    "supersynth_device",
+                    self.config.get("anat.super_synth.device"),
+                ),
+                sharpen_synths=bool(
+                    self.synb0_cfg.get(
+                        "supersynth_sharpen_synths",
+                        self.config.get("anat.super_synth.sharpen_synths", False),
                     )
-                elif b0_path is not None and Path(b0_path).exists():
-                    supersynth_b0_path = Path(b0_path)
-                anat_input = _image_file(supersynth_b0_path, desc="meanB0") if supersynth_b0_path.exists() else None
-                ss_subdir = "supersynth_from_dwi"
-            elif preference == "t2w":
-                anat_input = t2w_files[0] if t2w_files else None
-            elif preference == "t1w":
-                anat_input = t1w_files[0] if t1w_files else None
-            else:
-                anat_input = t1w_files[0] if t1w_files else (t2w_files[0] if t2w_files else None)
+                ),
+                overwrite=force,
+            )
+            ss_outputs = find_supersynth_outputs(ss_dir)
+            synth_path = ss_outputs.get("synth_t1w", synth_path)
 
-            if anat_input is None:
-                if source == "supersynth" or dwi_supersynth_requested:
-                    return None
-            else:
-                ss_dir = output_dir / ss_subdir
-                from ..anat.super_synth import expected_supersynth_output, find_supersynth_outputs
-
-                ss_outputs = find_supersynth_outputs(ss_dir)
-                synth_path = ss_outputs.get("synth_t1w", expected_supersynth_output(ss_dir, "synth_t1w"))
-                if not synth_path.exists() or force:
-                    self.logger.info(f"Generating SuperSynth T1w for Synb0 from {anat_input.img.name}")
-                    freesurfer.mri_super_synth(
-                        in_file=anat_input.img,
-                        out_dir=ss_dir,
-                        mode=self.synb0_cfg.get(
-                            "supersynth_mode",
-                            self.config.get("anat.super_synth.mode", "invivo"),
-                        ),
-                        threads=getattr(self.config, "n_cpus", -1),
-                        device=self.synb0_cfg.get(
-                            "supersynth_device",
-                            self.config.get("anat.super_synth.device"),
-                        ),
-                        sharpen_synths=bool(self.synb0_cfg.get(
-                            "supersynth_sharpen_synths",
-                            self.config.get("anat.super_synth.sharpen_synths", False),
-                        )),
-                        overwrite=force,
-                    )
-                    ss_outputs = find_supersynth_outputs(ss_dir)
-                    synth_path = ss_outputs.get("synth_t1w", synth_path)
-                _validate_nifti(synth_path, self.logger, "SuperSynth T1w")
-                context.setdefault("super_synth_outputs", {}).update(ss_outputs or {"synth_t1w": synth_path})
-                context["synb0_supersynth_input"] = "dwi" if ss_subdir == "supersynth_from_dwi" else preference
-                context["synb0_t1w_source"] = "supersynth"
-                return _image_file(synth_path)
-
-        if t1w_files:
-            context["synb0_t1w_source"] = "t1w"
-            return t1w_files[0]
-        return None
+        _validate_nifti(synth_path, self.logger, "DWI-derived SuperSynth T1w")
+        context["synb0_registration_reference"] = synth_path
+        context["synb0_registration_method"] = "supersynth"
+        return synth_path
 
     def validate_inputs(self, first_arg, output_dir: Path, **kwargs) -> None:
         context, _ = self.unpack_input(first_arg)
         if context is None:
              raise ValidationError("Synb0EstimationStep requires pipeline context.")
         
-        has_t1w = bool(context.get("t1w_files"))
-        has_t2w = bool(context.get("t2w_files"))
-        has_dwi = bool(context.get("dwi_files"))
-        source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
-        preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
-        if not has_t1w and not (
-            source in {"supersynth", "prefer_supersynth"} and (has_t2w or preference in {"dwi", "b0", "diffusion", "mean_b0"})
-        ) and not self._is_dwi_supersynth_source(source, preference):
-            self.logger.warning("Synb0 estimation requires T1w images in context, or T2w/DWI with SuperSynth enabled for Synb0.")
-        if self._is_dwi_supersynth_source(source, preference) and not has_dwi:
-            self.logger.warning("Synb0 SuperSynth-from-DWI requested, but no DWI files are available in context.")
+        has_anatomical = bool(
+            context.get("t1w_files")
+            or context.get("anatomical_files")
+            or context.get("t2w_files")
+        )
+        if not has_anatomical:
+            raise ValidationError(
+                "Synb0 estimation requires an undistorted anatomical image. "
+                "A non-T1w anatomical scan will be converted to T1w with SuperSynth."
+            )
         
         dwi_files = context.get("dwi_files", [])
         if not dwi_files:
@@ -358,18 +564,22 @@ class Synb0EstimationStep(BaseProcessingStep):
 
         self._extract_mean_b0(input_dwi, b0_path, force=force)
 
-        t1w_ref = self._select_anatomical_reference(
+        t1w_ref = self._prepare_anatomical_t1w(
+            context,
+            output_dir,
+            force=force,
+        )
+        if t1w_ref is None:
+             raise ProcessingError("Synb0 estimation requires an anatomical image.")
+
+        t1w_path = t1w_ref.img
+        registration_ref_path = self._prepare_supersynth_registration_reference(
             context,
             output_dir,
             input_dwi=input_dwi,
             b0_path=b0_path,
             force=force,
-        )
-        if t1w_ref is None:
-             self.logger.warning("Skipping Synb0 estimation: No usable anatomical reference found.")
-             return context
-
-        t1w_path = t1w_ref.img
+        ) or b0_path
         
         if syn_b0_path.exists() and b0_path.exists() and syn_b0_native_path.exists() and syn_json_path.exists() and dummy_bval_path.exists() and not kwargs.get('force', False):
             # Check timestamps
@@ -409,36 +619,14 @@ class Synb0EstimationStep(BaseProcessingStep):
             t1w_brain_path = t1w_brain.img
             # t1w_mask_path = t1w_mask.img
     
-            #Register T1 to b0 (rigid)
-            t1w_brain_reg = output_dir / "t1w_brain_reg.nii.gz"
-            t1w_2_dwi_fslmat = output_dir / "t1w_2_dwi.mat"
-            t1w_2_dwi_antsmat = output_dir / "t1w_2_dwi.txt"
-    
-            # Standardized call
-            _, t1w_2_dwi_fslmat = fsl.flirt(in_file=t1w_brain_path,
-                                           ref_file=b0_path,
-                                           out_file=t1w_brain_reg,
-                                           omat=t1w_2_dwi_fslmat,
-                                           cost="normmi",
-                                           dof=6,
-                                           extra_args="-searchcost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180")
-            #Convert FSL to ANTS
-            c3d.fsl2ants(ref_file=b0_path, # Target is DWI
-                         in_file=t1w_brain_path, # Moving is T1w
-                         transform_file=t1w_2_dwi_fslmat,
-                         out_file=t1w_2_dwi_antsmat)
-
-            # Pre-invert FSL matrix (DWI -> T1w) for ANTs
-            # (ANTsPy fails to invert ITK files from c3d on the fly)
-            dwi_2_t1w_fslmat = output_dir / "dwi_2_t1w.mat"
-            fsl.convert_xfm(in_file=t1w_2_dwi_fslmat, out_file=dwi_2_t1w_fslmat, inverse=True)
-            
-            # Convert Inverse FSL to ITK (DWI -> T1w)
-            dwi_2_t1w_antsmat = output_dir / "dwi_2_t1w.txt"
-            c3d.fsl2ants(ref_file=t1w_brain_path, # Target is T1w
-                         in_file=b0_path,        # Moving is DWI
-                         transform_file=dwi_2_t1w_fslmat,
-                         out_file=dwi_2_t1w_antsmat)
+            # Register the supplied T1w to DWI space. SuperSynth can provide a
+            # DWI-derived T1-like fixed image to improve contrast matching, but
+            # it never replaces the supplied T1w in Synb0 inference.
+            t1w_2_dwi_antsmat, dwi_2_t1w_antsmat = self._register_t1w_to_dwi(
+                t1w_brain_path,
+                registration_ref_path,
+                output_dir,
+            )
     
             #REGISTER T1 to Atlas
             mni_atlas_img = Path(__file__).parent / "data" / "mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz"
