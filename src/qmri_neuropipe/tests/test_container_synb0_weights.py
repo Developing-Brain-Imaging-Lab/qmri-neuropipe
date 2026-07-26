@@ -26,6 +26,8 @@ def test_apptainer_installs_and_checks_segmentation_tools():
     assert "import ants; import antspynet" in definition
     assert "import torch; import tractseg" in definition
     assert "antsRegistration TractSeg Tracking hd-bet dwi2response" in definition
+    assert "from tractseg.libs.pytorch_utils import load_checkpoint" in definition
+    assert "from zipfile import is_zipfile" not in definition
     assert "%test" in definition
     assert "/opt/conda/bin/python -m pip check" in definition
 
