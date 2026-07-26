@@ -56,6 +56,14 @@ hdbet = [
     "HD-BET",
     "imagecodecs>=2023.9.18"
 ]
+antspynet = [
+    "antspynet>=0.3.2,<0.4"
+]
+tractseg = [
+    "TractSeg>=2.10,<2.11",
+    # TractSeg uses PyTorch but does not declare it in its wheel metadata.
+    "torch>=2.0"
+]
 mriqc = [
     "mriqc>=24.0.0; python_version<'3.12'"
 ]
@@ -83,6 +91,9 @@ all = [
     "nexi",
     "HD-BET",
     "imagecodecs>=2023.9.18",
+    "antspynet>=0.3.2,<0.4",
+    "TractSeg>=2.10,<2.11",
+    "torch>=2.0",
     "openpyxl",
     "plotly",
     "pyAFQ",
