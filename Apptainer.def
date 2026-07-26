@@ -6,6 +6,11 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # Nifreeze are excluded for now because their nitransforms requirements
     # conflict.
     PYTHON_EXTRAS=amico,nexi,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
+    # ANTsPyNet contains more than 100 networks spanning human, animal, lung,
+    # and X-ray applications. Cache the MRI brain-extraction networks used by
+    # qmri-neuropipe by default. Override this comma-separated list at build
+    # time when additional ANTsPyNet applications are required.
+    ANTSXNET_MODELS=brainExtractionRobustT1,brainExtractionRobustT2,brainExtractionRobustT2Star,brainExtractionRobustFLAIR,brainExtractionRobustBOLD,brainExtractionRobustFA,brainExtractionMra
 
 %labels
     Author Dean
@@ -235,6 +240,41 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
         command -v "${executable}" >/dev/null
     done
+
+    # Cache pretrained ANTsPyNet assets in the immutable image. ANTsPyNet
+    # defaults to a per-user directory and currently has no environment
+    # variable for changing it, so make its cache resolver honor the shared
+    # container path. S_template3 is required by the default brain-extraction
+    # networks.
+    export ANTSXNET_CACHE_DIRECTORY=/opt/antsxnet
+    export ANTSXNET_MODELS="{{ ANTSXNET_MODELS }}"
+    ANTSPYNET_CACHE_MODULE="$(${CONDA_DIR}/bin/python -c \
+        'import importlib; print(importlib.import_module("antspynet.utilities.get_antsxnet_data").__file__)')"
+    export ANTSPYNET_CACHE_MODULE
+    ${CONDA_DIR}/bin/python -c \
+        "import os; from pathlib import Path; path = Path(os.environ['ANTSPYNET_CACHE_MODULE']); source = path.read_text(); old = \"_antsxnet_cache_directory = os.path.join(os.path.expanduser('~'), '.keras', 'ANTsXNet')\"; new = \"_antsxnet_cache_directory = os.environ.get('ANTSXNET_CACHE_DIRECTORY', os.path.join(os.path.expanduser('~'), '.keras', 'ANTsXNet'))\"; assert old in source or new in source; path.write_text(source.replace(old, new, 1))"
+    mkdir -p "${ANTSXNET_CACHE_DIRECTORY}"
+    ${CONDA_DIR}/bin/python -c \
+        "import os; from antspynet.utilities import get_antsxnet_data, get_pretrained_network, set_antsxnet_cache_directory; cache = os.environ['ANTSXNET_CACHE_DIRECTORY']; set_antsxnet_cache_directory(cache); get_antsxnet_data('S_template3'); [get_pretrained_network(model.strip()) for model in os.environ['ANTSXNET_MODELS'].split(',') if model.strip()]"
+    ${CONDA_DIR}/bin/python -c \
+        "import h5py, os; from pathlib import Path; cache = Path(os.environ['ANTSXNET_CACHE_DIRECTORY']); models = [model.strip() for model in os.environ['ANTSXNET_MODELS'].split(',') if model.strip()]; missing = [model for model in models if not (cache / (model + '.h5')).is_file()]; invalid = [model for model in models if model not in missing and not h5py.is_hdf5(cache / (model + '.h5'))]; assert models, 'ANTSXNET_MODELS must contain at least one model'; assert (cache / 'S_template3.nii.gz').is_file(); assert not missing, 'Missing ANTsPyNet models: ' + ', '.join(missing); assert not invalid, 'Invalid ANTsPyNet model files: ' + ', '.join(invalid); (cache / 'models.txt').write_text('\n'.join(models) + '\n')"
+    chmod -R a+rX "${ANTSXNET_CACHE_DIRECTORY}"
+
+    # Cache every TractSeg 2.10 pretrained network, including the standard and
+    # XTRACT bundle definitions, endings, diffusion-metric regression, and all
+    # four peak-regression parts.
+    export TRACTSEG_WEIGHTS_DIR=/opt/tractseg/weights
+    mkdir -p "${TRACTSEG_WEIGHTS_DIR}"
+    download_all_pretrained_weights
+    TRACTSEG_WEIGHT_COUNT="$(find "${TRACTSEG_WEIGHTS_DIR}" -maxdepth 1 -type f -name 'pretrained_weights_*.npz' | wc -l)"
+    if [ "${TRACTSEG_WEIGHT_COUNT}" -lt 9 ]; then
+        echo "Expected at least 9 TractSeg pretrained weight files, found ${TRACTSEG_WEIGHT_COUNT}." >&2
+        exit 1
+    fi
+    ${CONDA_DIR}/bin/python -c \
+        "from pathlib import Path; from zipfile import is_zipfile; weights = list(Path('/opt/tractseg/weights').glob('pretrained_weights_*.npz')); invalid = [str(path) for path in weights if not is_zipfile(path)]; assert len(weights) >= 9; assert not invalid, 'Invalid TractSeg weight files: ' + ', '.join(invalid)"
+    chmod -R a+rX "${TRACTSEG_WEIGHTS_DIR}"
+
     # Synb0 weights total several GB. Fetch them while building so contained
     # HPC jobs never try to place them in a small ephemeral $HOME.
     export DIPY_HOME=/opt/dipy
@@ -281,6 +321,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     export CONDA_DIR=/opt/conda
     export PATH=${CONDA_DIR}/bin:$PATH
     export DIPY_HOME=/opt/dipy
+    export ANTSXNET_CACHE_DIRECTORY=/opt/antsxnet
+    export TRACTSEG_WEIGHTS_DIR=/opt/tractseg/weights
 
     export FSLDIR=/usr/local/fsl
     export PATH=${CONDA_DIR}/bin:${FSLDIR}/bin:$PATH
@@ -314,6 +356,10 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     /opt/conda/bin/python -m pip check
     /opt/conda/bin/python -c \
         "import ants; import antspynet; import dmipy_fit; import torch; import tractseg"
+    /opt/conda/bin/python -c \
+        "import h5py; from pathlib import Path; from antspynet.utilities import get_antsxnet_cache_directory; cache = Path(get_antsxnet_cache_directory()); model_names = [line.strip() for line in (cache / 'models.txt').read_text().splitlines() if line.strip()]; models = [cache / (name + '.h5') for name in model_names]; assert cache == Path('/opt/antsxnet'); assert (cache / 'S_template3.nii.gz').is_file(); assert models; assert all(model.is_file() and h5py.is_hdf5(model) for model in models)"
+    /opt/conda/bin/python -c \
+        "from pathlib import Path; from zipfile import is_zipfile; weights = list(Path('/opt/tractseg/weights').glob('pretrained_weights_*.npz')); assert len(weights) >= 9; assert all(is_zipfile(weight) for weight in weights)"
     for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
         command -v "${executable}" >/dev/null
     done
