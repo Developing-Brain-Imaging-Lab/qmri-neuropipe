@@ -67,11 +67,19 @@ pip install -e .[all]
 
 # Feature-specific
 pip install -e .[amico]
+pip install -e .[antspynet]
+pip install -e .[tractseg]
+pip install -e .[hdbet]
 pip install -e .[nifreeze]
 pip install -e .[pyafq]
 pip install -e .[tracker]
 pip install -e .[reporting]
 ```
+
+The Apptainer image installs the ANTs command-line tools, ANTsPy, ANTsPyNet,
+TractSeg, MRtrix3, and HD-BET. ANTsPyNet and TractSeg download pretrained model
+weights when a model is first used, so plan for network access on first use or
+pre-populate a writable model cache for offline compute nodes.
 
 ## Verify Installation
 
