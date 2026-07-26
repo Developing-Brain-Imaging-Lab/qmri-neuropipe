@@ -7,6 +7,7 @@ from a distorted b0 and a T1w image.
 
 from pathlib import Path
 from typing import Optional, Literal, Tuple
+from dataclasses import dataclass
 import numpy as np
 import nibabel as nib
 import logging
@@ -22,6 +23,15 @@ from ...io.bids import build_bids_name
 import multiprocessing
 import sys
 import traceback
+
+
+@dataclass(frozen=True)
+class _LinearTransform:
+    """An ANTs-compatible linear transform and its application direction."""
+
+    path: Path
+    invert: bool = False
+
 
 def _run_synb0_worker(in_file, t1_file, out_file, gpu_ids=None, device="cpu"):
     """
@@ -150,14 +160,23 @@ class Synb0EstimationStep(BaseProcessingStep):
 
     def _register_t1w_to_dwi(
         self,
-        t1w_brain_path: Path,
+        t1w_registration_path: Path,
         registration_ref_path: Path,
         output_dir: Path,
-    ) -> Tuple[Path, Path]:
+        *,
+        moving_apply_path: Optional[Path] = None,
+    ) -> Tuple[_LinearTransform, _LinearTransform]:
         """Estimate rigid T1w↔DWI transforms using the selected fixed contrast."""
-        # SuperSynth commonly writes SynthT1.mgz.  FLIRT can return success
-        # without creating either requested output when given an MGZ fixed
-        # image, so normalize the registration boundary to NIfTI explicitly.
+        # SuperSynth commonly writes SynthT1.mgz. Normalize both sides of the
+        # registration boundary to NIfTI so FSL and ANTs see identical inputs.
+        if t1w_registration_path.suffix.lower() == ".mgz":
+            registration_moving_nii = output_dir / "registration_moving.nii.gz"
+            freesurfer.mri_convert(
+                in_file=t1w_registration_path,
+                out_file=registration_moving_nii,
+            )
+            t1w_registration_path = registration_moving_nii
+
         if registration_ref_path.suffix.lower() == ".mgz":
             registration_ref_nii = output_dir / "registration_ref.nii.gz"
             freesurfer.mri_convert(
@@ -166,43 +185,223 @@ class Synb0EstimationStep(BaseProcessingStep):
             )
             registration_ref_path = registration_ref_nii
 
-        t1w_brain_reg = output_dir / "t1w_brain_reg.nii.gz"
-        t1w_2_dwi_fslmat = output_dir / "t1w_2_dwi.mat"
-        t1w_2_dwi_antsmat = output_dir / "t1w_2_dwi.txt"
+        moving_registration_path = t1w_registration_path
+        fixed_registration_path = registration_ref_path
+        if self._skull_strip_registration_enabled():
+            moving_registration_path = self._skull_strip_registration_image(
+                t1w_registration_path,
+                output_dir / "registration_masks" / "t1w_moving",
+            )
+            fixed_registration_path = self._skull_strip_registration_image(
+                registration_ref_path,
+                output_dir / "registration_masks" / "dwi_fixed",
+            )
 
-        _, t1w_2_dwi_fslmat = fsl.flirt(
-            in_file=t1w_brain_path,
-            ref_file=registration_ref_path,
-            out_file=t1w_brain_reg,
-            omat=t1w_2_dwi_fslmat,
-            cost="normmi",
+        return self._estimate_linear_registration(
+            moving_registration_path=moving_registration_path,
+            fixed_registration_path=fixed_registration_path,
+            moving_apply_path=moving_apply_path or t1w_registration_path,
+            fixed_apply_path=registration_ref_path,
+            output_dir=output_dir,
+            stem="t1w_2_dwi",
+            transform_type="Rigid",
             dof=6,
-            extra_args=(
-                "-searchcost normmi -searchrx -180 180 "
-                "-searchry -180 180 -searchrz -180 180"
+            output_image=output_dir / "t1w_brain_reg.nii.gz",
+            artifact_tag=(
+                "supersynth" if self._uses_supersynth_registration() else None
             ),
         )
-        c3d.fsl2ants(
-            ref_file=registration_ref_path,
-            in_file=t1w_brain_path,
-            transform_file=t1w_2_dwi_fslmat,
-            out_file=t1w_2_dwi_antsmat,
+
+    def _registration_backend(self) -> str:
+        backend = str(
+            self.synb0_cfg.get(
+                "registration_backend",
+                self.synb0_cfg.get("registration_tool", "fsl"),
+            )
+        ).strip().lower()
+        if backend not in {"fsl", "ants"}:
+            raise ValidationError(
+                "synb0.registration_backend must be either 'fsl' or 'ants'."
+            )
+        return backend
+
+    def _skull_strip_registration_enabled(self) -> bool:
+        return bool(
+            self.synb0_cfg.get(
+                "skull_strip_registration",
+                self.synb0_cfg.get("skull_strip_registration_inputs", False),
+            )
         )
 
-        dwi_2_t1w_fslmat = output_dir / "dwi_2_t1w.mat"
-        fsl.convert_xfm(
-            in_file=t1w_2_dwi_fslmat,
-            out_file=dwi_2_t1w_fslmat,
-            inverse=True,
+    def _skull_strip_registration_image(
+        self,
+        image_path: Path,
+        output_dir: Path,
+    ) -> Path:
+        """Create a brain-only proxy used solely to estimate a transform."""
+        method = str(
+            self.synb0_cfg.get(
+                "skull_strip_method",
+                self.synb0_cfg.get(
+                    "registration_skull_strip_method",
+                    "synthstrip",
+                ),
+            )
+        ).lower()
+        brain = mask_brain(
+            input_image=image_path,
+            output_dir=output_dir,
+            method=method,
+            nthreads=int(getattr(self.config, "n_cpus", 1) or 1),
+            use_gpu=bool(getattr(self.config, "use_gpu", False)),
         )
-        dwi_2_t1w_antsmat = output_dir / "dwi_2_t1w.txt"
-        c3d.fsl2ants(
-            ref_file=t1w_brain_path,
-            in_file=registration_ref_path,
-            transform_file=dwi_2_t1w_fslmat,
-            out_file=dwi_2_t1w_antsmat,
+        return Path(brain.img)
+
+    def _estimate_linear_registration(
+        self,
+        *,
+        moving_registration_path: Path,
+        fixed_registration_path: Path,
+        moving_apply_path: Path,
+        fixed_apply_path: Path,
+        output_dir: Path,
+        stem: str,
+        transform_type: Literal["Rigid", "Affine"],
+        dof: int,
+        output_image: Path,
+        artifact_tag: Optional[str] = None,
+    ) -> Tuple[_LinearTransform, _LinearTransform]:
+        """
+        Estimate on registration proxies and resample the original moving image.
+
+        The returned transforms are always directly consumable by
+        ``ants.apply_transforms``. For ANTs linear transforms, the inverse is
+        represented by the same affine matrix with ``invert=True``.
+        """
+        backend = self._registration_backend()
+        nthreads = int(getattr(self.config, "n_cpus", 1) or 1)
+        suffix_parts = [
+            part
+            for part in (
+                artifact_tag,
+                "brain" if self._skull_strip_registration_enabled() else None,
+            )
+            if part
+        ]
+        artifact_suffix = (
+            f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
         )
-        return t1w_2_dwi_antsmat, dwi_2_t1w_antsmat
+        proxy_output = (
+            output_dir
+            / f"{stem}{artifact_suffix}_{backend}_registration_proxy.nii.gz"
+        )
+
+        self.logger.info(
+            "Estimating %s registration with %s%s",
+            stem,
+            backend.upper(),
+            " on skull-stripped proxies"
+            if self._skull_strip_registration_enabled()
+            else "",
+        )
+
+        if backend == "ants":
+            prefix = output_dir / f"{stem}{artifact_suffix}_ants_"
+            _, transforms = ants.registration(
+                fixed_file=fixed_registration_path,
+                moving_file=moving_registration_path,
+                out_prefix=prefix,
+                transform_type=transform_type,
+                interpolator="linear",
+                nthreads=nthreads,
+            )
+            transforms = [Path(transform) for transform in transforms]
+            if len(transforms) != 1:
+                raise ProcessingError(
+                    f"ANTs {transform_type} registration for {stem} returned "
+                    f"{len(transforms)} transforms; expected one affine transform."
+                )
+            forward = _LinearTransform(transforms[0], False)
+            inverse = _LinearTransform(transforms[0], True)
+        else:
+            forward_fsl = output_dir / f"{stem}{artifact_suffix}.mat"
+            _, forward_fsl = fsl.flirt(
+                in_file=moving_registration_path,
+                ref_file=fixed_registration_path,
+                out_file=proxy_output,
+                omat=forward_fsl,
+                cost="normmi",
+                dof=dof,
+                extra_args=(
+                    "-searchcost normmi -searchrx -180 180 "
+                    "-searchry -180 180 -searchrz -180 180"
+                ),
+            )
+            forward_ants = output_dir / f"{stem}{artifact_suffix}.txt"
+            c3d.fsl2ants(
+                ref_file=fixed_registration_path,
+                in_file=moving_registration_path,
+                transform_file=forward_fsl,
+                out_file=forward_ants,
+            )
+
+            moving_name, fixed_name = stem.split("_2_", 1)
+            inverse_stem = f"{fixed_name}_2_{moving_name}"
+            inverse_fsl = output_dir / f"{inverse_stem}{artifact_suffix}.mat"
+            fsl.convert_xfm(
+                in_file=forward_fsl,
+                out_file=inverse_fsl,
+                inverse=True,
+            )
+            inverse_ants = output_dir / f"{inverse_stem}{artifact_suffix}.txt"
+            c3d.fsl2ants(
+                ref_file=moving_registration_path,
+                in_file=fixed_registration_path,
+                transform_file=inverse_fsl,
+                out_file=inverse_ants,
+            )
+            forward = _LinearTransform(forward_ants, False)
+            inverse = _LinearTransform(inverse_ants, False)
+
+        ants.apply_transforms(
+            fixed_file=fixed_apply_path,
+            moving_file=moving_apply_path,
+            out_file=output_image,
+            transforms=[forward.path],
+            invert_transforms=[forward.invert],
+            interpolator="linear",
+            nthreads=nthreads,
+        )
+        return forward, inverse
+
+    def _register_t1w_to_mni(
+        self,
+        t1w_norm_path: Path,
+        t1w_brain_path: Path,
+        mni_atlas_path: Path,
+        output_dir: Path,
+    ) -> Tuple[_LinearTransform, _LinearTransform]:
+        """Estimate the affine T1w↔MNI transform with the selected backend."""
+        moving_registration_path = t1w_norm_path
+        fixed_registration_path = mni_atlas_path
+        if self._skull_strip_registration_enabled():
+            moving_registration_path = t1w_brain_path
+            fixed_registration_path = self._skull_strip_registration_image(
+                mni_atlas_path,
+                output_dir / "registration_masks" / "mni_fixed",
+            )
+
+        return self._estimate_linear_registration(
+            moving_registration_path=moving_registration_path,
+            fixed_registration_path=fixed_registration_path,
+            moving_apply_path=t1w_norm_path,
+            fixed_apply_path=mni_atlas_path,
+            output_dir=output_dir,
+            stem="t1w_2_mni",
+            transform_type="Affine",
+            dof=12,
+            output_image=output_dir / "t1w_mni.nii.gz",
+        )
 
     def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
         if b0_path.exists() and not force:
@@ -428,22 +627,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         The returned image must never replace the supplied T1w as the anatomical
         input to the Synb0 model.
         """
-        registration_method = str(
-            self.synb0_cfg.get(
-                "registration",
-                self.synb0_cfg.get("registration_method", "direct"),
-            )
-        ).lower()
-        source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
-        preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
-        enabled = (
-            registration_method in {"supersynth", "super_synth"}
-            or bool(self.synb0_cfg.get("use_supersynth_registration", False))
-            # Backward compatibility for configurations written before
-            # SuperSynth was restricted to registration assistance.
-            or source in {"supersynth", "prefer_supersynth"}
-            or self._is_dwi_supersynth_source(source, preference)
-        )
+        enabled = self._uses_supersynth_registration()
         if not enabled:
             return None
 
@@ -462,7 +646,44 @@ class Synb0EstimationStep(BaseProcessingStep):
                 "SuperSynth-assisted Synb0 registration requires an extracted DWI b0."
             )
 
-        ss_dir = output_dir / "supersynth_from_dwi"
+        synth_path = self._run_supersynth_registration_proxy(
+            supersynth_b0_path,
+            output_dir / "supersynth_from_dwi",
+            force=force,
+            label="DWI-derived",
+        )
+        context["synb0_registration_reference"] = synth_path
+        context["synb0_registration_method"] = "supersynth"
+        return synth_path
+
+    def _uses_supersynth_registration(self) -> bool:
+        """Return whether contrast-matched SuperSynth registration is enabled."""
+        registration_method = str(
+            self.synb0_cfg.get(
+                "registration",
+                self.synb0_cfg.get("registration_method", "direct"),
+            )
+        ).lower()
+        source = str(self.synb0_cfg.get("t1w_source", "raw")).lower()
+        preference = str(self.synb0_cfg.get("supersynth_input", "auto")).lower()
+        return (
+            registration_method in {"supersynth", "super_synth"}
+            or bool(self.synb0_cfg.get("use_supersynth_registration", False))
+            # Backward compatibility for configurations written before
+            # SuperSynth was restricted to registration assistance.
+            or source in {"supersynth", "prefer_supersynth"}
+            or self._is_dwi_supersynth_source(source, preference)
+        )
+
+    def _run_supersynth_registration_proxy(
+        self,
+        input_path: Path,
+        ss_dir: Path,
+        *,
+        force: bool,
+        label: str,
+    ) -> Path:
+        """Generate one T1-like image used only for transform estimation."""
         from ..anat.super_synth import expected_supersynth_output, find_supersynth_outputs
 
         ss_outputs = find_supersynth_outputs(ss_dir)
@@ -471,10 +692,11 @@ class Synb0EstimationStep(BaseProcessingStep):
         )
         if not synth_path.exists() or force:
             self.logger.info(
-                "Generating a DWI-derived SuperSynth T1w for registration assistance"
+                "Generating a %s SuperSynth T1w registration proxy",
+                label,
             )
             freesurfer.mri_super_synth(
-                in_file=supersynth_b0_path,
+                in_file=input_path,
                 out_dir=ss_dir,
                 mode=self.synb0_cfg.get(
                     "supersynth_mode",
@@ -496,15 +718,35 @@ class Synb0EstimationStep(BaseProcessingStep):
             ss_outputs = find_supersynth_outputs(ss_dir)
             synth_path = ss_outputs.get("synth_t1w", synth_path)
 
-        _validate_nifti(synth_path, self.logger, "DWI-derived SuperSynth T1w")
-        context["synb0_registration_reference"] = synth_path
-        context["synb0_registration_method"] = "supersynth"
+        _validate_nifti(synth_path, self.logger, f"{label} SuperSynth T1w")
+        return synth_path
+
+    def _prepare_supersynth_registration_moving(
+        self,
+        context: dict,
+        output_dir: Path,
+        *,
+        t1w_path: Path,
+        force: bool = False,
+    ) -> Optional[Path]:
+        """Create a T1-like moving proxy to match the fixed SuperSynth contrast."""
+        if not self._uses_supersynth_registration():
+            return None
+
+        synth_path = self._run_supersynth_registration_proxy(
+            t1w_path,
+            output_dir / "supersynth_from_t1w_registration",
+            force=force,
+            label="anatomical-derived",
+        )
+        context["synb0_registration_moving"] = synth_path
         return synth_path
 
     def validate_inputs(self, first_arg, output_dir: Path, **kwargs) -> None:
         context, _ = self.unpack_input(first_arg)
         if context is None:
              raise ValidationError("Synb0EstimationStep requires pipeline context.")
+        self._registration_backend()
         
         has_anatomical = bool(
             context.get("t1w_files")
@@ -586,9 +828,25 @@ class Synb0EstimationStep(BaseProcessingStep):
             out_mtime = syn_b0_path.stat().st_mtime
             t1_mtime = t1w_path.stat().st_mtime
             dwi_mtime = input_dwi.img.stat().st_mtime
+            registration_ref_mtime = registration_ref_path.stat().st_mtime
+            missing_matched_moving = False
+            if self._uses_supersynth_registration():
+                from ..anat.super_synth import find_supersynth_outputs
+
+                moving_outputs = find_supersynth_outputs(
+                    output_dir / "supersynth_from_t1w_registration"
+                )
+                missing_matched_moving = "synth_t1w" not in moving_outputs
             
-            if t1_mtime > out_mtime or dwi_mtime > out_mtime:
-                 self.logger.info(f"Synb0 inputs (T1 or DWI) are newer than output. Re-running.")
+            if (
+                t1_mtime > out_mtime
+                or dwi_mtime > out_mtime
+                or registration_ref_mtime > out_mtime
+                or missing_matched_moving
+            ):
+                 self.logger.info(
+                     "Synb0 inputs or registration proxies changed. Re-running."
+                 )
             else:
                  self.logger.info(f"Skipping Synb0 estimation (outputs exist and are up-to-date): {syn_b0_path}")
                  should_skip = True
@@ -618,42 +876,42 @@ class Synb0EstimationStep(BaseProcessingStep):
             # Get paths
             t1w_brain_path = t1w_brain.img
             # t1w_mask_path = t1w_mask.img
+
+            # With SuperSynth-assisted registration, synthesize the same T1-like
+            # contrast from both sides of the registration pair. These images
+            # are used only to estimate the transform.
+            registration_moving_path = (
+                self._prepare_supersynth_registration_moving(
+                    context,
+                    output_dir,
+                    t1w_path=t1w_norm_nii,
+                    force=force,
+                )
+                or (
+                    t1w_norm_nii
+                    if self._skull_strip_registration_enabled()
+                    else t1w_brain_path
+                )
+            )
     
-            # Register the supplied T1w to DWI space. SuperSynth can provide a
-            # DWI-derived T1-like fixed image to improve contrast matching, but
-            # it never replaces the supplied T1w in Synb0 inference.
-            t1w_2_dwi_antsmat, dwi_2_t1w_antsmat = self._register_t1w_to_dwi(
-                t1w_brain_path,
+            # Register the anatomical image to DWI space using direct images or
+            # matched SuperSynth proxies. The resulting transform is applied to
+            # the original normalized T1w, never to the inference input itself.
+            t1w_2_dwi, dwi_2_t1w = self._register_t1w_to_dwi(
+                registration_moving_path,
                 registration_ref_path,
                 output_dir,
+                moving_apply_path=t1w_norm_nii,
             )
     
             #REGISTER T1 to Atlas
             mni_atlas_img = Path(__file__).parent / "data" / "mni_icbm152_t1_tal_nlin_asym_09c_2_5.nii.gz"
-            t1w_mni = output_dir / "t1w_mni.nii.gz"
-            t1w_2_mni_fslmat = output_dir / "t1w_2_mni.mat"
-            t1w_2_mni_antsmat = output_dir / "t1w_2_mni.txt"
-            mni_2_t1w_fslmat = output_dir / "mni_2_t1w.mat"
-            mni_2_t1w_antsmat = output_dir / "mni_2_t1w.txt"
-            
-            _, t1w_2_mni_fslmat = fsl.flirt(in_file=t1w_norm_nii,
-                                            ref_file=mni_atlas_img,
-                                            out_file=t1w_mni, # This should be the output image, not the matrix
-                                            omat=t1w_2_mni_fslmat,
-                                            cost="normmi",
-                                            dof=12,
-                                            extra_args="-searchcost normmi -searchrx -180 180 -searchry -180 180 -searchrz -180 180")
-            fsl.convert_xfm(in_file=t1w_2_mni_fslmat, out_file=mni_2_t1w_fslmat, inverse=True)
-
-            c3d.fsl2ants(ref_file=mni_atlas_img,
-                         in_file=t1w_brain_path,
-                         transform_file=t1w_2_mni_fslmat,
-                         out_file=t1w_2_mni_antsmat)
-
-            c3d.fsl2ants(ref_file=t1w_brain_path,
-                         in_file=mni_atlas_img,
-                         transform_file=mni_2_t1w_fslmat,
-                         out_file=mni_2_t1w_antsmat)
+            t1w_2_mni, mni_2_t1w = self._register_t1w_to_mni(
+                t1w_norm_nii,
+                t1w_brain_path,
+                mni_atlas_img,
+                output_dir,
+            )
     
            
             #Apply linear registration to normalized T1w to get into Atlas space
@@ -663,8 +921,8 @@ class Synb0EstimationStep(BaseProcessingStep):
             ants.apply_transforms(fixed_file=mni_atlas_img,
                                   moving_file=t1w_norm_nii,
                                   out_file=t1w_norm_atlas,
-                                  transforms=[t1w_2_mni_antsmat],
-                                  invert_transforms=[False],
+                                  transforms=[t1w_2_mni.path],
+                                  invert_transforms=[t1w_2_mni.invert],
                                   interpolator="bSpline")
                                   
             #Apply series of registrations to dwi
@@ -672,8 +930,8 @@ class Synb0EstimationStep(BaseProcessingStep):
             ants.apply_transforms(fixed_file=mni_atlas_img,
                                   moving_file=b0_path,
                                   out_file=b0_in_mni,
-                                  transforms=[t1w_2_mni_antsmat, dwi_2_t1w_antsmat],
-                                  invert_transforms=[False, False],
+                                  transforms=[t1w_2_mni.path, dwi_2_t1w.path],
+                                  invert_transforms=[t1w_2_mni.invert, dwi_2_t1w.invert],
                                   interpolator="bSpline")   
                                   
     
@@ -711,8 +969,8 @@ class Synb0EstimationStep(BaseProcessingStep):
             ants.apply_transforms(fixed_file=b0_path,
                                   moving_file=syn_b0_path,
                                   out_file=syn_b0_native_path,
-                                  transforms=[t1w_2_dwi_antsmat, mni_2_t1w_antsmat],
-                                  invert_transforms=[False, False],
+                                  transforms=[t1w_2_dwi.path, mni_2_t1w.path],
+                                  invert_transforms=[t1w_2_dwi.invert, mni_2_t1w.invert],
                                   interpolator="bSpline")
 
             #Warp T1w mask to DWI space
@@ -720,8 +978,8 @@ class Synb0EstimationStep(BaseProcessingStep):
             ants.apply_transforms(fixed_file=b0_path,
                                   moving_file=t1w_mask,
                                   out_file=t1w_mask_2_dwi,
-                                  transforms=[t1w_2_dwi_antsmat],
-                                  invert_transforms=[False],
+                                  transforms=[t1w_2_dwi.path],
+                                  invert_transforms=[t1w_2_dwi.invert],
                                   interpolator="nearestNeighbor")
 
 

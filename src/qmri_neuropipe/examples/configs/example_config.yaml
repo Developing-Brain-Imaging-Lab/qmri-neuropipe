@@ -149,6 +149,24 @@ dmri:
       enabled: true
       method: ants           # Options: ants, fsl
 
+    # With a SuperSynth reference, both the anatomical fixed image and DWI
+    # mean-b0 moving image are synthesized before registration. The transform
+    # is then applied to the original DWI on the requested output grid.
+    coregistration:
+      enabled: false
+      method: ants
+      reference_image: supersynth  # Or supersynth_multivariate with ANTs
+      options:
+        output_resolution: anatomical
+        transform_type: Rigid
+        interpolation: linear
+        # Strip both synthetic registration proxies only; the transform is
+        # still applied to the original DWI and anatomical images.
+        skull_strip_registration: false
+        skull_strip_method: synthstrip
+        skull_strip_moving: true
+        skull_strip_fixed: true
+
     # Gradient nonlinearity correction
     # For the new GE-native workflow:
     # - set method: native_ge
@@ -169,14 +187,20 @@ dmri:
       # Synb0 prefers an acquired T1w. If only another undistorted anatomical
       # contrast is available, SuperSynth creates the T1w used by Synb0.
       # `anatomical_input` can select its BIDS suffix (for example T2w/FLAIR).
-      # With registration: supersynth, a separate DWI-derived synthetic T1w
-      # is used only to improve registration.
+      # With registration: supersynth, matched synthetic T1w images are created
+      # from both the anatomical moving image and DWI b0 fixed image. They are
+      # used only to estimate the registration transforms.
       synb0:
         anatomical_input: auto
         # VFA/SPGR/SSFP series are averaged by default. To select one volume:
         # anatomical_series_mode: representative
         # anatomical_series_index: 0
         registration: direct  # Options: direct, supersynth
+        registration_backend: fsl  # Options: fsl, ants
+        # Estimate transforms from brain-only images, then apply them to the
+        # original non-skull-stripped images used by Synb0.
+        skull_strip_registration: false
+        skull_strip_method: synthstrip
       drbuddi:
         transform_type: SyNOnly
         interpolator: linear
@@ -463,6 +487,23 @@ dmri:
 #       method: synthstrip
 #     bias_correction:
 #       enabled: true
+#     # SuperSynth coregistration always synthesizes both the fixed and moving
+#     # images, estimates the transform between the matched synthetic contrasts,
+#     # and applies it to the original anatomical images.
+#     coregistration:
+#       enabled: false
+#       method: ants              # Options: ants, fsl, freesurfer
+#       reference_image: supersynth
+#       options:
+#         supersynth_input: t1w   # Fixed source; t2w reverses the pair
+#         # supersynth_registration: multivariate  # ANTs T1w+T2w metrics
+#         transform_type: Rigid
+#         interpolation: linear
+#         # Applies to every matched synthetic contrast used for registration.
+#         skull_strip_registration: false
+#         skull_strip_method: synthstrip
+#         skull_strip_moving: true
+#         skull_strip_fixed: true
 #     normalization:
 #       enabled: true
 #       template: /path/to/MNI152_T1_1mm.nii.gz

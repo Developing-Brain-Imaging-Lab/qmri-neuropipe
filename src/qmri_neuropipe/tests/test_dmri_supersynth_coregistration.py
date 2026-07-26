@@ -89,7 +89,12 @@ def _fake_mean_b0(input_dwi, output_path, *args, **kwargs):
 
 
 def test_dmri_supersynth_coregistration_prepares_synthetic_pair(tmp_path: Path):
-    config = _config(tmp_path, "supersynth")
+    config = _config(
+        tmp_path,
+        "supersynth",
+        skull_strip_registration=True,
+        skull_strip_method="synthstrip",
+    )
     context, _, anat = _context(tmp_path)
     engine = ExecutionEngine(config, logging.getLogger(__name__))
     step = CoregistrationStep(config, logging.getLogger(__name__), method="ants")
@@ -108,6 +113,8 @@ def test_dmri_supersynth_coregistration_prepares_synthetic_pair(tmp_path: Path):
     assert kwargs["options"]["registration_fixed"].name == "SynthT1.mgz"
     assert kwargs["options"]["registration_moving"].name == "SynthT1.mgz"
     assert kwargs["options"]["application_fixed"] == anat.img
+    assert kwargs["options"]["skull_strip_registration"] is True
+    assert kwargs["options"]["skull_strip_method"] == "synthstrip"
     assert "registration_fixed_extras" not in kwargs["options"]
 
 

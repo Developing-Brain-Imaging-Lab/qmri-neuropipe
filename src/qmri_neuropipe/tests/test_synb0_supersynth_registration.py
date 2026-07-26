@@ -7,7 +7,7 @@ import pytest
 
 from qmri_neuropipe.core import ValidationError
 from qmri_neuropipe.core.types import DWIFile, ImageFile
-from qmri_neuropipe.interfaces import c3d, freesurfer, fsl
+from qmri_neuropipe.interfaces import ants, c3d, freesurfer, fsl
 from qmri_neuropipe.io.anat.bids import bids_find_other_anat
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
 
@@ -119,6 +119,38 @@ def test_supersynth_registration_reference_is_generated_from_dwi_b0(
     assert context["synb0_registration_method"] == "supersynth"
 
 
+def test_supersynth_registration_moving_is_generated_from_normalized_t1w(
+    tmp_path: Path, monkeypatch
+):
+    step = _step({"registration": "supersynth"})
+    t1w_norm = tmp_path / "t1w_norm.nii.gz"
+    calls = []
+
+    def fake_super_synth(**kwargs):
+        calls.append(kwargs)
+        output = Path(kwargs["out_dir"]) / "SynthT1.mgz"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"synth")
+        return kwargs["out_dir"]
+
+    monkeypatch.setattr(freesurfer, "mri_super_synth", fake_super_synth)
+    context = {}
+
+    result = step._prepare_supersynth_registration_moving(
+        context,
+        tmp_path,
+        t1w_path=t1w_norm,
+    )
+
+    expected = (
+        tmp_path / "supersynth_from_t1w_registration" / "SynthT1.mgz"
+    )
+    assert result == expected
+    assert calls[0]["in_file"] == t1w_norm
+    assert calls[0]["out_dir"] == tmp_path / "supersynth_from_t1w_registration"
+    assert context["synb0_registration_moving"] == expected
+
+
 def test_synb0_rejects_session_without_any_anatomical_scan(tmp_path: Path):
     step = _step({"t1w_source": "dwi_supersynth"})
     context = {
@@ -155,12 +187,19 @@ def test_supersynth_image_is_used_only_as_registration_fixed_image(
         calls.append(("fsl2ants", kwargs))
         return kwargs["out_file"]
 
+    def fake_apply_transforms(**kwargs):
+        calls.append(("apply_transforms", kwargs))
+        return kwargs["out_file"]
+
     monkeypatch.setattr(freesurfer, "mri_convert", fake_mri_convert)
     monkeypatch.setattr(fsl, "flirt", fake_flirt)
     monkeypatch.setattr(fsl, "convert_xfm", fake_convert_xfm)
     monkeypatch.setattr(c3d, "fsl2ants", fake_fsl2ants)
+    monkeypatch.setattr(ants, "apply_transforms", fake_apply_transforms)
 
-    step._register_t1w_to_dwi(supplied_t1w_brain, dwi_synth_t1w, tmp_path)
+    forward, inverse = step._register_t1w_to_dwi(
+        supplied_t1w_brain, dwi_synth_t1w, tmp_path
+    )
 
     assert calls[0][0] == "mri_convert"
     assert calls[0][1]["in_file"] == dwi_synth_t1w
@@ -171,6 +210,12 @@ def test_supersynth_image_is_used_only_as_registration_fixed_image(
     assert flirt_call["ref_file"] == tmp_path / "registration_ref.nii.gz"
     assert calls[2][1]["ref_file"] == tmp_path / "registration_ref.nii.gz"
     assert calls[2][1]["in_file"] == supplied_t1w_brain
+    assert forward.path == tmp_path / "t1w_2_dwi_supersynth.txt"
+    assert forward.invert is False
+    assert inverse.path == tmp_path / "dwi_2_t1w_supersynth.txt"
+    assert inverse.invert is False
+    assert calls[-1][1]["moving_file"] == supplied_t1w_brain
+    assert calls[-1][1]["fixed_file"] == tmp_path / "registration_ref.nii.gz"
 
 
 def test_nifti_registration_reference_does_not_require_conversion(
@@ -191,8 +236,178 @@ def test_nifti_registration_reference_does_not_require_conversion(
         fsl, "convert_xfm", lambda **kwargs: kwargs["out_file"]
     )
     monkeypatch.setattr(c3d, "fsl2ants", lambda **kwargs: kwargs["out_file"])
+    monkeypatch.setattr(
+        ants, "apply_transforms", lambda **kwargs: kwargs["out_file"]
+    )
 
     step._register_t1w_to_dwi(supplied_t1w_brain, dwi_synth_t1w, tmp_path)
+
+
+def test_supersynth_mgz_registration_pair_is_converted_to_nifti(
+    tmp_path: Path, monkeypatch
+):
+    step = _step({"registration": "supersynth"})
+    moving = tmp_path / "moving_SynthT1.mgz"
+    fixed = tmp_path / "fixed_SynthT1.mgz"
+    conversions = []
+
+    def fake_convert(**kwargs):
+        conversions.append((kwargs["in_file"], kwargs["out_file"]))
+        return kwargs["out_file"]
+
+    monkeypatch.setattr(freesurfer, "mri_convert", fake_convert)
+    monkeypatch.setattr(
+        fsl, "flirt", lambda **kwargs: (kwargs["out_file"], kwargs["omat"])
+    )
+    monkeypatch.setattr(
+        fsl, "convert_xfm", lambda **kwargs: kwargs["out_file"]
+    )
+    monkeypatch.setattr(c3d, "fsl2ants", lambda **kwargs: kwargs["out_file"])
+    monkeypatch.setattr(
+        ants, "apply_transforms", lambda **kwargs: kwargs["out_file"]
+    )
+
+    step._register_t1w_to_dwi(moving, fixed, tmp_path)
+
+    assert conversions == [
+        (moving, tmp_path / "registration_moving.nii.gz"),
+        (fixed, tmp_path / "registration_ref.nii.gz"),
+    ]
+
+
+def test_ants_backend_estimates_linear_transform_and_inverts_same_matrix(
+    tmp_path: Path, monkeypatch
+):
+    step = _step({"registration_backend": "ants"})
+    t1w_brain = tmp_path / "t1w_brain.nii.gz"
+    t1w_norm = tmp_path / "t1w_norm.nii.gz"
+    b0 = tmp_path / "b0.nii.gz"
+    calls = []
+
+    def fake_registration(**kwargs):
+        calls.append(("registration", kwargs))
+        return kwargs["out_prefix"].parent / "warped.nii.gz", [
+            tmp_path / "t1w_2_dwi_ants_0GenericAffine.mat"
+        ]
+
+    def fake_apply(**kwargs):
+        calls.append(("apply", kwargs))
+        return kwargs["out_file"]
+
+    monkeypatch.setattr(ants, "registration", fake_registration)
+    monkeypatch.setattr(ants, "apply_transforms", fake_apply)
+
+    forward, inverse = step._register_t1w_to_dwi(
+        t1w_brain,
+        b0,
+        tmp_path,
+        moving_apply_path=t1w_norm,
+    )
+
+    registration_call = calls[0][1]
+    assert registration_call["moving_file"] == t1w_brain
+    assert registration_call["fixed_file"] == b0
+    assert registration_call["transform_type"] == "Rigid"
+    assert forward.path == inverse.path
+    assert forward.invert is False
+    assert inverse.invert is True
+    assert calls[1][1]["moving_file"] == t1w_norm
+    assert calls[1][1]["fixed_file"] == b0
+
+
+def test_unknown_registration_backend_is_rejected():
+    step = _step({"registration_backend": "niftyreg"})
+    with pytest.raises(ValidationError, match="registration_backend"):
+        step._registration_backend()
+
+
+def test_skull_stripping_is_used_only_for_transform_estimation(
+    tmp_path: Path, monkeypatch
+):
+    step = _step(
+        {
+            "registration_backend": "ants",
+            "skull_strip_registration": True,
+            "skull_strip_method": "synthstrip",
+        }
+    )
+    t1w_norm = tmp_path / "t1w_norm.nii.gz"
+    t1w_brain = tmp_path / "t1w_brain.nii.gz"
+    atlas = tmp_path / "atlas.nii.gz"
+    atlas_brain = tmp_path / "atlas_brain.nii.gz"
+    calls = []
+
+    def fake_strip(image_path, output_dir):
+        calls.append(("strip", image_path, output_dir))
+        return atlas_brain
+
+    def fake_registration(**kwargs):
+        calls.append(("registration", kwargs))
+        return tmp_path / "warped.nii.gz", [tmp_path / "affine.mat"]
+
+    def fake_apply(**kwargs):
+        calls.append(("apply", kwargs))
+        return kwargs["out_file"]
+
+    monkeypatch.setattr(step, "_skull_strip_registration_image", fake_strip)
+    monkeypatch.setattr(ants, "registration", fake_registration)
+    monkeypatch.setattr(ants, "apply_transforms", fake_apply)
+
+    step._register_t1w_to_mni(t1w_norm, t1w_brain, atlas, tmp_path)
+
+    assert calls[0][0:2] == ("strip", atlas)
+    assert calls[1][1]["moving_file"] == t1w_brain
+    assert calls[1][1]["fixed_file"] == atlas_brain
+    assert calls[2][1]["moving_file"] == t1w_norm
+    assert calls[2][1]["fixed_file"] == atlas
+
+
+def test_dwi_registration_skull_strips_both_proxies_but_applies_to_originals(
+    tmp_path: Path, monkeypatch
+):
+    step = _step(
+        {
+            "registration_backend": "ants",
+            "registration": "supersynth",
+            "skull_strip_registration": True,
+        }
+    )
+    moving_proxy = tmp_path / "moving_SynthT1.nii.gz"
+    fixed_proxy = tmp_path / "fixed_SynthT1.nii.gz"
+    original_t1w = tmp_path / "t1w_norm.nii.gz"
+    stripped_moving = tmp_path / "moving_brain.nii.gz"
+    stripped_fixed = tmp_path / "fixed_brain.nii.gz"
+    calls = []
+
+    def fake_strip(image_path, output_dir):
+        calls.append(("strip", image_path, output_dir))
+        return stripped_moving if image_path == moving_proxy else stripped_fixed
+
+    def fake_registration(**kwargs):
+        calls.append(("registration", kwargs))
+        return tmp_path / "warped.nii.gz", [tmp_path / "affine.mat"]
+
+    def fake_apply(**kwargs):
+        calls.append(("apply", kwargs))
+        return kwargs["out_file"]
+
+    monkeypatch.setattr(step, "_skull_strip_registration_image", fake_strip)
+    monkeypatch.setattr(ants, "registration", fake_registration)
+    monkeypatch.setattr(ants, "apply_transforms", fake_apply)
+
+    step._register_t1w_to_dwi(
+        moving_proxy,
+        fixed_proxy,
+        tmp_path,
+        moving_apply_path=original_t1w,
+    )
+
+    assert calls[0][0:2] == ("strip", moving_proxy)
+    assert calls[1][0:2] == ("strip", fixed_proxy)
+    assert calls[2][1]["moving_file"] == stripped_moving
+    assert calls[2][1]["fixed_file"] == stripped_fixed
+    assert calls[3][1]["moving_file"] == original_t1w
+    assert calls[3][1]["fixed_file"] == fixed_proxy
 
 
 def test_other_anatomical_discovery_excludes_t1_t2_and_segmentations(tmp_path: Path):

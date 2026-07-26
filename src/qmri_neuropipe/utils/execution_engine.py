@@ -633,7 +633,7 @@ class ExecutionEngine:
         """Prepare synthetic fixed/moving contrasts for dMRI coregistration."""
         from qmri_neuropipe.core.utils import get_nifti_stem
         from qmri_neuropipe.lib.anat.super_synth import (
-            ensure_supersynth_outputs_for_image,
+            ensure_matched_supersynth_registration_inputs,
             extract_mean_b0_for_supersynth,
         )
 
@@ -680,33 +680,36 @@ class ExecutionEngine:
             "sharpen_synths": options.get("supersynth_sharpen_synths"),
             "force": force,
         }
-        fixed_outputs = ensure_supersynth_outputs_for_image(
-            anatomical,
-            synth_root / "fixed_anatomical",
-            self.config,
-            self.logger,
-            **helper_kwargs,
-        )
-        moving_outputs = ensure_supersynth_outputs_for_image(
-            mean_b0,
-            synth_root / "moving_dwi",
-            self.config,
-            self.logger,
-            **helper_kwargs,
-        )
-
         use_multivariate = multivariate and backend == "ants"
         if multivariate and not use_multivariate:
             self.logger.warning(
                 f"SuperSynth multivariate registration is not supported by the "
                 f"'{backend}' backend; using the synthetic T1w pair only."
             )
-
-        required = ("synth_t1w", "synth_t2w") if use_multivariate else ("synth_t1w",)
-        if not all(key in fixed_outputs and key in moving_outputs for key in required):
+        required = (
+            ("synth_t1w", "synth_t2w")
+            if use_multivariate
+            else ("synth_t1w",)
+        )
+        try:
+            fixed_outputs, moving_outputs = (
+                ensure_matched_supersynth_registration_inputs(
+                    anatomical,
+                    mean_b0,
+                    synth_root,
+                    self.config,
+                    self.logger,
+                    required_contrasts=required,
+                    fixed_subdir="fixed_anatomical",
+                    moving_subdir="moving_dwi",
+                    **helper_kwargs,
+                )
+            )
+        except Exception as exc:
             self.logger.warning(
-                "SuperSynth dMRI coregistration did not produce all required "
-                f"synthetic contrasts: {', '.join(required)}"
+                "SuperSynth dMRI coregistration could not prepare a matched "
+                "synthetic pair: %s",
+                exc,
             )
             return None
 

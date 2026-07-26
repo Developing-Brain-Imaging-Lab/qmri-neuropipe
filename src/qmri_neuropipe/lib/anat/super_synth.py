@@ -478,3 +478,68 @@ def ensure_supersynth_outputs_for_image(
         outputs = find_supersynth_outputs(out_dir)
 
     return outputs
+
+
+def ensure_matched_supersynth_registration_inputs(
+    fixed_image: ImageLike,
+    moving_image: ImageLike,
+    output_dir: Path,
+    config,
+    logger: logging.Logger,
+    *,
+    required_contrasts: tuple[str, ...] = ("synth_t1w",),
+    fixed_subdir: str = "fixed",
+    moving_subdir: str = "moving",
+    mode: Optional[str] = None,
+    device: Optional[str] = None,
+    sharpen_synths: Optional[bool] = None,
+    force: bool = False,
+) -> tuple[Dict[str, Path], Dict[str, Path]]:
+    """
+    Create contrast-matched synthetic images for registration estimation.
+
+    Both the fixed and moving source images are passed independently through
+    SuperSynth. Callers should estimate the transform from the returned
+    synthetic images and apply it to their original fixed/moving images.
+    """
+    root = Path(output_dir)
+    helper_kwargs = {
+        "mode": mode,
+        "device": device,
+        "sharpen_synths": sharpen_synths,
+        "force": force,
+    }
+    fixed_outputs = ensure_supersynth_outputs_for_image(
+        fixed_image,
+        root / fixed_subdir,
+        config,
+        logger,
+        **helper_kwargs,
+    )
+    moving_outputs = ensure_supersynth_outputs_for_image(
+        moving_image,
+        root / moving_subdir,
+        config,
+        logger,
+        **helper_kwargs,
+    )
+
+    missing = [
+        contrast
+        for contrast in required_contrasts
+        if contrast not in fixed_outputs or contrast not in moving_outputs
+    ]
+    if missing:
+        raise ValidationError(
+            "Matched SuperSynth registration did not produce "
+            f"{', '.join(missing)} for both fixed and moving images."
+        )
+
+    logger.info(
+        "Prepared matched SuperSynth registration inputs (%s) for fixed=%s "
+        "and moving=%s",
+        ", ".join(required_contrasts),
+        Path(fixed_image.img if hasattr(fixed_image, "img") else fixed_image).name,
+        Path(moving_image.img if hasattr(moving_image, "img") else moving_image).name,
+    )
+    return fixed_outputs, moving_outputs

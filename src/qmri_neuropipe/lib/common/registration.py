@@ -235,6 +235,41 @@ def prepare_registration_images(
     return moving_for_reg, fixed_for_reg, changed
 
 
+def prepare_multivariate_registration_images(
+    config,
+    logger: logging.Logger,
+    fixed_images: list[Path],
+    moving_images: list[Path],
+    output_dir: Path,
+    options: Optional[Dict[str, Any]],
+    nthreads: int,
+    force: bool = False,
+) -> tuple[list[Path], list[Path]]:
+    """Apply the registration-only skull-strip policy to extra metric pairs."""
+    if len(fixed_images) != len(moving_images):
+        raise ProcessingError(
+            "Multivariate fixed and moving registration images must have "
+            "matching lengths."
+        )
+
+    prepared_fixed: list[Path] = []
+    prepared_moving: list[Path] = []
+    for index, (fixed, moving) in enumerate(zip(fixed_images, moving_images)):
+        moving_reg, fixed_reg, _ = prepare_registration_images(
+            config,
+            logger,
+            Path(moving),
+            Path(fixed),
+            Path(output_dir) / "registration_multivariate" / str(index),
+            options,
+            nthreads,
+            force=force,
+        )
+        prepared_fixed.append(fixed_reg)
+        prepared_moving.append(moving_reg)
+    return prepared_fixed, prepared_moving
+
+
 def _ensure_fsl_registration_nifti(
     image_path: Path,
     output_dir: Path,
@@ -988,6 +1023,23 @@ class CoregistrationStep(BaseProcessingStep):
                     nthreads,
                     force=kwargs.get("force", False),
                 )
+                fixed_extras = options.get("registration_fixed_extras") or []
+                moving_extras = options.get("registration_moving_extras") or []
+                if fixed_extras or moving_extras:
+                    prepared_fixed_extras, prepared_moving_extras = (
+                        prepare_multivariate_registration_images(
+                            self.config,
+                            self.logger,
+                            [Path(path) for path in fixed_extras],
+                            [Path(path) for path in moving_extras],
+                            output_dir,
+                            options,
+                            nthreads,
+                            force=kwargs.get("force", False),
+                        )
+                    )
+                    options["registration_fixed_extras"] = prepared_fixed_extras
+                    options["registration_moving_extras"] = prepared_moving_extras
             if self.method == "fsl":
                 moving_for_reg = _ensure_fsl_registration_nifti(
                     moving_for_reg,
@@ -1320,10 +1372,37 @@ class CoregistrationStep(BaseProcessingStep):
                                 mat=output_mat,
                                 interp=options.get("interpolation", "trilinear")
                             )
+                        elif registration_moving:
+                            apply_ref = output_grid_ref
+                            itk_transform = (
+                                output_dir
+                                / f"{output_transform.name}_synthetic_itk.txt"
+                            )
+                            c3d.fsl2ants(
+                                registration_target,
+                                moving_for_reg,
+                                estimate_mat,
+                                itk_transform,
+                            )
+                            c3d.ants2fsl(
+                                apply_ref,
+                                in_path,
+                                itk_transform,
+                                output_mat,
+                            )
+                            fsl.flirt(
+                                in_file=in_path,
+                                ref_file=apply_ref,
+                                out_file=output_img,
+                                extra_args=(
+                                    f"-applyxfm -init {output_mat} -interp "
+                                    f"{options.get('interpolation', 'trilinear')}"
+                                ),
+                            )
                         elif registration_inputs_stripped:
                             fsl.flirt(
                                 in_file=in_path,
-                                ref_file=registration_target,
+                                ref_file=output_grid_ref,
                                 out_file=output_img,
                                 extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
                             )
@@ -1380,7 +1459,7 @@ class CoregistrationStep(BaseProcessingStep):
                         else:
                             fsl.flirt(
                                 in_file=in_path,
-                                ref_file=registration_target,
+                                ref_file=output_grid_ref,
                                 out_file=output_img,
                                 extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
                             )
