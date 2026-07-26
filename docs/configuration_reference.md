@@ -298,6 +298,15 @@ dmri:
     noddi:
       enabled: false
       method: dmipy
+    dmipy:
+      models:
+        - name: verdict
+          solver: jax
+          device: gpu
+          gpu_device: 0
+          solver_options:
+            batch_size: 4000
+        - name: mte_sandi
     tractography:
       mrtrix:
         enabled: false
@@ -328,6 +337,7 @@ dmri:
 | NODDI | `dmri.modeling.noddi` | `dmipy`, `amico` | Model-specific parameters |
 | SANDI | `dmri.modeling.sandi` | `dmipy`, `amico` | Model-specific parameters |
 | Microglia | `dmri.modeling.microglia` | `dmipy` | Model-specific parameters |
+| dmipy 2.x registry models | `dmri.modeling.dmipy.models` | `dmipy-fit` | One or more allow-listed models |
 | NEXI | `dmri.modeling.nexi` | `nexi` | Model-specific parameters |
 | MAPMRI | `dmri.modeling.mapmri` | `dipy` | MAPMRI model options |
 | Free-water DTI | `dmri.modeling.fwe_dti` or `dmri.modeling.fwdti` | `dipy` | `fit_method` |
@@ -335,6 +345,54 @@ dmri:
 | TractSeg | `dmri.modeling.tractography.tractseg` | `tractseg` | `options` passed to TractSeg wrapper |
 | pyAFQ | `dmri.modeling.tractography.pyafq` | `pyafq` | `options` passed to pyAFQ wrapper |
 | Tract-specific analysis | `dmri.modeling.tractography.tract_specific` | MRtrix | `bundles`, `metrics`, `track_density`, `connectome` |
+
+### dmipy 2.x registry models
+
+`dmri.modeling.dmipy.models` accepts either a list of model entries or a
+mapping keyed by registry model name:
+
+```yaml
+dmri:
+  modeling:
+    dmipy:
+      models:
+        ball:
+          solver: brute2fine
+        sandi:
+          solver: jax
+          device: gpu
+          gradient_nonlinearity: true
+          factory_kwargs: {}
+          solver_options:
+            batch_size: 4000
+        nexi:
+          enabled: false
+```
+
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `name` | string | required in list form | Allow-listed name reported by `qmri-tools dmipy-models` |
+| `enabled` | bool | true | Disable an entry without deleting it |
+| `solver` | string | `brute2fine` | `brute2fine`, `mix`, or `jax`, subject to model capability validation |
+| `device` | string | `auto` | `auto`, `cpu`, or `gpu`; GPU requires JAX |
+| `gpu_device` | integer | null | Select one GPU from the devices visible to the job |
+| `nthreads` | integer | pipeline CPU count | CPU threads for native fitting or JAX setup |
+| `factory_kwargs` | mapping | `{}` | Keyword arguments passed to the registered model factory |
+| `solver_options` | mapping | `{}` | dmipy solver controls such as `batch_size`, `maxiter`, and grid sizes |
+| `gradient_nonlinearity` | bool | true | Use a GNL tensor from pipeline context when one is available |
+| `jax_cache_dir` | path | null | Persistent JAX compilation cache |
+| `jax_log_compiles` | bool | false | Print JAX compilation diagnostics |
+| `heartbeat_interval` | seconds | 30 | Liveness message interval during JAX fitting |
+| `delta_file` / `Delta_file` | path | DWI metadata | Separate small-delta and big-Delta timing files |
+| `TE_file` | path | null | Echo-time file for models that require it |
+
+The same model cannot be enabled twice, or in both this registry list and its
+legacy `noddi`, `sandi`, or `microglia` block. Unsupported model/solver/GNL
+combinations fail during capability validation rather than silently falling
+back to another objective. Completed registry fits are skipped only when their
+atomic `dmipy-completion.json` manifest matches the current inputs, dmipy-fit
+version, solver options, and factory options and every declared derivative
+remains valid.
 
 ### MRtrix tractography options
 

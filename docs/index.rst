@@ -25,6 +25,8 @@ Welcome to qmri-neuropipe's documentation!
    workflows/relaxometry
    workflows/fmri
    modeling
+   dmipy2
+   dmipy2_migration
    modules/core
    modules/interfaces
    modules/lib

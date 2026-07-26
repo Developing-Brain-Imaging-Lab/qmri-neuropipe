@@ -14,6 +14,7 @@ Refactored to delegate logic to interface modules.
 
 from pathlib import Path
 from typing import Optional, Any
+import json
 import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
@@ -646,9 +647,11 @@ class NODDIFittingStep(BaseProcessingStep):
 
         outputs = {}
         outputs = {}
+        dmipy_runtime_metadata = {}
         gnl_map = _resolve_context_gnl_map(context, dwi)
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_noddi
+             from ...interfaces.dmipy_backend import DmipyRuntime
              
              # Extract config options
              # Priority: kwargs > config > default
@@ -668,6 +671,16 @@ class NODDIFittingStep(BaseProcessingStep):
              iso_diff = get_cfg('iso_diffusivity', 3.0e-9)
              model_type = get_cfg('model_type', 'standard')
              fiso_map = get_cfg('fiso_map', None)
+             solver_name = noddi_kwargs.get('solver', 'brute2fine')
+             device_name = noddi_kwargs.get('device', 'auto')
+             gpu_device = noddi_kwargs.get('gpu_device')
+             dmipy_runtime_metadata = DmipyRuntime.resolve(
+                 solver=solver_name,
+                 device=device_name,
+                 gpu_device=gpu_device,
+                 jax_cache_dir=noddi_kwargs.get('jax_cache_dir'),
+                 jax_log_compiles=noddi_kwargs.get('jax_log_compiles', False),
+             ).provenance()
              
              # Pass to fit_noddi
              outputs = fit_noddi(
@@ -716,17 +729,27 @@ class NODDIFittingStep(BaseProcessingStep):
             new_path = model_out / new_name
             
             if path.exists():
-                path.rename(new_path)
+                if path != new_path:
+                    path.rename(new_path)
                 
                 # Sidecar
+                sidecar_path = Path(str(new_path).replace('.nii.gz', '.json'))
+                existing_sidecar = {}
+                if sidecar_path.exists():
+                    try:
+                        with sidecar_path.open() as f:
+                            existing_sidecar = json.load(f)
+                    except (OSError, ValueError):
+                        existing_sidecar = {}
                 sidecar = {
                     "ModelName": "NODDI",
                     "FittingSoftware": "Dmipy" if self.method == 'dmipy' else "AMICO",
                     "InputData": dwi.img.name,
-                    "Metric": suffix
+                    "Metric": suffix,
+                    **existing_sidecar,
+                    **dmipy_runtime_metadata,
                 }
-                import json
-                with open(str(new_path).replace('.nii.gz', '.json'), 'w') as f:
+                with sidecar_path.open('w') as f:
                     json.dump(sidecar, f, indent=4)
              
         # Update Context outputs
@@ -951,6 +974,135 @@ class MicrogliaFittingStep(BaseProcessingStep):
                   suffix = name_part.split('_')[-1]
               results[suffix] = p
         context.setdefault('modeling_results', {})['microglia'] = results
+        return context
+
+
+class DmipyModelFittingStep(BaseProcessingStep):
+    """Registry-driven pipeline step for any dmipy-fit 2.x reference model."""
+
+    def __init__(
+        self,
+        config,
+        logger,
+        provenance,
+        *,
+        model_name: str,
+        nthreads: int = 1,
+        solver: str = "brute2fine",
+        device: str = "auto",
+        factory_kwargs: Optional[dict] = None,
+        solver_options: Optional[dict] = None,
+        **kwargs,
+    ):
+        super().__init__(config, logger, provenance)
+        from ...interfaces.dmipy_backend import get_model_spec
+
+        self.model_name = get_model_spec(model_name).name
+        self.nthreads = int(nthreads)
+        if self.nthreads < 1:
+            raise ValueError("nthreads must be a positive integer.")
+        self.solver = solver
+        self.device = device
+        self.factory_kwargs = dict(factory_kwargs or {})
+        self.solver_options = dict(solver_options or {})
+        self.kwargs = dict(kwargs)
+
+    def run(
+        self,
+        context: dict | object,
+        output_dir: Path,
+        mask=None,
+        **kwargs,
+    ) -> dict | object:
+        from ...interfaces.dmipy_generic import (
+            dmipy_run_spec_for_fit,
+            fit_dmipy_reference,
+        )
+        from ...interfaces.dmipy_manifest import completed_outputs
+
+        dwi = context if not isinstance(context, dict) else context.get(
+            "current_image"
+        )
+        if dwi is None:
+            raise ValueError(
+                f"No current DWI is available for dmipy model {self.model_name}."
+            )
+        model_out = output_dir / f"dmipy-{self.model_name}"
+        model_out.mkdir(parents=True, exist_ok=True)
+        force = bool(
+            kwargs.get("force", False)
+            or self.kwargs.get("force", False)
+            or self.config.get("force", False)
+            or self.config.get("force_run", False)
+        )
+        result_key = f"dmipy:{self.model_name}"
+        mask_path = mask.img if mask is not None and hasattr(mask, "img") else mask
+        use_gnl = self.kwargs.get("gradient_nonlinearity", True)
+        gnl_map = _resolve_context_gnl_map(context, dwi) if use_gnl else None
+        options = dict(self.solver_options)
+        options.update(self.kwargs.get("solver_kwargs", {}))
+        run_spec = dmipy_run_spec_for_fit(
+            dwi,
+            model_name=self.model_name,
+            mask_file=mask_path,
+            grad_nonlin=gnl_map,
+            delta_file=self.kwargs.get("delta_file"),
+            Delta_file=self.kwargs.get("Delta_file"),
+            TE_file=self.kwargs.get("TE_file"),
+            solver=self.solver,
+            device=self.device,
+            solver_kwargs=options,
+            factory_kwargs=self.factory_kwargs,
+        )
+        existing = None if force else completed_outputs(
+            model_out,
+            run_spec=run_spec,
+            validate_image=self.check_output_validity,
+        )
+        if existing is not None:
+            self.logger.info(
+                "Skipping dmipy model %s (validated completion manifest with "
+                "%d outputs).",
+                self.model_name,
+                len(existing),
+            )
+            context.setdefault("modeling_results", {})[result_key] = existing
+            return context
+
+        if any(model_out.glob("*.nii.gz")) and not force:
+            self.logger.info(
+                "Re-running dmipy model %s because its completion manifest is "
+                "missing, incomplete, or does not match the current request.",
+                self.model_name,
+            )
+        runtime_keys = {
+            "gpu_device",
+            "jax_cache_dir",
+            "jax_log_compiles",
+            "heartbeat_interval",
+        }
+        runtime = {
+            key: self.kwargs[key]
+            for key in runtime_keys
+            if key in self.kwargs
+        }
+        outputs = fit_dmipy_reference(
+            dwi,
+            model_out,
+            model_name=self.model_name,
+            mask_file=mask_path,
+            grad_nonlin=gnl_map,
+            delta_file=self.kwargs.get("delta_file"),
+            Delta_file=self.kwargs.get("Delta_file"),
+            TE_file=self.kwargs.get("TE_file"),
+            solver=self.solver,
+            device=self.device,
+            nthreads=self.nthreads,
+            solver_kwargs=options,
+            factory_kwargs=self.factory_kwargs,
+            **runtime,
+        )
+        context.setdefault("modeling_results", {})[result_key] = dict(outputs)
         return context
 
 

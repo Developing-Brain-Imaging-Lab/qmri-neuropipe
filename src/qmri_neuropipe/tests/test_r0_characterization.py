@@ -109,6 +109,58 @@ class TestR4ModelingBuild:
         names = [s.__class__.__name__ for s in wf.steps]
         assert names == ["DTIFittingStep", "CSDFittingStep"]
 
+    def test_registry_dmipy_models_build_multiple_generic_steps(self):
+        wf = self._build({
+            "dmipy": {
+                "models": [
+                    {
+                        "name": "verdict",
+                        "solver": "jax",
+                        "device": "gpu",
+                        "solver_options": {"batch_size": 1024},
+                    },
+                    {
+                        "name": "mte_sandi",
+                        "nthreads": 3,
+                        "factory_kwargs": {"custom": "value"},
+                    },
+                ]
+            }
+        })
+
+        assert [step.__class__.__name__ for step in wf.steps] == [
+            "DmipyModelFittingStep",
+            "DmipyModelFittingStep",
+        ]
+        assert [step.model_name for step in wf.steps] == [
+            "verdict",
+            "mte_sandi",
+        ]
+        assert wf.steps[0].solver == "jax"
+        assert wf.steps[0].device == "gpu"
+        assert wf.steps[0].solver_options == {"batch_size": 1024}
+        assert wf.steps[1].factory_kwargs == {"custom": "value"}
+        assert wf.steps[1].nthreads == 3
+
+    def test_registry_dmipy_mapping_form_and_disabled_entries(self):
+        wf = self._build({
+            "dmipy": {
+                "models": {
+                    "ball": {},
+                    "zeppelin": {"enabled": False},
+                }
+            }
+        })
+
+        assert [step.model_name for step in wf.steps] == ["ball"]
+
+    def test_registry_dmipy_rejects_duplicate_legacy_model(self):
+        with pytest.raises(ValueError, match="both its legacy block"):
+            self._build({
+                "noddi": {"enabled": True},
+                "dmipy": {"models": [{"name": "noddi"}]},
+            })
+
     def test_parameters_block_is_flattened_into_kwargs(self):
         # The builder flattens nested `parameters` (and `options`) into the
         # step. Lock that an attribute set from parameters survives.

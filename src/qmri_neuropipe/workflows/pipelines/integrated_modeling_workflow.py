@@ -21,7 +21,8 @@ from qmri_neuropipe.lib.dmri.fitting import (
     MAPMRIFittingStep,
     CSDFittingStep,
     FWDTIFittingStep,
-    MicrogliaFittingStep
+    MicrogliaFittingStep,
+    DmipyModelFittingStep,
 )
 from qmri_neuropipe.lib.dmri.tractography import (
     MRtrixAnatomicalConstraintsStep,
@@ -190,6 +191,56 @@ class ModelingWorkflow(BaseWorkflow):
                 n_cpus=self.config.n_cpus,
                 **step_kwargs,
             ))
+        self._add_registry_dmipy_steps(modeling_cfg)
+
+    def _add_registry_dmipy_steps(self, modeling_cfg: dict) -> None:
+        """Add arbitrary dmipy models from ``dmri.modeling.dmipy.models``."""
+        dmipy_cfg = modeling_cfg.get("dmipy") or {}
+        configured = dmipy_cfg.get("models", [])
+        if isinstance(configured, dict):
+            configured = [
+                {"name": name, **(options or {})}
+                for name, options in configured.items()
+            ]
+        if not isinstance(configured, list):
+            raise ValueError("dmri.modeling.dmipy.models must be a list or mapping.")
+        legacy_names = {
+            name
+            for name in ("noddi", "sandi", "microglia")
+            if (modeling_cfg.get(name) or {}).get("enabled", False)
+        }
+        seen = set()
+        for entry in configured:
+            if isinstance(entry, str):
+                entry = {"name": entry}
+            if not isinstance(entry, dict) or not entry.get("name"):
+                raise ValueError(
+                    "Each dmri.modeling.dmipy.models entry requires a model name."
+                )
+            entry = dict(entry)
+            name = str(entry.pop("name")).lower()
+            if not entry.pop("enabled", True):
+                continue
+            if name in seen:
+                raise ValueError(f"dmipy model {name!r} is configured more than once.")
+            if name in legacy_names:
+                raise ValueError(
+                    f"dmipy model {name!r} is enabled in both its legacy block "
+                    "and dmri.modeling.dmipy.models."
+                )
+            seen.add(name)
+            self.logger.info("Adding registry-driven dmipy model %s", name)
+            nthreads = entry.pop("nthreads", self.config.n_cpus)
+            self.add_step(
+                DmipyModelFittingStep(
+                    config=self.config,
+                    logger=self.logger,
+                    provenance=self.provenance,
+                    model_name=name,
+                    nthreads=nthreads,
+                    **entry,
+                )
+            )
 
     def _add_tractography_steps(self, modeling_cfg: dict):
         """Add tractography steps if enabled."""

@@ -4,13 +4,11 @@ from typing import Optional, Dict, Union
 import nibabel as nib
 import numpy as np
 import warnings
-import contextlib
 import multiprocessing
 
 from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.utils import ensure_dir, extract_image_path
 from qmri_neuropipe.core.types import ImageLike, DWIFile
-from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
 from qmri_neuropipe.interfaces.dmipy import (
     _rotate_gradients_for_gnl,
     _build_dmipy_scheme,
@@ -18,6 +16,21 @@ from qmri_neuropipe.interfaces.dmipy import (
     _store_param_result,
     _voxel_signal_is_valid,
     _safe_rotate_gradients_for_gnl,
+)
+from qmri_neuropipe.interfaces.dmipy_backend import (
+    DmipyRuntime,
+    DmipyFitRequest,
+    collect_pool_results_with_heartbeat,
+    dmipy_fit_output,
+    execute_dmipy_fit,
+    install_dmipy_jax_postprocessing_workaround,
+    jax_run_summary,
+)
+from qmri_neuropipe.interfaces.dmipy_derivatives import write_dmipy_derivatives
+from qmri_neuropipe.interfaces.dmipy_models import (
+    microglia as build_microglia_reference_model,
+    microglia_output_alias,
+    microglia_output_maps,
 )
 
 
@@ -78,33 +91,7 @@ def _load_microglia_timing(delta_file, Delta_file, n_measurements):
 
 def _microglia_metric_name(parameter_name):
     """Map dmipy parameter names to stable, interpretable derivative suffixes."""
-    exact = {
-        "partial_volume_0": "f_bundle",
-        "partial_volume_1": "f_small_sphere",
-        "partial_volume_2": "f_large_sphere",
-        "partial_volume_3": "f_iso",
-        "derived_f_stick": "f_stick",
-        "derived_f_extracellular": "f_extracellular",
-        "derived_f_tissue": "f_tissue",
-        "derived_small_sphere_radius": "small_sphere_radius",
-        "derived_large_sphere_radius": "large_sphere_radius",
-        "derived_watson_kappa": "watson_kappa",
-    }
-    if parameter_name in exact:
-        return exact[parameter_name]
-    if parameter_name.endswith("SD1Watson_1_mu"):
-        return "mu"
-    if parameter_name.endswith("SD1Watson_1_odi"):
-        return "odi"
-    if parameter_name.endswith("G2Zeppelin_1_lambda_perp"):
-        return "bundle_radial_diffusivity"
-    if parameter_name.endswith("SD1WatsonDistributed_1_partial_volume_0"):
-        return "bundle_stick_fraction"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_1_diameter"):
-        return "small_sphere_diameter"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_2_diameter"):
-        return "large_sphere_diameter"
-    return parameter_name.replace("SD1WatsonDistributed_1_", "")
+    return microglia_output_alias(parameter_name)
 
 
 def _microglia_metric_metadata(metric):
@@ -153,28 +140,7 @@ def _microglia_metric_metadata(metric):
 
 def _add_paper_microglia_maps(full_maps):
     """Add paper-facing fractions, radii, and Watson concentration in place."""
-    f_bundle = full_maps.get('partial_volume_0')
-    bundle_stick = full_maps.get('SD1WatsonDistributed_1_partial_volume_0')
-    f_iso = full_maps.get('partial_volume_3')
-    small_diameter = full_maps.get(
-        'S2SphereStejskalTannerApproximation_1_diameter'
-    )
-    large_diameter = full_maps.get(
-        'S2SphereStejskalTannerApproximation_2_diameter'
-    )
-    odi = full_maps.get('SD1WatsonDistributed_1_SD1Watson_1_odi')
-    if f_bundle is not None and bundle_stick is not None:
-        full_maps['derived_f_stick'] = f_bundle * bundle_stick
-        full_maps['derived_f_extracellular'] = f_bundle * (1.0 - bundle_stick)
-    if f_iso is not None:
-        full_maps['derived_f_tissue'] = 1.0 - f_iso
-    if small_diameter is not None:
-        full_maps['derived_small_sphere_radius'] = 0.5 * small_diameter
-    if large_diameter is not None:
-        full_maps['derived_large_sphere_radius'] = 0.5 * large_diameter
-    if odi is not None:
-        safe_odi = np.clip(odi, np.finfo(float).eps, 1.0 - np.finfo(float).eps)
-        full_maps['derived_watson_kappa'] = 1.0 / np.tan(0.5 * np.pi * safe_odi)
+    full_maps.update(microglia_output_maps(full_maps))
     return full_maps
 
 
@@ -186,98 +152,58 @@ def _build_microglia_model(
     MultiCompartmentModel,
     model_config,
 ):
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-    dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-    # Fit the Watson mean orientation (mu) independently from its orientation
-    # dispersion index (odi). The model makes no tortuosity assumption.
-    dispersed_bundle.set_equal_parameter(
-        'G2Zeppelin_1_lambda_par',
-        'C1Stick_1_lambda_par',
+    return build_microglia_reference_model(
+        parallel_diffusivity=float(
+            model_config.get("parallel_diffusivity", 1.0e-9)
+        ),
+        iso_diffusivity=float(model_config.get("iso_diffusivity", 3.0e-9)),
+        small_diameter=float(model_config.get("small_diameter", 8e-6)),
+        large_diameter=float(model_config.get("large_diameter", 16e-6)),
+        small_diameter_bounds=tuple(
+            model_config.get("small_diameter_bounds", (5e-6, 11e-6))
+        ),
+        large_diameter_bounds=tuple(
+            model_config.get("large_diameter_bounds", (12e-6, 18e-6))
+        ),
+        _components={
+            "cylinder_models": cylinder_models,
+            "gaussian_models": gaussian_models,
+            "sphere_models": sphere_models,
+            "distribute_models": distribute_models,
+            "MultiCompartmentModel": MultiCompartmentModel,
+        },
     )
-    dispersed_bundle.set_fixed_parameter(
-        'G2Zeppelin_1_lambda_par',
-        float(model_config.get('parallel_diffusivity', 1.0e-9))
-    )
-
-    small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-    large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-    ball = gaussian_models.G1Ball()
-
-    model = MultiCompartmentModel(
-        models=[dispersed_bundle, small_sphere, large_sphere, ball]
-    )
-
-    microglia_diameter = list(
-        map(float, model_config.get('small_diameter_bounds', [5e-6, 11e-6]))
-    )
-    astrocyte_diameter = list(
-        map(float, model_config.get('large_diameter_bounds', [12e-6, 18e-6]))
-    )
-    for label, bounds in (
-        ('small-sphere', microglia_diameter),
-        ('large-sphere', astrocyte_diameter),
-    ):
-        if len(bounds) != 2 or not 0 < bounds[0] < bounds[1]:
-            raise ValueError(
-                f"{label} diameter bounds must contain two increasing positive values."
-            )
-    if microglia_diameter[1] >= astrocyte_diameter[0]:
-        raise ValueError("Small- and large-sphere diameter bounds must not overlap.")
-    microglia_initial_diameter = float(
-        model_config.get('small_diameter', 8e-6)
-    )
-    astrocyte_initial_diameter = float(
-        model_config.get('large_diameter', 16e-6)
-    )
-
-    for label, initial, bounds in (
-        ('microglia', microglia_initial_diameter, microglia_diameter),
-        ('astrocyte', astrocyte_initial_diameter, astrocyte_diameter),
-    ):
-        if not bounds[0] <= initial <= bounds[1]:
-            raise ValueError(
-                f"Initial {label} diameter {initial:g} m is outside the "
-                f"optimization bounds [{bounds[0]:g}, {bounds[1]:g}] m."
-            )
-
-    model.set_parameter_optimization_bounds(
-        'S2SphereStejskalTannerApproximation_1_diameter',
-        microglia_diameter,
-    )
-    model.set_parameter_optimization_bounds(
-        'S2SphereStejskalTannerApproximation_2_diameter',
-        astrocyte_diameter,
-    )
-    model.set_initial_guess_parameter(
-        'S2SphereStejskalTannerApproximation_1_diameter',
-        microglia_initial_diameter,
-    )
-    model.set_initial_guess_parameter(
-        'S2SphereStejskalTannerApproximation_2_diameter',
-        astrocyte_initial_diameter,
-    )
-    model.set_fixed_parameter(
-        'G1Ball_1_lambda_iso',
-        float(model_config.get('iso_diffusivity', 3.0e-9))
-    )
-    return model
 
 
 def _fit_microglia_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
-    print(f"[Worker {chunk_id}] Started Microglia chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} Microglia voxels"
+        f"{batch_note}. Initializing dmipy fit...",
+        flush=True,
+    )
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
     
     try:
         microglia_model = _build_microglia_model(
@@ -289,19 +215,21 @@ def _fit_microglia_chunk(args):
             model_config,
         )
         
-        # Fit
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-             with warnings.catch_warnings():
-                 warnings.simplefilter("ignore")
-                 fit_obj = microglia_model.fit(
-                    scheme, 
-                    data_chunk, 
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="microglia",
+                model=microglia_model,
+                acquisition_scheme=scheme,
+                data=data_chunk,
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         
-        print(f"[Worker {chunk_id}] Finished fitting.")
+        print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
         return fit_obj.fitted_parameters
         
     except Exception as e:
@@ -311,20 +239,70 @@ def _fit_microglia_chunk(args):
 
 def _fit_microglia_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
-    print(f"[Worker {chunk_id}] Started GNL-aware Microglia chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware Microglia voxels.",
+        flush=True,
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel
+        from dmipy_fit.signal_models import cylinder_models, gaussian_models, sphere_models
+        from dmipy_fit.distributions import distribute_models
+        from dmipy_fit.core.modeling_framework import MultiCompartmentModel
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]
+        if solver == "jax":
+            model = _build_microglia_model(
+                cylinder_models,
+                gaussian_models,
+                sphere_models,
+                distribute_models,
+                MultiCompartmentModel,
+                model_config,
+            )
+            scheme = _build_dmipy_scheme(
+                bvals,
+                bvecs,
+                delta=delta_arr,
+                Delta=Delta_arr,
+            )
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="microglia",
+                    model=model,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -352,7 +330,7 @@ def _fit_microglia_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = model.fit(
@@ -365,7 +343,7 @@ def _fit_microglia_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = model.fit(
@@ -423,6 +401,11 @@ def fit_microglia(
     small_diameter_bounds=(5e-6, 11e-6),
     large_diameter_bounds=(12e-6, 18e-6),
     solver: str = "brute2fine",
+    device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     Ns: int = 5,
     maxiter: int = 300,
@@ -433,29 +416,27 @@ def fit_microglia(
     """
     Fit the 4-compartment Microglia model using Dmipy.
     """
+    if not isinstance(nthreads, int) or nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
+
     # 1. Environment Variables and Numba setup
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    os.environ["NUMBA_NUM_THREADS"] = str(worker_threads)
     os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
     os.environ["JOBLIB_START_METHOD"] = "fork"
 
     try:
         import numba
-        numba.set_num_threads(1)
+        numba.set_num_threads(worker_threads)
         if hasattr(numba, 'config'):
             numba.config.THREADING_LAYER = 'workqueue'
         numba.set_num_threads = lambda n: None
     except (ImportError, RuntimeError):
         pass
-
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy.core import acquisition_scheme
-    except ImportError as exc:
-        raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
 
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
@@ -469,6 +450,14 @@ def fit_microglia(
     if not bval_file or not bvec_file:
          raise ValueError("Gradient files (bval/bvec) are required.")
 
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
     if solver_kwargs is None:
         solver_kwargs = {}
     else:
@@ -490,9 +479,9 @@ def fit_microglia(
     delta_arr, Delta_arr = _load_microglia_timing(
         delta_file, Delta_file, bvals.size
     )
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-        bvalues=bvals,
-        gradient_directions=bvecs,
+    gtab = _build_dmipy_scheme(
+        bvals,
+        bvecs,
         delta=delta_arr,
         Delta=Delta_arr,
     )
@@ -516,7 +505,7 @@ def fit_microglia(
             gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
         
     n_voxels = valid_voxels.shape[0]
-    n_chunks = nthreads
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
     
@@ -542,6 +531,8 @@ def fit_microglia(
             )
 
     print(f"Fitting Microglia Model ({n_voxels} voxels)...")
+    for line in jax_run_summary(runtime, n_voxels, solver_kwargs):
+        print(line, flush=True)
     
     # Run Pool
     try:
@@ -549,19 +540,27 @@ def fit_microglia(
     except ValueError:
          ctx = multiprocessing.get_context('fork')
          
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     results = []
     try:
         worker = _fit_microglia_chunk_gnl if gnl_data_flat is not None else _fit_microglia_chunk
-        iterator = pool.imap(worker, chunk_args)
-        import time
-        start_t = time.time()
-        for i, res in enumerate(iterator):
-            results.append(res)
-            if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
-                 elapsed = time.time() - start_t
-                 print(f"  - Collected {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
-    finally:
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="Microglia JAX fitting",
+            )
+        else:
+            for i, res in enumerate(pool.imap(worker, chunk_args)):
+                results.append(res)
+                print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
         pool.join()
         
@@ -592,25 +591,10 @@ def fit_microglia(
     # parameterization. Raw fitted maps remain available alongside these maps.
     _add_paper_microglia_maps(full_maps)
         
-    # Standardize map names
-    # dmipy name resolution:
-    # partial_volume_0 = dispersed_bundle
-    # partial_volume_1 = SmallSphere
-    # partial_volume_2 = LargeSphere
-    # partial_volume_3 = free water (implicitly 1 - others)
-    # The actual keys depend on order. We will save all keys out.
-    
-    outputs = {}
-    ent_base = get_entities_from_path(in_path)
-    if 'desc' in ent_base: del ent_base['desc']
-    ent_base['model'] = 'Microglia'
-    
-    import json
+    aliases = {key: _microglia_metric_name(key) for key in full_maps}
     sidecar = {
         "ModelName": "Microglia (4-Compartment)",
         "ModelReference": "https://doi.org/10.1126/sciadv.abq2923",
-        "FittingSoftware": "Dmipy",
-        "InputData": in_path.name,
         "BValueInputUnits": "s/mm^2",
         "BValueFittingUnits": "s/m^2",
         "SmallDeltaSeconds": {
@@ -630,24 +614,22 @@ def fit_microglia(
         "SolverOptions": solver_kwargs,
         "WatsonMeanOrientationFitted": True,
     }
-    
-    for k, array in full_maps.items():
-        suffix = _microglia_metric_name(k)
-        
-        out_name = build_bids_name({**ent_base, 'suffix': suffix})
-        out_p = out_dir / out_name
-        nib.save(nib.Nifti1Image(array, affine), out_p)
-        outputs[suffix] = out_p
-        
-        with open(str(out_p).replace('.nii.gz', '.json'), 'w') as f:
-             json.dump(
-                 {
-                     **sidecar,
-                     "Metric": suffix,
-                     **_microglia_metric_metadata(suffix),
-                 },
-                 f,
-                 indent=4,
-             )
-             
-    return outputs
+    written = write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        full_maps,
+        runtime,
+        model_name="microglia",
+        model_label="Microglia",
+        output_aliases=aliases,
+        base_metadata=sidecar,
+        parameter_metadata={
+            key: {
+                "Metric": alias,
+                **_microglia_metric_metadata(alias),
+            }
+            for key, alias in aliases.items()
+        },
+    )
+    return {aliases[key]: path for key, path in written.items()}

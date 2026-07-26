@@ -268,7 +268,16 @@ def fit_noddi_cli(
     parallel_diff: float = typer.Option(1.7e-9, "--parallel-diff", help="Parallel diffusivity"),
     iso_diff: float = typer.Option(3.0e-9, "--iso-diff", help="Isotropic diffusivity"),
     # Dmipy specific defaults
-    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (brute2fine, mix, or jax)"),
+    device: str = typer.Option("auto", "--device", help="Execution device (auto, cpu, or gpu; gpu requires jax)."),
+    gpu_device: Optional[int] = typer.Option(None, "--gpu-device", min=0, help="CUDA device index exposed to JAX (within scheduler visibility)."),
+    jax_cache_dir: Optional[Path] = typer.Option(None, "--jax-cache-dir", help="Private directory for JAX's persistent compilation cache."),
+    jax_log_compiles: bool = typer.Option(False, "--jax-log-compiles", help="Print JAX tracing and compilation diagnostics."),
+    heartbeat_interval: float = typer.Option(30.0, "--heartbeat-interval", min=1.0, help="Seconds between JAX worker heartbeat messages."),
+    grid_samples: int = typer.Option(5, "--grid-samples", help="Brute-grid samples per non-orientation parameter."),
+    orientation_samples: int = typer.Option(30, "--orientation-samples", help="Brute-grid spherical orientation samples."),
+    maxiter: int = typer.Option(300, "--maxiter", help="Maximum optimizer iterations."),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", help="JAX voxel batch size; omit for automatic sizing."),
     distribution: str = typer.Option("Watson", "--distribution", help="Distribution type (Watson, Bingham)"),
     model_type: str = typer.Option("standard", "--model-type", help="Model structure (standard, smt)"),
     grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
@@ -294,6 +303,17 @@ def fit_noddi_cli(
                 parallel_diffusivity=parallel_diff,
                 iso_diffusivity=iso_diff,
                 solver=solver,
+                device=device,
+                gpu_device=gpu_device,
+                jax_cache_dir=jax_cache_dir,
+                jax_log_compiles=jax_log_compiles,
+                heartbeat_interval=heartbeat_interval,
+                solver_kwargs={
+                    "Ns": grid_samples,
+                    "N_sphere_samples": orientation_samples,
+                    "maxiter": maxiter,
+                    **({"batch_size": batch_size} if batch_size is not None else {}),
+                },
                 distribution=distribution,
                 model_type=model_type,
                 grad_nonlin=grad_nonlin,
@@ -333,7 +353,16 @@ def fit_sandi_cli(
     backend: str = typer.Option("dmipy", "--backend", help="Backend implementation (dmipy or amico)"),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     dmipy_soma_diff: float = typer.Option(3.0e-9, "--dmipy-soma-diff", help="DMIPY fixed intra-soma diffusivity in m^2/s."),
-    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (brute2fine, mix, or jax)"),
+    device: str = typer.Option("auto", "--device", help="Execution device (auto, cpu, or gpu; gpu requires jax)."),
+    gpu_device: Optional[int] = typer.Option(None, "--gpu-device", min=0, help="CUDA device index exposed to JAX (within scheduler visibility)."),
+    jax_cache_dir: Optional[Path] = typer.Option(None, "--jax-cache-dir", help="Private directory for JAX's persistent compilation cache."),
+    jax_log_compiles: bool = typer.Option(False, "--jax-log-compiles", help="Print JAX tracing and compilation diagnostics."),
+    heartbeat_interval: float = typer.Option(30.0, "--heartbeat-interval", min=1.0, help="Seconds between JAX worker heartbeat messages."),
+    grid_samples: int = typer.Option(5, "--grid-samples", help="Brute-grid samples per non-orientation parameter."),
+    orientation_samples: int = typer.Option(30, "--orientation-samples", help="Brute-grid spherical orientation samples."),
+    maxiter: int = typer.Option(300, "--maxiter", help="Maximum optimizer iterations."),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", help="JAX voxel batch size; omit for automatic sizing."),
     delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
     big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
     soma_diffusivity: float = typer.Option(3.0, "--soma-diffusivity", help="AMICO intra-soma diffusivity in um^2/ms."),
@@ -367,6 +396,17 @@ def fit_sandi_cli(
                 nthreads=nthreads,
                 soma_diffusivity=dmipy_soma_diff,
                 solver=solver,
+                device=device,
+                gpu_device=gpu_device,
+                jax_cache_dir=jax_cache_dir,
+                jax_log_compiles=jax_log_compiles,
+                heartbeat_interval=heartbeat_interval,
+                solver_kwargs={
+                    "Ns": grid_samples,
+                    "N_sphere_samples": orientation_samples,
+                    "maxiter": maxiter,
+                    **({"batch_size": batch_size} if batch_size is not None else {}),
+                },
                 grad_nonlin=grad_nonlin,
             )
         elif backend.lower() == 'amico':
@@ -429,7 +469,13 @@ def fit_microglia_cli(
     grid_samples: int = typer.Option(5, "--grid-samples", help="Dmipy brute-force samples per parameter."),
     orientation_samples: int = typer.Option(30, "--orientation-samples", help="Spherical samples for Watson mean orientation."),
     maxiter: int = typer.Option(300, "--maxiter", help="Maximum MIX optimizer iterations."),
-    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (e.g. brute2fine)"),
+    solver: str = typer.Option("brute2fine", "--solver", help="Optimization solver (brute2fine, mix, or jax)"),
+    device: str = typer.Option("auto", "--device", help="Execution device (auto, cpu, or gpu; gpu requires jax)."),
+    gpu_device: Optional[int] = typer.Option(None, "--gpu-device", min=0, help="CUDA device index exposed to JAX (within scheduler visibility)."),
+    jax_cache_dir: Optional[Path] = typer.Option(None, "--jax-cache-dir", help="Private directory for JAX's persistent compilation cache."),
+    jax_log_compiles: bool = typer.Option(False, "--jax-log-compiles", help="Print JAX tracing and compilation diagnostics."),
+    heartbeat_interval: float = typer.Option(30.0, "--heartbeat-interval", min=1.0, help="Seconds between JAX worker heartbeat messages."),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", help="JAX voxel batch size; omit for automatic sizing."),
     delta: Optional[Path] = typer.Option(None, "--delta", help="Path to small-delta timing file.", exists=True),
     big_delta: Optional[Path] = typer.Option(None, "--big-delta", help="Path to big-Delta timing file.", exists=True),
     grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
@@ -461,6 +507,14 @@ def fit_microglia_cli(
             small_diameter_bounds=small_diameter_bound or (5e-6, 11e-6),
             large_diameter_bounds=large_diameter_bound or (12e-6, 18e-6),
             solver=solver,
+            device=device,
+            gpu_device=gpu_device,
+            jax_cache_dir=jax_cache_dir,
+            jax_log_compiles=jax_log_compiles,
+            heartbeat_interval=heartbeat_interval,
+            solver_kwargs=(
+                {"batch_size": batch_size} if batch_size is not None else {}
+            ),
             Ns=grid_samples,
             N_sphere_samples=orientation_samples,
             maxiter=maxiter,
@@ -471,6 +525,269 @@ def fit_microglia_cli(
         console.print(f"[bold red]Error:[/bold red] {e}")
         import traceback
         traceback.print_exc()
+        raise typer.Exit(code=1)
+
+
+@app.command("dmipy-models")
+def dmipy_models_cli(
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json.",
+    ),
+    probe: bool = typer.Option(
+        False,
+        "--probe",
+        help="Construct and simulate every model using a compact validation scheme.",
+    ),
+):
+    """List registered dmipy models and their declared capabilities."""
+    import json
+
+    from qmri_neuropipe.interfaces.dmipy_capabilities import (
+        probe_registry,
+        registry_summary,
+    )
+
+    output_format = output_format.lower()
+    if output_format not in {"table", "json"}:
+        console.print("[bold red]Error:[/bold red] --format must be table or json.")
+        raise typer.Exit(code=2)
+    records = registry_summary()
+    if probe:
+        probe_by_name = {item["name"]: item for item in probe_registry()}
+        records = [
+            {**record, "probe": probe_by_name[record["name"]]}
+            for record in records
+        ]
+    if output_format == "json":
+        typer.echo(json.dumps(records, indent=2))
+        return
+
+    from rich.table import Table
+
+    table = Table(title="dmipy 2.x model registry")
+    table.add_column("Model")
+    table.add_column("Family")
+    table.add_column("Source")
+    table.add_column("Required acquisition")
+    table.add_column("Solver interfaces")
+    if probe:
+        table.add_column("Smoke probe")
+    for record in records:
+        values = [
+            record["name"],
+            record["family"],
+            record["source"],
+            ", ".join(record["acquisition_requirements"]) or "bval/bvec",
+            ", ".join(record["solver_interfaces"]),
+        ]
+        if probe:
+            probe_result = record["probe"]
+            values.append(
+                "passed"
+                if probe_result["simulation"] == "passed"
+                else probe_result["error"] or probe_result["simulation"]
+            )
+        table.add_row(*values)
+    console.print(table)
+
+
+@app.command("dmipy-model-info")
+def dmipy_model_info_cli(
+    model: str = typer.Option(..., "--model", help="Registered dmipy model name."),
+    output_format: str = typer.Option(
+        "table",
+        "--format",
+        help="Output format: table or json.",
+    ),
+    probe: bool = typer.Option(
+        False,
+        "--probe",
+        help="Construct and simulate the model using the validation scheme.",
+    ),
+):
+    """Inspect a resolved dmipy model parameter contract."""
+    import json
+
+    from qmri_neuropipe.interfaces.dmipy_capabilities import (
+        model_details,
+        probe_model,
+    )
+
+    output_format = output_format.lower()
+    if output_format not in {"table", "json"}:
+        console.print("[bold red]Error:[/bold red] --format must be table or json.")
+        raise typer.Exit(code=2)
+    try:
+        details = model_details(model)
+        if probe:
+            details["probe"] = probe_model(model)
+    except Exception as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    if output_format == "json":
+        typer.echo(json.dumps(details, indent=2))
+        return
+
+    console.print(f"[bold]{details['name']}[/bold] ({details['family']})")
+    console.print(f"  Factory: {details['factory']}")
+    console.print(
+        "  Required acquisition: "
+        + (", ".join(details["acquisition_requirements"]) or "bval/bvec")
+    )
+    console.print("  Solver interfaces: " + ", ".join(details["solver_interfaces"]))
+    if details["references"]:
+        console.print("  References: " + ", ".join(details["references"]))
+    if probe:
+        console.print(f"  Smoke probe: {details['probe']['simulation']}")
+
+    from rich.table import Table
+
+    table = Table(title=f"{details['parameter_count']} fitted parameters")
+    table.add_column("Parameter")
+    table.add_column("Cardinality")
+    table.add_column("Type")
+    table.add_column("Alias")
+    table.add_column("Physical range")
+    for parameter in details["parameters"]:
+        table.add_row(
+            parameter["name"],
+            str(parameter["cardinality"]),
+            str(parameter["type"]),
+            parameter["output_alias"] or "",
+            json.dumps(parameter["physical_range"]),
+        )
+    console.print(table)
+
+
+@app.command("fit-dmipy")
+def fit_dmipy_cli(
+    model: str = typer.Option(..., "--model", help="dmipy 2.x reference-model name."),
+    input: Path = typer.Option(..., "--input", "-i", help="Input DWI NIfTI file.", exists=True),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="Output directory."),
+    bval: Path = typer.Option(..., "--bval", help="FSL b-values in s/mm^2.", exists=True),
+    bvec: Path = typer.Option(..., "--bvec", help="FSL b-vectors.", exists=True),
+    mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Brain mask.", exists=True),
+    grad_nonlin: Optional[Path] = typer.Option(
+        None,
+        "--grad-nonlin",
+        help="Voxelwise 3 x 3 gradient-nonlinearity tensor map.",
+        exists=True,
+    ),
+    delta: Optional[Path] = typer.Option(
+        None,
+        "--delta",
+        help="Small-delta file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    big_delta: Optional[Path] = typer.Option(
+        None,
+        "--big-delta",
+        help="Big-Delta file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    te: Optional[Path] = typer.Option(
+        None,
+        "--te",
+        help="Echo-time file in seconds (one value or one per volume).",
+        exists=True,
+    ),
+    nthreads: int = typer.Option(1, "--nthreads", "-n", min=1, help="CPU threads."),
+    solver: str = typer.Option(
+        "brute2fine",
+        "--solver",
+        help="Optimization solver (brute2fine, mix, or jax).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="Execution device (auto, cpu, or gpu; gpu requires jax).",
+    ),
+    gpu_device: Optional[int] = typer.Option(
+        None,
+        "--gpu-device",
+        min=0,
+        help="CUDA device index within scheduler visibility.",
+    ),
+    jax_cache_dir: Optional[Path] = typer.Option(
+        None,
+        "--jax-cache-dir",
+        help="Private JAX persistent compilation-cache directory.",
+    ),
+    jax_log_compiles: bool = typer.Option(
+        False,
+        "--jax-log-compiles",
+        help="Print JAX tracing and compilation diagnostics.",
+    ),
+    heartbeat_interval: float = typer.Option(
+        30.0,
+        "--heartbeat-interval",
+        min=1.0,
+        help="Seconds between JAX liveness messages.",
+    ),
+    grid_samples: int = typer.Option(
+        5,
+        "--grid-samples",
+        min=1,
+        help="Brute-grid samples per non-orientation parameter.",
+    ),
+    orientation_samples: int = typer.Option(
+        30,
+        "--orientation-samples",
+        min=1,
+        help="Brute-grid spherical orientation samples.",
+    ),
+    maxiter: int = typer.Option(
+        300,
+        "--maxiter",
+        min=1,
+        help="Maximum optimizer iterations.",
+    ),
+    batch_size: Optional[int] = typer.Option(
+        None,
+        "--batch-size",
+        min=1,
+        help="JAX voxel batch size; omit for automatic sizing.",
+    ),
+):
+    """Fit any allow-listed dmipy 2.x reference model."""
+    _setup_threading(nthreads)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[bold blue]Running generic dmipy fit ({model})[/bold blue]")
+
+    from qmri_neuropipe.interfaces.dmipy_generic import fit_dmipy_reference
+
+    try:
+        fit_dmipy_reference(
+            input,
+            output_dir,
+            model_name=model,
+            bval_file=bval,
+            bvec_file=bvec,
+            mask_file=mask,
+            grad_nonlin=grad_nonlin,
+            delta_file=delta,
+            Delta_file=big_delta,
+            TE_file=te,
+            solver=solver,
+            device=device,
+            gpu_device=gpu_device,
+            jax_cache_dir=jax_cache_dir,
+            jax_log_compiles=jax_log_compiles,
+            heartbeat_interval=heartbeat_interval,
+            nthreads=nthreads,
+            solver_kwargs={
+                "Ns": grid_samples,
+                "N_sphere_samples": orientation_samples,
+                "maxiter": maxiter,
+                **({"batch_size": batch_size} if batch_size is not None else {}),
+            },
+        )
+        console.print("[bold green]Success![/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
         raise typer.Exit(code=1)
 
 

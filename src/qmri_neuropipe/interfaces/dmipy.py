@@ -1,12 +1,8 @@
 
 from pathlib import Path
-from pathlib import Path
 import os
 import multiprocessing
 import argparse
-import contextlib
-import json
-from threadpoolctl import threadpool_limits
 from typing import Optional, Dict, Union, Any
 import nibabel as nib
 import numpy as np
@@ -16,7 +12,17 @@ import warnings
 from ..core import ProcessingError
 from ..core.utils import ensure_dir, extract_image_path
 from ..core.types import ImageLike, DWIFile
-from ..io.bids import build_bids_name, get_entities_from_path
+from .dmipy_backend import (
+    DmipyRuntime,
+    DmipyFitRequest,
+    acquisition_scheme_from_bvalues,
+    collect_pool_results_with_heartbeat,
+    dmipy_fit_output,
+    execute_dmipy_fit,
+    install_dmipy_jax_postprocessing_workaround,
+    jax_run_summary,
+)
+from .dmipy_derivatives import write_dmipy_derivatives
 
 
 def _reshape_gnl_tensor(vox_gnl):
@@ -40,14 +46,12 @@ def _rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
 
 
 def _build_dmipy_scheme(bvals, bvecs, delta=None, Delta=None):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy.core import acquisition_scheme
-    kwargs = {"bvalues": bvals, "gradient_directions": bvecs}
-    if delta is not None and Delta is not None:
-        kwargs["delta"] = delta
-        kwargs["Delta"] = Delta
-    return acquisition_scheme.acquisition_scheme_from_bvalues(**kwargs)
+    return acquisition_scheme_from_bvalues(
+        bvals,
+        bvecs,
+        delta=delta,
+        Delta=Delta,
+    )
 
 
 def _load_sandi_gradients(bval_file, bvec_file):
@@ -157,74 +161,25 @@ def _safe_rotate_gradients_for_gnl(bvals, bvecs, vox_gnl):
 
 
 def _build_noddi_model(model_config, fixed_params: Optional[Dict[str, Any]] = None):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
+    from .dmipy_models import noddi_variant
 
-    parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
-    iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
-    distribution = model_config.get('distribution', 'Watson')
-    model_type = model_config.get('model_type', 'standard')
-
-    ball = gaussian_models.G1Ball()
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-
-    if distribution.lower() == "bingham":
-        dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-    else:
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-    dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-
-    if model_type == 'smt':
-        noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
-    else:
-        noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
-
-    noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-    for param_key, param_val in (fixed_params or {}).items():
-        if param_val is not None:
-            noddi.set_fixed_parameter(param_key, param_val)
-    return noddi
+    return noddi_variant(
+        parallel_diffusivity=float(
+            model_config.get("parallel_diffusivity", 1.7e-9)
+        ),
+        iso_diffusivity=float(model_config.get("iso_diffusivity", 3.0e-9)),
+        distribution=model_config.get("distribution", "Watson"),
+        model_type=model_config.get("model_type", "standard"),
+        fixed_parameters=fixed_params,
+    )
 
 
 def _build_sandi_model(model_config):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models, sphere_models
-        from dmipy.distributions.distribute_models import BundleModel
-        #from dmipy.core.modeling_framework import MultiCompartmentModel
-        from dmipy.core.modeling_framework import MultiCompartmentSphericalMeanModel
-        
+    from .dmipy_models import sandi_spherical_mean
 
-    soma_diffusivity = float(model_config.get('soma_diffusivity', 3.0e-9))
-    if not np.isfinite(soma_diffusivity) or soma_diffusivity <= 0:
-        raise ValueError("soma_diffusivity must be finite and positive.")
-
-    stick = cylinder_models.C1Stick()
-    extra_cellular = gaussian_models.G1Ball()
-    soma = sphere_models.S4SphereGaussianPhaseApproximation(diffusion_constant=soma_diffusivity)
-
-    bundle = BundleModel([stick, soma])
-
-    sandi_model = MultiCompartmentSphericalMeanModel(models=[bundle, extra_cellular])
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_S4SphereGaussianPhaseApproximation_1_diameter',[2e-6, 24e-6])
-    sandi_model.set_parameter_optimization_bounds('G1Ball_1_lambda_iso',[1e-10, 3e-9]) #D_ec
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_C1Stick_1_lambda_par',[1e-10, 3e-9]) #D_in
-    sandi_model.set_parameter_optimization_bounds('BundleModel_1_partial_volume_0',[0.01, 0.99]) #f_in
-    sandi_model.set_parameter_optimization_bounds('partial_volume_1',[0.01, 0.99]) #f_ec
-
-    # dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    # dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp', 'C1Stick_1_lambda_par', 'partial_volume_0')
-    # dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-    # dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-    
-    return sandi_model
+    return sandi_spherical_mean(
+        soma_diffusivity=float(model_config.get("soma_diffusivity", 3.0e-9))
+    )
 
 
 def _sandi_fraction_maps(full_maps):
@@ -240,6 +195,79 @@ def _sandi_fraction_maps(full_maps):
     soma_fraction = bundle_fraction * (1.0 - stick_fraction_in_bundle)
     return soma_fraction, neurite_fraction, extra_fraction
 
+
+_NODDI_OUTPUT_SPECS = {
+    "odi": (
+        "ODI",
+        "Orientation dispersion index.",
+    ),
+    "fiso": (
+        "FISO",
+        "Isotropic free-water signal fraction.",
+    ),
+    "vf_intra": (
+        "ICVF",
+        "Absolute intracellular neurite signal fraction.",
+    ),
+    "vf_extra": (
+        "EXVF",
+        "Absolute extracellular tissue signal fraction.",
+    ),
+}
+
+
+def _save_noddi_outputs(
+    out_dir: Path,
+    in_path: Path,
+    affine: np.ndarray,
+    metric_arrays: Dict[str, Optional[np.ndarray]],
+    runtime: DmipyRuntime,
+    *,
+    model_type: str,
+    distribution: str,
+    parallel_diffusivity: float,
+    iso_diffusivity: float,
+    solver_kwargs: Dict[str, Any],
+    fiso_constrained: bool,
+) -> Dict[str, Path]:
+    """Write NODDI maps and sidecars using the project BIDS derivative scheme."""
+    aliases = {
+        key: suffix
+        for key, (suffix, _) in _NODDI_OUTPUT_SPECS.items()
+    }
+    parameter_metadata = {
+        key: {
+            "Metric": suffix,
+            "MetricDescription": description,
+            "MetricUnits": "unitless",
+        }
+        for key, (suffix, description) in _NODDI_OUTPUT_SPECS.items()
+    }
+    return write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        metric_arrays,
+        runtime,
+        model_name="noddi",
+        output_aliases=aliases,
+        base_metadata={
+            "ModelName": (
+                "NODDI (Neurite Orientation Dispersion and Density Imaging)"
+            ),
+            "FittingMethod": "dmipy-fit multi-compartment optimization",
+            "ModelType": model_type,
+            "OrientationDistribution": distribution,
+            "ParallelDiffusivity": float(parallel_diffusivity),
+            "IsotropicDiffusivity": float(iso_diffusivity),
+            "DiffusivityUnits": "m^2/s",
+            "ExternalFISOConstraint": bool(fiso_constrained),
+            "SolverOptions": dict(solver_kwargs),
+        },
+        parameter_metadata=parameter_metadata,
+    )
+
+
 def _fit_chunk(args):
     """
     Helper function to fit a chunk of data in a separate process.
@@ -247,73 +275,57 @@ def _fit_chunk(args):
     """
     chunk_id, data_chunk, scheme, model_config, chunk_fixed_params, keys_to_keep, solver, solver_kwargs = args
     
-    print(f"[Worker {chunk_id}] Started chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} voxels{batch_note}. "
+        "Initializing dmipy fit...",
+        flush=True,
+    )
     
-    # Enforce single-threaded execution within the worker
+    # Native workers are single-threaded; the sole JAX worker may use the
+    # CPU-thread allowance requested by the caller for setup and compilation.
     import os
     import sys
     import warnings
-    import contextlib
     
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from dmipy.signal_models import cylinder_models, gaussian_models
-        from dmipy.distributions import distribute_models
-        from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
     
     try:
-        # --- Reconstruct Model Locally ---
-        # Unpack config
-        parallel_diffusivity = float(model_config.get('parallel_diffusivity', 1.7e-9))
-        iso_diffusivity = float(model_config.get('iso_diffusivity', 3.0e-9))
-        distribution = model_config.get('distribution', 'Watson')
-        model_type = model_config.get('model_type', 'standard') # 'standard' or 'smt'
-        
-        # Core Models
-        ball = gaussian_models.G1Ball()
-        stick = cylinder_models.C1Stick()
-        zeppelin = gaussian_models.G2Zeppelin()
+        noddi = _build_noddi_model(
+            model_config,
+            fixed_params={
+                key: value
+                for key, value in (chunk_fixed_params or {}).items()
+                if value is not None
+            },
+        )
 
-        if distribution.lower() == "bingham":
-            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-        else:
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-
-        dispersed_bundle.set_tortuous_parameter('G2Zeppelin_1_lambda_perp','C1Stick_1_lambda_par','partial_volume_0')
-        dispersed_bundle.set_equal_parameter('G2Zeppelin_1_lambda_par', 'C1Stick_1_lambda_par')
-        dispersed_bundle.set_fixed_parameter('G2Zeppelin_1_lambda_par', parallel_diffusivity)
-
-        if model_type == 'smt':
-            # SMT-NODDI: Spherical Mean of Stick + Zeppelin + Ball
-            noddi = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])        
-        else:
-            # Standard NODDI            
-            noddi = MultiCompartmentModel(models=[dispersed_bundle, ball])
-            
-        noddi.set_fixed_parameter('G1Ball_1_lambda_iso', iso_diffusivity)
-        # --- Apply Chunk-Specific Fixed Parameters ---
-        if chunk_fixed_params:
-            for param_key, param_val in chunk_fixed_params.items():
-                # param_val is an array matching data_chunk length
-                if param_val is not None:
-                    noddi.set_fixed_parameter(param_key, param_val)
-
-        # --- Fit ---
-        # Suppress dmipy print statements (optimizer setup) and warnings
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-             with warnings.catch_warnings():
-                 warnings.simplefilter("ignore")
-                 fit_obj = noddi.fit(
-                    scheme, 
-                    data_chunk, 
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="noddi",
+                model=noddi,
+                acquisition_scheme=scheme,
+                data=data_chunk,
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         
         # Return only the requested parameters
         full_params = fit_obj.fitted_parameters
@@ -324,7 +336,7 @@ def _fit_chunk(args):
         else:
             ret = full_params
             
-        print(f"[Worker {chunk_id}] Finished fitting.")
+        print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
         return ret
         
     except Exception as e:
@@ -335,14 +347,56 @@ def _fit_chunk(args):
 def _fit_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, model_config, chunk_fixed_params, solver, solver_kwargs, gnl_chunk = args
 
-    print(f"[Worker {chunk_id}] Started GNL-aware chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware voxels.",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]
+        if (
+            solver == "jax"
+            and not chunk_fixed_params
+            and str(model_config.get("model_type", "standard")).lower() != "smt"
+        ):
+            model = _build_noddi_model(model_config, fixed_params={})
+            scheme = _build_dmipy_scheme(bvals, bvecs)
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="noddi",
+                    model=model,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -368,7 +422,7 @@ def _fit_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = model.fit(
@@ -381,7 +435,7 @@ def _fit_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = model.fit(
@@ -420,11 +474,27 @@ def _fit_chunk_gnl(args):
 
 def _fit_sandi_chunk(args):
     chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
-    print(f"[Worker {chunk_id}] Started SANDI chunk with {len(data_chunk)} voxels.")
+    batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
+    batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} SANDI voxels"
+        f"{batch_note}. Initializing dmipy fit...",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         sandi = _build_sandi_model(model_config)
@@ -433,16 +503,19 @@ def _fit_sandi_chunk(args):
         if not np.any(valid):
             print(f"[Worker {chunk_id}] SANDI skipped {len(data_chunk)} invalid voxels.")
             return merged
-        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                fit_obj = sandi.fit(
-                    scheme,
-                    data_chunk[valid],
-                    number_of_processors=1,
-                    solver=solver,
-                    **solver_kwargs
-                )
+        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+        fit_obj = execute_dmipy_fit(
+            DmipyFitRequest(
+                model_name="sandi",
+                model=sandi,
+                acquisition_scheme=scheme,
+                data=data_chunk[valid],
+                runtime=runtime,
+                nthreads=1,
+                solver_options=solver_kwargs,
+                heartbeat_interval=None,
+            )
+        ).fitted
         for key, dest in merged.items():
             fitted = fit_obj.fitted_parameters.get(key)
             if fitted is not None:
@@ -450,7 +523,7 @@ def _fit_sandi_chunk(args):
         invalid_count = int(np.count_nonzero(~valid))
         if invalid_count:
             print(f"[Worker {chunk_id}] SANDI skipped {invalid_count} invalid voxels.")
-        print(f"[Worker {chunk_id}] Finished SANDI chunk.")
+        print(f"[Worker {chunk_id}] Finished SANDI chunk.", flush=True)
         return merged
     except Exception as e:
         print(f"[Worker {chunk_id}] SANDI crash/error: {e}")
@@ -459,14 +532,60 @@ def _fit_sandi_chunk(args):
 
 def _fit_sandi_chunk_gnl(args):
     chunk_id, data_chunk, bvals, bvecs, delta_arr, Delta_arr, model_config, solver, solver_kwargs, gnl_chunk = args
-    print(f"[Worker {chunk_id}] Started GNL-aware SANDI chunk with {len(data_chunk)} voxels.")
+    print(
+        f"[Worker {chunk_id}] Received {len(data_chunk)} GNL-aware SANDI voxels.",
+        flush=True,
+    )
 
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    worker_threads = (
+        os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")
+        if solver == "jax"
+        else "1"
+    )
+    os.environ["OMP_NUM_THREADS"] = worker_threads
+    os.environ["MKL_NUM_THREADS"] = worker_threads
+    os.environ["OPENBLAS_NUM_THREADS"] = worker_threads
+    if solver == "jax" and install_dmipy_jax_postprocessing_workaround():
+        print(
+            "Enabled fast NumPy conversion of dmipy JAX fitted fractions.",
+            flush=True,
+        )
 
     try:
         n_voxels = data_chunk.shape[0]
+        sandi = _build_sandi_model(model_config)
+        if (
+            solver == "jax"
+            and sandi.__class__.__name__ != "MultiCompartmentSphericalMeanModel"
+        ):
+            scheme = _build_dmipy_scheme(
+                bvals,
+                bvecs,
+                delta=delta_arr,
+                Delta=Delta_arr,
+            )
+            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
+            fit_obj = execute_dmipy_fit(
+                DmipyFitRequest(
+                    model_name="sandi",
+                    model=sandi,
+                    acquisition_scheme=scheme,
+                    data=data_chunk,
+                    runtime=runtime,
+                    gradient_tensors=gnl_chunk,
+                    nthreads=1,
+                    solver_options=solver_kwargs,
+                    heartbeat_interval=None,
+                )
+            ).fitted
+            print(
+                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                flush=True,
+            )
+            return {
+                key: np.asarray(value)
+                for key, value in fit_obj.fitted_parameters.items()
+            }
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -487,7 +606,7 @@ def _fit_sandi_chunk_gnl(args):
             scheme = _build_dmipy_scheme(new_bvals, new_bvecs, delta=delta_arr, Delta=Delta_arr)
 
             try:
-                with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                with dmipy_fit_output(solver):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         fit_obj = sandi.fit(
@@ -500,7 +619,7 @@ def _fit_sandi_chunk_gnl(args):
                 _store_param_result(merged, vox_idx, fit_obj.fitted_parameters)
             except Exception as exc:
                 try:
-                    with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+                    with dmipy_fit_output(solver):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit_obj = sandi.fit(
@@ -547,6 +666,11 @@ def fit_noddi(
     iso_diffusivity: float = 3.0e-9,
     distribution: str = "Watson",
     solver: str = "brute2fine",
+    device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     # New options
     model_type: str = "standard", # 'standard' or 'smt'
@@ -560,27 +684,41 @@ def fit_noddi(
     nthreads : int
         Number of CPUs for parallel processing.
     """
+    if not isinstance(nthreads, int) or nthreads < 1:
+        raise ValueError("nthreads must be a positive integer.")
+
     # --- Parallelization Config (MUST BE FIRST) ---
     # These configurations must run before any imports that might initialize libraries
     import os
     import multiprocessing
-    from threadpoolctl import threadpool_limits
 
     # 1. Environment Variables
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-    os.environ["NUMBA_NUM_THREADS"] = "1"
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    os.environ["VECLIB_MAXIMUM_THREADS"] = str(worker_threads)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(worker_threads)
+    os.environ["NUMBA_NUM_THREADS"] = str(worker_threads)
     os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
     os.environ["JOBLIB_START_METHOD"] = "fork"
 
+    # Device visibility and JAX diagnostics must be configured before any
+    # dmipy module has an opportunity to import JAX.
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
+
     # 2. Numba Monkeypatch
-    # Critical: Must run before dmipy imports numba
     try:
         import numba
-        numba.set_num_threads(1)
+        numba.set_num_threads(worker_threads)
         if hasattr(numba, 'config'):
             numba.config.THREADING_LAYER = 'workqueue'
         
@@ -596,15 +734,15 @@ def fit_noddi(
     # except RuntimeError:
     #     pass
         
-    # Imports for NODDI
-    # Imports for NODDI
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy.signal_models import cylinder_models, gaussian_models
-            from dmipy.core.modeling_framework import MultiCompartmentModel, MultiCompartmentSphericalMeanModel
-            from dmipy.distributions import distribute_models
-            from dmipy.core import acquisition_scheme
+        dummy_model = _build_noddi_model(
+            {
+                "model_type": model_type,
+                "distribution": distribution,
+                "parallel_diffusivity": parallel_diffusivity,
+                "iso_diffusivity": iso_diffusivity,
+            }
+        )
     except ImportError as exc:
         raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
 
@@ -622,6 +760,8 @@ def fit_noddi(
 
     if solver_kwargs is None:
         solver_kwargs = {}
+    else:
+        solver_kwargs = dict(solver_kwargs)
     
     # Load data
     img = nib.load(str(in_path))
@@ -637,7 +777,7 @@ def fit_noddi(
     # qmri-neuropipe inputs are likely standard.
     
     # Warning: acquisition_scheme_from_bvalues_bvecs expects bvals in s/mm^2 and bvecs normalized.
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(bvals*1e6, bvecs)
+    gtab = _build_dmipy_scheme(bvals * 1e6, bvecs)
     
     # Define Mask
     if mask_file and mask_file.exists():
@@ -704,9 +844,13 @@ def fit_noddi(
         
     n_voxels = valid_voxels.shape[0]
     print(f"Total voxels to fit: {n_voxels}")
+    for line in jax_run_summary(runtime, n_voxels, solver_kwargs):
+        print(line, flush=True)
     
     # 2. Split into chunks
-    n_chunks = nthreads
+    # dmipy-fit's JAX solver vectorizes internally and must not be replicated
+    # across the legacy multiprocessing pool.
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     
     # Split FISO data if present
@@ -723,29 +867,6 @@ def fit_noddi(
     
     print(f"Inspecting model parameters for type: {model_type}...")
     
-    # Dummy models
-    ball = gaussian_models.G1Ball()
-    stick = cylinder_models.C1Stick()
-    zeppelin = gaussian_models.G2Zeppelin()
-    
-    if distribution.lower() == "watson":
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    elif distribution.lower() == "bingham":
-        # Try/Except for older dmipy versions if needed
-        try:
-            dispersed_bundle = distribute_models.SD2BinghamDistributed(models=[stick, zeppelin])
-        except AttributeError:
-            # Fallback or error
-            dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    else:
-        # Default
-        dispersed_bundle = distribute_models.SD1WatsonDistributed(models=[stick, zeppelin])
-    
-    if model_type == 'smt':
-         dummy_model = MultiCompartmentSphericalMeanModel(models=[dispersed_bundle, ball])
-    else:
-         dummy_model = MultiCompartmentModel(models=[dispersed_bundle, ball])
-
     all_params = dummy_model.parameter_names
     param_map = {}
     
@@ -825,30 +946,28 @@ def fit_noddi(
     print(f"Starting process pool (method: {ctx.get_start_method()})...")
     
     # We use explicit try/finally to ensure termination if needed
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     try:
-        # CRITICAL FIX: Use pool.imap (ordered) instead of imap_unordered.
-        # imap yields results in the same order as chunk_args.
-        # Since we use np.array_split to create chunks in order, we MUST reassemble them in order.
         worker = _fit_chunk_gnl if gnl_data_flat is not None else _fit_chunk
-        iterator = pool.imap(worker, chunk_args)
-        
-        # Collect results with progress
-        import time
-        start_t = time.time()
-        for i, res in enumerate(iterator):
-            results.append(res)
-            # Parent process logging
-            if len(chunk_args) > 10 and (i + 1) % (len(chunk_args) // 10) == 0:
-                 elapsed = time.time() - start_t
-                 print(f"  - Collected {i + 1}/{len(chunk_args)} chunks ({elapsed:.1f}s)")
-            elif len(chunk_args) <= 10:
-                 print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
-
-    finally:
-        # Ensure we close the pool
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="NODDI JAX fitting",
+            )
+        else:
+            # Ordered collection preserves the spatial order of the chunks.
+            for i, res in enumerate(pool.imap(worker, chunk_args)):
+                results.append(res)
+                print(f"  - Collected chunk {i + 1}/{len(chunk_args)}")
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
-        # Wait for workers to exit
         print("Waiting for workers to exit (joining pool)...")
         pool.join()
         
@@ -931,22 +1050,24 @@ def fit_noddi(
         vf_extra = (1 - pv0) * f_intra
 
         
-    # Save Outputs
-    outputs = {}
-    
-    # Helper to save
-    def save_map(name, array):
-        if array is None: return
-        out_p = out_dir / f"{name}.nii.gz"
-        nib.save(nib.Nifti1Image(array, affine), out_p)
-        outputs[name] = out_p
-        
-    save_map('odi', odi_map)
-    save_map('fiso', f_iso) # also save fiso as it is useful
-    save_map('vf_intra', vf_intra)  # Volume Fraction Intra
-    save_map('vf_extra', vf_extra) # Volume Fraction Extra
-    
-    return outputs
+    return _save_noddi_outputs(
+        out_dir,
+        in_path,
+        affine,
+        {
+            "odi": odi_map,
+            "fiso": f_iso,
+            "vf_intra": vf_intra,
+            "vf_extra": vf_extra,
+        },
+        runtime,
+        model_type=model_type,
+        distribution=distribution,
+        parallel_diffusivity=parallel_diffusivity,
+        iso_diffusivity=iso_diffusivity,
+        solver_kwargs=solver_kwargs,
+        fiso_constrained=fiso_file is not None,
+    )
 
 
 def fit_sandi(
@@ -961,19 +1082,17 @@ def fit_sandi(
     parallel_diffusivity: Optional[float] = None,
     iso_diffusivity: Optional[float] = None,
     solver: str = "brute2fine",
+    device: str = "auto",
+    gpu_device: Optional[int] = None,
+    jax_cache_dir: Optional[Path] = None,
+    jax_log_compiles: bool = False,
+    heartbeat_interval: float = 30.0,
     solver_kwargs: Optional[Dict] = None,
     grad_nonlin: Optional[Path] = None,
     soma_diffusivity: Optional[float] = None,
     **kwargs
 ) -> Dict[str, Path]:
     """Fit a native dmipy SANDI model."""
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from dmipy.core import acquisition_scheme
-    except ImportError as exc:
-        raise ProcessingError(f"Dmipy could not be imported: {exc}") from exc
-
     in_path = extract_image_path(in_file)
     out_dir = ensure_dir(out_dir)
 
@@ -986,8 +1105,23 @@ def fit_sandi(
     if not bval_file or not bvec_file:
         raise ValueError("Gradient files (bval/bvec) are required for SANDI.")
 
+    worker_threads = nthreads if str(solver).lower() == "jax" else 1
+    os.environ["QMRI_DMIPY_WORKER_THREADS"] = str(worker_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(worker_threads)
+    os.environ["MKL_NUM_THREADS"] = str(worker_threads)
+    os.environ["OMP_NUM_THREADS"] = str(worker_threads)
+    runtime = DmipyRuntime.resolve(
+        solver=solver,
+        device=device,
+        gpu_device=gpu_device,
+        jax_cache_dir=jax_cache_dir,
+        jax_log_compiles=jax_log_compiles,
+    )
+    solver = runtime.solver
     if solver_kwargs is None:
         solver_kwargs = {}
+    else:
+        solver_kwargs = dict(solver_kwargs)
 
     img = nib.load(str(in_path))
     data = img.get_fdata()
@@ -1009,9 +1143,9 @@ def fit_sandi(
             f"DWI has {data.shape[-1]} volumes but gradients contain {bvals_si.size} measurements."
         )
     delta_arr, Delta_arr = _load_sandi_timing(delta_file, Delta_file, bvals_si.size)
-    gtab = acquisition_scheme.acquisition_scheme_from_bvalues(
-        bvalues=bvals_si,
-        gradient_directions=bvecs,
+    gtab = _build_dmipy_scheme(
+        bvals_si,
+        bvecs,
         delta=delta_arr,
         Delta=Delta_arr,
     )
@@ -1038,7 +1172,7 @@ def fit_sandi(
         else:
             gnl_data_flat = gnl_data.reshape(-1, *gnl_data.shape[3:])
 
-    n_chunks = nthreads
+    n_chunks = 1 if runtime.uses_jax else nthreads
     chunks = np.array_split(valid_voxels, n_chunks)
     gnl_chunks = np.array_split(gnl_data_flat, n_chunks) if gnl_data_flat is not None else [None] * n_chunks
 
@@ -1056,6 +1190,8 @@ def fit_sandi(
             chunk_args.append((i, chunks[i], gtab, model_config, solver, solver_kwargs))
 
     print(f"Fitting native dmipy SANDI ({valid_voxels.shape[0]} voxels)...")
+    for line in jax_run_summary(runtime, valid_voxels.shape[0], solver_kwargs):
+        print(line, flush=True)
     try:
         ctx = multiprocessing.get_context('spawn')
     except ValueError:
@@ -1063,11 +1199,24 @@ def fit_sandi(
 
     worker = _fit_sandi_chunk_gnl if gnl_data_flat is not None else _fit_sandi_chunk
     results = []
-    pool = ctx.Pool(processes=nthreads)
+    pool = ctx.Pool(processes=n_chunks)
     try:
-        for res in pool.imap(worker, chunk_args):
-            results.append(res)
-    finally:
+        if runtime.uses_jax:
+            results = collect_pool_results_with_heartbeat(
+                pool,
+                worker,
+                chunk_args,
+                heartbeat_interval=heartbeat_interval,
+                label="SANDI JAX fitting",
+            )
+        else:
+            for res in pool.imap(worker, chunk_args):
+                results.append(res)
+    except BaseException:
+        pool.terminate()
+        pool.join()
+        raise
+    else:
         pool.close()
         pool.join()
 
@@ -1097,39 +1246,34 @@ def fit_sandi(
     d_in = full_maps.get('BundleModel_1_C1Stick_1_lambda_par')
     d_ec = full_maps.get('G1Ball_1_lambda_iso')
 
-    outputs = {}
-
-    entities = get_entities_from_path(in_path)
-    entities.pop('desc', None)
-    entities.pop('suffix', None)
-    entities['model'] = 'SANDI'
-    metadata = {
-        "ModelName": "SANDI (Soma and Neurite Density Imaging)",
-        "FittingSoftware": "dmipy",
-        "FittingMethod": "MultiCompartmentSphericalMeanModel",
-        "SomaDiffusivity": float(soma_diffusivity),
-        "SomaDiffusivityUnits": "m^2/s",
-    }
     metric_units = {
         'fsoma': 'unitless', 'fneurite': 'unitless', 'fextra': 'unitless',
         'Rsoma': 'm', 'd_in': 'm^2/s', 'd_ec': 'm^2/s',
     }
-
-    def save_map(name, array):
-        if array is None:
-            return
-        out_p = out_dir / build_bids_name(entities, suffix=name)
-        nib.save(nib.Nifti1Image(array.astype(np.float32), affine), out_p)
-        sidecar = out_p.with_name(out_p.name[:-7] + '.json')
-        with sidecar.open('w') as f:
-            json.dump({**metadata, "Metric": name, "MetricUnits": metric_units[name]}, f, indent=2)
-        outputs[name] = out_p
-
-    save_map('fsoma', fsoma)
-    save_map('fneurite', fneurite)
-    save_map('fextra', fextra)
-    save_map('Rsoma', rsoma)
-    save_map('d_in', d_in)
-    save_map('d_ec', d_ec)
-
-    return outputs
+    metric_maps = {
+        'fsoma': fsoma,
+        'fneurite': fneurite,
+        'fextra': fextra,
+        'Rsoma': rsoma,
+        'd_in': d_in,
+        'd_ec': d_ec,
+    }
+    return write_dmipy_derivatives(
+        out_dir,
+        in_path,
+        affine,
+        metric_maps,
+        runtime,
+        model_name="sandi",
+        output_aliases={name: name for name in metric_maps},
+        base_metadata={
+            "ModelName": "SANDI (Soma and Neurite Density Imaging)",
+            "FittingMethod": "MultiCompartmentSphericalMeanModel",
+            "SomaDiffusivity": float(soma_diffusivity),
+            "SomaDiffusivityUnits": "m^2/s",
+        },
+        parameter_metadata={
+            name: {"Metric": name, "MetricUnits": units}
+            for name, units in metric_units.items()
+        },
+    )
