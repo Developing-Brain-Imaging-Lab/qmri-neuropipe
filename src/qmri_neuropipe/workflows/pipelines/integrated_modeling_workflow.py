@@ -5,10 +5,11 @@ This module contains the ModelingWorkflow class with integrated
 batch validation and ExecutionEngine support.
 """
 
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-import shutil
 
 from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
@@ -36,6 +37,53 @@ from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_match
 from qmri_neuropipe.core.tracking import flush_tracker, update_step_status
 from qmri_neuropipe.utils.data_io import DataIOManager
 from qmri_neuropipe.utils.reporting import report_modeling_step
+
+
+def _sync_tree_without_metadata(
+    source: Path,
+    destination: Path,
+    *,
+    ignored_names: frozenset[str] = frozenset(),
+) -> Path:
+    """Merge a directory tree without copying filesystem metadata.
+
+    Modeling work directories may live on a different filesystem from the
+    published derivatives.  ``shutil.copytree`` uses ``copy2`` for files and
+    ``copystat`` for directories, which can raise ``EPERM`` on shared storage
+    even after the file contents were copied successfully.  Published model
+    outputs only require their contents, not the scratch tree's permissions,
+    timestamps, or extended attributes.
+    """
+    source = Path(source)
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+
+    for source_entry in source.iterdir():
+        if source_entry.name in ignored_names:
+            continue
+
+        destination_entry = destination / source_entry.name
+        if source_entry.is_symlink():
+            if destination_entry.is_dir() and not destination_entry.is_symlink():
+                raise IsADirectoryError(
+                    f"Cannot replace directory with symlink: {destination_entry}"
+                )
+            if destination_entry.exists() or destination_entry.is_symlink():
+                destination_entry.unlink()
+            destination_entry.symlink_to(
+                source_entry.readlink(),
+                target_is_directory=source_entry.is_dir(),
+            )
+        elif source_entry.is_dir():
+            _sync_tree_without_metadata(
+                source_entry,
+                destination_entry,
+                ignored_names=ignored_names,
+            )
+        else:
+            shutil.copyfile(source_entry, destination_entry)
+
+    return destination
 
 
 @dataclass(frozen=True)
@@ -183,6 +231,16 @@ class ModelingWorkflow(BaseWorkflow):
                     step_kwargs.pop("enabled", None)
                     step_kwargs.pop("method", None)
 
+            if spec.step_cls in {
+                NODDIFittingStep,
+                SANDIFittingStep,
+                MicrogliaFittingStep,
+            }:
+                self._apply_pipeline_gpu_selection(
+                    step_kwargs,
+                    spec.step_cls.__name__,
+                )
+
             self.add_step(spec.step_cls(
                 config=self.config,
                 logger=self.logger,
@@ -230,6 +288,7 @@ class ModelingWorkflow(BaseWorkflow):
                 )
             seen.add(name)
             self.logger.info("Adding registry-driven dmipy model %s", name)
+            self._apply_pipeline_gpu_selection(entry, f"dmipy model {name}")
             nthreads = entry.pop("nthreads", self.config.n_cpus)
             self.add_step(
                 DmipyModelFittingStep(
@@ -241,6 +300,68 @@ class ModelingWorkflow(BaseWorkflow):
                     **entry,
                 )
             )
+
+    def _apply_pipeline_gpu_selection(
+        self,
+        model_options: dict,
+        model_name: str,
+    ) -> None:
+        """Default a JAX model to the GPU selected for this pipeline process."""
+        if str(model_options.get("solver", "brute2fine")).lower() != "jax":
+            return
+        if str(model_options.get("device", "auto")).lower() == "cpu":
+            return
+        if model_options.get("gpu_device") is not None:
+            return
+
+        configured = self.config.gpu_ids
+        if configured is None:
+            return
+        if isinstance(configured, str):
+            try:
+                gpu_ids = [
+                    int(token.strip())
+                    for token in configured.split(",")
+                    if token.strip()
+                ]
+            except ValueError as exc:
+                raise ValueError(
+                    "gpu_ids must contain non-negative integer GPU IDs."
+                ) from exc
+        elif isinstance(configured, int):
+            gpu_ids = [configured]
+        else:
+            try:
+                gpu_ids = [int(gpu_id) for gpu_id in configured]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "gpu_ids must contain non-negative integer GPU IDs."
+                ) from exc
+
+        if not gpu_ids:
+            return
+        if any(gpu_id < 0 for gpu_id in gpu_ids):
+            raise ValueError("gpu_ids must contain non-negative integer GPU IDs.")
+
+        # The parallel runner has already reduced CUDA_VISIBLE_DEVICES to the
+        # physical GPU assigned to this worker. DmipyRuntime therefore selects
+        # index zero within that worker-local visibility. A serial run uses the
+        # first physical ID requested by the user.
+        parallel_worker = os.environ.get("QMRI_PARALLEL_WORKER") == "1"
+        gpu_device = 0 if parallel_worker else gpu_ids[0]
+        if len(gpu_ids) > 1 and not parallel_worker:
+            self.logger.warning(
+                "%s uses one JAX GPU per fit; selecting the first configured "
+                "gpu_ids entry (%d).",
+                model_name,
+                gpu_device,
+            )
+        self.logger.info(
+            "Routing %s JAX fitting to configured GPU selector %d",
+            model_name,
+            gpu_device,
+        )
+        model_options["gpu_device"] = gpu_device
 
     def _add_tractography_steps(self, modeling_cfg: dict):
         """Add tractography steps if enabled."""
@@ -614,11 +735,10 @@ class ModelingWorkflow(BaseWorkflow):
                         # later model failed. The normal synchronization below
                         # is otherwise bypassed when this exception propagates.
                         if final_dir and staging_changed:
-                            shutil.copytree(
+                            _sync_tree_without_metadata(
                                 staging_dir,
                                 final_dir,
-                                dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns("figures"),
+                                ignored_names=frozenset({"figures"}),
                             )
                             staging_changed = False
                         raise
@@ -635,10 +755,9 @@ class ModelingWorkflow(BaseWorkflow):
             # Synchronize once after all model steps for this DWI. Copying inside
             # the step loop repeatedly traversed the complete staging tree.
             if final_dir and staging_changed:
-                shutil.copytree(
+                _sync_tree_without_metadata(
                     staging_dir, final_dir,
-                    dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("figures")
+                    ignored_names=frozenset({"figures"}),
                 )
     
     def _check_all_outputs_exist(self, dwis, output_dir):

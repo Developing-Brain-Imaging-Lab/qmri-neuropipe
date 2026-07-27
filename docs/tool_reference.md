@@ -345,8 +345,8 @@ dmri:
 | `robust_iterative.ants.enabled` | bool | true | Enable ANTs refinement inside each round |
 | `robust_iterative.ants.transform_type` | str | `SyN` | ANTs transform for refinement |
 | `robust_iterative.apply.default_scalar_interpolator` | str | `linear` | Interpolator used when applying saved robust manifests |
-| `synthmorph_transform_ext` | str | `.lta` | Output extension for `-t` transform |
-| `synthmorph_model` | str | none | Model passed to `mri_synthmorph register -m` (e.g., `joint`, `deform`, `affine`, `rigid`) |
+| `synthmorph_transform_ext` | str | model-dependent | Output extension for `-t`: `.lta` for `rigid`/`affine`, `.nii.gz` for `deform`/`joint` |
+| `synthmorph_model` | str | `joint` | Model passed to `mri_synthmorph register -m` (`joint`, `deform`, `affine`, or `rigid`) |
 | `synthmorph_register_args` | str | none | Extra args for `mri_synthmorph register` |
 | `synthmorph_apply_args` | str | none | Extra args for `mri_synthmorph apply` |
 | `synthmorph_args` | str | none | Legacy passthrough (register/apply) |

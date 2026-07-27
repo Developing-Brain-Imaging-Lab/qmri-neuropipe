@@ -93,6 +93,18 @@ class NormalizationStep(BaseProcessingStep):
             return [NormalizationStep._json_safe(v) for v in value]
         return value
 
+    def _synthmorph_transform_extension(
+        self,
+        model: str | None = None,
+        requested: str | None = None,
+    ) -> str:
+        from ...interfaces.freesurfer import synthmorph_transform_extension
+
+        try:
+            return synthmorph_transform_extension(model, requested)
+        except ValueError as exc:
+            raise ProcessingError(str(exc)) from exc
+
     @staticmethod
     def _clean_transform_entities(ref_path: Path, space_entity: str) -> dict[str, Any]:
         from ...io.bids import get_entities_from_path
@@ -289,7 +301,10 @@ class NormalizationStep(BaseProcessingStep):
                 from ...io.bids import build_bids_name, get_entities_from_path
 
                 synth_model = str(synth_cfg.get('model', 'joint'))
-                synth_ext = str(synth_cfg.get('transform_ext') or ('.lta' if synth_model in {'affine', 'rigid'} else '.mgz'))
+                synth_ext = self._synthmorph_transform_extension(
+                    synth_model,
+                    synth_cfg.get('transform_ext'),
+                )
                 synth_tx = work_dir / build_bids_name(
                     {**transform_ents, "desc": f"iter{iteration}synthmorph"},
                     extension=synth_ext,
@@ -625,7 +640,10 @@ class NormalizationStep(BaseProcessingStep):
              d_ents['space'] = self.space_entity
              d_ents['suffix'] = 'xfm'
              d_ents['desc'] = 'synthmorph'
-             ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
+             ext = self._synthmorph_transform_extension(
+                 self.kwargs.get('synthmorph_model'),
+                 self.kwargs.get('synthmorph_transform_ext'),
+             )
              tx_path = norm_out / build_bids_name(d_ents, extension=ext)
              if not tx_path.exists():
                  all_exist = False
@@ -707,7 +725,8 @@ class NormalizationStep(BaseProcessingStep):
                         'save_transforms', 'include_all_metrics', 'space_entity',
                         'synthmorph_args', 'synthmorph_moving_flag',
                         'synthmorph_target_flag', 'synthmorph_output_flag',
-                        'synthmorph_transform_ext', 'synthmorph_register_args',
+                        'synthmorph_model', 'synthmorph_transform_ext',
+                        'synthmorph_register_args',
                         'synthmorph_apply_args', 'robust_iterative',
                         'transform_type',
                     } | _ALL_SKULL_STRIP_OPTION_KEYS
@@ -778,7 +797,11 @@ class NormalizationStep(BaseProcessingStep):
             d_ents['space'] = self.space_entity
             d_ents['suffix'] = 'xfm'
             d_ents['desc'] = 'synthmorph'
-            ext = self.kwargs.get('synthmorph_transform_ext', '.lta')
+            synthmorph_model = self.kwargs.get('synthmorph_model')
+            ext = self._synthmorph_transform_extension(
+                synthmorph_model,
+                self.kwargs.get('synthmorph_transform_ext'),
+            )
             synthmorph_tx = norm_out / build_bids_name(d_ents, extension=ext)
 
             # Compute driving metric output path so register can write it directly.
@@ -797,7 +820,7 @@ class NormalizationStep(BaseProcessingStep):
                     target=template_for_reg,
                     transform_out=synthmorph_tx,
                     output_image=None if registration_inputs_stripped else driving_out,
-                    model=self.kwargs.get('synthmorph_model', None),
+                    model=synthmorph_model,
                     extra_args=self.kwargs.get('synthmorph_register_args', ''),
                     overwrite=not skip
                 )

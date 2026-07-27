@@ -12,6 +12,37 @@ from ..core.utils import extract_image_path
 LOGGER = logging.getLogger(__name__)
 
 
+def synthmorph_transform_extension(
+    model: Optional[str] = None,
+    requested: Optional[str] = None,
+) -> str:
+    """Resolve a SynthMorph transform extension compatible with its model."""
+    model_name = str(model or "joint").strip().lower()
+    linear = any(
+        candidate.startswith(model_name)
+        for candidate in ("affine", "rigid")
+    )
+    expected = ".lta" if linear else ".nii.gz"
+    if requested is None or not str(requested).strip():
+        return expected
+
+    extension = str(requested).strip().lower()
+    if not extension.startswith("."):
+        extension = f".{extension}"
+    compatible = (
+        extension == ".lta"
+        if linear
+        else extension in {".nii", ".nii.gz"}
+    )
+    if not compatible:
+        transform_kind = "linear" if linear else "deformable"
+        raise ValueError(
+            f"SynthMorph model {model_name!r} produces a {transform_kind} "
+            f"transform and requires {expected!r} output, not {extension!r}."
+        )
+    return extension
+
+
 def write_sidecar(target: Path, meta: dict):
     sc = target.with_suffix(target.suffix + ".json")
     sc.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +147,12 @@ def mri_synthmorph_register(
     targ_p = extract_image_path(target)
     tx_p = Path(transform_out)
     tx_p.parent.mkdir(parents=True, exist_ok=True)
+    synthmorph_transform_extension(model, "".join(tx_p.suffixes))
+    if inverse_transform_out is not None:
+        synthmorph_transform_extension(
+            model,
+            "".join(Path(inverse_transform_out).suffixes),
+        )
 
     if tx_p.exists():
         if not overwrite:

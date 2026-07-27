@@ -19,6 +19,7 @@ re-scope, or update the golden ONLY with a deliberate, reviewed reason.
 """
 
 import logging
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock
@@ -153,6 +154,94 @@ class TestR4ModelingBuild:
         })
 
         assert [step.model_name for step in wf.steps] == ["ball"]
+
+    def test_pipeline_gpu_id_is_forwarded_to_legacy_jax_models(self):
+        wf = self._workflow({
+            "noddi": {
+                "enabled": True,
+                "solver": "jax",
+                "device": "gpu",
+            },
+            "sandi": {
+                "enabled": True,
+                "method": "dmipy",
+                "parameters": {
+                    "solver": "jax",
+                },
+            },
+            "microglia": {
+                "enabled": True,
+                "solver": "jax",
+            },
+        })
+        wf.config.gpu_ids = [3]
+
+        wf.build_pipeline({"subject": "01", "session": None})
+
+        assert [step.kwargs["gpu_device"] for step in wf.steps] == [3, 3, 3]
+
+    def test_pipeline_gpu_id_is_forwarded_to_registry_jax_models(self):
+        wf = self._workflow({
+            "dmipy": {
+                "models": [
+                    {
+                        "name": "verdict",
+                        "solver": "jax",
+                        "device": "gpu",
+                    },
+                ]
+            }
+        })
+        wf.config.gpu_ids = [5]
+
+        wf.build_pipeline({"subject": "01", "session": None})
+
+        assert wf.steps[0].kwargs["gpu_device"] == 5
+
+    def test_model_gpu_device_overrides_pipeline_gpu_id(self):
+        wf = self._workflow({
+            "noddi": {
+                "enabled": True,
+                "solver": "jax",
+                "device": "gpu",
+                "gpu_device": 1,
+            },
+        })
+        wf.config.gpu_ids = [5]
+
+        wf.build_pipeline({"subject": "01", "session": None})
+
+        assert wf.steps[0].kwargs["gpu_device"] == 1
+
+    def test_pipeline_gpu_id_does_not_override_jax_cpu(self):
+        wf = self._workflow({
+            "noddi": {
+                "enabled": True,
+                "solver": "jax",
+                "device": "cpu",
+            },
+        })
+        wf.config.gpu_ids = [5]
+
+        wf.build_pipeline({"subject": "01", "session": None})
+
+        assert "gpu_device" not in wf.steps[0].kwargs
+
+    def test_parallel_worker_uses_worker_local_gpu_zero(self, monkeypatch):
+        wf = self._workflow({
+            "noddi": {
+                "enabled": True,
+                "solver": "jax",
+                "device": "gpu",
+            },
+        })
+        wf.config.gpu_ids = [3, 7]
+        monkeypatch.setenv("QMRI_PARALLEL_WORKER", "1")
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "7")
+
+        wf.build_pipeline({"subject": "01", "session": None})
+
+        assert wf.steps[0].kwargs["gpu_device"] == 0
 
     def test_registry_dmipy_rejects_duplicate_legacy_model(self):
         with pytest.raises(ValueError, match="both its legacy block"):
@@ -965,8 +1054,8 @@ class TestR1ModelingSync:
             ImageFile({"sub": "01", "suffix": "dwi"}, tmp_path / "a.nii.gz"),
             ImageFile({"sub": "01", "suffix": "dwi"}, tmp_path / "b.nii.gz"),
         ]
-        copytree = Mock()
-        monkeypatch.setattr("shutil.copytree", copytree)
+        sync_tree = Mock()
+        monkeypatch.setattr(modeling, "_sync_tree_without_metadata", sync_tree)
 
         wf._execute_modeling(
             dwis,
@@ -977,7 +1066,7 @@ class TestR1ModelingSync:
             reporter=None,
         )
 
-        assert copytree.call_count == len(dwis)
+        assert sync_tree.call_count == len(dwis)
 
     def test_staging_tree_is_not_copied_when_every_step_skips(self, tmp_path, monkeypatch):
         from qmri_neuropipe.workflows.pipelines import integrated_modeling_workflow as modeling
@@ -1000,8 +1089,8 @@ class TestR1ModelingSync:
                 return name
 
         wf.steps = [_SkippedStep(), _SkippedStep()]
-        copytree = Mock()
-        monkeypatch.setattr("shutil.copytree", copytree)
+        sync_tree = Mock()
+        monkeypatch.setattr(modeling, "_sync_tree_without_metadata", sync_tree)
 
         wf._execute_modeling(
             [ImageFile({"sub": "01", "suffix": "dwi"}, tmp_path / "a.nii.gz")],
@@ -1012,7 +1101,7 @@ class TestR1ModelingSync:
             reporter=None,
         )
 
-        copytree.assert_not_called()
+        sync_tree.assert_not_called()
 
     def test_completed_models_are_copied_before_later_failure(self, tmp_path, monkeypatch):
         from qmri_neuropipe.workflows.pipelines import integrated_modeling_workflow as modeling
@@ -1036,8 +1125,8 @@ class TestR1ModelingSync:
                 raise RuntimeError("model fit failed")
 
         wf.steps = [_SuccessfulStep(), _FailingStep()]
-        copytree = Mock()
-        monkeypatch.setattr("shutil.copytree", copytree)
+        sync_tree = Mock()
+        monkeypatch.setattr(modeling, "_sync_tree_without_metadata", sync_tree)
 
         with pytest.raises(RuntimeError, match="model fit failed"):
             wf._execute_modeling(
@@ -1049,7 +1138,35 @@ class TestR1ModelingSync:
                 reporter=None,
             )
 
-        copytree.assert_called_once()
+        sync_tree.assert_called_once()
+
+    def test_sync_does_not_copy_metadata(self, tmp_path, monkeypatch):
+        from qmri_neuropipe.workflows.pipelines import integrated_modeling_workflow as modeling
+
+        staging = tmp_path / "staging"
+        final = tmp_path / "final"
+        (staging / "DTI").mkdir(parents=True)
+        (staging / "DTI" / "FA.nii.gz").write_bytes(b"model output")
+        (staging / "figures").mkdir()
+        (staging / "figures" / "report.svg").write_text("ignored")
+        (final / "DTI").mkdir(parents=True)
+        (final / "DTI" / "FA.nii.gz").write_bytes(b"old output")
+        (final / "DTI" / "MD.nii.gz").write_bytes(b"cached output")
+
+        def reject_metadata(*args, **kwargs):
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr(shutil, "copystat", reject_metadata)
+
+        modeling._sync_tree_without_metadata(
+            staging,
+            final,
+            ignored_names=frozenset({"figures"}),
+        )
+
+        assert (final / "DTI" / "FA.nii.gz").read_bytes() == b"model output"
+        assert (final / "DTI" / "MD.nii.gz").read_bytes() == b"cached output"
+        assert not (final / "figures").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1097,6 +1214,27 @@ def test_dry_run_config_merge_preserves_nested_config_and_cli_precedence(tmp_pat
         "enabled": True,
         "method": "mppca",
     }
+
+
+def test_gpu_ids_merge_from_yaml_and_cli(tmp_path):
+    from qmri_neuropipe.cli import merge_cli_and_config
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "\n".join(
+            (
+                f"bids_dir: {tmp_path / 'bids'}",
+                f"output_dir: {tmp_path / 'out'}",
+                "gpu_ids: [1]",
+            )
+        )
+    )
+
+    from_yaml = merge_cli_and_config(config_file, {})
+    from_cli = merge_cli_and_config(config_file, {"gpu_ids": [3]})
+
+    assert from_yaml.gpu_ids == [1]
+    assert from_cli.gpu_ids == [3]
 
 
 # ---------------------------------------------------------------------------
