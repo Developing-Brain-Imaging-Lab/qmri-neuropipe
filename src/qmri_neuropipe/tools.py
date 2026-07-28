@@ -280,6 +280,14 @@ def fit_noddi_cli(
     batch_size: Optional[int] = typer.Option(None, "--batch-size", help="JAX voxel batch size; omit for automatic sizing."),
     distribution: str = typer.Option("Watson", "--distribution", help="Distribution type (Watson, Bingham)"),
     model_type: str = typer.Option("standard", "--model-type", help="Model structure (standard, smt)"),
+    fiso: Optional[Path] = typer.Option(
+        None,
+        "--fiso",
+        help="External voxelwise FISO map to fix during dmipy NODDI fitting.",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
     grad_nonlin: Optional[Path] = typer.Option(None, help="Path to gradient nonlinearity tensor file for correction."),
 ):
     """
@@ -316,10 +324,16 @@ def fit_noddi_cli(
                 },
                 distribution=distribution,
                 model_type=model_type,
+                fiso_file=fiso,
                 grad_nonlin=grad_nonlin,
             )
         elif backend.lower() == 'amico':
             _require_gnl_backend("NODDI", backend, grad_nonlin, "dmipy")
+            if fiso is not None:
+                raise ValueError(
+                    "An external FISO constraint is only supported with the "
+                    "'dmipy' backend, not 'amico'."
+                )
             from qmri_neuropipe.interfaces.amico import fit_noddi
             fit_noddi(
                 input,

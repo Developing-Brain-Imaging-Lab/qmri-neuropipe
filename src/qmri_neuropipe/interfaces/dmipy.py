@@ -108,6 +108,43 @@ def _load_sandi_timing(delta_file, Delta_file, n_measurements):
     return delta, Delta
 
 
+def _load_external_fiso(
+    fiso_file: Path,
+    dwi_img: nib.spatialimages.SpatialImage,
+    mask_data: Optional[np.ndarray],
+) -> np.ndarray:
+    """Load and validate a voxelwise FISO map in the DWI grid."""
+    fiso_img = nib.load(str(fiso_file))
+    expected_shape = dwi_img.shape[:-1]
+    if fiso_img.shape != expected_shape:
+        raise ValueError(
+            f"FISO map shape {fiso_img.shape} does not match DWI shape "
+            f"{expected_shape}."
+        )
+    if not np.allclose(fiso_img.affine, dwi_img.affine, rtol=1e-5, atol=1e-5):
+        raise ValueError(
+            "FISO map affine does not match the DWI affine. Resample the FISO "
+            "map into the DWI grid before fitting."
+        )
+
+    fiso_data = np.asarray(fiso_img.get_fdata(), dtype=float)
+    selected = (
+        fiso_data[mask_data]
+        if mask_data is not None
+        else fiso_data.reshape(-1)
+    )
+    if not np.all(np.isfinite(selected)):
+        raise ValueError("FISO values inside the fitting mask must be finite.")
+    if np.any((selected < 0.0) | (selected > 1.0)):
+        minimum = float(np.min(selected))
+        maximum = float(np.max(selected))
+        raise ValueError(
+            "FISO values inside the fitting mask must be within [0, 1]; "
+            f"observed range [{minimum:.6g}, {maximum:.6g}]."
+        )
+    return selected
+
+
 def _initialize_param_storage(model, n_voxels: int) -> Dict[str, np.ndarray]:
     cardinality = getattr(model, "parameter_cardinality", {}) or {}
     storage: Dict[str, np.ndarray] = {}
@@ -820,16 +857,7 @@ def fit_noddi(
                  
         if fiso_path and fiso_path.exists():
             print(f"Loading external FISO constraint from: {fiso_path}")
-            fiso_img = nib.load(str(fiso_path))
-            # Verify shape
-            if fiso_img.shape != data.shape[:-1]:
-                 raise ValueError(f"FISO map shape {fiso_img.shape} does not match DWI shape {data.shape[:-1]}")
-            
-            # Flatten based on mask
-            if mask_data is not None:
-                 fiso_data_flat = fiso_img.get_fdata()[mask_data]
-            else:
-                 fiso_data_flat = fiso_img.get_fdata().reshape(-1)
+            fiso_data_flat = _load_external_fiso(fiso_path, img, mask_data)
         elif fiso_file and not fiso_path:
              # pattern failed
              pass
@@ -932,7 +960,11 @@ def fit_noddi(
             )
 
     # 4. Run Pool
-    print(f"Fitting NODDI (Type: {model_type}, FISO constraint: {fiso_file is not None})...")
+    fiso_constrained = fiso_data_flat is not None
+    print(
+        f"Fitting NODDI (Type: {model_type}, "
+        f"FISO constraint: {fiso_constrained})..."
+    )
     
     # We use explicit try/finally to ensure termination if needed
     results = []
@@ -1066,7 +1098,7 @@ def fit_noddi(
         parallel_diffusivity=parallel_diffusivity,
         iso_diffusivity=iso_diffusivity,
         solver_kwargs=solver_kwargs,
-        fiso_constrained=fiso_file is not None,
+        fiso_constrained=fiso_constrained,
     )
 
 
