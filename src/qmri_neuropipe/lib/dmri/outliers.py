@@ -1,6 +1,7 @@
 """
 dMRI Outlier Removal Step
 """
+import glob
 from pathlib import Path
 from typing import Optional, List, Any
 import numpy as np
@@ -11,6 +12,54 @@ from ...core.base import BaseProcessingStep
 from ...core.types import DWIFile
 from ...io.dmri.bids import build_bids_name
 import json
+
+
+def _resolve_volumes_file(
+    volumes_file: str,
+    entities: dict,
+) -> Optional[Path]:
+    """Resolve BIDS entity placeholders and globs for a manual index file."""
+    template_values = {
+        str(key): str(value)
+        for key, value in (entities or {}).items()
+        if value is not None
+    }
+    subject = template_values.get("sub") or template_values.get("subject")
+    session = template_values.get("ses") or template_values.get("session")
+    if subject is not None:
+        template_values["sub"] = subject
+        template_values["subject"] = subject
+    if session is not None:
+        template_values["ses"] = session
+        template_values["session"] = session
+
+    try:
+        resolved_pattern = str(volumes_file).format_map(template_values)
+    except KeyError as exc:
+        available = ", ".join(sorted(template_values)) or "none"
+        raise ValueError(
+            f"Unknown or unavailable volumes_file placeholder {{{exc.args[0]}}}; "
+            f"available entities: {available}."
+        ) from exc
+
+    if glob.has_magic(resolved_pattern):
+        matches = sorted(
+            Path(match)
+            for match in glob.glob(resolved_pattern, recursive=True)
+            if Path(match).is_file()
+        )
+    else:
+        candidate = Path(resolved_pattern)
+        matches = [candidate] if candidate.is_file() else []
+
+    if len(matches) > 1:
+        names = ", ".join(str(match) for match in matches)
+        raise ValueError(
+            "volumes_file pattern must resolve to exactly one file for each DWI; "
+            f"{resolved_pattern!r} matched {len(matches)} files: {names}"
+        )
+    return matches[0] if matches else None
+
 
 class OutlierRemovalStep(BaseProcessingStep):
     """
@@ -139,8 +188,11 @@ class OutlierRemovalStep(BaseProcessingStep):
                   bad_indices = self.manual_indices
                   self.logger.info(f"Using manual outlier indices from config: {bad_indices}")
              elif self.volumes_file:
-                  v_file = Path(self.volumes_file)
-                  if v_file.exists():
+                  v_file = _resolve_volumes_file(
+                      self.volumes_file,
+                      current_img.entities,
+                  )
+                  if v_file is not None:
                        self.logger.info(f"Reading manual outlier indices from file: {v_file}")
                        try:
                             content = v_file.read_text().replace(",", " ").split()
@@ -148,7 +200,10 @@ class OutlierRemovalStep(BaseProcessingStep):
                        except Exception as e:
                             self.logger.error(f"Failed to read outlier volumes file {v_file}: {e}")
                   else:
-                       self.logger.warning(f"Manual outlier file {v_file} not found.")
+                       self.logger.warning(
+                           "No manual outlier file matched volumes_file pattern "
+                           f"{self.volumes_file!r} for {current_img.img.name}."
+                       )
                   
         elif self.method == "eddy_qc" or self.method == "threshold":
              # Look for eddy outlier report associated with the current image

@@ -831,10 +831,15 @@ class SANDIFittingStep(BaseProcessingStep):
         else:
              mask_path = mask
 
-        gnl_map = _resolve_context_gnl_map(context, dwi)
         if self.method == 'dmipy':
              from ...interfaces.dmipy import fit_sandi
              fit_kwargs = self.kwargs.copy()
+             use_gnl = bool(fit_kwargs.pop('gradient_nonlinearity', True))
+             gnl_map = _resolve_context_gnl_map(context, dwi) if use_gnl else None
+             if not use_gnl:
+                 self.logger.info(
+                     "SANDI gradient-nonlinearity fitting disabled by model configuration."
+                 )
              d_soma = kwargs.get('soma_diffusivity') or fit_kwargs.pop(
                  'soma_diffusivity', None
              )
@@ -856,6 +861,7 @@ class SANDIFittingStep(BaseProcessingStep):
                  **fit_kwargs,
              )
         elif self.method == 'amico':
+             gnl_map = _resolve_context_gnl_map(context, dwi)
              _warn_unsupported_gnl(self.logger, context, dwi, "SANDI")
              from ...interfaces.amico import fit_sandi
              fit_kwargs = self.kwargs.copy()

@@ -233,6 +233,31 @@ def _sandi_fraction_maps(full_maps):
     return soma_fraction, neurite_fraction, extra_fraction
 
 
+def _validate_sandi_fit_results(merged_params):
+    """Reject an all-failed fit before empty SANDI derivatives are written."""
+    if not merged_params:
+        raise ProcessingError("SANDI fitting returned no model parameters.")
+
+    fitted_voxels = None
+    for values in merged_params.values():
+        array = np.asarray(values)
+        if array.ndim == 0:
+            continue
+        finite = np.all(
+            np.isfinite(array),
+            axis=tuple(range(1, array.ndim)),
+        )
+        fitted_voxels = finite if fitted_voxels is None else fitted_voxels | finite
+
+    if fitted_voxels is None or not np.any(fitted_voxels):
+        raise ProcessingError(
+            "SANDI fitting failed for every voxel; no derivative maps were "
+            "written. Review the first worker error and the selected "
+            "solver/model combination."
+        )
+    return fitted_voxels
+
+
 _NODDI_OUTPUT_SPECS = {
     "odi": (
         "ODI",
@@ -540,6 +565,20 @@ def _fit_sandi_chunk(args):
         if not np.any(valid):
             print(f"[Worker {chunk_id}] SANDI skipped {len(data_chunk)} invalid voxels.")
             return merged
+        if solver == "jax":
+            from .dmipy_sandi_jax import fit_sandi_jax
+
+            fitted = fit_sandi_jax(
+                sandi,
+                scheme,
+                data_chunk,
+                solver_kwargs=solver_kwargs,
+            )
+            print(
+                f"[Worker {chunk_id}] Finished vectorized JAX SANDI chunk.",
+                flush=True,
+            )
+            return fitted
         runtime = DmipyRuntime.resolve(solver=solver, device="auto")
         fit_obj = execute_dmipy_fit(
             DmipyFitRequest(
@@ -591,38 +630,27 @@ def _fit_sandi_chunk_gnl(args):
     try:
         n_voxels = data_chunk.shape[0]
         sandi = _build_sandi_model(model_config)
-        if (
-            solver == "jax"
-            and sandi.__class__.__name__ != "MultiCompartmentSphericalMeanModel"
-        ):
+        if solver == "jax":
+            from .dmipy_sandi_jax import fit_sandi_jax
+
             scheme = _build_dmipy_scheme(
                 bvals,
                 bvecs,
                 delta=delta_arr,
                 Delta=Delta_arr,
             )
-            runtime = DmipyRuntime.resolve(solver=solver, device="auto")
-            fit_obj = execute_dmipy_fit(
-                DmipyFitRequest(
-                    model_name="sandi",
-                    model=sandi,
-                    acquisition_scheme=scheme,
-                    data=data_chunk,
-                    runtime=runtime,
-                    gradient_tensors=gnl_chunk,
-                    nthreads=1,
-                    solver_options=solver_kwargs,
-                    heartbeat_interval=None,
-                )
-            ).fitted
+            fitted = fit_sandi_jax(
+                sandi,
+                scheme,
+                data_chunk,
+                gradient_tensors=gnl_chunk,
+                solver_kwargs=solver_kwargs,
+            )
             print(
-                f"[Worker {chunk_id}] Finished voxel-parallel JAX GNL fit.",
+                f"[Worker {chunk_id}] Finished vectorized JAX GNL SANDI fit.",
                 flush=True,
             )
-            return {
-                key: np.asarray(value)
-                for key, value in fit_obj.fitted_parameters.items()
-            }
+            return fitted
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -1258,6 +1286,15 @@ def fit_sandi(
     merged_params = {}
     for key in results[0].keys():
         merged_params[key] = np.concatenate([np.asarray(res[key]) for res in results], axis=0)
+    fitted_voxels = _validate_sandi_fit_results(merged_params)
+    failed_voxels = int(np.count_nonzero(~fitted_voxels))
+    if failed_voxels:
+        print(
+            f"SANDI produced valid parameters for "
+            f"{len(fitted_voxels) - failed_voxels}/{len(fitted_voxels)} "
+            "voxels; failed voxels will remain non-finite.",
+            flush=True,
+        )
 
     vol_shape = data.shape[:-1]
     full_maps = {}
@@ -1300,7 +1337,12 @@ def fit_sandi(
         output_aliases={name: name for name in metric_maps},
         base_metadata={
             "ModelName": "SANDI (Soma and Neurite Density Imaging)",
-            "FittingMethod": "MultiCompartmentSphericalMeanModel",
+            "FittingMethod": (
+                "VectorizedJAXSphericalMean"
+                if runtime.uses_jax
+                else "MultiCompartmentSphericalMeanModel"
+            ),
+            "GradientNonlinearityCorrection": bool(grad_nonlin),
             "SomaDiffusivity": float(soma_diffusivity),
             "SomaDiffusivityUnits": "m^2/s",
         },

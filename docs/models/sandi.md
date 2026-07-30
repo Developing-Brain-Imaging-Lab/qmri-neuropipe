@@ -4,7 +4,9 @@ SANDI is a multi-compartment model designed to estimate the density of cell bodi
 
 ## Backends
 
-- **dmipy**: Default native backend. Supports voxel-wise GNL-aware fitting.
+- **dmipy**: Default native backend. Supports CPU `brute2fine`/`mix` and
+  vectorized JAX CPU/GPU fitting. The JAX path supports voxelwise GNL without
+  assigning corrected measurements back to nominal shells.
 - **amico**: Legacy accelerated backend, kept for compatibility.
 
 ## Configuration
@@ -15,8 +17,14 @@ dmri:
     sandi:
       enabled: true
       method: "dmipy"
-      parallel_diffusivity: 1.7e-9
-      iso_diffusivity: 3.0e-9
+      parameters:
+        solver: "jax"
+        device: "gpu"
+        gradient_nonlinearity: true
+        soma_diffusivity: 3.0e-9
+        solver_kwargs:
+          batch_size: 4000
+          maxiter: 300
 ```
 
 ## Outputs

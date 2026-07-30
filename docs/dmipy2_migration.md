@@ -143,10 +143,12 @@ Compatible JAX full-signal models can apply a voxel-specific gradient tensor
 without reverting to one fit per voxel. Supply the tensor with
 `--grad-nonlin`, or make it available through the integrated modeling context.
 
-Spherical-mean models, arbitrary waveform/OGSE schemes, and unsupported JAX
-forward models retain an exact fallback or are rejected explicitly. The
-dedicated historical spherical-mean SANDI command does not use the accelerated
-GNL route.
+Generic spherical-mean models, arbitrary waveform/OGSE schemes, and
+unsupported JAX forward models retain an exact fallback or are rejected
+explicitly. The dedicated historical spherical-mean SANDI command has a
+specialized vectorized JAX route: it evaluates the spherical-mean response for
+every acquired sample using that voxel's corrected b-value and gradient
+strength, so it does not need to force corrected samples into nominal shells.
 
 ## NEXI
 

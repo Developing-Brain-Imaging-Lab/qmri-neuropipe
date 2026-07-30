@@ -214,11 +214,14 @@ every LBFGS-B objective and gradient evaluation uses the voxel-corrected
 b-values, directions, q-values, and gradient strengths.
 
 This accelerated path supports full-signal PGSE models, including NODDI,
-SANDI, and microglia models that have dmipy JAX forward support. It does
-not apply to arbitrary waveform/OGSE schemes or spherical-mean models, because
-GNL changes the acquisition directions and shell membership at each voxel.
-NODDI with an external voxelwise FISO constraint and SMT-NODDI retain the
-existing exact per-voxel path.
+SANDI, and microglia models that have dmipy JAX forward support. It does not
+apply to arbitrary waveform/OGSE schemes. Most generic spherical-mean models
+remain unsupported because GNL changes shell membership at each voxel. The
+dedicated historical SANDI adapter is the exception: qmri-neuropipe composes
+dmipy's JAX Stick spherical mean, Ball, and timing-dependent GPA Sphere
+primitives directly and evaluates the response at every voxel-corrected
+measurement. NODDI with an external voxelwise FISO constraint and SMT-NODDI
+retain the existing exact per-voxel path.
 
 The oriented Kärger/NEXI model is also excluded in dmipy-fit 2.1: its released
 JAX forward expects obsolete parameter names and does not reproduce the native
@@ -329,10 +332,12 @@ Unsupported combinations, such as dmipy-fit 2.1 NEXI with JAX, fail before
 optimization begins.
 
 The dedicated `fit-sandi` compatibility command uses the historical
-spherical-mean SANDI model. Its GNL correction remains an exact per-voxel fit
-because a voxel-specific GNL tensor changes shell membership. The registered
-full-signal model selected by `fit-dmipy --model sandi` supports the accelerated
-voxel-parallel JAX GNL path.
+spherical-mean SANDI model. With `--solver jax`, its specialized vectorized
+fitter applies voxel-specific GNL corrections to each measurement's b-value
+and gradient strength without assigning the corrected samples back to nominal
+shells. The registered full-signal model selected by
+`fit-dmipy --model sandi` also supports the accelerated voxel-parallel JAX GNL
+path.
 
 ## Merge-gate numerical validation
 
