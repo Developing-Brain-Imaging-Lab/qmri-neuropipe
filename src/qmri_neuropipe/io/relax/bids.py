@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import List
 from ...core.types import ImageFile
-from ..bids import BIDS_ENTITY_REGEX, _load_json_field, _sidecar, build_from_parsed
+from ..bids import BIDS_ENTITY_REGEX, _load_json_field, _sidecar
 
 def bids_find_relax(search_dir: Path) -> List[ImageFile]:
     """

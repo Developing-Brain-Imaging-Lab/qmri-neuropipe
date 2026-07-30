@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Union
-from .types import ImageLike, DWIFile, ImageFile
+from .types import ImageLike
 
 def ensure_path(path_like: Union[str, Path, None]) -> Union[Path, None]:
     """

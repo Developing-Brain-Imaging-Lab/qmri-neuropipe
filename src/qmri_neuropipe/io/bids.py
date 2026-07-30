@@ -1,6 +1,6 @@
 
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import re, json
 import pandas as pd
 from functools import lru_cache

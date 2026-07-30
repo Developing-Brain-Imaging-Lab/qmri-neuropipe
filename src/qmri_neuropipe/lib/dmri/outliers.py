@@ -3,10 +3,9 @@ dMRI Outlier Removal Step
 """
 import glob
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, List
 import numpy as np
 import nibabel as nib
-import logging
 
 from ...core.base import BaseProcessingStep
 from ...core.types import DWIFile

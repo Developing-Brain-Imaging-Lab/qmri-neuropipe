@@ -1,11 +1,9 @@
 import os
 import subprocess, shlex, logging
 from datetime import datetime
-from typing import Optional
 
 try:
     from qmri_neuropipe.core.ui import console
-    from rich.logging import RichHandler
 except ImportError:
     console = None
 

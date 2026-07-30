@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
 import shutil
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import nibabel as nib
 import numpy as np
@@ -30,146 +30,13 @@ from ...lib.common.tracking import TrackingStep
 from ...interfaces.relaxometry import fit_despot1, fit_despot1_hifi, fit_despot2, fit_despot2_fm, fit_mcdespot
 from ...interfaces.fsl import merge as fslmerge
 from ...utils.relax_params import _extract_bids_param, generate_acq_params
-
-
-def _canonicalize_model_options(options: Optional[Dict]) -> Dict:
-    """Return model options with legacy thread spelling pinned to nthreads."""
-    canonical = dict(options or {})
-    if "nthreads" not in canonical and "threads" in canonical:
-        canonical["nthreads"] = canonical["threads"]
-    canonical.pop("threads", None)
-    return canonical
-
-
-def _canonicalize_normalization_options(options: Optional[Dict]) -> Dict:
-    """Pin supported normalization aliases while preserving explicit precedence."""
-    canonical = dict(options or {})
-
-    fallback_space = canonical.get("space", "MNI")
-    space_name = canonical.get(
-        "space_name",
-        canonical.get("space_entity", fallback_space),
-    )
-    space_entity = canonical.get(
-        "space_entity",
-        canonical.get("space_name", fallback_space),
-    )
-    canonical["space_name"] = space_name
-    canonical["space_entity"] = space_entity
-
-    if "save_transforms" not in canonical:
-        canonical["save_transforms"] = canonical.get("save_transform", True)
-    if "skull_strip" not in canonical and "skull_strip_registration" in canonical:
-        canonical["skull_strip"] = canonical["skull_strip_registration"]
-    if "skull_strip_method" not in canonical and "brain_extraction_method" in canonical:
-        canonical["skull_strip_method"] = canonical["brain_extraction_method"]
-    if "skull_strip_use_gpu" not in canonical and "use_gpu" in canonical:
-        canonical["skull_strip_use_gpu"] = canonical["use_gpu"]
-
-    for alias in (
-        "space",
-        "save_transform",
-        "skull_strip_registration",
-        "brain_extraction_method",
-        "use_gpu",
-    ):
-        canonical.pop(alias, None)
-    return canonical
-
-
-@dataclass
-class RelaxometryPreprocConfig:
-    """
-    Preprocessing options for the relaxometry pipeline.
-
-    Key fields
-    ----------
-    ``exclude_indices``
-        Dictionary with keys ``spgr`` and/or ``ssfp`` containing lists (or
-        comma-separated strings) of 0-based logical volume indices to drop
-        before fitting.  Useful for removing motion-corrupted acquisitions.
-    ``spgr_reference``
-        Controls how the 3-D SPGR reference image is constructed from the
-        (possibly 4-D, multi-flip-angle) SPGR series.  Supported modes:
-        ``mean`` (default), ``last``, ``index``, ``max_flip``.
-    """
-    reorient: Dict = field(default_factory=lambda: {"enabled": False})
-    denoising: Dict = field(default_factory=lambda: {"enabled": False, "method": "mrtrix"})
-    degibbs: Dict = field(default_factory=lambda: {"enabled": False, "method": "mrtrix"})
-    motion_correction: Dict = field(default_factory=lambda: {"enabled": False, "method": "ants"})
-    b1: Dict = field(default_factory=lambda: {"method": "afi", "smoothing_fwhm": 0.0})
-    spgr_reference: Dict = field(default_factory=lambda: {"mode": "mean"})
-    brain_masking: Dict = field(default_factory=dict)
-    exclude_indices: Dict = field(default_factory=dict)
-
-
-@dataclass
-class RelaxometryModelingConfig:
-    """
-    Model-fitting options for the relaxometry pipeline.
-
-    Key fields
-    ----------
-    ``despot1``
-        DESPOT1 (or DESPOT1-HIFI when ``use_hifi: true``) T1 fitting.
-    ``despot2fm``
-        DESPOT2-FM off-resonance-corrected T2 fitting.
-    ``mcdespot``
-        mcDESPOT multi-component fitting.  The canonical output myelin-water
-        metric is ``VFm`` (myelin water fraction expressed as a volume
-        fraction); the alias ``MWF`` is accepted in selectors but resolves to
-        ``VFm`` internally.
-    """
-    despot1: Dict = field(default_factory=lambda: {"enabled": False, "use_hifi": False})
-    despot2: Dict = field(default_factory=lambda: {"enabled": False})
-    despot2fm: Dict = field(default_factory=lambda: {"enabled": False})
-    mcdespot: Dict = field(default_factory=lambda: {"enabled": False, "cuda": False})
-
-    def __post_init__(self) -> None:
-        self.despot1 = _canonicalize_model_options(self.despot1)
-        self.despot2 = _canonicalize_model_options(self.despot2)
-        self.despot2fm = _canonicalize_model_options(self.despot2fm)
-        self.mcdespot = _canonicalize_model_options(self.mcdespot)
-
-
-@dataclass
-class RelaxometryQCConfig:
-    enabled: bool = False
-
-
-@dataclass
-class RelaxometryConfig:
-    """
-    Top-level configuration for the relaxometry pipeline.
-
-    Sections
-    --------
-    ``preprocessing``  (``RelaxometryPreprocConfig``)
-        Reorientation, denoising, Gibbs correction, motion correction, B1
-        mapping, brain masking, and SPGR reference generation.
-    ``modeling``  (``RelaxometryModelingConfig``)
-        DESPOT1 / DESPOT1-HIFI / DESPOT2 / DESPOT2FM / mcDESPOT fitting.
-    ``masking``
-        Fallback / top-level brain masking options (used when
-        ``preprocessing.brain_masking`` is empty).
-    ``normalization``
-        Standard-space normalization to MNI (ANTs SyN or SynthMorph).
-    ``analysis``
-        Atlas registration and per-ROI statistics extraction.
-    ``qc``  (``RelaxometryQCConfig``)
-        Optional QC report generation.
-    """
-    preprocessing: RelaxometryPreprocConfig = field(default_factory=RelaxometryPreprocConfig)
-    modeling: RelaxometryModelingConfig = field(default_factory=RelaxometryModelingConfig)
-    qc: RelaxometryQCConfig = field(default_factory=RelaxometryQCConfig)
-    masking: Dict = field(default_factory=dict)
-    normalization: Dict = field(default_factory=lambda: {"enabled": False})
-    analysis: Dict = field(default_factory=lambda: {"enabled": False})
-
-    def __post_init__(self) -> None:
-        self.normalization = _canonicalize_normalization_options(
-            self.normalization
-        )
+from .relaxometry_config import (
+    RelaxometryConfig as RelaxometryConfig,
+    RelaxometryModelingConfig as RelaxometryModelingConfig,
+    RelaxometryPreprocConfig as RelaxometryPreprocConfig,
+    RelaxometryQCConfig as RelaxometryQCConfig,
+    parse_relaxometry_config,
+)
 
 
 @dataclass(frozen=True)
@@ -2330,16 +2197,7 @@ class RelaxometryPipeline(BasePipeline):
         return "1.0.0"
 
     def _initialize_pipeline(self):
-        relax_config_dict = self.config.get("relaxometry", {})
-        # Create RelaxometryConfig from dict if possible
-        relax_config = RelaxometryConfig(
-            preprocessing=RelaxometryPreprocConfig(**relax_config_dict.get("preprocessing", {})),
-            modeling=RelaxometryModelingConfig(**relax_config_dict.get("modeling", {})),
-            qc=RelaxometryQCConfig(**relax_config_dict.get("qc", {})),
-            masking=relax_config_dict.get("masking", {}),
-            normalization=relax_config_dict.get("normalization", {}),
-            analysis=relax_config_dict.get("analysis", {}),
-        )
+        relax_config = parse_relaxometry_config(self.config)
         self.workflow = RelaxometryWorkflow(self.config, self.logger, self.provenance, relax_config=relax_config)
 
     def _should_skip(self, subject: str, session: Optional[str]) -> bool:

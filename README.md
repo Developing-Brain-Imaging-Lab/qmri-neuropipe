@@ -106,12 +106,21 @@ Install optional features as needed:
 pip install -e .[all]
 
 # Specific feature sets
+pip install -e .[dev]
 pip install -e .[amico]
 pip install -e .[nifreeze]
 pip install -e .[pyafq]
 pip install -e .[synb0]
 pip install -e .[tracker]
 pip install -e .[reporting]
+```
+
+The development extra installs the test and lint tools. Run the project checks
+with:
+
+```bash
+pytest
+ruff check src/qmri_neuropipe
 ```
 
 ## Documentation

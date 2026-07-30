@@ -12,7 +12,7 @@ import shutil
 import nibabel as nib
 import numpy as np
 
-from qmri_neuropipe.core.types import ImageFile, DWIFile
+from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.io.bids import build_bids_name, parse_bids_filename
 from qmri_neuropipe.io.dmri.bids import ensure_dwi_timing_sidecars
 from qmri_neuropipe.core.utils import get_nifti_stem

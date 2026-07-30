@@ -1,6 +1,6 @@
 
 from pathlib import Path
-import json, csv
+import json
 from datetime import datetime
 
 def write_sidecar(target: Path, meta: dict):

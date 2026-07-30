@@ -15,23 +15,23 @@ Classes:
 """
 
 from pathlib import Path
-from typing import Optional, Literal, Tuple, Dict, Any
+from importlib.util import find_spec
+from typing import Optional, Literal
 import numpy as np
 import nibabel as nib
 import logging
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, DWIFile, ImageLike
-from ...interfaces import dipy, ants, mrtrix
+from ...interfaces import dipy, mrtrix
 from ...io.bids import build_bids_name
 from .json_metadata import copy_json_with_metadata
 
-# Try to import optional dependencies
-try:
-    from dipy.denoise.gibbs import gibbs_removal
-    DIPY_AVAILABLE = True
-except ImportError:
-    DIPY_AVAILABLE = False
+# Avoid importing DIPY at module load just to probe an optional backend.
+DIPY_AVAILABLE = (
+    find_spec("dipy") is not None
+    and find_spec("dipy.denoise.gibbs") is not None
+)
 
 
 class GibbsUnringingStep(BaseProcessingStep):

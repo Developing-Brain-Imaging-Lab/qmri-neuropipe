@@ -1,14 +1,12 @@
 from pathlib import Path
 from typing import Any
 import json
-import logging
 import os
 import shutil
 
 import nibabel as nib
 
 from ...core import BaseProcessingStep, ProcessingError
-from ...core.utils import ensure_dir
 from ..common.registration import prepare_registration_images, _ALL_SKULL_STRIP_OPTION_KEYS
 
 

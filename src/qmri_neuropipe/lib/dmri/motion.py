@@ -1,10 +1,12 @@
 from pathlib import Path
-from typing import Dict, Any, Optional
+import shutil
+from typing import Dict, Any
 
 from ...core.base import BaseProcessingStep
+from ...core.caching import reuse_enabled
 from ...core.types import ImageFile
+from ...core.utils import get_nifti_stem
 from ...interfaces.nifreeze import run_nifreeze
-import logging
 
 class NiiFreezeStep(BaseProcessingStep):
     """
@@ -42,7 +44,11 @@ class NiiFreezeStep(BaseProcessingStep):
             final_bvec = step_dir / f"{out_prefix}_corrected.bvec"
             final_bval = step_dir / f"{out_prefix}_corrected.bval"
             
-            if final_dwi.exists() and self.config.get("skip_existing", False) and not kwargs.get('force', False):
+            if final_dwi.exists() and reuse_enabled(
+                self.config,
+                explicit_force=kwargs.get("force", False),
+                force_keys=(),
+            ):
                 self.logger.info(f"Skipping NiiFreeze (Output exists): {final_dwi}")
                 
                 # Create ImageFile wrapper

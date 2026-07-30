@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import logging
 
-from ...core.base import BaseProcessingStep, ValidationError
-from ...core.types import ImageLike
+from ...core.base import BaseProcessingStep
 
 class HCPfMRIStep(BaseProcessingStep):
     """

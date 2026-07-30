@@ -9,7 +9,6 @@ import inspect
 import logging
 import multiprocessing
 import os
-from pathlib import Path
 import sys
 import threading
 from typing import Any, Callable, Iterable, Iterator, Optional
@@ -165,6 +164,7 @@ def run_pipeline_worker(
 ) -> Result:
     """Process one subject/session pair in a pool worker."""
     job_id = slot_queue.get() if slot_queue is not None else 0
+    previous_worker_marker = os.environ.get("QMRI_PARALLEL_WORKER")
     os.environ["QMRI_PARALLEL_WORKER"] = "1"
     try:
         with redirect_worker_output(log_queue, job_id):
@@ -224,6 +224,10 @@ def run_pipeline_worker(
             "session": session,
         }
     finally:
+        if previous_worker_marker is None:
+            os.environ.pop("QMRI_PARALLEL_WORKER", None)
+        else:
+            os.environ["QMRI_PARALLEL_WORKER"] = previous_worker_marker
         if slot_queue is not None:
             slot_queue.put(job_id)
 

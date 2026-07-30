@@ -3,11 +3,10 @@ fMRI processing steps leveraging BIDS App containers or pipelines.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Optional
 import logging
 
 from ...core.base import BaseProcessingStep, ValidationError
-from ...core.types import ImageLike
 from ...interfaces.fmriprep import run_fmriprep
 
 class FmriPrepStep(BaseProcessingStep):

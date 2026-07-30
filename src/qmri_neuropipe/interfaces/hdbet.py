@@ -1,6 +1,6 @@
 
 from pathlib import Path
-from typing import Optional, Union, Literal
+from typing import Union
 from ..core.run import run_cmd
 from ..core.types import ImageLike
 from ..core.utils import extract_image_path

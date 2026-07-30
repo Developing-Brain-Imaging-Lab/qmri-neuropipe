@@ -3,11 +3,10 @@ Reorientation step.
 """
 
 from pathlib import Path
-from typing import Optional, Any
-import logging
+from typing import Any
 
 from ...core import BaseProcessingStep, ValidationError
-from ...core.types import ImageLike, ImageFile
+from ...core.types import ImageFile
 from ...interfaces import fsl
 from ...io.bids import build_bids_name
 from .json_metadata import copy_json_with_metadata

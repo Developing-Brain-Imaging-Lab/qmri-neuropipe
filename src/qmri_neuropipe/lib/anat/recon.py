@@ -4,12 +4,11 @@ FreeSurfer Recon-all step.
 
 from pathlib import Path
 from typing import Optional, Any
-import logging
 
 from ...core import BaseProcessingStep, ValidationError
-from ...core.types import ImageLike, ImageFile
+from ...core.types import ImageFile
 from ...interfaces import freesurfer
-from ...io.bids import build_bids_name, extract_bids_entities
+from ...io.bids import build_bids_name
 import pandas as pd
 
 class ReconAllStep(BaseProcessingStep):

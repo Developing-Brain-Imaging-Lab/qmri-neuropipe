@@ -5,13 +5,11 @@ Supports ANTs N4BiasFieldCorrection and MRtrix3 dwibiascorrect.
 """
 
 from pathlib import Path
-from typing import Optional, Literal, Tuple, Dict, Any
+from typing import Optional, Literal, Any
 import logging
-import nibabel as nib
-import numpy as np
 
-from ...core import BaseProcessingStep, ValidationError, ProcessingError
-from ...core.types import ImageLike, DWIFile, ImageFile
+from ...core import BaseProcessingStep, ProcessingError
+from ...core.types import DWIFile, ImageFile
 from ...interfaces import ants, mrtrix
 from ...io.bids import build_bids_name
 

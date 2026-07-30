@@ -15,7 +15,7 @@ Classes:
 """
 
 from pathlib import Path
-from typing import Optional, Literal, Tuple, Union
+from typing import Optional, Literal, Tuple
 import numpy as np
 import nibabel as nib
 import logging
@@ -287,7 +287,6 @@ class DenoisingStep(BaseProcessingStep):
                  # Returns (brain, mask)
                  # Force overwrite if temp files exist from previous failed run
                  if temp_brain.exists():
-                     import shutil
                      if temp_brain.exists(): temp_brain.unlink()
                      # BET creates separate mask file, we need to know its name to clean it?
                      # Wrapper handles it, but let's just let BET overwrite or fail?

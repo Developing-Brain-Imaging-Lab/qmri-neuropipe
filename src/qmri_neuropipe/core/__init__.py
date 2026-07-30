@@ -111,6 +111,7 @@ __all__ = [
     'PipelineConfig',
     'ConfigLoader',
     'create_default_config',
+    'PipelineContext',
     
     # Provenance
     'ProvenanceTracker',
@@ -129,7 +130,6 @@ __all__ = [
     'FileWriteError',
     'ResourceError',
     'DependencyError',
-    'DependencyError',
     'error_context',
     
     # Utils
@@ -142,4 +142,4 @@ __all__ = [
 # Module metadata
 __version__ = '2.0.0'
 __author__ = 'Developing Brain Imaging Lab'
-__license__ = 'MIT'
+__license__ = 'AGPL-3.0-only'

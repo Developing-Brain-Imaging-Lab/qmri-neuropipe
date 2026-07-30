@@ -1,9 +1,7 @@
 from pathlib import Path
-import logging
 import numpy as np
 import nibabel as nib
 import pandas as pd
-from typing import Dict, Optional, Union, List
 
 from ...core import BaseProcessingStep
 from ...core.utils import ensure_dir

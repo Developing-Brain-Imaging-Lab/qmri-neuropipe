@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 
 def normalize_transform_chain(transform: Optional[dict | list[dict]]) -> list[dict]:

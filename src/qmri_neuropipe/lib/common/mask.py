@@ -25,9 +25,9 @@ import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.types import ImageFile, ImageLike, DWIFile
-from ...interfaces import fsl, mrtrix, ants, freesurfer, hdbet
-from ...core.utils import extract_image_path, get_nifti_stem
-from typing import Literal, Optional, Tuple, Any
+from ...interfaces import fsl, ants, freesurfer, hdbet
+from ...core.utils import get_nifti_stem
+from typing import Any
 
 
 class BrainMaskingStep(BaseProcessingStep):

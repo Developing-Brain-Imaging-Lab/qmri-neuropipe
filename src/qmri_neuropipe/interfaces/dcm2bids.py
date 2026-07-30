@@ -1,6 +1,6 @@
 
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Optional
 from ..core.run import run_cmd
 from ..core import ensure_dir
 

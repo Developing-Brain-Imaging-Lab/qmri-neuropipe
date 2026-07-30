@@ -14,7 +14,7 @@ Classes:
 """
 
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import json
 import hashlib
 import platform

@@ -1,6 +1,6 @@
 from pathlib import Path
 import os, json
-from typing import Optional, Literal, Tuple, Dict, Any, Union
+from typing import Optional, Tuple, Dict, Any, Union
 import numpy as np
 import nibabel as nib
 from ..core.types import ImageLike, DWIFile
@@ -132,8 +132,6 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
         """
         try:
              from dipy.denoise.localpca import mppca as dipy_mppca
-             from dipy.denoise.pca_noise_estimate import pca_noise_estimate
-             from dipy.denoise.denspeed import determine_num_threads
         except ImportError:
              raise ImportError("DIPY is required for mppca but not installed.")
              
@@ -258,7 +256,6 @@ def synb0_estimation(in_file: Path, t1_file: Path, out_file: Path, b0_mask_path:
 
     import gc
     import nibabel as nib
-    import numpy as np
 
     try:
         import tensorflow  # noqa: F401
@@ -347,7 +344,6 @@ def _parallel_fit_driver(data, mask, gtab, worker_func, nthreads, worker_kwargs=
     Returns:
         vol_params: 4D array of fitted parameters wrapped in the original volume shape
     """
-    import multiprocessing
     import numpy as np
     
     if worker_kwargs is None:
@@ -989,7 +985,6 @@ def _execute_gnl_fit(data, mask, gnl_map_path, bvals, bvecs, model_class, model_
     """
     import numpy as np
     import nibabel as nib
-    import multiprocessing
     
     # 1. Load Map
     gnl_img = nib.load(str(gnl_map_path))
@@ -1182,7 +1177,6 @@ def fit_dti(
         Path to small delta timings.
     """
     import numpy as np
-    import multiprocessing
     import nibabel as nib
     import dipy.reconst.dti as dipy_dti
     from dipy.core.gradients import gradient_table

@@ -1,11 +1,11 @@
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 import shutil
 
 from ..core.run import run_cmd
 from ..core.utils import ensure_dir, extract_image_path
-from ..core.types import ImageLike, ImageFile
+from ..core.types import ImageLike
 
 def _get_binary(name: str) -> str:
     """Find binary in PATH."""

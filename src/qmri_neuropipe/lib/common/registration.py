@@ -5,7 +5,7 @@ Supports coregistration of any two images using ANTs, FSL, or FreeSurfer.
 """
 
 from pathlib import Path
-from typing import Optional, Literal, Tuple, Dict, Any
+from typing import Optional, Literal, Dict, Any
 import logging
 import shutil
 import nibabel as nib
@@ -13,7 +13,7 @@ import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
-from ...core.types import ImageLike, DWIFile, ImageFile
+from ...core.types import DWIFile, ImageFile
 from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
 from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity

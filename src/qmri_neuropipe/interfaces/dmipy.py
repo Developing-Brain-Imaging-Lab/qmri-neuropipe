@@ -348,8 +348,6 @@ def _fit_chunk(args):
     # Native workers are single-threaded; the sole JAX worker may use the
     # CPU-thread allowance requested by the caller for setup and compilation.
     import os
-    import sys
-    import warnings
     
     worker_threads = (
         os.environ.get("QMRI_DMIPY_WORKER_THREADS", "1")

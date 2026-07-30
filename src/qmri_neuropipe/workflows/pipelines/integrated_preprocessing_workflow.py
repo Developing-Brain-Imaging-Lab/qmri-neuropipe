@@ -6,8 +6,6 @@ for step execution, providing better separation of concerns and reusability.
 """
 
 from pathlib import Path
-from typing import Optional
-import shutil
 
 from qmri_neuropipe.core import BaseWorkflow, PipelineContext
 from qmri_neuropipe.core.step_control import get_rerun_from_step

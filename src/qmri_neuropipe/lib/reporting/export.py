@@ -1,7 +1,6 @@
-import csv
 import pandas as pd
 from pathlib import Path
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Any
 
 def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '_') -> Dict[str, Any]:
     """

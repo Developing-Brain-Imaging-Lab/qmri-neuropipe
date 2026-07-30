@@ -12,7 +12,9 @@ import nibabel as nib
 import numpy as np
 
 from ..io.bids import build_bids_name, get_entities_from_path
+from ..io.bids import _sidecar
 from .dmipy_backend import DmipyRuntime, get_model_spec
+from ..utils.serialization import json_ready
 
 
 _MODEL_LABELS = {
@@ -60,28 +62,6 @@ def dmipy_model_label(model_name: str) -> str:
         return _MODEL_LABELS[key]
     label = bids_safe_label(model_name, fallback="Dmipy")
     return label[:1].upper() + label[1:]
-
-
-def _json_ready(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, Mapping):
-        return {str(key): _json_ready(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(item) for item in value]
-    return str(value)
-
-
-def _sidecar_path(image_path: Path) -> Path:
-    if image_path.name.endswith(".nii.gz"):
-        return image_path.with_name(image_path.name[:-7] + ".json")
-    return image_path.with_suffix(".json")
 
 
 def write_dmipy_derivatives(
@@ -176,8 +156,8 @@ def write_dmipy_derivatives(
             "ParameterComponentShape": list(array.shape[3:]),
             **dict(per_parameter.get(parameter_name, {})),
         }
-        with _sidecar_path(out_path).open("w") as stream:
-            json.dump(_json_ready(metadata), stream, indent=2)
+        with _sidecar(out_path, ".json").open("w") as stream:
+            json.dump(json_ready(metadata), stream, indent=2)
         outputs[parameter_name] = out_path
     return outputs
 

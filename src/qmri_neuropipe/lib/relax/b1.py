@@ -1,9 +1,8 @@
 
 from pathlib import Path
-from typing import Optional, Union, Dict
+from typing import Optional, Dict
 import nibabel as nib
 import numpy as np
-import shutil
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile

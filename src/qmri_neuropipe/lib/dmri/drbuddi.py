@@ -12,7 +12,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import nibabel as nib
 import numpy as np
@@ -21,7 +21,6 @@ from ...core import BaseProcessingStep, ProcessingError
 from ...core.types import DWIFile
 from ...interfaces import ants
 from ...io.bids import build_bids_name
-from ...io.dmri.bids import infer_phase_encoding_direction
 from ..common.json_metadata import copy_json_with_metadata
 
 

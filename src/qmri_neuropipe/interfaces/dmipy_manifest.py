@@ -10,33 +10,14 @@ from pathlib import Path
 import tempfile
 from typing import Any, Callable, Mapping
 
-import numpy as np
-
 from .dmipy_backend import DmipyRuntime
+from ..io.bids import _sidecar
+from ..utils.serialization import json_ready
 
 
 MANIFEST_FILENAME = "dmipy-completion.json"
 MANIFEST_SCHEMA_VERSION = 1
 _SMALL_FILE_HASH_LIMIT = 4 * 1024 * 1024
-
-
-def _json_ready(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, Mapping):
-        return {
-            str(key): _json_ready(item)
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-        }
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(item) for item in value]
-    return str(value)
 
 
 def _sha256_file(path: Path) -> str:
@@ -107,8 +88,8 @@ def build_dmipy_run_spec(
         "model_name": str(model_name).lower(),
         "solver": str(solver).lower(),
         "device": str(device).lower(),
-        "solver_options": _json_ready(dict(solver_options or {})),
-        "factory_options": _json_ready(dict(factory_options or {})),
+        "solver_options": json_ready(dict(solver_options or {})),
+        "factory_options": json_ready(dict(factory_options or {})),
         "inputs": {
             name: input_signature(path)
             for name, path in inputs.items()
@@ -119,7 +100,7 @@ def build_dmipy_run_spec(
 def run_fingerprint(run_spec: Mapping[str, Any]) -> str:
     """Return a stable digest for one canonical run specification."""
     serialized = json.dumps(
-        _json_ready(run_spec),
+        json_ready(run_spec),
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -139,12 +120,6 @@ def invalidate_completion_manifest(out_dir: Path) -> None:
         pass
 
 
-def _sidecar_path(image_path: Path) -> Path:
-    if image_path.name.endswith(".nii.gz"):
-        return image_path.with_name(image_path.name[:-7] + ".json")
-    return image_path.with_suffix(".json")
-
-
 def write_completion_manifest(
     out_dir: Path,
     *,
@@ -157,7 +132,7 @@ def write_completion_manifest(
     records: dict[str, dict[str, Any]] = {}
     for parameter, output in sorted(outputs.items()):
         output = Path(output).resolve()
-        sidecar = _sidecar_path(output)
+        sidecar = _sidecar(output, ".json")
         if not output.is_file() or not sidecar.is_file():
             raise FileNotFoundError(
                 f"Cannot complete dmipy run: missing output or sidecar for "
@@ -183,8 +158,8 @@ def write_completion_manifest(
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "status": "complete",
         "fingerprint": run_fingerprint(run_spec),
-        "request": _json_ready(run_spec),
-        "runtime": _json_ready(runtime.provenance()),
+        "request": json_ready(run_spec),
+        "runtime": json_ready(runtime.provenance()),
         "expected_parameters": sorted(records),
         "outputs": records,
     }

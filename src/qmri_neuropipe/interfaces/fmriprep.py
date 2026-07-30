@@ -4,7 +4,7 @@ Handles the execution of the fmriprep container (Singularity or Docker).
 """
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from ..core.run import run_cmd
 import logging
 

@@ -248,7 +248,7 @@ def mcflirt(
     return out_p
 
 
-def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -> List[Path]:
+def split(in_file: ImageLike | Path, out_basename: Path, dimension: str = "t") -> list[Path]:
     """
     Wrapper for fslsplit.
     Splits a 4D file into 3D volumes.
@@ -491,9 +491,6 @@ def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:
     )
 
 
-import subprocess
-import shutil
-import os
 import re
 
 def _which(cmd: str) -> Optional[str]:
@@ -898,7 +895,6 @@ def fit_dti(
     """
     Fit DTI using FSL dtifit.
     """
-    import subprocess
     from qmri_neuropipe.io.bids import build_bids_name, get_entities_from_path
     
     out_dir = ensure_dir(out_dir)

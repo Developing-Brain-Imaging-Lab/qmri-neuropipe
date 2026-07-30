@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 from ..core.types import ImageLike
-from ..core.utils import ensure_path, ensure_dir, extract_image_path
+from ..core.utils import ensure_dir, extract_image_path
 import os
 import subprocess
 
@@ -107,7 +107,6 @@ def ants_brain_extraction(in_file: ImageLike | Path, out_file: Path, nthreads: i
     Wrapper for antsBrainExtraction.sh 
     """
     os.environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(nthreads)
-    import ants
     
     out = Path(out_file)
     out.parent.mkdir(parents=True, exist_ok=True)

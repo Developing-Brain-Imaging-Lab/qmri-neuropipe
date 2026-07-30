@@ -1323,9 +1323,8 @@ def tracker_dashboard_cli(
     cmd = ["streamlit", "run", str(app_path), "--server.port", str(port)]
     
     # Check if streamlit is installed
-    try:
-        import streamlit
-    except ImportError:
+    from importlib.util import find_spec
+    if find_spec("streamlit") is None:
         console.print("[bold yellow]Streamlit not found.[/bold yellow] Please install it with: pip install streamlit plotly")
         raise typer.Exit(code=1)
 

@@ -13,12 +13,11 @@ Anatomical Processing Pipeline (anat_proc).
 """
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Any
 import logging
 import shutil
 import json
 import time
-from dataclasses import dataclass, field
 
 import nibabel as nib
 import numpy as np
@@ -44,7 +43,6 @@ from ...io.bids import build_bids_name
 
 # Steps
 from ...lib.common.resample import ResampleStep
-from ...lib.common.tracking import TrackingStep
 from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
 from ...lib.common.gibbs import GibbsUnringingStep
@@ -58,6 +56,16 @@ from ...lib.common.segmentation import SegmentationStep
 from ...interfaces.mriqc import run_mriqc
 from ...interfaces import ants, fsl  # For manual apply_transforms
 from ...lib.reporting.report import ReportGenerator
+from .anat_config import (
+    AnatomicalConfig as AnatomicalConfig,
+    FreeSurferConfig as FreeSurferConfig,
+    NormalizationConfig as NormalizationConfig,
+    PreprocessingConfig as PreprocessingConfig,
+    QCConfig as QCConfig,
+    SegmentationConfig as SegmentationConfig,
+    SuperSynthConfig as SuperSynthConfig,
+    parse_anatomical_config,
+)
 
 
 def _update_progress(reporter, *, description: Optional[str] = None, advance: bool = False) -> None:
@@ -103,69 +111,6 @@ FREESURFER_T1W_SKIP = (
     SharpeningStep,
 )
 
-@dataclass
-class PreprocessingConfig:
-    resample: Dict[str, Any] = field(default_factory=dict)
-    reorient: Dict[str, Any] = field(default_factory=dict)
-    denoising: Dict[str, Any] = field(default_factory=dict)
-    degibbs: Dict[str, Any] = field(default_factory=dict)
-    gibbs: Dict[str, Any] = field(default_factory=dict)
-    bias_correction: Dict[str, Any] = field(default_factory=dict)
-    sharpen: Dict[str, Any] = field(default_factory=dict)
-    brain_masking: Dict[str, Any] = field(default_factory=dict)
-    coregistration: Dict[str, Any] = field(default_factory=dict)
-    normalization: Dict[str, Any] = field(default_factory=dict)
-    recon_all: Dict[str, Any] = field(default_factory=dict)
-    use_freesurfer: bool = False
-    force_run: bool = False
-    skull_stripped_outputs: bool = False
-
-@dataclass
-class NormalizationConfig:
-    enabled: bool = False
-    template: Optional[str] = None
-    method: str = "ants"
-    options: Dict[str, Any] = field(default_factory=dict)
-    save_transforms: bool = True
-    skull_stripped_outputs: bool = False
-
-@dataclass
-class SegmentationConfig:
-    enabled: bool = False
-    atlas_file: Optional[str] = None
-    atlas_labels: Optional[Union[List[str], str]] = None
-    metrics: Optional[List[str]] = None
-    atlas_threshold: Optional[float] = None
-
-@dataclass
-class QCConfig:
-    enabled: bool = False
-    modalities: Optional[List[str]] = None
-
-@dataclass
-class FreeSurferConfig:
-    enabled: bool = False
-
-
-@dataclass
-class SuperSynthConfig:
-    enabled: bool = False
-    mode: str = "invivo"
-    sharpen_synths: bool = False
-    device: Optional[str] = None
-    compute_volumes: bool = False
-
-
-@dataclass
-class AnatomicalConfig:
-    preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
-    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
-    segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
-    qc: QCConfig = field(default_factory=QCConfig)
-    freesurfer: FreeSurferConfig = field(default_factory=FreeSurferConfig)
-    super_synth: SuperSynthConfig = field(default_factory=SuperSynthConfig)
-
-
 class AnatPreprocessingWorkflow(BaseWorkflow):
     """
     Workflow for preprocessing T1w (and optionally T2w) images.
@@ -174,75 +119,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
     def __init__(self, config: PipelineConfig, logger: logging.Logger, provenance: Any):
         self.anat_config = AnatomicalConfig()
         super().__init__(config, logger, provenance)
-        # Parse relevant anatomical config section(s) into AnatomicalConfig dataclass
-        anat_raw_cfg = self.config.get("anat", {})
-        preprocessing_cfg = anat_raw_cfg.get("preprocessing", {})
-        normalization_cfg = anat_raw_cfg.get("preprocessing", {}).get("normalization", {})
-        segmentation_cfg = anat_raw_cfg.get("segmentation", {})
-        qc_cfg = self.config.get("qc", {}).get("mriqc", {})
-        freesurfer_use = preprocessing_cfg.get("use_freesurfer", False) or anat_raw_cfg.get("use_freesurfer", False)
-        ss_cfg = anat_raw_cfg.get("super_synth", {})
-        brain_masking_cfg = preprocessing_cfg.get("brain_masking", {})
-        
-        self.anat_config = AnatomicalConfig(
-            preprocessing=PreprocessingConfig(
-                resample=preprocessing_cfg.get("resample", {}),
-                reorient=preprocessing_cfg.get("reorient", {}),
-                denoising=preprocessing_cfg.get("denoising", {}),
-                degibbs=preprocessing_cfg.get("degibbs", {}),
-                gibbs=preprocessing_cfg.get("gibbs", {}),
-                bias_correction=preprocessing_cfg.get("bias_correction", {}),
-                sharpen=preprocessing_cfg.get("sharpen", {}),
-                brain_masking=brain_masking_cfg,
-                coregistration=preprocessing_cfg.get("coregistration", {}),
-                normalization=normalization_cfg,
-                recon_all=preprocessing_cfg.get("recon_all", {}),
-                use_freesurfer=freesurfer_use,
-                force_run=preprocessing_cfg.get("force_run", False),
-                skull_stripped_outputs=preprocessing_cfg.get(
-                    "skull_stripped_outputs",
-                    brain_masking_cfg.get("output_skull_stripped", False),
-                ),
-            ),
-            normalization=NormalizationConfig(
-                enabled=normalization_cfg.get("enabled", False),
-                template=normalization_cfg.get("template"),
-                method=normalization_cfg.get("method", "ants"),
-                options=normalization_cfg.get("options", {}),
-                save_transforms=normalization_cfg.get(
-                    "save_transforms",
-                    normalization_cfg.get("save_transform", True),
-                ),
-                skull_stripped_outputs=normalization_cfg.get(
-                    "skull_stripped_outputs",
-                    preprocessing_cfg.get(
-                        "skull_stripped_outputs",
-                        brain_masking_cfg.get("output_skull_stripped", False),
-                    ),
-                ),
-            ),
-            segmentation=SegmentationConfig(
-                enabled=segmentation_cfg.get("enabled", False),
-                atlas_file=segmentation_cfg.get("atlas_file"),
-                atlas_labels=segmentation_cfg.get("atlas_labels"),
-                metrics=segmentation_cfg.get("metrics"),
-                atlas_threshold=segmentation_cfg.get("atlas_threshold"),
-            ),
-            qc=QCConfig(
-                enabled=qc_cfg.get("enabled", False),
-                modalities=qc_cfg.get("modalities"),
-            ),
-            freesurfer=FreeSurferConfig(
-                enabled=preprocessing_cfg.get("recon_all", {}).get("enabled", False) or freesurfer_use
-            ),
-            super_synth=SuperSynthConfig(
-                enabled=ss_cfg.get("enabled", False),
-                mode=ss_cfg.get("mode", "invivo"),
-                sharpen_synths=ss_cfg.get("sharpen_synths", False),
-                device=ss_cfg.get("device"),
-                compute_volumes=ss_cfg.get("compute_volumes", False),
-            ),
-        )
+        self.anat_config = parse_anatomical_config(self.config)
 
         self.steps = []
         self._initialize_steps()

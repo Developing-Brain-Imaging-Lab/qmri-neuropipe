@@ -13,13 +13,11 @@ Refactored to delegate logic to interface modules.
 """
 
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 import json
-import logging
 
-from ...core import BaseProcessingStep, ValidationError, ProcessingError
-from ...core.types import DWIFile
-from ...interfaces import dipy, fsl, mrtrix, amico, dmipy
+from ...core import BaseProcessingStep
+from ...core.caching import force_requested
 from ...io.bids import build_bids_name
 
 
@@ -177,7 +175,7 @@ class DTIFittingStep(BaseProcessingStep):
         
         # Check for existing outputs
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'DTI'
@@ -416,7 +414,7 @@ class DKIFittingStep(BaseProcessingStep):
         model_out.mkdir(parents=True, exist_ok=True)
         
         # Check for existing outputs
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'DKI'
@@ -601,7 +599,7 @@ class NODDIFittingStep(BaseProcessingStep):
         
         # Check for existing outputs
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'NODDI'
@@ -793,7 +791,7 @@ class SANDIFittingStep(BaseProcessingStep):
         
         # Check for existing outputs
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'SANDI'
@@ -899,7 +897,7 @@ class MicrogliaFittingStep(BaseProcessingStep):
         model_out = output_dir / "microglia"
         model_out.mkdir(parents=True, exist_ok=True)
         
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'Microglia'
@@ -1035,11 +1033,12 @@ class DmipyModelFittingStep(BaseProcessingStep):
             )
         model_out = output_dir / f"dmipy-{self.model_name}"
         model_out.mkdir(parents=True, exist_ok=True)
-        force = bool(
-            kwargs.get("force", False)
-            or self.kwargs.get("force", False)
-            or self.config.get("force", False)
-            or self.config.get("force_run", False)
+        force = force_requested(
+            self.config,
+            explicit=bool(
+                kwargs.get("force", False)
+                or self.kwargs.get("force", False)
+            ),
         )
         result_key = f"dmipy:{self.model_name}"
         mask_path = mask.img if mask is not None and hasattr(mask, "img") else mask
@@ -1130,7 +1129,7 @@ class NEXIFittingStep(BaseProcessingStep):
         model_out = output_dir / "NEXI"
         model_out.mkdir(parents=True, exist_ok=True)
 
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
 
         ents = dwi.entities.copy()
         ents['model'] = 'NEXI'
@@ -1290,7 +1289,7 @@ class MAPMRIFittingStep(BaseProcessingStep):
         
         # Check for existing outputs
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'MAPMRI'
@@ -1412,7 +1411,7 @@ class CSDFittingStep(BaseProcessingStep):
 
         # Check for existing outputs (using final BIDS names)
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         # We need to construct the expected filenames to check existence
         ent_base = get_entities_from_path(dwi.img)
@@ -1556,7 +1555,7 @@ class FWDTIFittingStep(BaseProcessingStep):
         
         # Check for existing outputs
         # Logic: Skip if output exists unless force is True
-        force = kwargs.get('force', False) or self.config.get('force', False) or self.config.get('force_run', False)
+        force = force_requested(self.config, explicit=kwargs.get("force", False))
         
         ents = dwi.entities.copy()
         ents['model'] = 'FWDTI'

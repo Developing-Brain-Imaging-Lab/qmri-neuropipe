@@ -9,8 +9,7 @@ try:
     import napari
     from magicgui import magicgui
     from qtpy.QtWidgets import (
-        QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QMessageBox, 
-        QScrollArea, QSplitter
+        QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QMessageBox
     )
     from qtpy.QtCore import Qt
     NAPARI_AVAILABLE = True

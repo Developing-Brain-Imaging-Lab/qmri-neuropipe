@@ -87,6 +87,7 @@ def test_sandi_timing_rejects_nonphysical_ordering(tmp_path):
 
 
 def test_sandi_model_uses_named_soma_diffusivity():
+    pytest.importorskip("dmipy_fit")
     model = _build_sandi_model({"soma_diffusivity": 2.5e-9})
     sphere = model.models[0].models[1]
     assert sphere.diffusion_constant == pytest.approx(2.5e-9)

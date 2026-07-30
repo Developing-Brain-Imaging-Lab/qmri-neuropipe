@@ -8,16 +8,14 @@ registration and per-ROI statistics pipeline that is reused by every workflow.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
-import logging
-import csv
+from typing import Any
 import numpy as np
 import nibabel as nib
 import shutil
 import pandas as pd
 
-from ...core import BaseProcessingStep, ProcessingError
-from ...interfaces import ants, fsl # Assuming ANTs or FSL for registration
+from ...core import BaseProcessingStep
+from ...interfaces import ants # Assuming ANTs or FSL for registration
 from ...io.bids import build_bids_name
 
 
@@ -505,7 +503,6 @@ class StatsExtractionStep(BaseProcessingStep):
         Expects column with indices and column with names.
         Supported formats: FSL XML (.xml), FreeSurfer (txt), CSV, TSV.
         """
-        import pandas as pd
         import xml.etree.ElementTree as ET
         lut = {}
         try:
@@ -569,10 +566,8 @@ class StatsExtractionStep(BaseProcessingStep):
         """
         Run statistics extraction.
         """
-        import pandas as pd
         import numpy as np
         import nibabel as nib
-        from scipy.ndimage import label, mean, median, standard_deviation
         
         output_dir = Path(output_dir)
         dwi = context.get('current_image')

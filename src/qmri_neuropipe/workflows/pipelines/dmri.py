@@ -15,7 +15,6 @@ Module Structure:
 from pathlib import Path
 from typing import Optional
 import glob
-import shutil
 import nibabel as nib
 import numpy as np
 

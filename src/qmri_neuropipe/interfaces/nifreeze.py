@@ -1,9 +1,7 @@
 import shutil
-import subprocess
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Tuple, Union
 import logging
-from ..core.types import ImageFile
 
 logger = logging.getLogger(__name__)
 

@@ -6,9 +6,8 @@ It supports both adult (default) and pediatric (BabyAFQ) profiles.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
+from typing import Optional, Dict, Any, Union
 import logging
-import os
 
 # We delay import of AFQ to runtime to avoid hard dependency if not installed
 # import AFQ.api.group as afq_grp

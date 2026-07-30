@@ -7,4 +7,5 @@ __all__ = [
     "execution_engine",
     "reporting",
     "relax_params",
+    "serialization",
 ]

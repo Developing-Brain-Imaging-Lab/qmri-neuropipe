@@ -3,12 +3,10 @@ Resampling step.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple, Any
-import logging
+from typing import Optional, Any
 
 from ...core import BaseProcessingStep, ValidationError
-from ...core.types import ImageLike, DWIFile, ImageFile
-from ...interfaces import freesurfer
+from ...core.types import DWIFile, ImageFile
 from ...io.bids import build_bids_name
 from .spatial_transforms import write_transform_chain_to_sidecar
 

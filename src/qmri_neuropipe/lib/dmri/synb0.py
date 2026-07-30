@@ -15,11 +15,9 @@ import json
 import gzip
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
-from ...core.run import run_cmd
-from ...core.types import ImageFile, DWIFile, ImageLike
-from ...interfaces import dipy, freesurfer, fsl, c3d, ants
+from ...core.types import ImageFile, DWIFile
+from ...interfaces import freesurfer, fsl, c3d, ants
 from ..common.mask import mask_brain    
-from ...io.bids import build_bids_name
 import multiprocessing
 import sys
 import traceback

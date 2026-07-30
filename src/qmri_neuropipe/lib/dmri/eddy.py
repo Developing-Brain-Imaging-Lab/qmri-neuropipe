@@ -13,7 +13,7 @@ Classes:
 """
 
 from pathlib import Path
-from typing import Optional, Literal, Tuple, Union
+from typing import Optional, Literal, Tuple
 import numpy as np
 import nibabel as nib
 import logging

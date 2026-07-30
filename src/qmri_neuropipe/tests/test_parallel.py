@@ -166,10 +166,11 @@ def test_worker_processes_exactly_one_pair(tmp_path, monkeypatch):
     }
 
 
-def test_worker_supports_workflow_style_run_contract(tmp_path):
+def test_worker_supports_workflow_style_run_contract(tmp_path, monkeypatch):
     from qmri_neuropipe.core import parallel
 
     calls = []
+    monkeypatch.delenv("QMRI_PARALLEL_WORKER", raising=False)
 
     class _Workflow:
         def __init__(self, config, logger=None):
@@ -194,6 +195,7 @@ def test_worker_supports_workflow_style_run_contract(tmp_path):
         "subject": "01",
         "session": None,
     }
+    assert "QMRI_PARALLEL_WORKER" not in parallel.os.environ
 
 
 def test_real_process_pool_smoke(tmp_path):

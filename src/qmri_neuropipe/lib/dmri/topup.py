@@ -5,13 +5,11 @@ Encapsulates FSL topup functionality as a processing step.
 """
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 import logging
 
 from ...core import BaseProcessingStep, ProcessingError
-from ...core.types import DWIFile
 from ...interfaces import fsl
-from ...io.bids import build_bids_name
 
 class TopupStep(BaseProcessingStep):
     """
@@ -129,7 +127,7 @@ class TopupStep(BaseProcessingStep):
                     if distcorr_cfg.get('coregister_inputs', False) and not (group_acqp or group_index):
                         self.logger.info(f"Coregistering Topup inputs using MCFLIRT...")
                         from ...core.utils import extract_image_path
-                        from ...core.types import ImageFile, DWIFile
+                        from ...core.types import DWIFile
                         import shutil
                         import nibabel as nib
                         import numpy as np

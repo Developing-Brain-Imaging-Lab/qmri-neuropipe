@@ -6,7 +6,7 @@ creating visualizations, and exporting metrics.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict
 
 from qmri_neuropipe.core.utils import get_nifti_stem
 from qmri_neuropipe.io.bids import build_bids_name

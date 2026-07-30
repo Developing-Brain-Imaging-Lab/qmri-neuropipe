@@ -7,56 +7,29 @@ import os
 import shlex
 import subprocess
 import sys
-import tarfile
 import tempfile
 from pathlib import Path
 
-
-ROOT_METADATA = ("dataset_description.json", "participants.tsv", "participants.json", "README", "CHANGES")
-
-
-def norm_label(value: str | None, prefix: str) -> str:
-    value = (value or "").strip()
-    return value[len(prefix):] if value.startswith(prefix) else value
-
-
-def parse_subjects_file(path: Path) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
-    with path.open(newline="") as f:
-        reader = csv.reader(line for line in f if line.strip() and not line.lstrip().startswith("#"))
-        for row in reader:
-            if not row:
-                continue
-            subject = row[0].strip()
-            if subject.lower() in {"subject", "sub", "participant", "participant_label"}:
-                continue
-            session = row[1].strip() if len(row) > 1 else ""
-            rows.append((subject, session))
-    return rows
-
-
-def tar_members_for_pair(subject: str, session: str) -> tuple[str, str]:
-    subject = norm_label(subject, "sub-")
-    session = norm_label(session, "ses-")
-    subject_dir = f"sub-{subject}"
-    if session:
-        session_dir = f"ses-{session}"
-        return f"{subject_dir}/{session_dir}", f"{subject_dir}_{session_dir}_bids.tar.gz"
-    return subject_dir, f"{subject_dir}_bids.tar.gz"
+try:
+    from qmri_neuropipe.examples.condor.qneuro_condor import (
+        ROOT_METADATA,
+        create_bids_archive,
+        norm_label,
+        parse_subjects_file,
+        tar_members as tar_members_for_pair,
+    )
+except ImportError:  # Support an unpacked source checkout.
+    from qneuro_condor import (  # type: ignore[no-redef]
+        ROOT_METADATA,
+        create_bids_archive,
+        norm_label,
+        parse_subjects_file,
+        tar_members as tar_members_for_pair,
+    )
 
 
 def create_local_archive(bids_dir: Path, subject: str, session: str, package_dir: Path) -> Path:
-    input_rel, archive_name = tar_members_for_pair(subject, session)
-    if not (bids_dir / input_rel).is_dir():
-        raise FileNotFoundError(f"Requested BIDS input not found: {bids_dir / input_rel}")
-
-    archive_path = package_dir / archive_name
-    members = [input_rel] + [m for m in ROOT_METADATA if (bids_dir / m).exists()]
-    print(f"Creating BIDS archive: {archive_path}")
-    with tarfile.open(archive_path, "w:gz") as tf:
-        for member in members:
-            tf.add(bids_dir / member, arcname=member)
-    return archive_path
+    return create_bids_archive(bids_dir, subject, session, package_dir)
 
 
 def create_remote_archive(remote_bids: str, subject: str, session: str, package_dir: Path) -> Path:

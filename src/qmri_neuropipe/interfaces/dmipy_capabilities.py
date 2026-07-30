@@ -17,6 +17,7 @@ from .dmipy_backend import (
     get_model_spec,
     execute_dmipy_fit,
 )
+from ..utils.serialization import json_ready
 
 
 @dataclass(frozen=True)
@@ -34,20 +35,6 @@ RECOVERY_CASES: tuple[RecoveryCase, ...] = (
     RecoveryCase("ball", "G1Ball_1_lambda_iso", 1.2e-9),
     RecoveryCase("zeppelin", "G2Zeppelin_1_lambda_par", 1.8e-9),
 )
-
-
-def _json_ready(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _json_ready(item) for key, item in value.items()}
-    return str(value)
 
 
 def model_summary(name: str) -> dict[str, Any]:
@@ -162,7 +149,7 @@ def model_details(name: str) -> dict[str, Any]:
                 "optimized": bool(
                     model.parameter_optimization_flags.get(parameter_name, True)
                 ),
-                "physical_range": _json_ready(ranges),
+                "physical_range": json_ready(ranges),
                 "output_alias": get_model_spec(name).output_aliases.get(
                     parameter_name
                 ),

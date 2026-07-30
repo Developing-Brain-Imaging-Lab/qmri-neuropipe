@@ -1,12 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
-from collections import defaultdict
-from typing import Optional, Tuple, Dict, Iterable
+from typing import Optional
 import json
 import logging
 
 from qmri_neuropipe.core.types import ImageFile
-from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
+from ..bids import bids_find, _sidecar  # already in your skeleton
 
 
 def _normalized_selector_value(value):

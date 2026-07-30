@@ -5,12 +5,11 @@ import numpy as np
 import nibabel as nib
 
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
-from ...core.types import ImageLike, DWIFile, ImageFile
-from ...core.run import run_cmd
+from ...core.types import ImageLike
 from ...interfaces import tortoise
 from ...interfaces import ants
 from ...io.bids import build_bids_name, get_entities_from_path
-from ...interfaces.mrtrix import dwiextract, mrcalc, mrmath
+from ...interfaces.mrtrix import dwiextract, mrmath
 from ...core.utils import check_nifti_integrity, extract_image_path
 from .grad_nonlin_native import create_native_ge_gnl_map
 from .grad_nonlin_native import _same_grid

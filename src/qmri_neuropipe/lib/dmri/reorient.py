@@ -4,14 +4,14 @@ dMRI Reorientation step.
 from pathlib import Path
 from typing import Any
 import json
-import shutil
 import nibabel as nib
 import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError
+from ...core.caching import all_outputs_exist, reuse_enabled
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
-from ...io.bids import build_bids_name, get_entities_from_path
+from ...io.bids import build_bids_name
 from ...io.dmri.bids import (
     infer_phase_encoding_direction,
     phase_encoding_direction_to_vector,
@@ -92,7 +92,11 @@ class DMRIReorientStep(BaseProcessingStep):
         stride = "1,2,3,4"
         
         # If output exists and skip_existing, assume done
-        if self.config.get("skip_existing") and out_path.exists() and out_bvec_path.exists() and not kwargs.get('force', False):
+        if reuse_enabled(
+            self.config,
+            explicit_force=kwargs.get("force", False),
+            force_keys=(),
+        ) and all_outputs_exist((out_path, out_bvec_path)):
              try:
                  _ = nib.load(out_path)
              except Exception as e:

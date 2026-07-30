@@ -31,6 +31,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.12,<1",
+]
 dmipy-jax = [
     "dmipy-fit[jax]>=2.1,<2.2"
 ]
@@ -104,6 +108,13 @@ all = [
     "scikit-image",
     "tensorflow>=2.21,<2.22; python_version>='3.10' and python_version<'3.14'"
 ]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F401", "F811", "F821", "F822", "F823"]
+
 [project.scripts]
 qmri-neuropipe = "qmri_neuropipe.cli:app"
 qmri-tools = "qmri_neuropipe.tools:app"

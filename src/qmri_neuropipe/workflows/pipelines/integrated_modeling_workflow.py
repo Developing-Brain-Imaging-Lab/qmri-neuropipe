@@ -35,7 +35,6 @@ from qmri_neuropipe.lib.dmri.tractography import (
 from qmri_neuropipe.lib.dmri.grad_nonlin import create_gnl_map
 from qmri_neuropipe.core.step_control import get_rerun_from_step, any_step_matches, step_force_active
 from qmri_neuropipe.core.tracking import flush_tracker, update_step_status
-from qmri_neuropipe.utils.data_io import DataIOManager
 from qmri_neuropipe.utils.reporting import report_modeling_step
 
 

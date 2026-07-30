@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Tuple, Dict, Union
 from ..core.run import run_cmd, _writable_tmpdir
 from ..core.types import ImageLike, DWIFile
-from ..core.utils import ensure_path, ensure_dir, extract_image_path
+from ..core.utils import ensure_dir, extract_image_path
 
 # Standardize path utility
 # Or import: from ..interfaces.fsl import _as_path if we want to share. 
@@ -755,7 +755,6 @@ def apply_mrtrix_transform(
     Returns:
         (out_dwi, out_bvec, out_bval) paths.
     """
-    import os
     
     if isinstance(dwi_file, DWIFile):
         in_path = dwi_file.img

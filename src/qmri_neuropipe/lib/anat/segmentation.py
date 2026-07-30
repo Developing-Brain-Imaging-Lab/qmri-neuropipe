@@ -3,14 +3,11 @@ Segmentation utilities for anatomical processing.
 """
 
 from pathlib import Path
-from typing import Optional, Union, Literal
+from typing import Union, Literal
 import logging
 import os
 import shutil
-import nibabel as nib
-import numpy as np
 
-from ...core import ValidationError
 from ...core.run import run_cmd
 from ...core.types import ImageLike
 from ...core.utils import extract_image_path, ensure_dir, get_nifti_stem

@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, Union
 import shutil
 from ..core.run import run_cmd
-from ..core.types import ImageLike, DWIFile, ImageFile
-from ..core.utils import extract_image_path, ensure_dir
+from ..core.types import DWIFile
+from ..core.utils import ensure_dir
 from ..core import ProcessingError
 
 def diffprep(

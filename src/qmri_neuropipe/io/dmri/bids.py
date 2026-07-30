@@ -1,14 +1,13 @@
 from __future__ import annotations
-from dataclasses import dataclass
 from pathlib import Path
 from collections import defaultdict
-from typing import Optional, Tuple, Dict, Iterable, Any
+from typing import Optional, Tuple, Iterable, Any
 import json
 import tempfile
 import nibabel as nib
 import numpy as np
 
-from qmri_neuropipe.core.types import ImageFile, DWIFile
+from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.core.utils import get_nifti_stem
 from ..bids import build_bids_name, bids_find, _load_json_field, _sidecar  # already in your skeleton
 

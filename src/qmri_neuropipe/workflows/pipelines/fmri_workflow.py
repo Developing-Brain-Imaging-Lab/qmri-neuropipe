@@ -4,12 +4,11 @@ Routes the BOLD data through BIDS App Containers like fmriprep,
 or through native HCP pipelines.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 import logging
 from pathlib import Path
 
 from ...core import BaseWorkflow, PipelineContext
-from ...core.types import ImageLike
 from ...lib.fmri.bids_apps import FmriPrepStep
 from ...lib.fmri.hcp import HCPfMRIStep
 

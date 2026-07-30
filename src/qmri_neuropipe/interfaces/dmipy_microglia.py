@@ -10,7 +10,6 @@ from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.utils import ensure_dir, extract_image_path
 from qmri_neuropipe.core.types import ImageLike, DWIFile
 from qmri_neuropipe.interfaces.dmipy import (
-    _rotate_gradients_for_gnl,
     _build_dmipy_scheme,
     _initialize_param_storage,
     _store_param_result,

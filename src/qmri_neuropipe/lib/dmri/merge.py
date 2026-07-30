@@ -10,9 +10,8 @@ from typing import Optional, List, Dict, Any
 import logging
 import numpy as np
 import nibabel as nib
-import shutil
 
-from ...core import BaseProcessingStep, ProcessingError, ValidationError
+from ...core import BaseProcessingStep, ProcessingError
 from ...core.types import DWIFile
 from ...interfaces import fsl
 from ...io.bids import build_bids_name, _load_json_field

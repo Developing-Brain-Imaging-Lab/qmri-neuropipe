@@ -5,10 +5,9 @@ This module provides processing steps for tractography (TractSeg, PyAFQ).
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
+from typing import Any, Union
 import csv
 import json
-import logging
 import re
 import shutil
 
@@ -16,9 +15,8 @@ import numpy as np
 import nibabel as nib
 
 from ...core import BaseProcessingStep, ProcessingError, ValidationError
-from ...core.types import DWIFile
 from ...interfaces import mrtrix, tractseg
-from ...io.bids import build_bids_name, get_entities_from_path
+from ...io.bids import build_bids_name
 
 
 def _path(value):

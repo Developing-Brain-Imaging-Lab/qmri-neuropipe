@@ -5,13 +5,12 @@ This module provides a step to check and correct gradient tables using MRtrix3 d
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 import logging
 
 from ...core import BaseProcessingStep, ProcessingError
 from ...core.types import DWIFile
 from ...interfaces import mrtrix
-from ...io.bids import build_bids_name
 
 class GradientCheckStep(BaseProcessingStep):
     """
