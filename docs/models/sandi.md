@@ -1,5 +1,7 @@
 # SANDI (Soma and Neurite Density Imaging)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 SANDI is a multi-compartment model designed to estimate the density of cell bodies (somas) in addition to neurites. This is particularly useful for gray matter microstructural imaging.
 
 ## Backends

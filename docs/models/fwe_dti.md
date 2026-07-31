@@ -1,5 +1,7 @@
 # Free-Water Elimination DTI (FWE-DTI)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 The Free-Water Elimination DTI model fits a bi-tensor model to separate the signal into two compartments:
 1.  **Tissue Compartment:** Modeled as a diffusion tensor (like standard DTI).
 2.  **Free Water Compartment:** Modeled as an isotropic sphere with the diffusivity of free water.

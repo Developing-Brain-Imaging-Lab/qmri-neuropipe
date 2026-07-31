@@ -89,6 +89,34 @@ def _flatten_registration_options(options: Optional[Dict[str, Any]]) -> Dict[str
     return flattened
 
 
+def _bbregister_contrast(
+    options: Dict[str, Any],
+    *,
+    is_dwi: bool,
+    target_modality: str,
+) -> str:
+    """Resolve bbregister contrast from the moving image modality."""
+    explicit = options.get("contrast_type")
+    if explicit:
+        return str(explicit).strip().lower()
+    if is_dwi:
+        return "dti"
+    if target_modality == "T2w":
+        return "t2"
+    return "t1"
+
+
+def _mrtrix_coregistration_grid_options(
+    output_grid_ref: Path,
+    output_resolution: str,
+) -> Dict[str, Path]:
+    """Return MRtrix grid options without reslicing native-space DWI data."""
+    grid_options = {"strides": Path(output_grid_ref)}
+    if str(output_resolution).lower() == "anatomical":
+        grid_options["template"] = Path(output_grid_ref)
+    return grid_options
+
+
 def _first_config_value(config, keys, default=None):
     for key in keys:
         value = config.get(key) if hasattr(config, "get") else None
@@ -1132,14 +1160,11 @@ class CoregistrationStep(BaseProcessingStep):
                                      "or recon-all-clinical native.mgz."
                                  )
 
-                             fs_contrast = options.get("contrast_type")
-                             if not fs_contrast:
-                                 if target_modality == "T1w":
-                                     fs_contrast = "t1"
-                                 elif target_modality == "T2w":
-                                     fs_contrast = "t2"
-                                 else:
-                                     fs_contrast = "t1"
+                             fs_contrast = _bbregister_contrast(
+                                 options,
+                                 is_dwi=is_dwi,
+                                 target_modality=target_modality,
+                             )
 
                              freesurfer.bbregister(
                                  in_file=moving_for_reg,
@@ -1247,11 +1272,13 @@ class CoregistrationStep(BaseProcessingStep):
                         'force': True
                     }
                     
-                    # Honor the requested output grid for all MRtrix application modes,
-                    # including FreeSurfer-derived transforms.
-                    if out_res in ['anatomical', 'native', 'dwi']:
-                        mt_kwargs['strides'] = output_grid_ref
-                        mt_kwargs['template'] = output_grid_ref
+                    # Native/DWI output keeps the moving image lattice. Passing it
+                    # back via -template asks MRtrix to reslice through the imported
+                    # transform and can yield an empty image for bbregister matrices.
+                    # Anatomical output still needs an explicit target grid.
+                    mt_kwargs.update(
+                        _mrtrix_coregistration_grid_options(output_grid_ref, out_res)
+                    )
 
                     mrtrix.mrtransform(**mt_kwargs)
                     
@@ -1427,14 +1454,11 @@ class CoregistrationStep(BaseProcessingStep):
                                 force=bool(kwargs.get("force", False)),
                             )
                         else:
-                            fs_contrast = options.get("contrast_type")
-                            if not fs_contrast:
-                                if target_modality == "T1w":
-                                    fs_contrast = "t1"
-                                elif target_modality == "T2w":
-                                    fs_contrast = "t2"
-                                else:
-                                    fs_contrast = "t1"
+                            fs_contrast = _bbregister_contrast(
+                                options,
+                                is_dwi=is_dwi,
+                                target_modality=target_modality,
+                            )
                             if not fs_subjects_dir or not fs_subject_id:
                                 raise ProcessingError(
                                     "Unable to resolve FreeSurfer subject directory for bbregister."

@@ -1,5 +1,9 @@
 # Relaxometry Workflow
 
+See {ref}`Relaxometry processing and modeling <relaxometry-processing-and-modeling>`
+for the complete preprocessing, B1 registration, DESPOT-family fitting,
+normalization, and analysis configuration schema.
+
 The **Relaxometry Pipeline** (`--pipeline relax`) processes Variable Flip Angle (VFA) data — typically SPGR and SSFP sequences — to generate quantitative maps including T1, T2, M0, B1, and, in the case of mcDESPOT, Myelin Water Fraction expressed as **VFm** (Volume Fraction of the myelin compartment).
 
 See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.

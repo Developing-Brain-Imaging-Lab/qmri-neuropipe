@@ -1,5 +1,9 @@
 # MRtrix Tractography
 
+See {ref}`Tractography and tract analysis <tractography-and-tract-analysis>`
+for the complete MRtrix, ACT, filtering, TractSeg, pyAFQ, tractometry, TDI,
+and connectome option tables.
+
 The diffusion modeling workflow can generate whole-brain MRtrix3 tractograms
 from a CSD fibre-orientation distribution (FOD) or an MRtrix-format tensor.
 Probabilistic `iFOD2` tracking with anatomically constrained tractography (ACT)

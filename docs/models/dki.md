@@ -1,5 +1,7 @@
 # Diffusion Kurtosis Imaging (DKI)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 DKI extends DTI by quantifying the non-Gaussianity of water diffusion. This provides metrics that may better reflect tissue complexity and heterogeneity than standard DTI indices.
 
 ## Backend

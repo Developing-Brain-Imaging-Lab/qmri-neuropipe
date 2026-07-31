@@ -1,5 +1,7 @@
 # Constrained Spherical Deconvolution (CSD)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 CSD estimates the Fiber Orientation Distribution (FOD) by deconvolving the diffusion signal with a tissue response function. It is capable of resolving crossing fibers, which DTI cannot do.
 
 ## Backend

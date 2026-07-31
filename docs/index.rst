@@ -11,6 +11,7 @@ Welcome to qmri-neuropipe's documentation!
    data_organization
    usage
    configuration_reference
+   options_reference
    tool_reference
    analysis
    study_tracker
@@ -25,6 +26,15 @@ Welcome to qmri-neuropipe's documentation!
    workflows/relaxometry
    workflows/fmri
    modeling
+   models/dti
+   models/fwe_dti
+   models/dki
+   models/noddi
+   models/nexi
+   models/mapmri
+   models/sandi
+   models/csd
+   models/pyafq
    dmipy2
    dmipy2_migration
    modules/core

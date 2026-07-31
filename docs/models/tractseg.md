@@ -1,5 +1,7 @@
 # TractSeg Bundle Segmentation
 
+For every accepted field and default, see {ref}`Tractography and tract analysis <tractography-and-tract-analysis>`.
+
 TractSeg is a deep learning-based tool for automated bundle segmentation and tractography. `qmri-neuropipe` integrates TractSeg with enhanced preprocessing workflows and flexible bundle selection.
 
 TractSeg bundle masks and MRtrix streamline tractography are separate outputs.

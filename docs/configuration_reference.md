@@ -2,6 +2,11 @@
 
 This page summarizes the pipeline steps, supported methods, and configuration keys available in YAML or JSON configuration files.
 
+For the complete field-by-field reference—including types, defaults, accepted
+values, compatibility aliases, and backend pass-through behavior—see
+[Pipeline Option Reference](options_reference.md). This page remains the
+task-oriented overview and set of representative configurations.
+
 The examples use YAML. The same structure can be represented directly as JSON by replacing indentation with nested objects and using `true`/`false` booleans.
 
 ## General Pattern

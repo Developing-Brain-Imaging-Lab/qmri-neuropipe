@@ -1,5 +1,7 @@
 # Diffusion Tensor Imaging (DTI)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 DTI models the diffusion signal as a 3D Gaussian distribution (ellipsoid), characterized by a symmetric 3x3 tensor. It is the most fundamental dMRI model, providing metrics about white matter integrity.
 
 ## Backends

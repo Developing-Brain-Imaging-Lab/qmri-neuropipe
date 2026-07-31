@@ -1,5 +1,7 @@
 # NODDI (Neurite Orientation Dispersion and Density Imaging)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 NODDI is a multi-compartment model that distinguishes between three signal environments:
 1.  **Intra-cellular:** Restricted diffusion within neurites (modeled as sticks/cylinders).
 2.  **Extra-cellular:** Hindered diffusion around neurites (modeled as Zeppelins).

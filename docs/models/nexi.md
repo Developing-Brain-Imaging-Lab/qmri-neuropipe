@@ -1,5 +1,7 @@
 # NEXI (Neurite Exchange Imaging)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 NEXI estimates neurite exchange time and diffusivities using the `nexi` Python package.
 
 ## Requirements

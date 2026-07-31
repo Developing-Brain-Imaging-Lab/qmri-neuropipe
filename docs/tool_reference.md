@@ -492,6 +492,7 @@ relaxometry:
 | `enabled` | bool | false | Enable step |
 | `method` | str | `ants` | `ants`, `fsl` |
 
+(supersynth-anatomical)=
 ## SuperSynth (Anatomical)
 
 A modality-agnostic U-Net that produces brain segmentation, MNI atlas registration,

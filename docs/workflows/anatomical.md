@@ -70,7 +70,9 @@ Matching is strict:
 
 **Main Class**: `qmri_neuropipe.workflows.pipelines.anat.AnatPreprocessingWorkflow`
 
-See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
+See {ref}`Anatomical processing <anatomical-processing>`
+for every anatomical processing option and [Tool Reference](../tool_reference.md)
+for external-tool availability.
 
 ## Resume From a Step
 
@@ -415,8 +417,8 @@ workbook.
   automatically so downstream steps receive a structural reference.
 - The tool also performs MNI registration internally and writes Dice scores for
   QC; both are preserved in the output directory.
-- See [Tool Reference](../tool_reference.md#supersynth-anatomical) for the full
-  parameter list and output-file notes.
+- See {ref}`SuperSynth (Anatomical) <supersynth-anatomical>` in the Tool
+  Reference for the full parameter list and output-file notes.
 
 ### 10. Nonlinear Normalization (Optional)
 Registers the structural image to a template (e.g., MNI) using ANTs SyN.

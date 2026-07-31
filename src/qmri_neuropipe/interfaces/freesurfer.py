@@ -324,7 +324,7 @@ def bbregister(in_file: ImageLike | Path, target_file: ImageLike | Path, out_reg
         target_file: FreeSurfer Subject ID (as string) or Path? 
                      Standard bbregister expects a subject ID.
         out_reg_file: Output registration file.
-        contrast_type: Contrast type ('t1', 't2', 'bold')
+        contrast_type: Moving-image contrast type ('t1', 't2', 'bold', 'dti')
         subjects_dir: Optional override for SUBJECTS_DIR.
     """
     in_p = extract_image_path(in_file)

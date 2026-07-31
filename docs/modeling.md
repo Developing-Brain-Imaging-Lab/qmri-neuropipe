@@ -2,6 +2,10 @@
 
 `qmri-neuropipe` supports quantitative parameter mapping for various diffusion models. These models can be enabled in the pipeline configuration and run after standard preprocessing.
 
+See {ref}`Diffusion model fitting <diffusion-model-fitting>`
+for every model field, default, metric selector, solver control, timing input,
+and tractography/tract-analysis option.
+
 ## Supported Models
 
 Click on a model below for detailed configuration and usage instructions.

@@ -1,5 +1,7 @@
 # MAP-MRI (Mean Apparent Propagator MRI)
 
+For every accepted field and default, see {ref}`Diffusion model fitting <diffusion-model-fitting>`.
+
 MAP-MRI provides a comprehensive description of the diffusion signal using a basis of Hermite functions (in 1D, 2D, or 3D). It can estimate the full Ensemble Average Propagator (EAP) and derive advanced metrics describing restriction and pore geometry.
 
 ## Backend

@@ -1,5 +1,9 @@
 # Atlas Registration and ROI Statistics
 
+The complete configuration schema, including per-atlas overrides, morphology,
+probability thresholds, legacy aliases, and aggregate g-ratio controls, is in
+{ref}`Atlas/ROI analysis <atlasroi-analysis>` in the Pipeline Option Reference.
+
 The **analysis module** (`lib/common/analysis.py`) provides two pipeline steps — `AtlasRegistrationStep` and `StatsExtractionStep` — that are shared across the diffusion, relaxometry, and anatomical workflows. `AtlasRegistrationStep` warps one or more MNI-space atlas label volumes into native subject space using ANTs, leveraging the same normalization transforms already computed during the pipeline run. `StatsExtractionStep` then samples the registered atlas labels against native-space metric maps to produce per-ROI summary statistics (mean, median, standard deviation).
 
 Both steps are enabled via the `analysis` sub-key of the relevant modality block (`dmri.analysis`, `relaxometry.analysis`, or `anat.segmentation`) and run at the end of each modality's processing chain. Outputs land alongside the model/fit results: registered atlas images are written to an `atlases/` subdirectory and statistics CSVs to a `statistics/` subdirectory.

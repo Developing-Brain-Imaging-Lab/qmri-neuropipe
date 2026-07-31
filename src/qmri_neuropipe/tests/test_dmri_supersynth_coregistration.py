@@ -11,8 +11,10 @@ from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
 from qmri_neuropipe.interfaces.fsl import rotate_bvecs
 from qmri_neuropipe.lib.common.registration import (
     CoregistrationStep,
+    _bbregister_contrast,
     _coregistration_output_reference,
     _ensure_fsl_registration_nifti,
+    _mrtrix_coregistration_grid_options,
     _spatial_grids_match,
     _write_header_registered_image,
 )
@@ -259,6 +261,28 @@ def test_native_coregistration_uses_exact_input_dwi_grid(tmp_path: Path):
         anatomical,
         "anatomical",
     ) == anatomical
+
+
+def test_bbregister_defaults_to_dti_contrast_for_dwi():
+    assert _bbregister_contrast({}, is_dwi=True, target_modality="T1w") == "dti"
+    assert (
+        _bbregister_contrast(
+            {"contrast_type": "t1"},
+            is_dwi=True,
+            target_modality="T1w",
+        )
+        == "t1"
+    )
+
+
+def test_native_mrtrix_application_omits_template(tmp_path: Path):
+    dwi = tmp_path / "dwi.nii.gz"
+
+    native_options = _mrtrix_coregistration_grid_options(dwi, "native")
+    assert native_options == {"strides": dwi}
+
+    anatomical_options = _mrtrix_coregistration_grid_options(dwi, "anatomical")
+    assert anatomical_options == {"strides": dwi, "template": dwi}
 
 
 def test_spatial_grid_check_rejects_same_resolution_with_changed_matrix(tmp_path: Path):

@@ -1,5 +1,8 @@
 # fMRI Workflow
 
+See {ref}`fMRI and import wrappers <fmri-and-import-wrappers>`
+for every fMRIPrep and HCP wrapper option.
+
 The **fMRI Pipeline** (`--pipeline fmri`) provides processing for blood-oxygen-level-dependent (BOLD) functional MRI data, primarily by delegating to robust BIDS Apps like fMRIPrep, or natively handling Human Connectome Project (HCP) style fallback structures.
 
 ## Overview

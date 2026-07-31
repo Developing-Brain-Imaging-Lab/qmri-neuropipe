@@ -1,5 +1,7 @@
 # PyAFQ (Automated Fiber Quantification)
 
+For every accepted field and default, see {ref}`Tractography and tract analysis <tractography-and-tract-analysis>`.
+
 PyAFQ is an automated structural connectivity and tractography analysis pipeline. It is particularly well-suited for both infant and adult datasets.
 
 The current integration asks PyAFQ to generate and segment its own tractography.

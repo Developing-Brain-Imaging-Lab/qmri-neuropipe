@@ -29,7 +29,10 @@ The pipeline handles single-shell and multi-shell data and supports advanced dis
 
 **Main Class**: `qmri_neuropipe.workflows.pipelines.dmri.DMRIPipeline`
 
-See [Tool Reference](../tool_reference.md) for the full list of tools and config keys.
+See {ref}`Diffusion preprocessing <diffusion-preprocessing>`
+for every preprocessing field and
+{ref}`Diffusion model fitting <diffusion-model-fitting>` for
+all modeling, tractography, and tract-analysis controls.
 
 For streamline workflows, see [MRtrix Tractography](tractography.md),
 [TractSeg](../models/tractseg.md), [Extracting Specific Tracts](tract_extraction.md),
