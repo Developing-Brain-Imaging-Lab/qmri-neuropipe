@@ -32,6 +32,7 @@ warnings.filterwarnings("ignore", message=".*invalid value encountered in log.*"
 
 
 from qmri_neuropipe.core import BasePipeline, PipelineConfig
+from qmri_neuropipe import __version__
 from qmri_neuropipe.core.exceptions import ConfigurationError
 from qmri_neuropipe.core.parallel import run_parallel as run_parallel_tasks
 from qmri_neuropipe.core.ui import console
@@ -40,6 +41,12 @@ from qmri_neuropipe.workflows.pipelines.import_workflow import ImportWorkflow
 
 
 app = typer.Typer(add_completion=False, help="qmri-neuropipe: Robust BIDS MRI processing pipeline")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"qmri-neuropipe {__version__}")
+        raise typer.Exit()
 
 
 def _counts_table(title: str, counts: dict[str, int]) -> Table:
@@ -692,6 +699,13 @@ def import_command(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed qmri-neuropipe version and exit.",
+    ),
     # Core paths (can be provided via CLI or config)
     dicom_dir: Optional[Path] = typer.Option(
         None,

@@ -1,4 +1,6 @@
-__version__='0.0.1'
+"""Top-level package metadata and runtime configuration."""
+
+__version__ = "2.0.0"
 
 
 def _append_pythonwarnings_filter(filter_spec: str) -> None:

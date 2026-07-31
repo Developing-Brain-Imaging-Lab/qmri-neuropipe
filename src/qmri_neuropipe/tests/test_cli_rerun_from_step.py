@@ -4,6 +4,14 @@ from typer.testing import CliRunner
 
 from qmri_neuropipe.cli import app
 from qmri_neuropipe.cli import merge_cli_and_config
+from qmri_neuropipe import __version__
+
+
+def test_cli_reports_package_version():
+    result = CliRunner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == f"qmri-neuropipe {__version__}"
 
 
 def test_cli_rerun_from_step_overrides_config(tmp_path: Path):

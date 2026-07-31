@@ -1,6 +1,6 @@
 # Installation
 
-`qmri-neuropipe` is a Python-based processing pipeline. It requires **Python 3.9+** and several external neuroimaging tools.
+`qmri-neuropipe` is a Python-based processing pipeline. It requires **Python 3.10+** and several external neuroimaging tools.
 
 ## Prerequisites
 

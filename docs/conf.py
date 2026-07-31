@@ -4,6 +4,8 @@ import sys
 # Point to the source code (assuming this directory is moved to repo/docs)
 sys.path.insert(0, os.path.abspath('../src'))
 
+from qmri_neuropipe import __version__
+
 # Mock heavy dependencies to avoid installation on RTD
 autodoc_mock_imports = [
     'ants', 
@@ -26,7 +28,7 @@ autodoc_mock_imports = [
 project = 'qmri-neuropipe'
 copyright = '2025, Developing Brain Imaging Lab'
 author = 'Developing Brain Imaging Lab'
-release = '2.0.0'
+release = __version__
 
 # -- General configuration ---------------------------------------------------
 extensions = [

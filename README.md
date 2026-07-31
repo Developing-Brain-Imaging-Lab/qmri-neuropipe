@@ -123,6 +123,10 @@ pytest
 ruff check src/qmri_neuropipe
 ```
 
+The project version has a single source of truth in
+`qmri_neuropipe.__version__`. Package metadata, the CLI, and the documentation
+all read that value, so a release requires changing it only once.
+
 ## Documentation
 
 Full documentation is available in the [docs/](docs/) directory.

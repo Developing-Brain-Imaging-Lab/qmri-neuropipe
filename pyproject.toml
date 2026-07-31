@@ -5,7 +5,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qmri-neuropipe"
-version = "0.0.1"
+dynamic = ["version"]
+requires-python = ">=3.10"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 dependencies = [
@@ -123,3 +124,6 @@ qneuro-condor = "qmri_neuropipe.examples.condor.qneuro_condor:console_main"
 [tool.setuptools.package-data]
 "qmri_neuropipe.lib.reporting" = ["*.html"]
 "qmri_neuropipe.lib.dmri" = ["data/*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "qmri_neuropipe.__version__"}
