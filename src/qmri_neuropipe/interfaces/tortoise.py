@@ -4,6 +4,7 @@ import shutil
 import shlex
 import os
 import nibabel as nib
+import numpy as np
 from ..core.run import run_cmd
 from ..core.types import DWIFile
 from ..core.utils import ensure_dir
@@ -148,6 +149,9 @@ def tortoise_v4_motion_eddy(
     staged_down = (
         _stage_tortoise_v4_input(down_file, staging_dir, "down") if down_file else None
     )
+    _validate_tortoise_v4_gradients(staged_up, "up")
+    if staged_down:
+        _validate_tortoise_v4_gradients(staged_down, "down")
     command = build_tortoise_v4_command(
         staged_up,
         out_file,
@@ -204,10 +208,21 @@ def _stage_tortoise_v4_input(dwi_file: DWIFile, staging_dir: Path, label: str) -
     staged_img = staging_dir / f"{label}{suffix}"
     if staged_img.exists() or staged_img.is_symlink():
         staged_img.unlink()
-    shape = nib.load(str(dwi_file.img)).shape
-    if len(shape) == 3:
-        # TORTOISE expands 3D reverse-PE b0 inputs to 4D in place.
-        shutil.copy2(dwi_file.img, staged_img)
+    source_image = nib.load(str(dwi_file.img))
+    shape = source_image.shape
+    is_singleton = len(shape) == 3 or (len(shape) == 4 and shape[3] == 1)
+    if is_singleton:
+        # TORTOISE expects at least two down volumes in parts of its final-data
+        # path. Materialize a private two-volume b0 series so it cannot mutate
+        # the Synb0 source and so every sidecar has matching dimensions.
+        source_data = np.asanyarray(source_image.dataobj)
+        if source_data.ndim == 4:
+            source_data = source_data[..., 0]
+        duplicated = np.stack((source_data, source_data), axis=3)
+        nib.save(
+            nib.Nifti1Image(duplicated, source_image.affine, source_image.header),
+            staged_img,
+        )
         staged_bval = staging_dir / f"{label}.bval"
         staged_bvec = staging_dir / f"{label}.bvec"
         staged_bval.write_text("0 0\n")
@@ -230,6 +245,32 @@ def _stage_tortoise_v4_input(dwi_file: DWIFile, staging_dir: Path, label: str) -
         Delta=getattr(dwi_file, "Delta", None),
         delta=getattr(dwi_file, "delta", None),
     )
+
+
+def _validate_tortoise_v4_gradients(dwi_file: DWIFile, label: str) -> None:
+    """Fail before TORTOISE when image and gradient dimensions disagree."""
+    if not dwi_file.bval or not Path(dwi_file.bval).exists():
+        raise ProcessingError(f"TORTOISEV4 {label}_data bval file is missing")
+    if not dwi_file.bvec or not Path(dwi_file.bvec).exists():
+        raise ProcessingError(f"TORTOISEV4 {label}_data bvec file is missing")
+
+    shape = nib.load(str(dwi_file.img)).shape
+    if len(shape) != 4:
+        raise ProcessingError(f"TORTOISEV4 staged {label}_data must be 4D, got {shape}")
+    nvolumes = int(shape[3])
+    bvals = np.asarray(np.loadtxt(dwi_file.bval), dtype=float).reshape(-1)
+    bvecs = np.asarray(np.loadtxt(dwi_file.bvec), dtype=float)
+    if bvecs.ndim == 1:
+        bvecs = bvecs.reshape(3, 1) if bvecs.size == 3 else bvecs.reshape(1, -1)
+    if bvecs.ndim == 2 and bvecs.shape == (nvolumes, 3):
+        bvecs = bvecs.T
+
+    if bvals.size != nvolumes or bvecs.shape != (3, nvolumes):
+        raise ProcessingError(
+            f"TORTOISEV4 {label}_data has {nvolumes} image volumes, "
+            f"{bvals.size} b-values, and bvec shape {tuple(bvecs.shape)}; "
+            "these dimensions must match"
+        )
 
 def diffprep(
     dwi_file: Union[Path, DWIFile],

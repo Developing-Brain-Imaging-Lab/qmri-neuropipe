@@ -8,8 +8,10 @@ from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.types import DWIFile
 from qmri_neuropipe.interfaces.tortoise import (
     _stage_tortoise_v4_input,
+    _validate_tortoise_v4_gradients,
     build_tortoise_v4_command,
 )
+from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.lib.dmri.ants_motion import (
     AntsDiffusionMotionCorrectionStep,
     closest_rotation,
@@ -153,7 +155,7 @@ def test_tortoise_stages_single_synb0_without_mutating_source(tmp_path: Path):
     sidecar = tmp_path / "metadata.json"
     bval = tmp_path / "synb0.bval"
     bvec = tmp_path / "synb0.bvec"
-    nib.save(nib.Nifti1Image(np.ones((5, 6, 4), dtype=np.float32), np.eye(4)), image)
+    nib.save(nib.Nifti1Image(np.ones((5, 6, 4, 1), dtype=np.float32), np.eye(4)), image)
     sidecar.write_text('{"PhaseEncodingDirection": "j-"}\n')
     bval.write_text("0\n")
     bvec.write_text("0\n0\n0\n")
@@ -162,10 +164,29 @@ def test_tortoise_stages_single_synb0_without_mutating_source(tmp_path: Path):
     staged = _stage_tortoise_v4_input(source, tmp_path / "staged", "down")
 
     assert not staged.img.is_symlink()
-    assert nib.load(str(source.img)).shape == (5, 6, 4)
+    assert nib.load(str(source.img)).shape == (5, 6, 4, 1)
+    assert nib.load(str(staged.img)).shape == (5, 6, 4, 2)
     assert np.loadtxt(staged.bval).size == 2
     assert np.loadtxt(staged.bvec).shape == (3, 2)
     assert Path(str(staged.img).split(".nii", 1)[0] + ".json").exists()
+    _validate_tortoise_v4_gradients(staged, "down")
+
+
+def test_tortoise_rejects_mismatched_gradient_dimensions_before_execution(tmp_path: Path):
+    source = _dwi(
+        tmp_path,
+        np.ones((5, 6, 4, 3), dtype=np.float32),
+        np.array([0, 1000, 1000]),
+    )
+    source.bvec.write_text("0 0\n0 0\n0 0\n")
+
+    with np.testing.assert_raises_regex(ProcessingError, "3 image volumes"):
+        _validate_tortoise_v4_gradients(source, "up")
+
+
+def test_synb0_phase_encoding_is_opposite_acquired_direction():
+    assert Synb0EstimationStep._opposite_phase_encoding("j-") == "j"
+    assert Synb0EstimationStep._opposite_phase_encoding("i") == "i-"
 
 
 def _workflow(method: str) -> PreprocessingWorkflow:
@@ -355,3 +376,14 @@ def test_tortoise_thread_override_precedes_pipeline_cpu_count(tmp_path: Path):
     assert default_step._resolve_nthreads() == 12
     assert default_step._resolve_nthreads(7) == 7
     assert override_step._resolve_nthreads(7) == 5
+
+
+def test_forced_tortoise_rerun_discards_failed_temp_state(tmp_path: Path):
+    temp_folder = tmp_path / "tortoise_work"
+    temp_folder.mkdir()
+    (temp_folder / "stale.bmtxt").write_text("invalid\n")
+
+    resolved = TortoiseV4CorrectionStep._prepare_temp_folder(tmp_path, force=True)
+
+    assert resolved == temp_folder
+    assert not temp_folder.exists()

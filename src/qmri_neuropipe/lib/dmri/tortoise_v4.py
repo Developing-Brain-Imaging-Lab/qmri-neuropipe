@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -245,6 +246,14 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             raise ValidationError("TORTOISEV4 nthreads must be a positive integer")
         return requested
 
+    @staticmethod
+    def _prepare_temp_folder(output_dir: Path, force: bool) -> Path:
+        """Discard failed TORTOISE state when an explicit rerun is requested."""
+        temp_folder = output_dir / "tortoise_work"
+        if force and temp_folder.exists():
+            shutil.rmtree(temp_folder)
+        return temp_folder
+
     def _find_synb0_down(self, context: dict) -> Optional[DWIFile]:
         for group_item in context.get("topup_groups", []):
             inputs = group_item.get("inputs", []) if isinstance(group_item, dict) else group_item
@@ -347,6 +356,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             output_combination = "JacSep"
         requested_threads = self._resolve_nthreads(kwargs.get("nthreads"))
         self._resolved_nthreads = requested_threads
+        temp_folder = self._prepare_temp_folder(output_dir, force)
         result = tortoise_v4_motion_eddy(
             input_dwi,
             out_file,
@@ -367,7 +377,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             output_voxels=output_voxels,
             output_data_combination=output_combination,
             output_signal_redist_method=self.options.get("output_signal_redist_method"),
-            temp_folder=output_dir / "tortoise_work",
+            temp_folder=temp_folder,
             executable=self.options.get("executable"),
             use_gpu=bool(self.options.get("use_gpu", self.config.use_gpu)),
             nthreads=requested_threads,

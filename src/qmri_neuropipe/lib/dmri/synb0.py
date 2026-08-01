@@ -116,6 +116,15 @@ class Synb0EstimationStep(BaseProcessingStep):
             or (source in {"supersynth", "prefer_supersynth"} and preference in {"dwi", "b0", "diffusion", "mean_b0"})
         )
 
+    @staticmethod
+    def _opposite_phase_encoding(direction: str) -> str:
+        direction = str(direction or "").strip()
+        if direction not in {"i", "i-", "j", "j-", "k", "k-"}:
+            raise ProcessingError(
+                f"Cannot create Synb0 reverse-PE metadata from direction {direction!r}"
+            )
+        return direction[:-1] if direction.endswith("-") else f"{direction}-"
+
     def _bias_correct_t1(self, t1w_mgz: Path, output_dir: Path) -> Path:
         """Bias-correct the Synb0 T1, using ANTs when FreeSurfer lacks MINC."""
         t1w_n3 = output_dir / "t1w_n3.mgz"
@@ -807,6 +816,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         syn_json_path = syn_b0_path.with_suffix(".json")
         b0_path = output_dir / "real_b0.nii.gz"
         dummy_bval_path = output_dir / "b0.bval"
+        dummy_bvec_path = output_dir / "b0.bvec"
 
         self._extract_mean_b0(input_dwi, b0_path, force=force)
 
@@ -1002,33 +1012,28 @@ class Synb0EstimationStep(BaseProcessingStep):
             
             
 
-            real_meta = {}
-            if real_json and real_json.exists():
-                with open(real_json, "r") as f:
-                    real_meta = json.load(f)
-            
-            real_pe = real_meta.get("PhaseEncodingDirection", "j-")
-            
-
-                
-            syn_meta = {
-                "PhaseEncodingDirection": real_pe,
-                "TotalReadoutTime": 0.0, # For synthetic b0
-                "Synthesized": True
-            }
-            with open(syn_json_path, "w") as f:
-                json.dump(syn_meta, f)
-                       # Create dummy bval for single b0
-            # dummy_bval_path defined above
-            with open(dummy_bval_path, "w") as f:
-                f.write("0\n")
+        # Always refresh the cheap sidecars, including for cached Synb0 images
+        # created before synthetic gradients and reverse-PE metadata were fixed.
+        real_meta = {}
+        if real_json and real_json.exists():
+            with open(real_json, "r") as f:
+                real_meta = json.load(f)
+        real_pe = real_meta.get("PhaseEncodingDirection", "j-")
+        syn_meta = {
+            "PhaseEncodingDirection": self._opposite_phase_encoding(real_pe),
+            "TotalReadoutTime": 0.0,
+            "Synthesized": True,
+        }
+        syn_json_path.write_text(json.dumps(syn_meta, indent=2) + "\n")
+        dummy_bval_path.write_text("0\n")
+        dummy_bvec_path.write_text("0\n0\n0\n")
 
         syn_dwi_file = DWIFile(
             entities={**input_dwi.entities, "desc": "synthetic"},
             img=syn_b0_native_path,
             json=syn_json_path,
             bval=dummy_bval_path,
-            bvec=input_dwi.bvec  # Optional
+            bvec=dummy_bvec_path,
         )
         
         # 4. Create a Topup Group
