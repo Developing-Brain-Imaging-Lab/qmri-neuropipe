@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Mapping, Optional, Sequence, Union
 import shutil
 import shlex
+import os
+import nibabel as nib
 from ..core.run import run_cmd
 from ..core.types import DWIFile
 from ..core.utils import ensure_dir
@@ -22,13 +24,23 @@ def build_tortoise_v4_command(
     dwi_file: DWIFile,
     out_file: Path,
     *,
-    structural_file: Optional[Path] = None,
+    down_file: Optional[DWIFile] = None,
+    structural_file: Optional[Path | Sequence[Path]] = None,
+    reorientation_file: Optional[Path] = None,
     b0_id: int = -1,
     correction_mode: str = "quadratic",
     slice_to_volume: bool = False,
     repol: bool = False,
     niter: int = 3,
+    denoising: str = "off",
+    gibbs: bool = False,
+    drift: str = "off",
+    epi: str = "off",
     output_orientation: Optional[str] = None,
+    output_res: Optional[Sequence[float]] = None,
+    output_voxels: Optional[Sequence[int]] = None,
+    output_data_combination: Optional[str] = None,
+    output_signal_redist_method: Optional[str] = None,
     temp_folder: Optional[Path] = None,
     executable: str = "TORTOISEProcess",
     do_qc: bool = True,
@@ -36,10 +48,8 @@ def build_tortoise_v4_command(
 ) -> list[str]:
     """Build the TORTOISEV4 motion/eddy command for an existing DWI.
 
-    Denoising, Gibbs correction and susceptibility correction are explicitly
-    disabled because this adapter consumes the output of earlier neuropipe
-    preprocessing steps and leaves distortion correction to the configured
-    pipeline stage.
+    All major TORTOISEV4 stages are explicit so the caller can choose either a
+    correction-only invocation or a complete single-interpolation workflow.
     """
     if not dwi_file.bval or not dwi_file.bvec:
         raise ValueError("TORTOISEV4 requires bval and bvec sidecars")
@@ -49,9 +59,10 @@ def build_tortoise_v4_command(
         "--ub", str(dwi_file.bval),
         "--uv", str(dwi_file.bvec),
         "--output", str(out_file),
-        "--denoising", "off",
-        "--gibbs", "0",
-        "--epi", "off",
+        "--denoising", str(denoising),
+        "--gibbs", "1" if gibbs else "0",
+        "--drift", str(drift),
+        "--epi", str(epi),
         "--correction_mode", str(correction_mode),
         "--b0_id", str(int(b0_id)),
         "--s2v", "1" if slice_to_volume else "0",
@@ -59,14 +70,35 @@ def build_tortoise_v4_command(
         "--niter", str(int(niter)),
         "--do_QC", "1" if do_qc else "0",
     ]
-    if dwi_file.json:
-        command.extend(["--up_json", str(dwi_file.json)])
+    if down_file:
+        if not down_file.bval or not down_file.bvec:
+            raise ValueError("TORTOISEV4 down_data requires bval and bvec sidecars")
+        command.extend([
+            "--down_data", str(down_file.img),
+            "--db", str(down_file.bval),
+            "--dv", str(down_file.bvec),
+        ])
     if structural_file:
-        command.extend(["--structural", str(structural_file)])
+        structurals = (
+            list(structural_file)
+            if isinstance(structural_file, (list, tuple))
+            else [structural_file]
+        )
+        command.extend(["--structural", *(str(path) for path in structurals)])
+    if reorientation_file:
+        command.extend(["--reorientation", str(reorientation_file)])
     if output_orientation:
         command.extend(["--output_orientation", str(output_orientation)])
     if temp_folder:
         command.extend(["--temp_folder", str(temp_folder)])
+    if output_res:
+        command.extend(["--output_res", *(str(float(value)) for value in output_res)])
+    if output_voxels:
+        command.extend(["--output_voxels", *(str(int(value)) for value in output_voxels)])
+    if output_data_combination:
+        command.extend(["--output_data_combination", str(output_data_combination)])
+    if output_signal_redist_method:
+        command.extend(["--output_signal_redist_method", str(output_signal_redist_method)])
     for name, value in (extra_options or {}).items():
         if value is None:
             continue
@@ -78,13 +110,23 @@ def tortoise_v4_motion_eddy(
     dwi_file: DWIFile,
     out_file: Path,
     *,
-    structural_file: Optional[Path] = None,
+    down_file: Optional[DWIFile] = None,
+    structural_file: Optional[Path | Sequence[Path]] = None,
+    reorientation_file: Optional[Path] = None,
     b0_id: int = -1,
     correction_mode: str = "quadratic",
     slice_to_volume: bool = False,
     repol: bool = False,
     niter: int = 3,
+    denoising: str = "off",
+    gibbs: bool = False,
+    drift: str = "off",
+    epi: str = "off",
     output_orientation: Optional[str] = None,
+    output_res: Optional[Sequence[float]] = None,
+    output_voxels: Optional[Sequence[int]] = None,
+    output_data_combination: Optional[str] = None,
+    output_signal_redist_method: Optional[str] = None,
     temp_folder: Optional[Path] = None,
     executable: Optional[str] = None,
     use_gpu: bool = False,
@@ -101,16 +143,31 @@ def tortoise_v4_motion_eddy(
             f"Required TORTOISEV4 executable '{executable}' was not found in PATH"
         )
 
+    staging_dir = out_file.parent / "tortoise_inputs"
+    staged_up = _stage_tortoise_v4_input(dwi_file, staging_dir, "up")
+    staged_down = (
+        _stage_tortoise_v4_input(down_file, staging_dir, "down") if down_file else None
+    )
     command = build_tortoise_v4_command(
-        dwi_file,
+        staged_up,
         out_file,
+        down_file=staged_down,
         structural_file=structural_file,
+        reorientation_file=reorientation_file,
         b0_id=b0_id,
         correction_mode=correction_mode,
         slice_to_volume=slice_to_volume,
         repol=repol,
         niter=niter,
+        denoising=denoising,
+        gibbs=gibbs,
+        drift=drift,
+        epi=epi,
         output_orientation=output_orientation,
+        output_res=output_res,
+        output_voxels=output_voxels,
+        output_data_combination=output_data_combination,
+        output_signal_redist_method=output_signal_redist_method,
         temp_folder=temp_folder,
         executable=executable,
         do_qc=do_qc,
@@ -135,6 +192,41 @@ def tortoise_v4_motion_eddy(
         json=dwi_file.json,
         bval=out_bval,
         bvec=out_bvec,
+        Delta=getattr(dwi_file, "Delta", None),
+        delta=getattr(dwi_file, "delta", None),
+    )
+
+
+def _stage_tortoise_v4_input(dwi_file: DWIFile, staging_dir: Path, label: str) -> DWIFile:
+    """Give TORTOISE basename-matched JSON without mutating pipeline inputs."""
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    suffix = ".nii.gz" if str(dwi_file.img).endswith(".nii.gz") else ".nii"
+    staged_img = staging_dir / f"{label}{suffix}"
+    if staged_img.exists() or staged_img.is_symlink():
+        staged_img.unlink()
+    shape = nib.load(str(dwi_file.img)).shape
+    if len(shape) == 3:
+        # TORTOISE expands 3D reverse-PE b0 inputs to 4D in place.
+        shutil.copy2(dwi_file.img, staged_img)
+        staged_bval = staging_dir / f"{label}.bval"
+        staged_bvec = staging_dir / f"{label}.bvec"
+        staged_bval.write_text("0 0\n")
+        staged_bvec.write_text("0 0\n0 0\n0 0\n")
+    else:
+        os.symlink(Path(dwi_file.img).resolve(), staged_img)
+        staged_bval = dwi_file.bval
+        staged_bvec = dwi_file.bvec
+
+    staged_json = Path(str(staged_img).split(".nii", 1)[0] + ".json")
+    if not dwi_file.json or not Path(dwi_file.json).exists():
+        raise ProcessingError(f"TORTOISEV4 requires JSON metadata for {label}_data")
+    shutil.copy2(dwi_file.json, staged_json)
+    return DWIFile(
+        entities=dict(dwi_file.entities),
+        img=staged_img,
+        json=staged_json,
+        bval=staged_bval,
+        bvec=staged_bvec,
         Delta=getattr(dwi_file, "Delta", None),
         delta=getattr(dwi_file, "delta", None),
     )

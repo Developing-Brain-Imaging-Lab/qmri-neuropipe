@@ -38,6 +38,45 @@ from qmri_neuropipe.lib.dmri.tortoise_v4 import TortoiseV4CorrectionStep
 from qmri_neuropipe.lib.dmri.ants_motion import AntsDiffusionMotionCorrectionStep
 
 
+_TORTOISE_V4_METHODS = {'tortoise_v4', 'tortoise-v4', 'tortoise'}
+
+
+def _resolve_tortoise_v4_config(dmri_cfg: dict) -> tuple[bool, dict]:
+    """Resolve the new preprocessing stream and its legacy motion alias."""
+    motion_cfg = dmri_cfg.get('motion_correction', {}) or {}
+    legacy = motion_cfg.get('tortoise_v4', {}) or {}
+    top_level_present = 'tortoise_v4' in dmri_cfg
+    top_level = dmri_cfg.get('tortoise_v4', {}) or {}
+
+    options = dict(legacy)
+    options.update(top_level)
+    if top_level_present:
+        enabled = bool(options.get('enabled', True))
+    else:
+        enabled = motion_cfg.get('method') in _TORTOISE_V4_METHODS
+    options.pop('enabled', None)
+
+    synb0_cfg = options.get('synb0')
+    if isinstance(synb0_cfg, dict):
+        synb0_enabled = bool(synb0_cfg.get('enabled', True))
+        options.setdefault('use_synb0', synb0_enabled)
+        if synb0_enabled:
+            options.setdefault('epi', 'DRBUDDI')
+    if str(options.get('epi', 'off')).lower() == 'drbuddi':
+        options.setdefault('use_reverse_pe', not bool(options.get('use_synb0', False)))
+    return enabled, options
+
+
+def _tortoise_coregistration_enabled(options: dict) -> bool:
+    nested = options.get('coregistration_to_anatomy') or {}
+    if not isinstance(nested, dict):
+        return bool(nested or options.get('coregister_to_anatomical', False))
+    return bool(
+        nested.get('enabled', False)
+        or options.get('coregister_to_anatomical', False)
+    )
+
+
 class PreprocessingWorkflow(BaseWorkflow):
     def recover_intermediates(self, work_dir: Path, output_dir: Path):
         """
@@ -112,6 +151,18 @@ class PreprocessingWorkflow(BaseWorkflow):
     def _add_resample_step(self, dmri_cfg: dict):
         """Add resampling step if enabled."""
         res_cfg = dmri_cfg.get('resample', {})
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        coreg_cfg = tortoise_cfg.get('coregistration_to_anatomy') or {}
+        if not isinstance(coreg_cfg, dict):
+            coreg_cfg = {}
+        if tortoise_enabled and (
+            tortoise_cfg.get('output_res')
+            or tortoise_cfg.get('output_voxels')
+            or _tortoise_coregistration_enabled(tortoise_cfg)
+            or str(coreg_cfg.get('output_resolution', '')).lower() in {'native', 'anatomical'}
+        ):
+            self.logger.info("TORTOISEV4 owns final resampling; skipping pipeline ResampleStep")
+            return
         if res_cfg.get('enabled', False):
             self.logger.info("Adding ResampleStep")
             self.add_step(ResampleStep(
@@ -149,6 +200,31 @@ class PreprocessingWorkflow(BaseWorkflow):
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         dist_method = distcorr_cfg.get('method', 'none')
         fallback = distcorr_cfg.get('fallback', False)
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        tortoise_owns_epi = (
+            tortoise_enabled
+            and str(tortoise_cfg.get('epi', 'off')).lower() != 'off'
+        )
+
+        if tortoise_owns_epi:
+            context['tortoise_owns_distcorr'] = True
+            if tortoise_cfg.get('use_synb0', False):
+                if not bool(
+                    context.get("t1w_files")
+                    or context.get("t2w_files")
+                    or context.get("anatomical_files")
+                ):
+                    raise ValueError("TORTOISEV4 use_synb0 requires an anatomical image")
+                self.logger.info("Adding Synb0EstimationStep for TORTOISEV4 DRBUDDI input")
+                self.add_step(Synb0EstimationStep(
+                    self.config,
+                    self.logger,
+                    self.provenance,
+                    synb0_config=tortoise_cfg.get('synb0'),
+                ))
+            else:
+                self.logger.info("TORTOISEV4 owns susceptibility distortion correction")
+            return
 
         topup_groups = context.get("topup_groups", [])
         has_reverse_pe = len(topup_groups) > 0
@@ -204,6 +280,13 @@ class PreprocessingWorkflow(BaseWorkflow):
         """Add merge step if multiple DWI files need to be combined."""
         dwi_files = context.get("dwi_files", [])
         merge_cfg = dmri_cfg.get('merging', {})
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        if (
+            tortoise_enabled
+            and (tortoise_cfg.get('use_reverse_pe', False) or tortoise_cfg.get('use_synb0', False))
+        ):
+            self.logger.info("Keeping PE series separate for TORTOISEV4 up/down processing")
+            return
         
         do_merge = False
         if len(dwi_files) > 1:
@@ -239,6 +322,13 @@ class PreprocessingWorkflow(BaseWorkflow):
     def _add_denoising_step(self, dmri_cfg: dict):
         """Add denoising step if enabled."""
         denoise_cfg = dmri_cfg.get('denoising', {})
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        if (
+            tortoise_enabled
+            and str(tortoise_cfg.get('denoising', 'off')).lower() != 'off'
+        ):
+            self.logger.info("TORTOISEV4 owns denoising; skipping pipeline DenoisingStep")
+            return
         if denoise_cfg.get('enabled', False):
             method = denoise_cfg.get('method', 'mrtrix')
             params = denoise_cfg.get('parameters', {})
@@ -258,6 +348,13 @@ class PreprocessingWorkflow(BaseWorkflow):
     def _add_gibbs_step(self, dmri_cfg: dict):
         """Add Gibbs unringing step if enabled."""
         degibbs_cfg = dmri_cfg.get('degibbs', {})
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        if (
+            tortoise_enabled
+            and bool(tortoise_cfg.get('gibbs', False))
+        ):
+            self.logger.info("TORTOISEV4 owns Gibbs correction; skipping pipeline GibbsUnringingStep")
+            return
         if degibbs_cfg.get('enabled', False):
             method = degibbs_cfg.get('method', 'mrtrix')
             self.logger.info(f"Adding GibbsUnringingStep (method={method})")
@@ -272,6 +369,20 @@ class PreprocessingWorkflow(BaseWorkflow):
         """Add motion/eddy correction step if enabled."""
         motion_cfg = dmri_cfg.get('motion_correction', {})
         legacy_eddy_cfg = dmri_cfg.get('eddy', {})
+
+        tortoise_enabled, tortoise_options = _resolve_tortoise_v4_config(dmri_cfg)
+        if tortoise_enabled:
+            tortoise_options.setdefault(
+                'reference_selection', motion_cfg.get('reference_selection', {})
+            )
+            self.logger.info("Adding integrated TORTOISEV4 preprocessing stream")
+            self.add_step(TortoiseV4CorrectionStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                **tortoise_options,
+            ))
+            return
         
         motion_method = motion_cfg.get('method')
         if not motion_method:
@@ -298,17 +409,6 @@ class PreprocessingWorkflow(BaseWorkflow):
                     logger=self.logger,
                     provenance=self.provenance
                 ))
-
-        elif motion_method in {'tortoise_v4', 'tortoise-v4', 'tortoise'}:
-            options = dict(motion_cfg.get('tortoise_v4', {}))
-            options.setdefault('reference_selection', motion_cfg.get('reference_selection', {}))
-            self.logger.info("Adding TortoiseV4CorrectionStep")
-            self.add_step(TortoiseV4CorrectionStep(
-                config=self.config,
-                logger=self.logger,
-                provenance=self.provenance,
-                **options,
-            ))
 
         elif motion_method == 'ants':
             options = dict(motion_cfg.get('ants', {}))
@@ -351,6 +451,8 @@ class PreprocessingWorkflow(BaseWorkflow):
 
     def _add_post_eddy_distortion_refinement_step(self, dmri_cfg: dict, context: dict):
         """Add native DRBUDDI-like refinement after Eddy when requested."""
+        if context.get('tortoise_owns_distcorr'):
+            return
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         dist_method = distcorr_cfg.get('method', 'none')
         if dist_method not in {'drbuddi', 'topup+drbuddi'}:
@@ -413,6 +515,10 @@ class PreprocessingWorkflow(BaseWorkflow):
 
     def _add_coregistration_step(self, dmri_cfg: dict, context: dict):
         """Add coregistration step if enabled."""
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        if tortoise_enabled and _tortoise_coregistration_enabled(tortoise_cfg):
+            self.logger.info("TORTOISEV4 owns anatomical alignment; skipping pipeline CoregistrationStep")
+            return
         coreg_cfg = dmri_cfg.get('coregistration', {})
         do_coreg = coreg_cfg.get('enabled')
         if do_coreg is None:

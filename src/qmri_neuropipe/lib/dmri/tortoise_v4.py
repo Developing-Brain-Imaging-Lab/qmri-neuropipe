@@ -11,13 +11,26 @@ import nibabel as nib
 
 from ...core import BaseProcessingStep, ProcessingError, ValidationError
 from ...core.types import DWIFile
+from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
 from ...interfaces.tortoise import tortoise_v4_motion_eddy
+from ...io.dmri.bids import infer_phase_encoding_direction
+from ..anat.super_synth import ensure_supersynth_outputs_for_image
 from .b0_reference import select_optimal_b0
 
 
 def _nifti_json_path(path: Path) -> Path:
     return Path(str(path).split(".nii", 1)[0] + ".json")
+
+
+def _image_grid(path: Path) -> tuple[list[float], list[int], str]:
+    """Return the TORTOISE resolution, matrix, and orientation for an image."""
+    image = nib.load(str(path))
+    return (
+        [float(value) for value in image.header.get_zooms()[:3]],
+        [int(value) for value in image.shape[:3]],
+        "".join(nib.aff2axcodes(image.affine)),
+    )
 
 
 class TortoiseV4CorrectionStep(BaseProcessingStep):
@@ -51,22 +64,222 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             if not path or not Path(path).exists():
                 raise ProcessingError(f"Missing TORTOISEV4 output: {path}")
 
-    def _select_structural(self, context: Optional[dict]) -> Optional[Path]:
-        configured = self.options.get("structural_file")
+    def _coregistration_config(self) -> dict:
+        nested = self.options.get("coregistration_to_anatomy") or {}
+        result = dict(nested) if isinstance(nested, dict) else {}
+        result.setdefault(
+            "enabled",
+            bool(nested or self.options.get("coregister_to_anatomical", False)),
+        )
+        result.setdefault(
+            "reference", self.options.get("anatomical_reference", "auto")
+        )
+        return result
+
+    @staticmethod
+    def _first_path(context: Optional[dict], key: str) -> Optional[Path]:
+        values = (context or {}).get(key) or []
+        if not values:
+            return None
+        return Path(getattr(values[0], "img", values[0]))
+
+    def _select_anatomical_reference(self, context: Optional[dict]) -> Optional[Path]:
+        coreg = self._coregistration_config()
+        configured = coreg.get("reference_file") or self.options.get("reorientation_file")
         if configured:
             return Path(configured)
-        if not self.options.get("use_structural", False) or not context:
-            return None
-        for key in ("t2w_files", "anatomical_files"):
-            values = context.get(key) or []
-            if values:
-                return Path(getattr(values[0], "img", values[0]))
+
+        preference = str(coreg.get("reference", "auto")).strip().lower()
+        key_orders = {
+            "t1w": ("t1w_files", "t2w_files", "anatomical_files"),
+            "t2w": ("t2w_files", "t1w_files", "anatomical_files"),
+            "other": ("anatomical_files", "t2w_files", "t1w_files"),
+            "anatomical": ("anatomical_files", "t2w_files", "t1w_files"),
+            "auto": ("t2w_files", "t1w_files", "anatomical_files"),
+        }
+        for key in key_orders.get(preference, key_orders["auto"]):
+            selected = self._first_path(context, key)
+            if selected:
+                return selected
         return None
 
+    def _synthesize_t2w(
+        self,
+        context: Optional[dict],
+        output_dir: Path,
+        force: bool,
+    ) -> Optional[Path]:
+        fallback_cfg = self.options.get("t2w_fallback") or {}
+        if fallback_cfg is False or (
+            isinstance(fallback_cfg, dict) and not fallback_cfg.get("enabled", True)
+        ):
+            return None
+        fallback_cfg = dict(fallback_cfg) if isinstance(fallback_cfg, dict) else {}
+        source_preference = str(fallback_cfg.get("anatomical_input", "auto")).lower()
+        source_keys = {
+            "t1w": ("t1w_files",),
+            "other": ("anatomical_files",),
+            "anatomical": ("anatomical_files",),
+            "auto": ("t1w_files", "anatomical_files"),
+        }.get(source_preference, ("t1w_files", "anatomical_files"))
+        source = next(
+            (candidate for key in source_keys if (candidate := self._first_path(context, key))),
+            None,
+        )
+        if source is None:
+            return None
+
+        synth_dir = output_dir / "supersynth_t2w"
+        synth_dir.mkdir(parents=True, exist_ok=True)
+        outputs = ensure_supersynth_outputs_for_image(
+            source,
+            synth_dir,
+            self.config,
+            self.logger,
+            mode=fallback_cfg.get("mode"),
+            device=fallback_cfg.get("device"),
+            sharpen_synths=fallback_cfg.get("sharpen_synths"),
+            force=force,
+        )
+        synth_t2w = outputs.get("synth_t2w")
+        if not synth_t2w:
+            raise ProcessingError(
+                f"mri_super_synth did not create a synthesized T2w from {source}"
+            )
+        synth_t2w = Path(synth_t2w)
+        if synth_t2w.suffix.lower() == ".mgz":
+            converted = synth_dir / "desc-supersynth_T2w.nii.gz"
+            freesurfer.mri_convert(in_file=synth_t2w, out_file=converted)
+            synth_t2w = converted
+        if context is not None:
+            context["tortoise_t2w"] = synth_t2w
+            context["tortoise_t2w_source"] = "mri_super_synth"
+        return synth_t2w
+
+    def _select_structural(
+        self,
+        context: Optional[dict],
+        output_dir: Path,
+        force: bool,
+    ) -> Optional[list[Path]]:
+        configured = self.options.get("structural_file")
+        if configured:
+            values = configured if isinstance(configured, (list, tuple)) else [configured]
+            return [Path(value) for value in values]
+        epi = str(self.options.get("epi", "off")).lower()
+        if epi == "t2wreg":
+            acquired_t2w = self._first_path(context, "t2w_files")
+            if acquired_t2w:
+                if context is not None:
+                    context["tortoise_t2w"] = acquired_t2w
+                    context["tortoise_t2w_source"] = "acquired"
+                return [acquired_t2w]
+            synthesized = self._synthesize_t2w(context, output_dir, force)
+            return [synthesized] if synthesized else None
+        wants_structural = (
+            self.options.get("use_structural", False)
+            or bool(self._coregistration_config().get("enabled", False))
+        )
+        if not wants_structural or not context:
+            return None
+        for key in ("t2w_files", "anatomical_files", "t1w_files"):
+            values = context.get(key) or []
+            if values:
+                if self.options.get("all_structurals", False):
+                    return [Path(getattr(value, "img", value)) for value in values]
+                return [Path(getattr(values[0], "img", values[0]))]
+        return None
+
+    def _select_reorientation(self, context: Optional[dict], structurals) -> Optional[Path]:
+        if not self._coregistration_config().get("enabled", False):
+            return None
+        return self._select_anatomical_reference(context) or (structurals[0] if structurals else None)
+
+    def _resolve_output_grid(
+        self,
+        input_dwi: DWIFile,
+        reorientation: Optional[Path],
+    ) -> tuple[Optional[list[float]], Optional[list[int]], str]:
+        output_res = self.options.get("output_res")
+        output_voxels = self.options.get("output_voxels")
+        output_orientation = self.options.get("output_orientation")
+        coreg = self._coregistration_config()
+        resolution_mode = str(coreg.get("output_resolution", "")).strip().lower()
+        grid_reference: Optional[Path] = None
+        if resolution_mode in {"native", "dwi"}:
+            grid_reference = Path(input_dwi.img)
+        elif resolution_mode == "anatomical":
+            if reorientation is None:
+                raise ValidationError(
+                    "TORTOISEV4 anatomical output resolution requires an anatomical reference"
+                )
+            grid_reference = reorientation
+        elif resolution_mode:
+            raise ValidationError(
+                "coregistration_to_anatomy.output_resolution must be 'native' or 'anatomical'"
+            )
+
+        if grid_reference:
+            derived_res, derived_voxels, derived_orientation = _image_grid(grid_reference)
+            output_res = output_res or derived_res
+            output_voxels = output_voxels or derived_voxels
+            output_orientation = output_orientation or derived_orientation
+        if not output_orientation:
+            output_orientation = _image_grid(Path(input_dwi.img))[2]
+        return output_res, output_voxels, output_orientation
+
+    def _find_synb0_down(self, context: dict) -> Optional[DWIFile]:
+        for group_item in context.get("topup_groups", []):
+            inputs = group_item.get("inputs", []) if isinstance(group_item, dict) else group_item
+            for candidate in inputs:
+                desc = str(getattr(candidate, "entities", {}).get("desc", "")).lower()
+                if isinstance(candidate, DWIFile) and (desc == "synthetic" or "synb0" in desc):
+                    return candidate
+        return None
+
+    def _select_up_down(self, context: Optional[dict], fallback: DWIFile) -> tuple[DWIFile, Optional[DWIFile]]:
+        if not context:
+            return fallback, None
+        files = list(context.get("dwi_files") or [fallback])
+        if self.options.get("use_synb0", False):
+            synthetic = self._find_synb0_down(context)
+            if synthetic is None:
+                raise ValidationError("TORTOISEV4 use_synb0 requested but no Synb0 image was generated")
+            return files[0], synthetic
+        if not self.options.get("use_reverse_pe", False):
+            return files[0], None
+
+        preferred = self.options.get("up_phase_encoding")
+        up = next(
+            (dwi for dwi in files if preferred and infer_phase_encoding_direction(dwi) == preferred),
+            files[0],
+        )
+        up_pe = infer_phase_encoding_direction(up)
+        if not up_pe:
+            raise ValidationError("Cannot identify PhaseEncodingDirection for TORTOISEV4 up_data")
+        down = next(
+            (
+                dwi for dwi in files
+                if dwi is not up
+                and infer_phase_encoding_direction(dwi)
+                and infer_phase_encoding_direction(dwi)[0] == up_pe[0]
+                and infer_phase_encoding_direction(dwi).endswith("-") != up_pe.endswith("-")
+            ),
+            None,
+        )
+        if down is None:
+            raise ValidationError(
+                f"TORTOISEV4 reverse-PE processing requested but no opposite {up_pe[0]} direction was found"
+            )
+        return up, down
+
     def run(self, first_arg, output_dir: Path, **kwargs):
-        context, input_dwi = self.unpack_input(first_arg)
+        context, fallback_dwi = self.unpack_input(first_arg)
+        input_dwi, down_dwi = self._select_up_down(context, fallback_dwi)
         output_dir = self.get_step_output_dir(output_dir)
         entities = {**input_dwi.entities, "desc": "tortoisev4corrected"}
+        if down_dwi:
+            entities.pop("dir", None)
         out_file = output_dir / build_bids_name(entities)
         out_base = Path(str(out_file).split(".nii", 1)[0])
         out_bval = Path(f"{out_base}.bval")
@@ -98,17 +311,43 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             )
             b0_id = selection.index
 
-        orientation = "".join(nib.aff2axcodes(nib.load(str(input_dwi.img)).affine))
+        structurals = self._select_structural(context, output_dir, force)
+        reorientation = self._select_reorientation(context, structurals)
+        output_res, output_voxels, orientation = self._resolve_output_grid(
+            input_dwi, reorientation
+        )
+        epi = str(self.options.get("epi", "off"))
+        if epi.lower() == "drbuddi" and down_dwi is None:
+            raise ValidationError("TORTOISEV4 epi=DRBUDDI requires reverse-PE or Synb0 down_data")
+        if epi.lower() == "t2wreg" and not structurals:
+            raise ValidationError("TORTOISEV4 epi=T2Wreg requires an undistorted T2-weighted image")
+        if self.options.get("use_synb0", False) and epi.lower() != "drbuddi":
+            raise ValidationError("TORTOISEV4 use_synb0 is only meaningful with epi=DRBUDDI")
+        output_combination = self.options.get("output_data_combination")
+        if self.options.get("use_synb0", False) and not output_combination:
+            # Keep the synthetic reverse-PE b0 out of the downstream DWI. In
+            # JacSep mode TORTOISE writes the corrected up series at --output.
+            output_combination = "JacSep"
         result = tortoise_v4_motion_eddy(
             input_dwi,
             out_file,
-            structural_file=self._select_structural(context),
+            down_file=down_dwi,
+            structural_file=structurals,
+            reorientation_file=reorientation,
             b0_id=b0_id,
             correction_mode=self.options.get("correction_mode", "quadratic"),
             slice_to_volume=bool(self.options.get("slice_to_volume", False)),
             repol=bool(self.options.get("repol", False)),
             niter=int(self.options.get("niter", 3)),
+            denoising=self.options.get("denoising", "off"),
+            gibbs=bool(self.options.get("gibbs", False)),
+            drift=self.options.get("drift", "off"),
+            epi=epi,
             output_orientation=self.options.get("output_orientation", orientation),
+            output_res=output_res,
+            output_voxels=output_voxels,
+            output_data_combination=output_combination,
+            output_signal_redist_method=self.options.get("output_signal_redist_method"),
             temp_folder=output_dir / "tortoise_work",
             executable=self.options.get("executable"),
             use_gpu=bool(self.options.get("use_gpu", self.config.use_gpu)),
@@ -130,6 +369,13 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         payload["MotionCorrection"] = "TORTOISEV4"
         payload["EddyCurrentCorrection"] = "TORTOISEV4"
         payload["SliceToVolumeCorrection"] = bool(self.options.get("slice_to_volume", False))
+        payload["SignalDriftCorrection"] = self.options.get("drift", "off")
+        payload["Denoising"] = self.options.get("denoising", "off")
+        payload["GibbsRingingCorrection"] = bool(self.options.get("gibbs", False))
+        payload["SusceptibilityDistortionCorrection"] = self.options.get("epi", "off")
+        payload["CoregistrationToAnatomy"] = bool(
+            self._coregistration_config().get("enabled", False)
+        )
         if selection:
             payload["MotionCorrectionReferenceVolume"] = selection.index
             payload["MotionCorrectionReferenceImage"] = str(selection.reference_image)
@@ -141,6 +387,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         if context is None:
             return result
         context["current_image"] = result
+        context["dwi_files"] = [result]
         context.setdefault("preprocessed_dwis", []).append(result)
         if selection:
             context["b0_reference_selection"] = selection
@@ -154,4 +401,4 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         return context
 
 
-__all__ = ["TortoiseV4CorrectionStep"]
+__all__ = ["TortoiseV4CorrectionStep", "_image_grid"]

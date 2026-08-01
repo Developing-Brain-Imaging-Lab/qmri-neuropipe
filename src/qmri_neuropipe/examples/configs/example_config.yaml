@@ -144,9 +144,60 @@ dmri:
         repol: true          # Replace outliers
         data_is_shelled: true
 
-    # Unified motion/eddy backend. Existing configurations may omit this and
-    # continue to use `eddy.enabled` above. Options: eddy, tortoise_v4, ants,
-    # ants_native, niifreeze, none.
+    # Integrated TORTOISEV4 preprocessing stream. Presence enables the stream;
+    # set enabled: false to disable it. TORTOISE owns each enabled stage and
+    # matching standalone neuropipe stages are omitted automatically.
+    tortoise_v4:
+      enabled: false
+      denoising: for_final   # off, for_reg, or for_final
+      gibbs: true
+      drift: linear          # off, linear, or quadratic
+      correction_mode: quadratic  # motion, eddy_only, quadratic, or cubic
+      slice_to_volume: true
+      repol: true
+      niter: 3
+
+      # Native blip-up/blip-down data are selected automatically for DRBUDDI.
+      epi: DRBUDDI           # off, T2Wreg, or DRBUDDI
+      use_reverse_pe: true
+      # Alternatively, remove use_reverse_pe and enable this block. Its
+      # presence generates a synthetic down image and implies epi: DRBUDDI.
+      synb0:
+        enabled: false
+        anatomical_input: auto
+        registration: direct
+        registration_backend: ants
+
+      # epi: T2Wreg requires a T2w. If one is absent, synthesize it from an
+      # acquired T1w or other anatomical image with mri_super_synth.
+      t2w_fallback:
+        enabled: true
+        anatomical_input: auto
+        mode: invivo
+
+      # The T2w used by T2Wreg is independent of the requested final grid.
+      # native reproduces the input DWI lattice; anatomical reproduces the
+      # selected anatomy's voxel sizes, matrix dimensions, and orientation.
+      coregistration_to_anatomy:
+        enabled: true
+        reference: auto      # auto, t1w, t2w, or other
+        output_resolution: anatomical  # native or anatomical
+
+      # structural_file: /path/to/undistorted_T2w.nii.gz
+      # reorientation_file: /path/to/final_target.nii.gz
+      # output_res: [1.5, 1.5, 1.5]       # explicit overrides
+      # output_voxels: [160, 192, 160]
+      # output_orientation: LPS
+      # output_data_combination: JacConcat  # Merge, JacConcat, or JacSep
+      # output_signal_redist_method: LSR    # Jac or LSR
+      use_gpu: false
+      do_qc: true
+      # executable: /opt/tortoise/bin/TORTOISEProcess
+      options: {}
+
+    # Unified motion/eddy backend for non-integrated alternatives. Existing
+    # configurations may continue using motion_correction.method: tortoise_v4
+    # with a nested tortoise_v4 block as a compatibility alias.
     motion_correction:
       method: eddy
       reference_selection:
@@ -154,17 +205,6 @@ dmri:
         method: native
         b0_threshold: 50
         local_radius: 3
-
-      # TORTOISEV4 consumes the DWI produced by all earlier pipeline steps.
-      tortoise_v4:
-        correction_mode: quadratic  # motion, eddy_only, quadratic, or cubic
-        slice_to_volume: true
-        repol: true
-        niter: 3
-        use_gpu: false
-        do_qc: true
-        # executable: /opt/tortoise/bin/TORTOISEProcess
-        options: {}
 
       # ANTs rigid-body motion correction. The bvec for each volume is rotated
       # from the estimated transform using finite-strain decomposition.

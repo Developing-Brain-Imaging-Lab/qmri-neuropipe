@@ -1,15 +1,16 @@
 # Diffusion motion and eddy-current correction
 
 The diffusion preprocessing workflow accepts a unified
-`dmri.preprocessing.motion_correction.method` setting:
+`dmri.preprocessing.motion_correction.method` setting for individual motion
+backends, plus a top-level `dmri.preprocessing.tortoise_v4` stream for the
+integrated TORTOISE preprocessing chain:
 
 - `eddy`: existing FSL eddy backend. Set `reference_selection.enabled: true`
   to pass the native optimal b0 index through `--ref_scan_no`.
 - `tortoise_v4`: TORTOISEV4 `TORTOISEProcess`. Earlier neuropipe outputs are
-  passed explicitly with `--up_data`, `--ub`, `--uv`, and `--up_json`;
-  denoising, Gibbs, and EPI correction are disabled here to avoid duplicating
-  earlier pipeline stages. Corrected TORTOISE `.bvals/.bvecs` are returned as a
-  normal `DWIFile`.
+  passed explicitly with `--up_data`, `--ub`, and `--uv`; JSON files are staged
+  beside their matching NIfTI files as required by v4. Corrected TORTOISE
+  `.bvals/.bvecs` are returned as a normal `DWIFile`.
 - `ants`: rigid volume motion correction with finite-strain b-vector rotation.
 - `ants_native`: experimental local motion/eddy backend using ANTs affine
   volume registration and optional overlapping-slice-group-to-volume rigid
@@ -32,3 +33,70 @@ slicewise table.
 
 TORTOISEV4 is incompatible with TORTOISEV3. This integration targets the v4
 executables `TORTOISEProcess` and `TORTOISEProcess_cuda`.
+
+## Complete TORTOISEV4 workflow
+
+The adapter can let TORTOISE own the full preprocessing and final-data chain:
+
+```yaml
+dmri:
+  preprocessing:
+    tortoise_v4:
+      denoising: for_final
+      gibbs: true
+      drift: linear
+      correction_mode: quadratic
+      slice_to_volume: true
+      repol: true
+      niter: 3
+      epi: DRBUDDI
+      use_reverse_pe: true
+      coregistration_to_anatomy:
+        enabled: true
+        reference: auto
+        output_resolution: anatomical
+      output_data_combination: JacConcat
+      output_signal_redist_method: LSR
+```
+
+The presence of the top-level block enables the stream unless `enabled: false`
+is set. The older `motion_correction.method: tortoise_v4` plus nested
+`motion_correction.tortoise_v4` form remains a compatibility alias.
+
+When TORTOISE owns a stage, neuropipe skips its duplicate denoising, Gibbs,
+resampling, distortion-correction, and anatomical-coregistration steps. Native
+opposite-PE series remain separate and are passed as `--up_data/--down_data`.
+For `epi: DRBUDDI`, native reverse-PE input is inferred when neither reverse-PE
+nor Synb0 behavior is specified explicitly.
+
+For a single acquired PE series, a generated Synb0 can be passed as the
+DRBUDDI down image:
+
+```yaml
+dmri:
+  preprocessing:
+    tortoise_v4:
+      synb0:
+        anatomical_input: auto
+        registration: direct
+        registration_backend: ants
+```
+
+The presence of `synb0` enables it unless `enabled: false` is set, implies
+`epi: DRBUDDI`, and automatically uses `JacSep`, returning only the corrected
+acquired up series to downstream modeling rather than concatenating synthetic
+b0 volumes.
+
+`epi: T2Wreg` instead performs TORTOISE's b0-to-undistorted-T2W susceptibility
+correction. When no acquired T2w exists, `t2w_fallback.enabled: true` (the
+default) runs `mri_super_synth` on the selected T1w or other anatomical scan
+and converts its synthesized T2w to NIfTI for TORTOISE.
+
+`coregistration_to_anatomy.output_resolution: native` passes the original DWI
+voxel sizes and matrix dimensions to TORTOISE. `anatomical` passes the selected
+anatomical reference's voxel sizes, matrix dimensions, and orientation. The
+final-grid reference is selected independently from a synthesized T2w used
+only for EPI correction.
+
+TORTOISEV4 does not expose a direct input for an FSL topup field or a
+conventional fieldmap in Hz; use DRBUDDI, Synb0-as-reverse-PE, or T2Wreg.

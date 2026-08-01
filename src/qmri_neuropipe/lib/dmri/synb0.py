@@ -97,10 +97,16 @@ class Synb0EstimationStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
+        synb0_config: Optional[dict] = None,
     ):
         super().__init__(config, logger, provenance)
         self.method = 'dipy-dl'
-        self.synb0_cfg = config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
+        self.synb0_cfg = (
+            dict(synb0_config)
+            if isinstance(synb0_config, dict)
+            else config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
+        )
+        self.synb0_cfg.pop("enabled", None)
         self.logger.info(f"Initialized Synb0 estimation (Deep Learning).")
 
     @staticmethod
