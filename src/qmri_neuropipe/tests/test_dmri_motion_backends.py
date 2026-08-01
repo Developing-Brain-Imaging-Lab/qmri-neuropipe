@@ -338,3 +338,20 @@ def test_tortoise_synthesizes_t2w_when_only_t1w_exists(tmp_path: Path, monkeypat
     assert structurals and structurals[0].name == "desc-supersynth_T2w.nii.gz"
     assert structurals[0].exists()
     assert context["tortoise_t2w_source"] == "mri_super_synth"
+
+
+def test_tortoise_thread_override_precedes_pipeline_cpu_count(tmp_path: Path):
+    config = PipelineConfig(
+        bids_dir=tmp_path,
+        output_dir=tmp_path,
+        n_cpus=12,
+        config_data={},
+    )
+    default_step = TortoiseV4CorrectionStep(config, logging.getLogger(__name__), None)
+    override_step = TortoiseV4CorrectionStep(
+        config, logging.getLogger(__name__), None, nthreads=5
+    )
+
+    assert default_step._resolve_nthreads() == 12
+    assert default_step._resolve_nthreads(7) == 7
+    assert override_step._resolve_nthreads(7) == 5

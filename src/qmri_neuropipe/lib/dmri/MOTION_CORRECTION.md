@@ -49,6 +49,7 @@ dmri:
       slice_to_volume: true
       repol: true
       niter: 3
+      nthreads: 8
       epi: DRBUDDI
       use_reverse_pe: true
       coregistration_to_anatomy:
@@ -62,6 +63,10 @@ dmri:
 The presence of the top-level block enables the stream unless `enabled: false`
 is set. The older `motion_correction.method: tortoise_v4` plus nested
 `motion_correction.tortoise_v4` form remains a compatibility alias.
+
+`nthreads` overrides the pipeline-wide `n_cpus` value for TORTOISE only. The
+runner exports OpenMP, ITK, MKL, and OpenBLAS limits, including the hard
+`OMP_THREAD_LIMIT` ceiling for TORTOISE's internal OpenMP configuration.
 
 When TORTOISE owns a stage, neuropipe skips its duplicate denoising, Gibbs,
 resampling, distortion-correction, and anatomical-coregistration steps. Native

@@ -190,6 +190,7 @@ dmri:
       # output_orientation: LPS
       # output_data_combination: JacConcat  # Merge, JacConcat, or JacSep
       # output_signal_redist_method: LSR    # Jac or LSR
+      nthreads: 8             # Overrides global n_cpus for TORTOISE only
       use_gpu: false
       do_qc: true
       # executable: /opt/tortoise/bin/TORTOISEProcess

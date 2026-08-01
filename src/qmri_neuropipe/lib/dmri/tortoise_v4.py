@@ -228,6 +228,23 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             output_orientation = _image_grid(Path(input_dwi.img))[2]
         return output_res, output_voxels, output_orientation
 
+    def _resolve_nthreads(self, runtime_nthreads=None) -> int:
+        """Resolve the per-step override before the pipeline-wide CPU count."""
+        requested = self.options.get(
+            "nthreads",
+            self.options.get(
+                "threads",
+                runtime_nthreads if runtime_nthreads is not None else self.config.n_cpus,
+            ),
+        )
+        try:
+            requested = int(requested)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("TORTOISEV4 nthreads must be a positive integer") from exc
+        if requested < 1:
+            raise ValidationError("TORTOISEV4 nthreads must be a positive integer")
+        return requested
+
     def _find_synb0_down(self, context: dict) -> Optional[DWIFile]:
         for group_item in context.get("topup_groups", []):
             inputs = group_item.get("inputs", []) if isinstance(group_item, dict) else group_item
@@ -328,6 +345,8 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             # Keep the synthetic reverse-PE b0 out of the downstream DWI. In
             # JacSep mode TORTOISE writes the corrected up series at --output.
             output_combination = "JacSep"
+        requested_threads = self._resolve_nthreads(kwargs.get("nthreads"))
+        self._resolved_nthreads = requested_threads
         result = tortoise_v4_motion_eddy(
             input_dwi,
             out_file,
@@ -351,7 +370,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             temp_folder=output_dir / "tortoise_work",
             executable=self.options.get("executable"),
             use_gpu=bool(self.options.get("use_gpu", self.config.use_gpu)),
-            nthreads=int(kwargs.get("nthreads", self.config.n_cpus)),
+            nthreads=requested_threads,
             do_qc=bool(self.options.get("do_qc", True)),
             extra_options=self.options.get("options", {}),
         )
@@ -375,6 +394,9 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         payload["SusceptibilityDistortionCorrection"] = self.options.get("epi", "off")
         payload["CoregistrationToAnatomy"] = bool(
             self._coregistration_config().get("enabled", False)
+        )
+        payload["TORTOISEThreads"] = int(
+            getattr(self, "_resolved_nthreads", self.config.n_cpus)
         )
         if selection:
             payload["MotionCorrectionReferenceVolume"] = selection.index

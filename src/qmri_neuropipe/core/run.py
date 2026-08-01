@@ -57,6 +57,9 @@ def run_cmd(cmd: str, *, label: str | None = None, dry_run: bool = False, env: d
     if n_threads:
         cmd_env.update({
             "OMP_NUM_THREADS": str(n_threads),
+            # A hard ceiling even when a program calls omp_set_num_threads().
+            # TORTOISEProcess does this during its own initialization.
+            "OMP_THREAD_LIMIT": str(n_threads),
             "MKL_NUM_THREADS": str(n_threads),
             "OPENBLAS_NUM_THREADS": str(n_threads),
             "ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS": str(n_threads),
