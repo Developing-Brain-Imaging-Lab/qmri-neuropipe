@@ -687,6 +687,15 @@ def create_default_config(modality: str = 'dmri') -> Dict[str, Any]:
                             'data_is_shelled': True
                         }
                     },
+                    'motion_correction': {
+                        'method': 'eddy',
+                        'reference_selection': {
+                            'enabled': False,
+                            'method': 'native',
+                            'b0_threshold': 50.0,
+                            'local_radius': 3,
+                        },
+                    },
                     'bias_correction': {
                         'enabled': True,
                         'method': 'ants'

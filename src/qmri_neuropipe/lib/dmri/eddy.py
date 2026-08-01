@@ -23,6 +23,7 @@ from ...core.types import ImageFile, DWIFile, ImageLike
 from ...interfaces import fsl
 from ...io.bids import build_bids_name
 from ..common.spatial_transforms import write_transform_chain_to_sidecar
+from .b0_reference import select_optimal_b0
 
 
 class EddyCorrectionStep(BaseProcessingStep):
@@ -220,8 +221,7 @@ class EddyCorrectionStep(BaseProcessingStep):
         acqp = kwargs.pop("acqp", None)
         index = kwargs.pop("index", None)
         extra_opts = kwargs.pop("extra_opts", {})
-        if extra_opts is None:
-            extra_opts = {}
+        extra_opts = dict(extra_opts or {})
 
         # Merge with config options
         # Retrieve 'dmri.preprocessing.eddy' config if available
@@ -232,6 +232,37 @@ class EddyCorrectionStep(BaseProcessingStep):
         config_opts = dmri_cfg.get('options', {})
         if config_opts:
              extra_opts.update(config_opts)
+
+        # FSL eddy supports an explicit zero-based reference scan.  Select it
+        # with the shared TORTOISE-like b0 selector when requested, while
+        # preserving eddy's historical behavior by default.
+        motion_cfg = self.config.get('dmri', {}).get('preprocessing', {}).get(
+            'motion_correction', {}
+        ) or {}
+        reference_cfg = (
+            motion_cfg.get('reference_selection')
+            or dmri_cfg.get('reference_selection')
+            or {}
+        )
+        b0_selection = None
+        if self.method in {'eddy', 'two-pass'} and reference_cfg.get('enabled', False):
+            b0_selection = select_optimal_b0(
+                input_img,
+                output_dir / 'b0_reference',
+                threshold=float(reference_cfg.get('b0_threshold', 50.0)),
+                local_radius=int(reference_cfg.get('local_radius', 3)),
+                force=bool(kwargs.get('force', False)),
+            )
+            extra_opts.setdefault('ref_scan_no', b0_selection.index)
+            self.logger.info(
+                "Selected volume %d as FSL eddy motion reference (paired with %d, score %.4f)",
+                b0_selection.index,
+                b0_selection.paired_index,
+                b0_selection.score,
+            )
+            if context is not None:
+                context['b0_reference_selection'] = b0_selection
+                context['motion_reference'] = b0_selection.pair_average_image
 
         if context is not None:
             # Retrieve topup_base from map if available

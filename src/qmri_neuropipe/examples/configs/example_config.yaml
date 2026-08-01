@@ -143,6 +143,44 @@ dmri:
       parameters:
         repol: true          # Replace outliers
         data_is_shelled: true
+
+    # Unified motion/eddy backend. Existing configurations may omit this and
+    # continue to use `eddy.enabled` above. Options: eddy, tortoise_v4, ants,
+    # ants_native, niifreeze, none.
+    motion_correction:
+      method: eddy
+      reference_selection:
+        enabled: false       # Set true to choose a TORTOISE-like optimal b0
+        method: native
+        b0_threshold: 50
+        local_radius: 3
+
+      # TORTOISEV4 consumes the DWI produced by all earlier pipeline steps.
+      tortoise_v4:
+        correction_mode: quadratic  # motion, eddy_only, quadratic, or cubic
+        slice_to_volume: true
+        repol: true
+        niter: 3
+        use_gpu: false
+        do_qc: true
+        # executable: /opt/tortoise/bin/TORTOISEProcess
+        options: {}
+
+      # ANTs rigid-body motion correction. The bvec for each volume is rotated
+      # from the estimated transform using finite-strain decomposition.
+      ants:
+        slice_to_volume: false
+        transform_type: Rigid
+        interpolator: linear
+        registration_options: {}
+
+      # Experimental local TORTOISE-like implementation: ANTs affine
+      # motion/eddy registration plus slice-wise intra-volume refinement.
+      native:
+        slice_to_volume: true
+        transform_type: Affine
+        interpolator: linear
+        registration_options: {}
         
     # Bias field correction
     bias_correction:

@@ -1,10 +1,143 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Mapping, Optional, Union
 import shutil
+import shlex
 from ..core.run import run_cmd
 from ..core.types import DWIFile
 from ..core.utils import ensure_dir
 from ..core import ProcessingError
+
+
+def _format_v4_option(name: str, value: Any) -> list[str]:
+    """Format a TORTOISEProcess option without shell-specific ambiguity."""
+    option = f"--{name}"
+    if isinstance(value, bool):
+        return [option, "1" if value else "0"]
+    if isinstance(value, (list, tuple)):
+        return [option, *(str(item) for item in value)]
+    return [option, str(value)]
+
+
+def build_tortoise_v4_command(
+    dwi_file: DWIFile,
+    out_file: Path,
+    *,
+    structural_file: Optional[Path] = None,
+    b0_id: int = -1,
+    correction_mode: str = "quadratic",
+    slice_to_volume: bool = False,
+    repol: bool = False,
+    niter: int = 3,
+    output_orientation: Optional[str] = None,
+    temp_folder: Optional[Path] = None,
+    executable: str = "TORTOISEProcess",
+    do_qc: bool = True,
+    extra_options: Optional[Mapping[str, Any]] = None,
+) -> list[str]:
+    """Build the TORTOISEV4 motion/eddy command for an existing DWI.
+
+    Denoising, Gibbs correction and susceptibility correction are explicitly
+    disabled because this adapter consumes the output of earlier neuropipe
+    preprocessing steps and leaves distortion correction to the configured
+    pipeline stage.
+    """
+    if not dwi_file.bval or not dwi_file.bvec:
+        raise ValueError("TORTOISEV4 requires bval and bvec sidecars")
+    command = [
+        executable,
+        "--up_data", str(dwi_file.img),
+        "--ub", str(dwi_file.bval),
+        "--uv", str(dwi_file.bvec),
+        "--output", str(out_file),
+        "--denoising", "off",
+        "--gibbs", "0",
+        "--epi", "off",
+        "--correction_mode", str(correction_mode),
+        "--b0_id", str(int(b0_id)),
+        "--s2v", "1" if slice_to_volume else "0",
+        "--repol", "1" if repol else "0",
+        "--niter", str(int(niter)),
+        "--do_QC", "1" if do_qc else "0",
+    ]
+    if dwi_file.json:
+        command.extend(["--up_json", str(dwi_file.json)])
+    if structural_file:
+        command.extend(["--structural", str(structural_file)])
+    if output_orientation:
+        command.extend(["--output_orientation", str(output_orientation)])
+    if temp_folder:
+        command.extend(["--temp_folder", str(temp_folder)])
+    for name, value in (extra_options or {}).items():
+        if value is None:
+            continue
+        command.extend(_format_v4_option(str(name).lstrip("-"), value))
+    return command
+
+
+def tortoise_v4_motion_eddy(
+    dwi_file: DWIFile,
+    out_file: Path,
+    *,
+    structural_file: Optional[Path] = None,
+    b0_id: int = -1,
+    correction_mode: str = "quadratic",
+    slice_to_volume: bool = False,
+    repol: bool = False,
+    niter: int = 3,
+    output_orientation: Optional[str] = None,
+    temp_folder: Optional[Path] = None,
+    executable: Optional[str] = None,
+    use_gpu: bool = False,
+    nthreads: int = 1,
+    do_qc: bool = True,
+    extra_options: Optional[Mapping[str, Any]] = None,
+) -> DWIFile:
+    """Run TORTOISEV4 and return its corrected gradients to the pipeline."""
+    out_file = Path(out_file)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    executable = executable or ("TORTOISEProcess_cuda" if use_gpu else "TORTOISEProcess")
+    if shutil.which(executable) is None:
+        raise ProcessingError(
+            f"Required TORTOISEV4 executable '{executable}' was not found in PATH"
+        )
+
+    command = build_tortoise_v4_command(
+        dwi_file,
+        out_file,
+        structural_file=structural_file,
+        b0_id=b0_id,
+        correction_mode=correction_mode,
+        slice_to_volume=slice_to_volume,
+        repol=repol,
+        niter=niter,
+        output_orientation=output_orientation,
+        temp_folder=temp_folder,
+        executable=executable,
+        do_qc=do_qc,
+        extra_options=extra_options,
+    )
+    run_cmd(" ".join(shlex.quote(part) for part in command), label="TORTOISEV4", n_threads=nthreads)
+
+    base = Path(str(out_file).split(".nii", 1)[0])
+    generated_bvec = Path(f"{base}.bvecs")
+    generated_bval = Path(f"{base}.bvals")
+    if not out_file.exists() or not generated_bvec.exists() or not generated_bval.exists():
+        raise ProcessingError(
+            "TORTOISEV4 did not create the requested image and corrected gradient sidecars"
+        )
+    out_bvec = Path(f"{base}.bvec")
+    out_bval = Path(f"{base}.bval")
+    shutil.copy2(generated_bvec, out_bvec)
+    shutil.copy2(generated_bval, out_bval)
+    return DWIFile(
+        entities=dict(dwi_file.entities),
+        img=out_file,
+        json=dwi_file.json,
+        bval=out_bval,
+        bvec=out_bvec,
+        Delta=getattr(dwi_file, "Delta", None),
+        delta=getattr(dwi_file, "delta", None),
+    )
 
 def diffprep(
     dwi_file: Union[Path, DWIFile],

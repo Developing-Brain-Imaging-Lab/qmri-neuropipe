@@ -34,6 +34,8 @@ from qmri_neuropipe.lib.common.resample import ResampleStep
 from qmri_neuropipe.lib.dmri.outliers import OutlierRemovalStep
 from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
 from qmri_neuropipe.lib.dmri.motion import NiiFreezeStep
+from qmri_neuropipe.lib.dmri.tortoise_v4 import TortoiseV4CorrectionStep
+from qmri_neuropipe.lib.dmri.ants_motion import AntsDiffusionMotionCorrectionStep
 
 
 class PreprocessingWorkflow(BaseWorkflow):
@@ -296,6 +298,47 @@ class PreprocessingWorkflow(BaseWorkflow):
                     logger=self.logger,
                     provenance=self.provenance
                 ))
+
+        elif motion_method in {'tortoise_v4', 'tortoise-v4', 'tortoise'}:
+            options = dict(motion_cfg.get('tortoise_v4', {}))
+            options.setdefault('reference_selection', motion_cfg.get('reference_selection', {}))
+            self.logger.info("Adding TortoiseV4CorrectionStep")
+            self.add_step(TortoiseV4CorrectionStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                **options,
+            ))
+
+        elif motion_method == 'ants':
+            options = dict(motion_cfg.get('ants', {}))
+            self.logger.info("Adding AntsDiffusionMotionCorrectionStep (rigid motion)")
+            self.add_step(AntsDiffusionMotionCorrectionStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                mode='motion',
+                slice_to_volume=options.get('slice_to_volume', False),
+                reference_selection=motion_cfg.get('reference_selection', {}),
+                transform_type=options.get('transform_type', 'Rigid'),
+                interpolator=options.get('interpolator', 'linear'),
+                registration_options=options.get('registration_options', {}),
+            ))
+
+        elif motion_method in {'native', 'ants_native', 'native_ants'}:
+            options = dict(motion_cfg.get('native', {}))
+            self.logger.info("Adding native ANTs motion/eddy correction")
+            self.add_step(AntsDiffusionMotionCorrectionStep(
+                config=self.config,
+                logger=self.logger,
+                provenance=self.provenance,
+                mode='motion_eddy',
+                slice_to_volume=options.get('slice_to_volume', True),
+                reference_selection=motion_cfg.get('reference_selection', {}),
+                transform_type=options.get('transform_type', 'Affine'),
+                interpolator=options.get('interpolator', 'linear'),
+                registration_options=options.get('registration_options', {}),
+            ))
                   
         elif motion_method == 'niifreeze':
             self.logger.info("Adding NiiFreezeStep")
@@ -319,8 +362,8 @@ class PreprocessingWorkflow(BaseWorkflow):
         if not motion_method:
             motion_method = 'eddy' if legacy_eddy_cfg.get('enabled', False) else 'none'
 
-        if motion_method != 'eddy':
-            self.logger.warning("Native DRBUDDI requested but Eddy is not enabled. Skipping native DRBUDDI step.")
+        if motion_method not in {'eddy', 'tortoise_v4', 'tortoise-v4', 'tortoise', 'native', 'ants_native', 'native_ants'}:
+            self.logger.warning("Native DRBUDDI requested but no compatible motion/eddy method is enabled. Skipping native DRBUDDI step.")
             context['do_drbuddi'] = False
             return
 
