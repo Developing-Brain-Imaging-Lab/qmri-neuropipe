@@ -42,3 +42,18 @@ def test_tractseg_extra_supplies_undeclared_pytorch_dependency():
     assert '"TractSeg>=2.10,<2.11"' in tractseg_extra
     assert '"torch>=2.0"' in tractseg_extra
     assert '"torch>=2.0"' in all_extra
+
+
+def test_container_definitions_install_tortoise_fftw_runtime_and_check_loader():
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
+
+    for source in (dockerfile, definition):
+        assert "libfftw3-double3" in source
+        assert "libfftw3-single3" in source
+        assert "TORTOISEProcess_cuda" in source
+        assert "ldd" in source
+        assert "Missing TORTOISEProcess_cuda libraries" in source
+
+    assert "libfftw3\\.so\\.3" in definition
+    assert "libfftw3f\\.so\\.3" in definition

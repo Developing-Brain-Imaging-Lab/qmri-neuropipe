@@ -60,6 +60,8 @@ RUN apt-get update && apt-get install -y \
     libxmu6 \
     libxkbcommon0 \
     libdbus-1-3 \
+    libfftw3-double3 \
+    libfftw3-single3 \
     && rm -rf /var/lib/apt/lists/*
 
 # --------------------------------------------------------------------------------
@@ -130,7 +132,11 @@ RUN if [ -d /opt/container-assets/tortoise/bin ] && [ -f /opt/container-assets/t
         chmod -R a+rX ${TORTOISE_HOME} && \
         chmod a+rx ${TORTOISE_HOME}/bin/* || true && \
         echo "Installed TORTOISE binaries from /opt/container-assets/tortoise to ${TORTOISE_HOME}" && \
-        ${TORTOISE_HOME}/bin/CreateGradientNonlinearityBMatrix --help >/dev/null 2>&1 || true; \
+        if [ -x ${TORTOISE_HOME}/bin/TORTOISEProcess_cuda ]; then \
+            MISSING_TORTOISE_LIBS="$(LD_LIBRARY_PATH=${TORTOISE_HOME}/lib:${LD_LIBRARY_PATH} ldd ${TORTOISE_HOME}/bin/TORTOISEProcess_cuda | awk '/=> not found/{print $1}' | grep -Ev '^libcuda\.so(\.1)?$' || true)"; \
+            if [ -n "${MISSING_TORTOISE_LIBS}" ]; then echo "Missing TORTOISEProcess_cuda libraries: ${MISSING_TORTOISE_LIBS}" >&2; exit 1; fi; \
+        fi && \
+        (${TORTOISE_HOME}/bin/CreateGradientNonlinearityBMatrix --help >/dev/null 2>&1 || true); \
     else \
         echo "No local TORTOISE binaries found under /opt/container-assets/tortoise/bin; skipping TORTOISE install."; \
     fi
