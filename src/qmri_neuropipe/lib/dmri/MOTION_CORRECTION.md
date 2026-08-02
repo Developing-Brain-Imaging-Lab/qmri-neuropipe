@@ -69,6 +69,14 @@ is set. The older `motion_correction.method: tortoise_v4` plus nested
 runner exports OpenMP, ITK, MKL, and OpenBLAS limits, including the hard
 `OMP_THREAD_LIMIT` ceiling for TORTOISE's internal OpenMP configuration.
 
+All images passed to TORTOISEProcess are staged as uncompressed `.nii` files,
+including up/down DWI data, structural images, and the reorientation target;
+the original `.nii.gz` files are not modified. TORTOISE is also given an
+uncompressed output path. After it finishes successfully, neuropipe atomically
+gzips and validates the image as a 4D NIfTI before exposing the final `.nii.gz`
+to downstream steps. This avoids TORTOISE V4 compressed-NIfTI compatibility and
+output-content/filename-extension mismatches.
+
 When TORTOISE owns a stage, neuropipe skips its duplicate denoising, Gibbs,
 resampling, distortion-correction, and anatomical-coregistration steps. Native
 opposite-PE series remain separate and are passed as `--up_data/--down_data`.

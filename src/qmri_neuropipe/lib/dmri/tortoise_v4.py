@@ -410,16 +410,27 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
 
         force = bool(kwargs.get("force", False))
         if out_file.exists() and out_bval.exists() and out_bvec.exists() and not force:
-            result = DWIFile(
-                entities=entities,
-                img=out_file,
-                json=_nifti_json_path(out_file) if _nifti_json_path(out_file).exists() else input_dwi.json,
-                bval=out_bval,
-                bvec=out_bvec,
-                Delta=getattr(input_dwi, "Delta", None),
-                delta=getattr(input_dwi, "delta", None),
-            )
-            return self._return_result(context, result)
+            try:
+                cached_shape = nib.load(str(out_file)).shape
+                if len(cached_shape) != 4:
+                    raise ValueError(f"expected a 4D DWI, got {cached_shape}")
+            except Exception as exc:
+                self.logger.warning(
+                    "Ignoring unreadable cached TORTOISEV4 output %s: %s",
+                    out_file,
+                    exc,
+                )
+            else:
+                result = DWIFile(
+                    entities=entities,
+                    img=out_file,
+                    json=_nifti_json_path(out_file) if _nifti_json_path(out_file).exists() else input_dwi.json,
+                    bval=out_bval,
+                    bvec=out_bvec,
+                    Delta=getattr(input_dwi, "Delta", None),
+                    delta=getattr(input_dwi, "delta", None),
+                )
+                return self._return_result(context, result)
 
         reference_cfg = dict(self.options.get("reference_selection") or {})
         selection = None

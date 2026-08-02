@@ -11,6 +11,7 @@ from qmri_neuropipe.interfaces.tortoise import (
     _stage_tortoise_v4_input,
     _validate_tortoise_v4_gradients,
     build_tortoise_v4_command,
+    tortoise_v4_motion_eddy,
 )
 from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.lib.dmri.ants_motion import (
@@ -113,6 +114,75 @@ def test_tortoise_v4_command_consumes_explicit_pipeline_sidecars(tmp_path: Path)
     assert command[command.index("--s2v") + 1] == "1"
     assert command[command.index("--denoising") + 1] == "off"
     assert command[command.index("--epi") + 1] == "off"
+
+
+def test_tortoise_v4_writes_nii_then_gzips_requested_output(
+    tmp_path: Path, monkeypatch
+):
+    dwi = _dwi(
+        tmp_path,
+        np.ones((3, 4, 5, 2), dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    requested = tmp_path / "corrected.nii.gz"
+    native = tmp_path / "corrected.nii"
+    structural = tmp_path / "T2w.nii.gz"
+    reorientation = tmp_path / "T1w.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((3, 4, 5)), np.eye(4)), structural)
+    nib.save(nib.Nifti1Image(np.ones((3, 4, 5)), np.eye(4)), reorientation)
+    commands = []
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.tortoise.shutil.which",
+        lambda executable: f"/opt/tortoise/{executable}",
+    )
+
+    def fake_run_cmd(command, **kwargs):
+        commands.append(command)
+        nib.save(
+            nib.Nifti1Image(np.full((3, 4, 5, 2), 7, dtype=np.float32), np.eye(4)),
+            native,
+        )
+        (tmp_path / "corrected.bvecs").write_text("0 0\n0 0\n0 0\n")
+        (tmp_path / "corrected.bvals").write_text("0 1000\n")
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.tortoise.run_cmd", fake_run_cmd
+    )
+
+    result = tortoise_v4_motion_eddy(
+        dwi,
+        requested,
+        structural_file=structural,
+        reorientation_file=reorientation,
+    )
+
+    assert f"--output {native}" in commands[0]
+    assert f"--up_data {tmp_path / 'tortoise_inputs' / 'up.nii'}" in commands[0]
+    assert str(tmp_path / "tortoise_inputs" / "structural_0.nii") in commands[0]
+    assert str(tmp_path / "tortoise_inputs" / "reorientation.nii") in commands[0]
+    assert ".nii.gz" not in commands[0]
+    assert result.img == requested
+    assert requested.exists()
+    assert not native.exists()
+    np.testing.assert_allclose(np.asanyarray(nib.load(requested).dataobj), 7)
+
+
+def test_tortoise_stages_compressed_dwi_as_uncompressed_nifti(tmp_path: Path):
+    source = _dwi(
+        tmp_path,
+        np.arange(120, dtype=np.float32).reshape(3, 4, 5, 2),
+        np.array([0, 1000]),
+    )
+
+    staged = _stage_tortoise_v4_input(source, tmp_path / "staged", "up")
+
+    assert staged.img.name == "up.nii"
+    assert not staged.img.is_symlink()
+    np.testing.assert_allclose(
+        np.asanyarray(nib.load(staged.img).dataobj),
+        np.asanyarray(nib.load(source.img).dataobj),
+    )
 
 
 def test_tortoise_v4_command_exposes_full_pipeline_and_reverse_pe(tmp_path: Path):

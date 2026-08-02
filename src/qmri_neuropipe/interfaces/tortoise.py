@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Union
+import gzip
 import shutil
 import shlex
 import os
@@ -138,6 +139,12 @@ def tortoise_v4_motion_eddy(
     """Run TORTOISEV4 and return its corrected gradients to the pipeline."""
     out_file = Path(out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
+    # TORTOISE V4.1.1 can write an uncompressed NIfTI payload when given a
+    # .nii.gz output name. Always let TORTOISE write native .nii, then create
+    # the requested gzip stream ourselves after the process exits cleanly.
+    tortoise_out = (
+        Path(str(out_file)[:-3]) if str(out_file).endswith(".nii.gz") else out_file
+    )
     executable = executable or ("TORTOISEProcess_cuda" if use_gpu else "TORTOISEProcess")
     if shutil.which(executable) is None:
         raise ProcessingError(
@@ -149,15 +156,45 @@ def tortoise_v4_motion_eddy(
     staged_down = (
         _stage_tortoise_v4_input(down_file, staging_dir, "down") if down_file else None
     )
+    staged_anatomicals: dict[Path, Path] = {}
+
+    def stage_anatomical(source: Path, label: str) -> Path:
+        source = Path(source)
+        key = source.resolve()
+        if key not in staged_anatomicals:
+            staged_anatomicals[key] = _stage_uncompressed_nifti(
+                source, staging_dir / f"{label}.nii"
+            )
+        return staged_anatomicals[key]
+
+    if structural_file:
+        structurals = (
+            list(structural_file)
+            if isinstance(structural_file, (list, tuple))
+            else [structural_file]
+        )
+        staged_structural = [
+            stage_anatomical(Path(path), f"structural_{index}")
+            for index, path in enumerate(structurals)
+        ]
+    else:
+        staged_structural = None
+    staged_reorientation = (
+        stage_anatomical(Path(reorientation_file), "reorientation")
+        if reorientation_file
+        else None
+    )
     _validate_tortoise_v4_gradients(staged_up, "up")
     if staged_down:
         _validate_tortoise_v4_gradients(staged_down, "down")
+    if tortoise_out != out_file:
+        tortoise_out.unlink(missing_ok=True)
     command = build_tortoise_v4_command(
         staged_up,
-        out_file,
+        tortoise_out,
         down_file=staged_down,
-        structural_file=structural_file,
-        reorientation_file=reorientation_file,
+        structural_file=staged_structural,
+        reorientation_file=staged_reorientation,
         b0_id=b0_id,
         correction_mode=correction_mode,
         slice_to_volume=slice_to_volume,
@@ -179,13 +216,46 @@ def tortoise_v4_motion_eddy(
     )
     run_cmd(" ".join(shlex.quote(part) for part in command), label="TORTOISEV4", n_threads=nthreads)
 
-    base = Path(str(out_file).split(".nii", 1)[0])
+    base = Path(str(tortoise_out).split(".nii", 1)[0])
     generated_bvec = Path(f"{base}.bvecs")
     generated_bval = Path(f"{base}.bvals")
-    if not out_file.exists() or not generated_bvec.exists() or not generated_bval.exists():
+    if not tortoise_out.exists() or not generated_bvec.exists() or not generated_bval.exists():
         raise ProcessingError(
             "TORTOISEV4 did not create the requested image and corrected gradient sidecars"
         )
+    if tortoise_out != out_file:
+        compressed_tmp = Path(f"{out_file}.tmp")
+        try:
+            with tortoise_out.open("rb") as source, gzip.open(
+                compressed_tmp, "wb", compresslevel=6
+            ) as destination:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+            compressed_tmp.replace(out_file)
+            image = nib.load(str(out_file))
+            if len(image.shape) != 4:
+                raise ProcessingError(
+                    f"TORTOISEV4 corrected output must be 4D, got {image.shape}"
+                )
+        except Exception as exc:
+            compressed_tmp.unlink(missing_ok=True)
+            out_file.unlink(missing_ok=True)
+            if isinstance(exc, ProcessingError):
+                raise
+            raise ProcessingError(
+                f"Could not gzip or read TORTOISEV4 output {tortoise_out}: {exc}"
+            ) from exc
+        tortoise_out.unlink()
+    else:
+        try:
+            image = nib.load(str(out_file))
+        except Exception as exc:
+            raise ProcessingError(
+                f"Could not read TORTOISEV4 output {out_file}: {exc}"
+            ) from exc
+        if len(image.shape) != 4:
+            raise ProcessingError(
+                f"TORTOISEV4 corrected output must be 4D, got {image.shape}"
+            )
     out_bvec = Path(f"{base}.bvec")
     out_bval = Path(f"{base}.bval")
     shutil.copy2(generated_bvec, out_bvec)
@@ -201,11 +271,44 @@ def tortoise_v4_motion_eddy(
     )
 
 
+def _stage_uncompressed_nifti(source: Path, destination: Path) -> Path:
+    """Stage an image as an uncompressed NIfTI for TORTOISEProcess."""
+    source = Path(source)
+    destination = Path(destination)
+    if not source.exists():
+        raise ProcessingError(f"TORTOISEV4 image input is missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() or destination.is_symlink():
+        destination.unlink()
+
+    try:
+        if str(source).endswith(".nii.gz"):
+            temporary = Path(f"{destination}.tmp")
+            temporary.unlink(missing_ok=True)
+            try:
+                with gzip.open(source, "rb") as compressed, temporary.open("wb") as raw:
+                    shutil.copyfileobj(compressed, raw, length=1024 * 1024)
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+        elif source.suffix.lower() == ".nii":
+            os.symlink(source.resolve(), destination)
+        else:
+            nib.save(nib.load(str(source)), destination)
+        nib.load(str(destination))
+    except Exception as exc:
+        if destination.exists() or destination.is_symlink():
+            destination.unlink()
+        raise ProcessingError(
+            f"Could not stage uncompressed TORTOISEV4 input {source}: {exc}"
+        ) from exc
+    return destination
+
+
 def _stage_tortoise_v4_input(dwi_file: DWIFile, staging_dir: Path, label: str) -> DWIFile:
-    """Give TORTOISE basename-matched JSON without mutating pipeline inputs."""
+    """Give TORTOISE uncompressed NIfTI and basename-matched JSON inputs."""
     staging_dir.mkdir(parents=True, exist_ok=True)
-    suffix = ".nii.gz" if str(dwi_file.img).endswith(".nii.gz") else ".nii"
-    staged_img = staging_dir / f"{label}{suffix}"
+    staged_img = staging_dir / f"{label}.nii"
     if staged_img.exists() or staged_img.is_symlink():
         staged_img.unlink()
     source_image = nib.load(str(dwi_file.img))
@@ -228,7 +331,7 @@ def _stage_tortoise_v4_input(dwi_file: DWIFile, staging_dir: Path, label: str) -
         staged_bval.write_text("0 0\n")
         staged_bvec.write_text("0 0\n0 0\n0 0\n")
     else:
-        os.symlink(Path(dwi_file.img).resolve(), staged_img)
+        _stage_uncompressed_nifti(Path(dwi_file.img), staged_img)
         staged_bval = dwi_file.bval
         staged_bvec = dwi_file.bvec
 
