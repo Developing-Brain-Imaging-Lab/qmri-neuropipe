@@ -91,6 +91,11 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             return Path(configured)
 
         preference = str(coreg.get("reference", "auto")).strip().lower()
+        if preference in {"synthesized", "synthetic", "supersynth"}:
+            if (context or {}).get("tortoise_t2w_source") == "mri_super_synth":
+                selected = (context or {}).get("tortoise_t2w")
+                return Path(selected) if selected else None
+            return None
         key_orders = {
             "t1w": ("t1w_files", "t2w_files", "anatomical_files"),
             "t2w": ("t2w_files", "t1w_files", "anatomical_files"),
@@ -234,9 +239,28 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 return [Path(getattr(values[0], "img", values[0]))]
         return None
 
-    def _select_reorientation(self, context: Optional[dict], structurals) -> Optional[Path]:
+    def _select_reorientation(
+        self,
+        context: Optional[dict],
+        structurals,
+        output_dir: Optional[Path] = None,
+        force: bool = False,
+    ) -> Optional[Path]:
         if not self._coregistration_config().get("enabled", False):
             return None
+        preference = str(
+            self._coregistration_config().get("reference", "auto")
+        ).strip().lower()
+        if preference in {"synthesized", "synthetic", "supersynth"}:
+            selected = self._select_anatomical_reference(context)
+            if selected is None and output_dir is not None:
+                selected = self._synthesize_t2w(context, output_dir, force)
+            if selected is None:
+                raise ValidationError(
+                    "TORTOISEV4 coregistration reference=synthesized requires an "
+                    "anatomical input and t2w_fallback.enabled=true"
+                )
+            return selected
         return self._select_anatomical_reference(context) or (structurals[0] if structurals else None)
 
     def _resolve_output_grid(
@@ -411,7 +435,9 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             b0_id = selection.index
 
         structurals = self._select_structural(context, output_dir, force)
-        reorientation = self._select_reorientation(context, structurals)
+        reorientation = self._select_reorientation(
+            context, structurals, output_dir=output_dir, force=force
+        )
         output_res, output_voxels, orientation = self._resolve_output_grid(
             input_dwi, reorientation
         )

@@ -115,8 +115,10 @@ the highest-priority override.
 `coregistration_to_anatomy.output_resolution: native` passes the original DWI
 voxel sizes and matrix dimensions to TORTOISE. `anatomical` passes the selected
 anatomical reference's voxel sizes, matrix dimensions, and orientation. The
-final-grid reference is selected independently from a synthesized T2w used
-only for EPI correction.
+final-grid reference is selected independently from the T2w used for EPI
+correction. Set `coregistration_to_anatomy.reference: synthesized` to create or
+reuse the SuperSynth T2w for TORTOISE's `--reorientation` target and, with
+`output_resolution: anatomical`, its exact output grid.
 
 TORTOISEV4 does not expose a direct input for an FSL topup field or a
 conventional fieldmap in Hz; use DRBUDDI, Synb0-as-reverse-PE, or T2Wreg.

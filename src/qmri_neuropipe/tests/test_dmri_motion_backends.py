@@ -426,6 +426,54 @@ def test_tortoise_auto_t2w_source_prefers_acquired(tmp_path: Path):
     assert context["tortoise_t2w_source"] == "acquired"
 
 
+def test_tortoise_coregistration_can_target_synthesized_t2w(
+    tmp_path: Path, monkeypatch
+):
+    source = tmp_path / "T1w.nii.gz"
+    acquired = tmp_path / "acquired_T2w.nii.gz"
+    synth = tmp_path / "SynthT2.mgz"
+    nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), np.eye(4)), source)
+    nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), np.eye(4)), acquired)
+    nib.save(nib.MGHImage(np.ones((7, 8, 9), dtype=np.float32), np.eye(4)), synth)
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.tortoise_v4.ensure_supersynth_outputs_for_image",
+        lambda *args, **kwargs: {"synth_t2w": synth},
+    )
+
+    def fake_convert(in_file, out_file):
+        nib.save(nib.Nifti1Image(np.ones((7, 8, 9)), np.eye(4)), out_file)
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.tortoise_v4.freesurfer.mri_convert", fake_convert
+    )
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi="T2Wreg",
+        t2w_fallback={"source": "auto"},
+        coregistration_to_anatomy={
+            "enabled": True,
+            "reference": "synthesized",
+            "output_resolution": "anatomical",
+        },
+    )
+    context = {"t1w_files": [source], "t2w_files": [acquired]}
+    work_dir = tmp_path / "work"
+
+    structurals = step._select_structural(context, work_dir, False)
+    reorientation = step._select_reorientation(
+        context, structurals, output_dir=work_dir, force=False
+    )
+
+    assert structurals == [acquired]
+    assert reorientation and reorientation.name == "desc-supersynth_T2w.nii.gz"
+    assert reorientation != acquired
+    assert context["tortoise_t2w_source"] == "mri_super_synth"
+
+
 def test_tortoise_thread_override_precedes_pipeline_cpu_count(tmp_path: Path):
     config = PipelineConfig(
         bids_dir=tmp_path,

@@ -186,7 +186,7 @@ dmri:
       # selected anatomy's voxel sizes, matrix dimensions, and orientation.
       coregistration_to_anatomy:
         enabled: true
-        reference: auto      # auto, t1w, t2w, or other
+        reference: auto      # auto, t1w, t2w, other, or synthesized
         output_resolution: anatomical  # native or anatomical
 
       # structural_file: /path/to/undistorted_T2w.nii.gz
