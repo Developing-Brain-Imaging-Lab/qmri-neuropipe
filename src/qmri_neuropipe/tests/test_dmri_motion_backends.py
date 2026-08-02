@@ -3,6 +3,7 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import pytest
 
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.types import DWIFile
@@ -359,6 +360,70 @@ def test_tortoise_synthesizes_t2w_when_only_t1w_exists(tmp_path: Path, monkeypat
     assert structurals and structurals[0].name == "desc-supersynth_T2w.nii.gz"
     assert structurals[0].exists()
     assert context["tortoise_t2w_source"] == "mri_super_synth"
+
+
+@pytest.mark.parametrize(
+    ("epi", "extra_options"),
+    [
+        ("T2Wreg", {}),
+        ("DRBUDDI", {"use_for_drbuddi": True}),
+    ],
+)
+def test_tortoise_can_prefer_synthesized_t2w_over_acquired(
+    tmp_path: Path, monkeypatch, epi, extra_options
+):
+    source = tmp_path / "T1w.nii.gz"
+    acquired = tmp_path / "acquired_T2w.nii.gz"
+    synth = tmp_path / "SynthT2.mgz"
+    nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), np.eye(4)), source)
+    nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), np.eye(4)), acquired)
+    nib.save(nib.MGHImage(np.ones((4, 5, 6), dtype=np.float32), np.eye(4)), synth)
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.tortoise_v4.ensure_supersynth_outputs_for_image",
+        lambda *args, **kwargs: {"synth_t2w": synth},
+    )
+
+    def fake_convert(in_file, out_file):
+        nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), np.eye(4)), out_file)
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.tortoise_v4.freesurfer.mri_convert", fake_convert
+    )
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi=epi,
+        t2w_fallback={"source": "synthesized", **extra_options},
+    )
+    context = {"t1w_files": [source], "t2w_files": [acquired]}
+
+    structurals = step._select_structural(context, tmp_path / "work", False)
+
+    assert structurals and structurals[0].name == "desc-supersynth_T2w.nii.gz"
+    assert structurals[0] != acquired
+    assert context["tortoise_t2w_source"] == "mri_super_synth"
+
+
+def test_tortoise_auto_t2w_source_prefers_acquired(tmp_path: Path):
+    acquired = tmp_path / "acquired_T2w.nii.gz"
+    acquired.touch()
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi="DRBUDDI",
+        t2w_fallback={"source": "auto", "use_for_drbuddi": True},
+    )
+    context = {"t2w_files": [acquired]}
+
+    structurals = step._select_structural(context, tmp_path / "work", False)
+
+    assert structurals == [acquired]
+    assert context["tortoise_t2w_source"] == "acquired"
 
 
 def test_tortoise_thread_override_precedes_pipeline_cpu_count(tmp_path: Path):

@@ -110,19 +110,23 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         output_dir: Path,
         force: bool,
     ) -> Optional[Path]:
-        fallback_cfg = self.options.get("t2w_fallback") or {}
-        if fallback_cfg is False or (
-            isinstance(fallback_cfg, dict) and not fallback_cfg.get("enabled", True)
+        configured = self.options.get("t2w_fallback", {})
+        if configured is False or (
+            isinstance(configured, dict) and not configured.get("enabled", True)
         ):
             return None
-        fallback_cfg = dict(fallback_cfg) if isinstance(fallback_cfg, dict) else {}
+        fallback_cfg = dict(configured) if isinstance(configured, dict) else {}
         source_preference = str(fallback_cfg.get("anatomical_input", "auto")).lower()
         source_keys = {
             "t1w": ("t1w_files",),
+            "t2w": ("t2w_files",),
             "other": ("anatomical_files",),
             "anatomical": ("anatomical_files",),
-            "auto": ("t1w_files", "anatomical_files"),
-        }.get(source_preference, ("t1w_files", "anatomical_files"))
+            "auto": ("t1w_files", "anatomical_files", "t2w_files"),
+        }.get(
+            source_preference,
+            ("t1w_files", "anatomical_files", "t2w_files"),
+        )
         source = next(
             (candidate for key in source_keys if (candidate := self._first_path(context, key))),
             None,
@@ -157,6 +161,38 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             context["tortoise_t2w_source"] = "mri_super_synth"
         return synth_t2w
 
+    def _select_t2w_reference(
+        self,
+        context: Optional[dict],
+        output_dir: Path,
+        force: bool,
+    ) -> Optional[Path]:
+        """Select an acquired or SuperSynth T2w for TORTOISE EPI correction."""
+        configured = self.options.get("t2w_fallback", {})
+        fallback_cfg = dict(configured) if isinstance(configured, dict) else {}
+        source = str(fallback_cfg.get("source", "auto")).strip().lower()
+        if source not in {"auto", "acquired", "synthesized"}:
+            raise ValidationError(
+                "TORTOISEV4 t2w_fallback.source must be auto, acquired, or synthesized"
+            )
+
+        acquired = self._first_path(context, "t2w_files")
+        if source in {"auto", "acquired"} and acquired:
+            if context is not None:
+                context["tortoise_t2w"] = acquired
+                context["tortoise_t2w_source"] = "acquired"
+            return acquired
+        if source == "acquired":
+            return None
+        if source == "synthesized" and (
+            configured is False or not fallback_cfg.get("enabled", True)
+        ):
+            raise ValidationError(
+                "TORTOISEV4 t2w_fallback.source=synthesized requires "
+                "t2w_fallback.enabled=true"
+            )
+        return self._synthesize_t2w(context, output_dir, force)
+
     def _select_structural(
         self,
         context: Optional[dict],
@@ -169,14 +205,21 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             return [Path(value) for value in values]
         epi = str(self.options.get("epi", "off")).lower()
         if epi == "t2wreg":
-            acquired_t2w = self._first_path(context, "t2w_files")
-            if acquired_t2w:
-                if context is not None:
-                    context["tortoise_t2w"] = acquired_t2w
-                    context["tortoise_t2w_source"] = "acquired"
-                return [acquired_t2w]
-            synthesized = self._synthesize_t2w(context, output_dir, force)
-            return [synthesized] if synthesized else None
+            selected = self._select_t2w_reference(context, output_dir, force)
+            return [selected] if selected else None
+        t2w_cfg = self.options.get("t2w_fallback")
+        if (
+            epi == "drbuddi"
+            and isinstance(t2w_cfg, dict)
+            and bool(t2w_cfg.get("use_for_drbuddi", False))
+        ):
+            selected = self._select_t2w_reference(context, output_dir, force)
+            if not selected:
+                raise ValidationError(
+                    "TORTOISEV4 DRBUDDI was configured to use a T2w structural "
+                    "image, but no acquired or synthesized T2w is available"
+                )
+            return [selected]
         wants_structural = (
             self.options.get("use_structural", False)
             or bool(self._coregistration_config().get("enabled", False))

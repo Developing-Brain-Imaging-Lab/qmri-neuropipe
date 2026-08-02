@@ -171,14 +171,17 @@ dmri:
         registration: direct
         registration_backend: ants
 
-      # epi: T2Wreg requires a T2w. If one is absent, synthesize it from an
-      # acquired T1w or other anatomical image with mri_super_synth.
+      # Select the T2w supplied to T2Wreg and, optionally, DRBUDDI. "auto"
+      # prefers an acquired T2w and synthesizes one only when needed;
+      # "synthesized" always uses mri_super_synth, even if a T2w was acquired.
       t2w_fallback:
         enabled: true
+        source: auto         # auto, acquired, or synthesized
+        use_for_drbuddi: true
         anatomical_input: auto
         mode: invivo
 
-      # The T2w used by T2Wreg is independent of the requested final grid.
+      # The T2w used by T2Wreg/DRBUDDI is independent of the requested final grid.
       # native reproduces the input DWI lattice; anatomical reproduces the
       # selected anatomy's voxel sizes, matrix dimensions, and orientation.
       coregistration_to_anatomy:

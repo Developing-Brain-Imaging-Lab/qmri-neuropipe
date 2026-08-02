@@ -101,9 +101,16 @@ applied outlier replacement in the output JSON. `error` fails before execution;
 reverse-PE DWI pairs continue to support `repol: true` normally.
 
 `epi: T2Wreg` instead performs TORTOISE's b0-to-undistorted-T2W susceptibility
-correction. When no acquired T2w exists, `t2w_fallback.enabled: true` (the
-default) runs `mri_super_synth` on the selected T1w or other anatomical scan
-and converts its synthesized T2w to NIfTI for TORTOISE.
+correction. `t2w_fallback.source: auto` (the default) prefers an acquired T2w;
+when none exists, it runs `mri_super_synth` on the selected T1w or other
+anatomical scan and converts the synthesized T2w to NIfTI. Set the source to
+`synthesized` to prefer SuperSynth even when an acquired T2w exists, or to
+`acquired` to prohibit synthesis.
+
+For `epi: DRBUDDI`, set `t2w_fallback.use_for_drbuddi: true` to pass the same
+selected T2w as TORTOISE's structural input. This works with native reverse-PE
+data and with a Synb0-generated down image. Explicit `structural_file` remains
+the highest-priority override.
 
 `coregistration_to_anatomy.output_resolution: native` passes the original DWI
 voxel sizes and matrix dimensions to TORTOISE. `anatomical` passes the selected
