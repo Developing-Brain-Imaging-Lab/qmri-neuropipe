@@ -155,6 +155,9 @@ dmri:
       correction_mode: quadratic  # motion, eddy_only, quadratic, or cubic
       slice_to_volume: true
       repol: true
+      # TORTOISE V4.1.1 crashes in final WLLS fitting when repol is combined
+      # with a b0-only Synb0 down series. Safe default: disable.
+      synb0_repol_policy: disable  # disable, error, or allow (unsafe)
       niter: 3
 
       # Native blip-up/blip-down data are selected automatically for DRBUDDI.

@@ -246,6 +246,36 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             raise ValidationError("TORTOISEV4 nthreads must be a positive integer")
         return requested
 
+    def _resolve_repol(self) -> bool:
+        """Avoid TORTOISEV4's final WLLS crash for b0-only Synb0 down data."""
+        requested = bool(self.options.get("repol", False))
+        if not requested or not self.options.get("use_synb0", False):
+            return requested
+
+        policy = str(self.options.get("synb0_repol_policy", "disable")).strip().lower()
+        if policy == "allow":
+            self.logger.warning(
+                "TORTOISEV4 repol is explicitly allowed with b0-only Synb0 down_data; "
+                "TORTOISE V4.1.1 may segfault during final WLLS fitting."
+            )
+            return True
+        if policy == "error":
+            raise ValidationError(
+                "TORTOISEV4 repol with b0-only Synb0 down_data is unsafe because "
+                "TORTOISE V4.1.1 segfaults during final WLLS fitting. Set repol: false, "
+                "use synb0_repol_policy: disable, or use native reverse-PE DWI data."
+            )
+        if policy != "disable":
+            raise ValidationError(
+                "TORTOISEV4 synb0_repol_policy must be disable, error, or allow"
+            )
+        self.logger.warning(
+            "Disabling TORTOISEV4 repol for b0-only Synb0 down_data to avoid the "
+            "TORTOISE V4.1.1 final-WLLS segmentation fault. Configure the pipeline's "
+            "post-TORTOISE outliers step if additional outlier rejection is required."
+        )
+        return False
+
     @staticmethod
     def _prepare_temp_folder(output_dir: Path, force: bool) -> Path:
         """Discard failed TORTOISE state when an explicit rerun is requested."""
@@ -356,6 +386,8 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             output_combination = "JacSep"
         requested_threads = self._resolve_nthreads(kwargs.get("nthreads"))
         self._resolved_nthreads = requested_threads
+        effective_repol = self._resolve_repol()
+        self._effective_repol = effective_repol
         temp_folder = self._prepare_temp_folder(output_dir, force)
         result = tortoise_v4_motion_eddy(
             input_dwi,
@@ -366,7 +398,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             b0_id=b0_id,
             correction_mode=self.options.get("correction_mode", "quadratic"),
             slice_to_volume=bool(self.options.get("slice_to_volume", False)),
-            repol=bool(self.options.get("repol", False)),
+            repol=effective_repol,
             niter=int(self.options.get("niter", 3)),
             denoising=self.options.get("denoising", "off"),
             gibbs=bool(self.options.get("gibbs", False)),
@@ -407,6 +439,10 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         )
         payload["TORTOISEThreads"] = int(
             getattr(self, "_resolved_nthreads", self.config.n_cpus)
+        )
+        payload["OutlierReplacementRequested"] = bool(self.options.get("repol", False))
+        payload["OutlierReplacementApplied"] = bool(
+            getattr(self, "_effective_repol", self.options.get("repol", False))
         )
         if selection:
             payload["MotionCorrectionReferenceVolume"] = selection.index

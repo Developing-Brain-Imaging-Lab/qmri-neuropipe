@@ -387,3 +387,29 @@ def test_forced_tortoise_rerun_discards_failed_temp_state(tmp_path: Path):
 
     assert resolved == temp_folder
     assert not temp_folder.exists()
+
+
+def test_tortoise_disables_repol_for_synb0_b0_down_by_default(tmp_path: Path):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        repol=True,
+        use_synb0=True,
+    )
+
+    assert step._resolve_repol() is False
+
+
+def test_tortoise_keeps_repol_for_native_reverse_pe(tmp_path: Path):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        repol=True,
+        use_reverse_pe=True,
+    )
+
+    assert step._resolve_repol() is True

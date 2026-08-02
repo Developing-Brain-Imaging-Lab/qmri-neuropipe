@@ -48,6 +48,7 @@ dmri:
       correction_mode: quadratic
       slice_to_volume: true
       repol: true
+      synb0_repol_policy: disable
       niter: 3
       nthreads: 8
       epi: DRBUDDI
@@ -91,6 +92,13 @@ The presence of `synb0` enables it unless `enabled: false` is set, implies
 `epi: DRBUDDI`, and automatically uses `JacSep`, returning only the corrected
 acquired up series to downstream modeling rather than concatenating synthetic
 b0 volumes.
+
+TORTOISE V4.1.1 segfaults in its final WLLS outlier model when `repol` is used
+with a b0-only Synb0 down series. The adapter therefore defaults
+`synb0_repol_policy` to `disable`, logs the change, and records requested versus
+applied outlier replacement in the output JSON. `error` fails before execution;
+`allow` preserves the raw TORTOISE behavior for testing newer releases. Native
+reverse-PE DWI pairs continue to support `repol: true` normally.
 
 `epi: T2Wreg` instead performs TORTOISE's b0-to-undistorted-T2W susceptibility
 correction. When no acquired T2w exists, `t2w_fallback.enabled: true` (the
