@@ -120,13 +120,30 @@ selected T2w as TORTOISE's structural input. This works with native reverse-PE
 data and with a Synb0-generated down image. Explicit `structural_file` remains
 the highest-priority override.
 
+Any acquired or synthesized anatomy passed to TORTOISE can be skull-stripped
+privately with `structural_brain_masking.enabled: true`. `method` accepts the
+pipeline's structural masking backends, including `synthstrip`, and `apply_to`
+can be `structural`, `reorientation`, `all`, or a list. The source image remains
+unchanged, image geometry is verified after masking, and the generated brain
+image and mask are recorded in the processing context. For example:
+
+```yaml
+structural_brain_masking:
+  enabled: true
+  method: synthstrip
+  apply_to: [structural, reorientation]
+```
+
 `coregistration_to_anatomy.output_resolution: native` passes the original DWI
 voxel sizes and matrix dimensions to TORTOISE. `anatomical` passes the selected
 anatomical reference's voxel sizes, matrix dimensions, and orientation. The
 final-grid reference is selected independently from the T2w used for EPI
-correction. Set `coregistration_to_anatomy.reference: synthesized` to create or
-reuse the SuperSynth T2w for TORTOISE's `--reorientation` target and, with
-`output_resolution: anatomical`, its exact output grid.
+correction when an explicit reference is requested. With `reference: auto`, the
+acquired or synthesized T2w selected for TORTOISE EPI correction is preferred
+for `--reorientation`; only when no selected T2w exists does it fall back to the
+other anatomical inputs. Set `reference: synthesized` to require creation or
+reuse of the SuperSynth T2w. With `output_resolution: anatomical`, the selected
+reference also defines the exact output grid.
 
 TORTOISEV4 does not expose a direct input for an FSL topup field or a
 conventional fieldmap in Hz; use DRBUDDI, Synb0-as-reverse-PE, or T2Wreg.

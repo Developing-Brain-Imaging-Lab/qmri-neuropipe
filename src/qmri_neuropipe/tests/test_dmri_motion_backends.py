@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from qmri_neuropipe.core.config import PipelineConfig
-from qmri_neuropipe.core.types import DWIFile
+from qmri_neuropipe.core.types import DWIFile, ImageFile
 from qmri_neuropipe.interfaces.tortoise import (
     _stage_tortoise_v4_input,
     _validate_tortoise_v4_gradients,
@@ -159,8 +159,8 @@ def test_tortoise_v4_writes_nii_then_gzips_requested_output(
 
     assert f"--output {native}" in commands[0]
     assert f"--up_data {tmp_path / 'tortoise_inputs' / 'up.nii'}" in commands[0]
-    assert str(tmp_path / "tortoise_inputs" / "structural_0.nii") in commands[0]
-    assert str(tmp_path / "tortoise_inputs" / "reorientation.nii") in commands[0]
+    assert str(tmp_path / "tortoise_inputs" / "structural_0_T2w.nii") in commands[0]
+    assert str(tmp_path / "tortoise_inputs" / "reorientation_T1w.nii") in commands[0]
     assert ".nii.gz" not in commands[0]
     assert result.img == requested
     assert requested.exists()
@@ -421,14 +421,22 @@ def test_tortoise_synthesizes_t2w_when_only_t1w_exists(tmp_path: Path, monkeypat
         config_data={},
     )
     step = TortoiseV4CorrectionStep(
-        config, logging.getLogger(__name__), None, epi="T2Wreg"
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi="T2Wreg",
+        coregistration_to_anatomy={"enabled": True, "reference": "auto"},
     )
     context = {"t1w_files": [source]}
 
     structurals = step._select_structural(context, tmp_path / "work", False)
+    reorientation = step._select_reorientation(
+        context, structurals, output_dir=tmp_path / "work", force=False
+    )
 
     assert structurals and structurals[0].name == "desc-supersynth_T2w.nii.gz"
     assert structurals[0].exists()
+    assert reorientation == structurals[0]
     assert context["tortoise_t2w_source"] == "mri_super_synth"
 
 
@@ -542,6 +550,70 @@ def test_tortoise_coregistration_can_target_synthesized_t2w(
     assert reorientation and reorientation.name == "desc-supersynth_T2w.nii.gz"
     assert reorientation != acquired
     assert context["tortoise_t2w_source"] == "mri_super_synth"
+
+
+def test_tortoise_can_skull_strip_structural_and_reorientation_once(
+    tmp_path: Path, monkeypatch
+):
+    structural = tmp_path / "desc-supersynth_T2w.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((5, 6, 7)), np.eye(4)), structural)
+    calls = []
+
+    class FakeMaskingStep:
+        def __init__(self, *args, **kwargs):
+            calls.append(("init", kwargs))
+
+        def __call__(self, image, output_dir, **kwargs):
+            calls.append(("run", Path(image.img), Path(output_dir), kwargs))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            brain = output_dir / "masked.nii.gz"
+            mask = output_dir / "mask.nii.gz"
+            source = nib.load(image.img)
+            nib.save(
+                nib.Nifti1Image(np.asanyarray(source.dataobj), source.affine, source.header),
+                brain,
+            )
+            nib.save(
+                nib.Nifti1Image(
+                    np.ones(source.shape, dtype=np.uint8), source.affine, source.header
+                ),
+                mask,
+            )
+            return ImageFile(img=brain, entities={}), ImageFile(img=mask, entities={})
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.tortoise_v4.BrainMaskingStep", FakeMaskingStep
+    )
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        structural_brain_masking={
+            "enabled": True,
+            "method": "synthstrip",
+            "apply_to": ["structural", "reorientation"],
+        },
+    )
+    context = {}
+
+    masked_structurals, masked_reorientation = step._mask_selected_structurals(
+        context,
+        [structural],
+        structural,
+        tmp_path / "work",
+        force=False,
+        nthreads=4,
+    )
+
+    run_calls = [call for call in calls if call[0] == "run"]
+    assert len(run_calls) == 1
+    assert masked_structurals == [masked_reorientation]
+    assert masked_reorientation != structural
+    assert {record["role"] for record in context["tortoise_structural_masking"]} == {
+        "structural",
+        "reorientation",
+    }
 
 
 def test_tortoise_thread_override_precedes_pipeline_cpu_count(tmp_path: Path):

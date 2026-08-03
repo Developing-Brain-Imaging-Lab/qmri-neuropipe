@@ -11,12 +11,13 @@ from typing import Optional
 import nibabel as nib
 
 from ...core import BaseProcessingStep, ProcessingError, ValidationError
-from ...core.types import DWIFile
+from ...core.types import DWIFile, ImageFile
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
 from ...interfaces.tortoise import tortoise_v4_motion_eddy
 from ...io.dmri.bids import infer_phase_encoding_direction
 from ..anat.super_synth import ensure_supersynth_outputs_for_image
+from ..common.mask import BrainMaskingStep
 from .b0_reference import select_optimal_b0
 
 
@@ -91,6 +92,10 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             return Path(configured)
 
         preference = str(coreg.get("reference", "auto")).strip().lower()
+        if preference == "auto":
+            selected = (context or {}).get("tortoise_t2w")
+            if selected:
+                return Path(selected)
         if preference in {"synthesized", "synthetic", "supersynth"}:
             if (context or {}).get("tortoise_t2w_source") == "mri_super_synth":
                 selected = (context or {}).get("tortoise_t2w")
@@ -263,6 +268,180 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             return selected
         return self._select_anatomical_reference(context) or (structurals[0] if structurals else None)
 
+    def _structural_masking_config(self) -> dict:
+        """Return normalized TORTOISE structural skull-stripping options."""
+        configured = self.options.get(
+            "structural_brain_masking",
+            self.options.get("structural_masking", {}),
+        )
+        if configured is True:
+            result = {"enabled": True}
+        elif isinstance(configured, dict):
+            result = dict(configured)
+        else:
+            result = {"enabled": False}
+        result.setdefault("enabled", bool(configured))
+        result.setdefault("method", "synthstrip")
+        result.setdefault("apply_to", "all")
+        return result
+
+    def _cached_structural_masking_matches(self, sidecar: Path) -> bool:
+        """Reject a cached correction when its structural masking differs."""
+        config = self._structural_masking_config()
+        enabled = bool(config.get("enabled", False))
+        try:
+            payload = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        cached_enabled = bool(
+            payload.get(
+                "StructuralBrainMaskingConfigured",
+                payload.get("StructuralBrainMasking", False),
+            )
+        )
+        if cached_enabled != enabled:
+            return False
+        if not enabled:
+            return True
+        requested_method = str(config.get("method", "synthstrip")).strip().lower()
+        requested_targets = sorted(self._structural_masking_targets(config))
+        return (
+            str(payload.get("StructuralBrainMaskingMethod", "")).lower()
+            == requested_method
+            and sorted(payload.get("StructuralBrainMaskingTargets", []))
+            == requested_targets
+        )
+
+    @staticmethod
+    def _structural_masking_targets(config: dict) -> set[str]:
+        requested = config.get("apply_to", "all")
+        values = requested if isinstance(requested, (list, tuple, set)) else [requested]
+        targets: set[str] = set()
+        for value in values:
+            normalized = str(value).strip().lower().replace("-", "_")
+            if normalized in {"all", "both"}:
+                targets.update({"structural", "reorientation"})
+            elif normalized in {
+                "structural",
+                "distortion",
+                "distortion_correction",
+                "drbuddi",
+                "t2wreg",
+            }:
+                targets.add("structural")
+            elif normalized in {
+                "reorientation",
+                "coregistration",
+                "coregistration_to_anatomy",
+                "anatomy",
+            }:
+                targets.add("reorientation")
+            else:
+                raise ValidationError(
+                    "TORTOISEV4 structural_brain_masking.apply_to entries must be "
+                    "all, structural, or reorientation"
+                )
+        return targets
+
+    def _mask_selected_structurals(
+        self,
+        context: Optional[dict],
+        structurals: Optional[list[Path]],
+        reorientation: Optional[Path],
+        output_dir: Path,
+        *,
+        force: bool,
+        nthreads: int,
+    ) -> tuple[Optional[list[Path]], Optional[Path]]:
+        """Create private skull-stripped copies for TORTOISE structural roles."""
+        masking_cfg = self._structural_masking_config()
+        if not masking_cfg.get("enabled", False):
+            self._structural_masking_applied = []
+            return structurals, reorientation
+
+        targets = self._structural_masking_targets(masking_cfg)
+        method = str(masking_cfg.get("method", "synthstrip")).strip().lower()
+        try:
+            mask_threads = int(masking_cfg.get("nthreads", nthreads))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                "TORTOISEV4 structural_brain_masking.nthreads must be positive"
+            ) from exc
+        if mask_threads < 1:
+            raise ValidationError(
+                "TORTOISEV4 structural_brain_masking.nthreads must be positive"
+            )
+        masker = BrainMaskingStep(
+            self.config,
+            self.logger,
+            self.provenance,
+            method=method,
+            nthreads=mask_threads,
+            apply_mask=True,
+            use_gpu=masking_cfg.get("use_gpu"),
+        )
+        cache: dict[Path, tuple[Path, Path]] = {}
+        records: list[dict] = []
+
+        def masked(path: Path, role: str, index: int = 0) -> Path:
+            source = Path(path)
+            key = source.resolve()
+            if key not in cache:
+                destination = (
+                    output_dir
+                    / "tortoise_structural_masking"
+                    / f"{role}_{index}"
+                )
+                brain, mask = masker(
+                    ImageFile(img=source, entities={}),
+                    output_dir=destination,
+                    return_mask=True,
+                    force=force,
+                    nthreads=mask_threads,
+                )
+                brain_path = Path(getattr(brain, "img", brain))
+                mask_path = Path(getattr(mask, "img", mask))
+                source_grid = _image_grid(source)
+                brain_grid = _image_grid(brain_path)
+                if source_grid != brain_grid:
+                    raise ProcessingError(
+                        "Structural skull stripping changed image geometry: "
+                        f"{source_grid} -> {brain_grid}"
+                    )
+                cache[key] = (brain_path, mask_path)
+            brain_path, mask_path = cache[key]
+            records.append(
+                {
+                    "role": role,
+                    "source": source,
+                    "masked": brain_path,
+                    "mask": mask_path,
+                    "method": method,
+                }
+            )
+            self.logger.info(
+                "Using skull-stripped TORTOISEV4 %s (%s): %s",
+                role,
+                method,
+                brain_path,
+            )
+            return brain_path
+
+        masked_structurals = structurals
+        if structurals and "structural" in targets:
+            masked_structurals = [
+                masked(path, "structural", index)
+                for index, path in enumerate(structurals)
+            ]
+        masked_reorientation = reorientation
+        if reorientation and "reorientation" in targets:
+            masked_reorientation = masked(reorientation, "reorientation")
+
+        self._structural_masking_applied = records
+        if context is not None:
+            context["tortoise_structural_masking"] = records
+        return masked_structurals, masked_reorientation
+
     def _resolve_output_grid(
         self,
         input_dwi: DWIFile,
@@ -414,6 +593,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 cached_shape = nib.load(str(out_file)).shape
                 if len(cached_shape) != 4:
                     raise ValueError(f"expected a 4D DWI, got {cached_shape}")
+                if not self._cached_structural_masking_matches(
+                    _nifti_json_path(out_file)
+                ):
+                    raise ValueError(
+                        "structural brain-masking configuration changed"
+                    )
             except Exception as exc:
                 self.logger.warning(
                     "Ignoring unreadable cached TORTOISEV4 output %s: %s",
@@ -449,6 +634,25 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         reorientation = self._select_reorientation(
             context, structurals, output_dir=output_dir, force=force
         )
+        if structurals:
+            self.logger.info(
+                "TORTOISEV4 structural input selected (%s): %s",
+                (context or {}).get("tortoise_t2w_source", "configured/anatomical"),
+                ", ".join(str(path) for path in structurals),
+            )
+        if reorientation:
+            self.logger.info(
+                "TORTOISEV4 reorientation reference selected: %s", reorientation
+            )
+        requested_threads = self._resolve_nthreads(kwargs.get("nthreads"))
+        structurals, reorientation = self._mask_selected_structurals(
+            context,
+            structurals,
+            reorientation,
+            output_dir,
+            force=force,
+            nthreads=requested_threads,
+        )
         output_res, output_voxels, orientation = self._resolve_output_grid(
             input_dwi, reorientation
         )
@@ -464,7 +668,6 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             # Keep the synthetic reverse-PE b0 out of the downstream DWI. In
             # JacSep mode TORTOISE writes the corrected up series at --output.
             output_combination = "JacSep"
-        requested_threads = self._resolve_nthreads(kwargs.get("nthreads"))
         self._resolved_nthreads = requested_threads
         effective_repol = self._resolve_repol()
         self._effective_repol = effective_repol
@@ -517,6 +720,22 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         payload["CoregistrationToAnatomy"] = bool(
             self._coregistration_config().get("enabled", False)
         )
+        masking_cfg = self._structural_masking_config()
+        masking_configured = bool(masking_cfg.get("enabled", False))
+        masking_records = getattr(self, "_structural_masking_applied", [])
+        payload["StructuralBrainMaskingConfigured"] = masking_configured
+        payload["StructuralBrainMasking"] = bool(masking_records)
+        if masking_configured:
+            payload["StructuralBrainMaskingMethod"] = str(
+                masking_cfg.get("method", "synthstrip")
+            ).strip().lower()
+            payload["StructuralBrainMaskingTargets"] = sorted(
+                self._structural_masking_targets(masking_cfg)
+            )
+        if masking_records:
+            payload["StructuralBrainMaskingRoles"] = sorted(
+                {record["role"] for record in masking_records}
+            )
         payload["TORTOISEThreads"] = int(
             getattr(self, "_resolved_nthreads", self.config.n_cpus)
         )

@@ -4,6 +4,7 @@ import gzip
 import shutil
 import shlex
 import os
+import re
 import nibabel as nib
 import numpy as np
 from ..core.run import run_cmd
@@ -162,8 +163,14 @@ def tortoise_v4_motion_eddy(
         source = Path(source)
         key = source.resolve()
         if key not in staged_anatomicals:
+            source_name = source.name
+            for suffix in (".nii.gz", ".nii", ".mgz"):
+                if source_name.lower().endswith(suffix):
+                    source_name = source_name[: -len(suffix)]
+                    break
+            source_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", source_name)
             staged_anatomicals[key] = _stage_uncompressed_nifti(
-                source, staging_dir / f"{label}.nii"
+                source, staging_dir / f"{label}_{source_name}.nii"
             )
         return staged_anatomicals[key]
 

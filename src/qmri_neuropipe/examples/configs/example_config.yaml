@@ -181,11 +181,21 @@ dmri:
         anatomical_input: auto
         mode: invivo
 
+      # Optionally skull-strip private copies of any acquired or synthesized
+      # structural images supplied to TORTOISE. The original files are retained.
+      structural_brain_masking:
+        enabled: false
+        method: synthstrip
+        apply_to: all        # all, structural, reorientation, or a list
+        # use_gpu: true
+        # nthreads: 8
+
       # The T2w used by T2Wreg/DRBUDDI is independent of the requested final grid.
       # native reproduces the input DWI lattice; anatomical reproduces the
       # selected anatomy's voxel sizes, matrix dimensions, and orientation.
       coregistration_to_anatomy:
         enabled: true
+        # auto reuses the acquired/synthesized T2w selected above when available.
         reference: auto      # auto, t1w, t2w, other, or synthesized
         output_resolution: anatomical  # native or anatomical
 
