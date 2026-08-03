@@ -117,8 +117,11 @@ anatomical scan and converts the synthesized T2w to NIfTI. Set the source to
 
 For `epi: DRBUDDI`, set `t2w_fallback.use_for_drbuddi: true` to pass the same
 selected T2w as TORTOISE's structural input. This works with native reverse-PE
-data and with a Synb0-generated down image. Explicit `structural_file` remains
-the highest-priority override.
+data and with a Synb0-generated down image. If no acquired or synthesized T2w
+is available, DRBUDDI uses the selected T1w instead; if neither structural is
+available, correction continues without the optional structural input.
+Explicit `structural_file` remains the highest-priority override. `T2Wreg`
+remains strict and still requires an undistorted T2-weighted image.
 
 Any acquired or synthesized anatomy passed to TORTOISE can be skull-stripped
 privately with `structural_brain_masking.enabled: true`. `method` accepts the

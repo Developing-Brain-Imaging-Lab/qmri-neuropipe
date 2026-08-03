@@ -504,6 +504,52 @@ def test_tortoise_auto_t2w_source_prefers_acquired(tmp_path: Path):
     assert context["tortoise_t2w_source"] == "acquired"
 
 
+def test_tortoise_drbuddi_uses_t1w_when_t2w_is_unavailable(tmp_path: Path, caplog):
+    t1w = tmp_path / "T1w.nii.gz"
+    t1w.touch()
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi="DRBUDDI",
+        t2w_fallback={
+            "enabled": False,
+            "source": "acquired",
+            "use_for_drbuddi": True,
+        },
+    )
+    context = {"t1w_files": [t1w]}
+
+    with caplog.at_level(logging.WARNING):
+        structurals = step._select_structural(context, tmp_path / "work", False)
+
+    assert structurals == [t1w]
+    assert context["tortoise_structural_source"] == "t1w_fallback"
+    assert "using the T1w structural instead" in caplog.text
+
+
+def test_tortoise_drbuddi_can_run_without_optional_structural(tmp_path: Path, caplog):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        epi="DRBUDDI",
+        t2w_fallback={
+            "enabled": False,
+            "source": "acquired",
+            "use_for_drbuddi": True,
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        structurals = step._select_structural({}, tmp_path / "work", False)
+
+    assert structurals is None
+    assert "continuing without the optional structural input" in caplog.text
+
+
 def test_tortoise_coregistration_can_target_synthesized_t2w(
     tmp_path: Path, monkeypatch
 ):

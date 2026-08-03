@@ -224,12 +224,30 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             and bool(t2w_cfg.get("use_for_drbuddi", False))
         ):
             selected = self._select_t2w_reference(context, output_dir, force)
-            if not selected:
-                raise ValidationError(
-                    "TORTOISEV4 DRBUDDI was configured to use a T2w structural "
-                    "image, but no acquired or synthesized T2w is available"
+            if selected:
+                return [selected]
+
+            # DRBUDDI can use an anatomical structural for additional guidance;
+            # unlike T2Wreg, that structural does not have to be T2-weighted.
+            # Preserve the preferred T2w path above, but do not discard a valid
+            # T1w (or abort an otherwise usable reverse-PE correction) when no
+            # acquired/synthesized T2w is available.
+            t1w = self._first_path(context, "t1w_files")
+            if t1w:
+                self.logger.warning(
+                    "No acquired or synthesized T2w is available for TORTOISEV4 "
+                    "DRBUDDI; using the T1w structural instead: %s",
+                    t1w,
                 )
-            return [selected]
+                if context is not None:
+                    context["tortoise_structural_source"] = "t1w_fallback"
+                return [t1w]
+
+            self.logger.warning(
+                "No T2w or T1w structural is available for TORTOISEV4 DRBUDDI; "
+                "continuing without the optional structural input"
+            )
+            return None
         wants_structural = (
             self.options.get("use_structural", False)
             or bool(self._coregistration_config().get("enabled", False))
@@ -637,7 +655,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         if structurals:
             self.logger.info(
                 "TORTOISEV4 structural input selected (%s): %s",
-                (context or {}).get("tortoise_t2w_source", "configured/anatomical"),
+                (context or {}).get(
+                    "tortoise_t2w_source",
+                    (context or {}).get(
+                        "tortoise_structural_source", "configured/anatomical"
+                    ),
+                ),
                 ", ".join(str(path) for path in structurals),
             )
         if reorientation:
