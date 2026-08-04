@@ -134,13 +134,14 @@ class ExecutionEngine:
         try:
             from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
             from qmri_neuropipe.lib.dmri.topup import TopupStep
+            from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
             from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
             from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
             from qmri_neuropipe.lib.dmri.merge import MergeStep
             from qmri_neuropipe.lib.dmri.drbuddi import NativeDrbuddiStep
             from qmri_neuropipe.lib.dmri.tortoise_v4 import TortoiseV4CorrectionStep
             
-            return (Synb0EstimationStep, TopupStep, GradientCheckStep, DMRIReorientStep, MergeStep, NativeDrbuddiStep, TortoiseV4CorrectionStep)
+            return (Synb0EstimationStep, TopupStep, ApplyTopupStep, GradientCheckStep, DMRIReorientStep, MergeStep, NativeDrbuddiStep, TortoiseV4CorrectionStep)
         except ImportError as e:
             self.logger.warning(f"Could not import step types: {e}")
             return tuple()

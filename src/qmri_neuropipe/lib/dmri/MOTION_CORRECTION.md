@@ -163,3 +163,41 @@ reference also defines the exact output grid.
 
 TORTOISEV4 does not expose a direct input for an FSL topup field or a
 conventional fieldmap in Hz; use DRBUDDI, Synb0-as-reverse-PE, or T2Wreg.
+
+## Post-TORTOISE Synb0 and Topup
+
+For a single acquired phase-encoding direction, neuropipe can let TORTOISE own
+denoising, Gibbs correction, motion/eddy correction, slice-to-volume motion,
+and outlier replacement, then run Synb0 and FSL Topup afterward:
+
+```yaml
+dmri:
+  preprocessing:
+    tortoise_v4:
+      denoising: for_final
+      gibbs: true
+      drift: linear
+      correction_mode: quadratic
+      slice_to_volume: true
+      repol: true
+      epi: off
+
+    distcorr:
+      method: synb0
+      application: post_tortoise
+      apply_method: jac
+      synb0:
+        registration_backend: ants
+```
+
+The resulting order is `TORTOISEProcess`, Synb0 estimation from the corrected
+DWI, `topup`, and `applytopup`. The acquired b0 is deliberately the first Topup
+input and `applytopup` uses acquisition row 1. TORTOISE's corrected b-values and
+b-vectors are retained because susceptibility unwarping does not add a rigid
+gradient rotation.
+
+This mode performs a second interpolation during `applytopup`. It requires
+`tortoise_v4.epi: off`, exactly one post-TORTOISE DWI stream, and an anatomical
+image for Synb0. Native reverse-PE input is not yet supported in this mode; it
+requires separately processing and retaining aligned up/down TORTOISE streams
+before Topup estimation and application.

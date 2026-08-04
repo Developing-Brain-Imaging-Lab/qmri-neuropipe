@@ -51,6 +51,7 @@ def report_preprocessing_step(
     from qmri_neuropipe.lib.dmri.eddy import EddyCorrectionStep
     from qmri_neuropipe.lib.dmri.qc import EddyQuadStep
     from qmri_neuropipe.lib.dmri.topup import TopupStep
+    from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
     from qmri_neuropipe.lib.dmri.drbuddi import NativeDrbuddiStep
     from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
     from qmri_neuropipe.lib.dmri.grad_check import GradientCheckStep
@@ -109,6 +110,9 @@ def report_preprocessing_step(
         
     elif isinstance(step, TopupStep):
         details = {"Method": "Topup (FSL)"}
+
+    elif isinstance(step, ApplyTopupStep):
+        details = {"Method": f"ApplyTopup (FSL, {step.method})"}
 
     elif isinstance(step, NativeDrbuddiStep):
         details = {

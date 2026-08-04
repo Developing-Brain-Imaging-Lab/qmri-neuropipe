@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, Optional, Union
 import json
 import logging
 import os
+import shlex
 import subprocess
 
 import nibabel as nib
@@ -458,6 +459,58 @@ def topup(
 
     run_cmd(" ".join(cmd_parts), label="topup")
     return out_base
+
+
+def applytopup(
+    in_file: ImageLike | Path,
+    out_file: Path,
+    *,
+    topup_base: Path | str,
+    datain: Path,
+    in_index: int = 1,
+    method: str = "jac",
+    force: bool = False,
+) -> Path:
+    """Apply an existing FSL topup field to a 3D or 4D image.
+
+    ``in_index`` is one-based and identifies the row in ``datain`` describing
+    the phase-encoding direction of ``in_file``.  The post-TORTOISE Synb0
+    workflow deliberately puts the acquired b0 first, so it uses row 1.
+    """
+    in_path = extract_image_path(in_file)
+    out_path = ensure_dir(out_file)
+    base = Path(topup_base)
+    datain = Path(datain)
+
+    if out_path.exists() and not force:
+        return out_path
+    if not in_path.exists():
+        raise RuntimeError(f"applytopup input does not exist: {in_path}")
+    if not datain.exists():
+        raise RuntimeError(f"applytopup acquisition parameters do not exist: {datain}")
+    if int(in_index) < 1:
+        raise ValueError("applytopup in_index must be one-based and positive")
+
+    fieldcoef = base.with_name(base.name + "_fieldcoef.nii.gz")
+    movpar = base.with_name(base.name + "_movpar.txt")
+    if not fieldcoef.exists() or not movpar.exists():
+        raise RuntimeError(
+            f"applytopup requires topup outputs {fieldcoef.name} and {movpar.name}"
+        )
+
+    cmd_parts = [
+        "applytopup",
+        f"--imain={in_path}",
+        f"--datain={datain}",
+        f"--inindex={int(in_index)}",
+        f"--topup={base}",
+        f"--out={out_path}",
+        f"--method={method}",
+    ]
+    run_cmd(" ".join(shlex.quote(part) for part in cmd_parts), label="applytopup")
+    if not out_path.exists():
+        raise RuntimeError(f"applytopup did not create its requested output: {out_path}")
+    return out_path
 
 
 def eddy_correct(in_file: DWIFile, out_file: Path) -> DWIFile:

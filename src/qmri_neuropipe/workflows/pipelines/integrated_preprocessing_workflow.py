@@ -19,6 +19,7 @@ from qmri_neuropipe.lib.common.gibbs import GibbsUnringingStep
 from qmri_neuropipe.lib.dmri.eddy import EddyCorrectionStep
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
 from qmri_neuropipe.lib.dmri.topup import TopupStep
+from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
 from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
 from qmri_neuropipe.lib.dmri.grad_nonlin import (
     TortoiseGradNonlinCorrectStep,
@@ -77,6 +78,16 @@ def _tortoise_coregistration_enabled(options: dict) -> bool:
     )
 
 
+def _post_tortoise_distcorr_requested(dmri_cfg: dict) -> bool:
+    """Return whether distortion correction was explicitly placed after TORTOISE."""
+    distcorr_cfg = dmri_cfg.get('distcorr', {}) or {}
+    application = str(distcorr_cfg.get('application', '')).strip().lower()
+    application = application.replace('-', '_')
+    return application in {'post_tortoise', 'after_tortoise'} or bool(
+        distcorr_cfg.get('after_tortoise', False)
+    )
+
+
 class PreprocessingWorkflow(BaseWorkflow):
     def recover_intermediates(self, work_dir: Path, output_dir: Path):
         """
@@ -130,6 +141,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         self._add_denoising_step(dmri_cfg)
         self._add_gibbs_step(dmri_cfg)
         self._add_motion_correction_step(dmri_cfg)
+        self._add_post_tortoise_distortion_correction_steps(dmri_cfg, context)
         self._add_post_eddy_distortion_refinement_step(dmri_cfg, context)
         self._add_automated_outlier_removal_step(dmri_cfg)
         self._add_bias_correction_step(dmri_cfg)
@@ -197,6 +209,9 @@ class PreprocessingWorkflow(BaseWorkflow):
 
     def _add_distortion_correction_steps(self, dmri_cfg: dict, context: dict):
         """Add distortion correction steps based on configuration."""
+        if _post_tortoise_distcorr_requested(dmri_cfg):
+            self.logger.info("Deferring susceptibility correction until after TORTOISEV4")
+            return
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         dist_method = distcorr_cfg.get('method', 'none')
         fallback = distcorr_cfg.get('fallback', False)
@@ -275,6 +290,62 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         if dist_method == 'topup+drbuddi':
             context['do_drbuddi'] = True
+
+    def _add_post_tortoise_distortion_correction_steps(self, dmri_cfg: dict, context: dict):
+        """Add the opt-in TORTOISE -> Synb0 -> topup -> applytopup chain."""
+        if not _post_tortoise_distcorr_requested(dmri_cfg):
+            return
+
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        distcorr_cfg = dmri_cfg.get('distcorr', {}) or {}
+        method = str(distcorr_cfg.get('method', 'none')).lower()
+        epi = str(tortoise_cfg.get('epi', 'off')).lower()
+
+        if not tortoise_enabled:
+            raise ValueError("distcorr.application=post_tortoise requires TORTOISEV4")
+        if epi != 'off':
+            raise ValueError(
+                "Post-TORTOISE Topup requires tortoise_v4.epi: off so susceptibility "
+                "distortion is not corrected twice"
+            )
+        if method != 'synb0':
+            raise ValueError(
+                "Post-TORTOISE distortion correction currently supports only "
+                "distcorr.method: synb0; native reverse-PE support requires a future "
+                "two-stream TORTOISE workflow"
+            )
+        if tortoise_cfg.get('use_synb0') or tortoise_cfg.get('use_reverse_pe'):
+            raise ValueError(
+                "Configure Synb0 under distcorr for the post-TORTOISE workflow; "
+                "do not enable tortoise_v4.use_synb0 or use_reverse_pe"
+            )
+        if context.get('topup_groups'):
+            raise ValueError(
+                "Post-TORTOISE Synb0 currently supports a single acquired PE stream, "
+                "not native reverse-PE topup groups"
+            )
+        if not bool(
+            context.get("t1w_files")
+            or context.get("t2w_files")
+            or context.get("anatomical_files")
+        ):
+            raise ValueError("Post-TORTOISE Synb0 requires an anatomical image")
+
+        context['do_topup'] = True
+        self.logger.info("Adding post-TORTOISE Synb0 estimation, Topup, and ApplyTopup")
+        self.add_step(Synb0EstimationStep(
+            self.config,
+            self.logger,
+            self.provenance,
+            synb0_config=distcorr_cfg.get('synb0'),
+        ))
+        self.add_step(TopupStep(self.config, self.logger, self.provenance))
+        self.add_step(ApplyTopupStep(
+            self.config,
+            self.logger,
+            self.provenance,
+            method=distcorr_cfg.get('apply_method', 'jac'),
+        ))
 
     def _add_merge_step(self, dmri_cfg: dict, context: dict):
         """Add merge step if multiple DWI files need to be combined."""
@@ -646,7 +717,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         # Calculate total tasks
         GLOBAL_STEPS = (
-            Synb0EstimationStep, TopupStep, GradientCheckStep,
+            Synb0EstimationStep, TopupStep, ApplyTopupStep, GradientCheckStep,
             DMRIReorientStep, MergeStep
         )
         calc_total = sum(

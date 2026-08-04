@@ -132,6 +132,7 @@ class BaseProcessingStep(ABC):
             "Top_Up": "Topup",
             "Top_up": "Topup",
             "TopUp": "Topup",
+            "Apply_Topup": "Topup",
             "DTI_Fitting": "Model_Fits",
             "DKI_Fitting": "Model_Fits",
             "CSD_Fitting": "Model_Fits",

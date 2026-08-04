@@ -25,6 +25,8 @@ from qmri_neuropipe.lib.dmri.b0_reference import (
 )
 from qmri_neuropipe.lib.dmri.tortoise_v4 import TortoiseV4CorrectionStep, _image_grid
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
+from qmri_neuropipe.lib.dmri.topup import TopupStep
+from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
     PreprocessingWorkflow,
 )
@@ -367,6 +369,62 @@ def test_full_tortoise_workflow_avoids_duplicate_pipeline_stages():
     workflow.build_pipeline({"dwi_files": [up, down], "topup_groups": [[up, down]]})
 
     assert [step.__class__.__name__ for step in workflow.steps] == ["TortoiseV4CorrectionStep"]
+
+
+def test_post_tortoise_synb0_topup_workflow_order():
+    preprocessing = {
+        "tortoise_v4": {
+            "denoising": "for_final",
+            "gibbs": True,
+            "epi": "off",
+        },
+        "distcorr": {
+            "method": "synb0",
+            "application": "post_tortoise",
+            "apply_method": "jac",
+            "synb0": {"registration_backend": "ants"},
+        },
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    dwi = DWIFile(entities={"suffix": "dwi"}, img=Path("/tmp/dwi.nii.gz"))
+    workflow.build_pipeline({
+        "dwi_files": [dwi],
+        "topup_groups": [],
+        "t1w_files": [object()],
+    })
+
+    assert [type(step) for step in workflow.steps] == [
+        TortoiseV4CorrectionStep,
+        Synb0EstimationStep,
+        TopupStep,
+        ApplyTopupStep,
+    ]
+    assert workflow.steps[0].options["epi"] == "off"
+    assert workflow.steps[1].synb0_cfg["registration_backend"] == "ants"
+    assert workflow.steps[3].method == "jac"
+
+
+def test_post_tortoise_topup_rejects_native_reverse_pe_until_two_stream_support():
+    preprocessing = {
+        "tortoise_v4": {"epi": "off"},
+        "distcorr": {"method": "topup", "application": "post_tortoise"},
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+
+    with pytest.raises(ValueError, match="only distcorr.method: synb0"):
+        workflow.build_pipeline({
+            "dwi_files": [DWIFile(entities={"suffix": "dwi"}, img=Path("/tmp/dwi.nii.gz"))],
+            "topup_groups": [],
+            "t1w_files": [object()],
+        })
 
 
 def test_tortoise_output_grid_matches_selected_reference(tmp_path: Path):

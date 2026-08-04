@@ -281,6 +281,12 @@ dmri:
     # a native DRBUDDI-like reverse-PE refinement after Eddy.
     distcorr:
       method: topup          # Options: none, topup, synb0, drbuddi, topup+drbuddi
+      # To run TORTOISE denoising/Gibbs/motion/eddy first, set method: synb0,
+      # application: post_tortoise, apply_method: jac, and tortoise_v4.epi: off.
+      # This hybrid currently supports one acquired PE stream and performs a
+      # second interpolation when ApplyTopup unwarps the TORTOISE output.
+      # application: post_tortoise
+      # apply_method: jac
       fallback: true
       config: /apps/fsl-6.0.7.13/x86_64_al9/fsl/etc/flirtsch/b02b0_1.cnf
       # Synb0 prefers an acquired T1w. If only another undistorted anatomical
