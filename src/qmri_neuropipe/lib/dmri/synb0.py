@@ -232,11 +232,31 @@ class Synb0EstimationStep(BaseProcessingStep):
                 self.synb0_cfg.get("registration_tool", "fsl"),
             )
         ).strip().lower()
-        if backend not in {"fsl", "ants"}:
+        if backend == "mri_synthmorph":
+            backend = "synthmorph"
+        if backend not in {"fsl", "ants", "synthmorph"}:
             raise ValidationError(
-                "synb0.registration_backend must be either 'fsl' or 'ants'."
+                "synb0.registration_backend must be 'fsl', 'ants', or "
+                "'synthmorph'."
             )
         return backend
+
+    def _synthmorph_model(self, transform_type: str) -> str:
+        """Resolve a linear SynthMorph model for a Synb0 registration stage."""
+        stage = str(transform_type).strip().lower()
+        default = "affine" if stage == "affine" else "rigid"
+        model = str(
+            self.synb0_cfg.get(
+                f"synthmorph_{default}_model",
+                self.synb0_cfg.get("synthmorph_model", default),
+            )
+        ).strip().lower()
+        if model not in {"rigid", "affine"}:
+            raise ValidationError(
+                "Synb0 SynthMorph registration requires a linear model: "
+                "'rigid' or 'affine'."
+            )
+        return model
 
     def _skull_strip_registration_enabled(self) -> bool:
         return bool(
@@ -333,9 +353,61 @@ class Synb0EstimationStep(BaseProcessingStep):
                 raise ProcessingError(
                     f"ANTs {transform_type} registration for {stem} returned "
                     f"{len(transforms)} transforms; expected one affine transform."
-                )
+            )
             forward = _LinearTransform(transforms[0], False)
             inverse = _LinearTransform(transforms[0], True)
+        elif backend == "synthmorph":
+            model = self._synthmorph_model(transform_type)
+            moving_name, fixed_name = stem.split("_2_", 1)
+            inverse_stem = f"{fixed_name}_2_{moving_name}"
+            forward_lta = (
+                output_dir
+                / f"{stem}{artifact_suffix}_synthmorph_{model}.lta"
+            )
+            inverse_lta = (
+                output_dir
+                / f"{inverse_stem}{artifact_suffix}_synthmorph_{model}.lta"
+            )
+            freesurfer.mri_synthmorph_register(
+                moving=moving_registration_path,
+                target=fixed_registration_path,
+                transform_out=forward_lta,
+                inverse_transform_out=inverse_lta,
+                model=model,
+                extra_args=str(
+                    self.synb0_cfg.get("synthmorph_register_args", "") or ""
+                ),
+                overwrite=True,
+            )
+
+            forward_itk = (
+                output_dir
+                / f"{stem}{artifact_suffix}_synthmorph_{model}.txt"
+            )
+            inverse_itk = (
+                output_dir
+                / f"{inverse_stem}{artifact_suffix}_synthmorph_{model}.txt"
+            )
+            # lta_to_itk intentionally caches existing outputs. This method is
+            # reached only when Synb0 is rerunning registration, so invalidate
+            # conversions that may describe an older SynthMorph transform.
+            for converted_transform in (forward_itk, inverse_itk):
+                if converted_transform.exists():
+                    converted_transform.unlink()
+            freesurfer.lta_to_itk(
+                forward_lta,
+                forward_itk,
+                src=moving_registration_path,
+                trg=fixed_registration_path,
+            )
+            freesurfer.lta_to_itk(
+                inverse_lta,
+                inverse_itk,
+                src=fixed_registration_path,
+                trg=moving_registration_path,
+            )
+            forward = _LinearTransform(forward_itk, False)
+            inverse = _LinearTransform(inverse_itk, False)
         else:
             forward_fsl = output_dir / f"{stem}{artifact_suffix}.mat"
             _, forward_fsl = fsl.flirt(

@@ -93,8 +93,21 @@ dmri:
       synb0:
         anatomical_input: auto
         registration: direct
-        registration_backend: ants
+        registration_backend: synthmorph
+        # SynthMorph uses rigid T1w-to-DWI and affine T1w-to-MNI models by
+        # default. Optional global or stage-specific linear overrides:
+        # synthmorph_model: affine
+        # synthmorph_rigid_model: rigid
+        # synthmorph_affine_model: affine
+        # synthmorph_register_args: ""
 ```
+
+`registration_backend` accepts `fsl`, `ants`, or `synthmorph`
+(`mri_synthmorph` is also accepted as an alias). SynthMorph produces explicit
+forward and inverse linear transforms, which are converted to ITK format before
+the existing Synb0 transform chains are applied. Deformable SynthMorph models
+are intentionally rejected here because Synb0 requires composable linear
+T1w-to-DWI and T1w-to-MNI transforms.
 
 The presence of `synb0` enables it unless `enabled: false` is set, implies
 `epi: DRBUDDI`, and automatically uses `JacSep`, returning only the corrected

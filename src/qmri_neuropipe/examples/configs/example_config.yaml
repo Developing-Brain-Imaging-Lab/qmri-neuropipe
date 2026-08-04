@@ -169,7 +169,11 @@ dmri:
         enabled: false
         anatomical_input: auto
         registration: direct
-        registration_backend: ants
+        registration_backend: ants  # Options: fsl, ants, synthmorph
+        # SynthMorph defaults: rigid for T1w<->DWI, affine for T1w<->MNI.
+        # synthmorph_rigid_model: rigid
+        # synthmorph_affine_model: affine
+        # synthmorph_register_args: ""
 
       # Select the T2w supplied to T2Wreg and, optionally, DRBUDDI. "auto"
       # prefers an acquired T2w and synthesizes one only when needed;
@@ -291,7 +295,7 @@ dmri:
         # anatomical_series_mode: representative
         # anatomical_series_index: 0
         registration: direct  # Options: direct, supersynth
-        registration_backend: fsl  # Options: fsl, ants
+        registration_backend: fsl  # Options: fsl, ants, synthmorph
         # Estimate transforms from brain-only images, then apply them to the
         # original non-skull-stripped images used by Synb0.
         skull_strip_registration: false

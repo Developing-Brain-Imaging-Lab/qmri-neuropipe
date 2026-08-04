@@ -315,6 +315,124 @@ def test_ants_backend_estimates_linear_transform_and_inverts_same_matrix(
     assert calls[1][1]["fixed_file"] == b0
 
 
+@pytest.mark.parametrize(
+    ("backend", "expected"),
+    [("synthmorph", "synthmorph"), ("mri_synthmorph", "synthmorph")],
+)
+def test_synthmorph_registration_backend_is_accepted(backend, expected):
+    assert _step({"registration_backend": backend})._registration_backend() == expected
+
+
+def test_synthmorph_backend_estimates_rigid_forward_and_inverse_transforms(
+    tmp_path: Path, monkeypatch
+):
+    step = _step({"registration_backend": "synthmorph"})
+    t1w_brain = tmp_path / "t1w_brain.nii.gz"
+    t1w_norm = tmp_path / "t1w_norm.nii.gz"
+    b0 = tmp_path / "b0.nii.gz"
+    calls = []
+
+    def fake_register(**kwargs):
+        calls.append(("register", kwargs))
+        return kwargs["transform_out"]
+
+    def fake_lta_to_itk(in_lta, out_file, src, trg, invert=False):
+        calls.append(
+            (
+                "lta_to_itk",
+                {
+                    "in_lta": in_lta,
+                    "out_file": out_file,
+                    "src": src,
+                    "trg": trg,
+                    "invert": invert,
+                },
+            )
+        )
+        return out_file
+
+    def fake_apply(**kwargs):
+        calls.append(("apply", kwargs))
+        return kwargs["out_file"]
+
+    monkeypatch.setattr(freesurfer, "mri_synthmorph_register", fake_register)
+    monkeypatch.setattr(freesurfer, "lta_to_itk", fake_lta_to_itk)
+    monkeypatch.setattr(ants, "apply_transforms", fake_apply)
+
+    forward, inverse = step._register_t1w_to_dwi(
+        t1w_brain,
+        b0,
+        tmp_path,
+        moving_apply_path=t1w_norm,
+    )
+
+    register = calls[0][1]
+    assert register["moving"] == t1w_brain
+    assert register["target"] == b0
+    assert register["model"] == "rigid"
+    assert register["transform_out"].name == "t1w_2_dwi_synthmorph_rigid.lta"
+    assert register["inverse_transform_out"].name == "dwi_2_t1w_synthmorph_rigid.lta"
+    assert register["overwrite"] is True
+
+    forward_conversion = calls[1][1]
+    assert forward_conversion["src"] == t1w_brain
+    assert forward_conversion["trg"] == b0
+    inverse_conversion = calls[2][1]
+    assert inverse_conversion["src"] == b0
+    assert inverse_conversion["trg"] == t1w_brain
+
+    assert forward.path.name == "t1w_2_dwi_synthmorph_rigid.txt"
+    assert inverse.path.name == "dwi_2_t1w_synthmorph_rigid.txt"
+    assert forward.invert is False
+    assert inverse.invert is False
+    assert calls[3][1]["moving_file"] == t1w_norm
+    assert calls[3][1]["fixed_file"] == b0
+
+
+def test_synthmorph_backend_uses_affine_model_for_mni_registration(
+    tmp_path: Path, monkeypatch
+):
+    step = _step(
+        {
+            "registration_backend": "synthmorph",
+            "synthmorph_register_args": "--threads 4",
+        }
+    )
+    t1w_norm = tmp_path / "t1w_norm.nii.gz"
+    t1w_brain = tmp_path / "t1w_brain.nii.gz"
+    atlas = tmp_path / "atlas.nii.gz"
+    calls = []
+
+    monkeypatch.setattr(
+        freesurfer,
+        "mri_synthmorph_register",
+        lambda **kwargs: calls.append(kwargs) or kwargs["transform_out"],
+    )
+    monkeypatch.setattr(
+        freesurfer,
+        "lta_to_itk",
+        lambda in_lta, out_file, src, trg, invert=False: out_file,
+    )
+    monkeypatch.setattr(
+        ants, "apply_transforms", lambda **kwargs: kwargs["out_file"]
+    )
+
+    step._register_t1w_to_mni(t1w_norm, t1w_brain, atlas, tmp_path)
+
+    assert calls[0]["model"] == "affine"
+    assert calls[0]["extra_args"] == "--threads 4"
+    assert calls[0]["transform_out"].name == "t1w_2_mni_synthmorph_affine.lta"
+
+
+def test_synb0_synthmorph_rejects_deformable_model():
+    step = _step(
+        {"registration_backend": "synthmorph", "synthmorph_model": "deform"}
+    )
+
+    with pytest.raises(ValidationError, match="linear model"):
+        step._synthmorph_model("Rigid")
+
+
 def test_unknown_registration_backend_is_rejected():
     step = _step({"registration_backend": "niftyreg"})
     with pytest.raises(ValidationError, match="registration_backend"):
