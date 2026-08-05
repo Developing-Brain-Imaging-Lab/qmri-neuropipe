@@ -38,6 +38,7 @@ from ...core.caching import reuse_if_exists, reuse_path_if_exists
 from ...core.step_control import get_rerun_from_step, step_force_active, step_matches, any_step_matches
 from ...core.tracking import flush_tracker, mark_tracker_dirty, update_step_status
 from ...core.types import ImageFile
+from ...core.utils import resolve_freesurfer_subjects_dir
 from ...io.anat.bids import bids_find_t1w, bids_find_t2w, select_anatomical_candidates
 from ...io.bids import build_bids_name
 
@@ -2498,13 +2499,22 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             return False
 
         recon_cfg = pre_cfg.recon_all or {}
-        fs_dir = Path(recon_cfg.get("subjects_dir")) if recon_cfg.get("subjects_dir") else (
-            self.config.bids_dir / "derivatives" / "freesurfer"
+        fs_dir = resolve_freesurfer_subjects_dir(
+            self.config, recon_cfg.get("subjects_dir")
         )
 
         fs_sub_id = f"sub-{subject}"
         if session:
             fs_sub_id += f"_ses-{session}"
+
+        longitudinal = recon_cfg.get("longitudinal", {}) or {}
+        if isinstance(longitudinal, bool):
+            longitudinal = {"enabled": longitudinal}
+        if longitudinal.get("enabled"):
+            base_id = ReconAllStep.longitudinal_base_id(
+                str(subject), longitudinal.get("base_id")
+            )
+            fs_sub_id = ReconAllStep.longitudinal_subject_id(fs_sub_id, base_id)
 
         subj_dir = fs_dir / fs_sub_id
         if ReconAllStep.has_complete_recon(subj_dir, method=recon_cfg.get("method")):

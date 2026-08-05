@@ -101,11 +101,35 @@ class Synb0EstimationStep(BaseProcessingStep):
     ):
         super().__init__(config, logger, provenance)
         self.method = 'dipy-dl'
-        self.synb0_cfg = (
-            dict(synb0_config)
-            if isinstance(synb0_config, dict)
-            else config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
-        )
+        if isinstance(synb0_config, dict):
+            self.synb0_cfg = dict(synb0_config)
+        else:
+            self.synb0_cfg = dict(
+                config.get("dmri.preprocessing.distcorr.synb0", {}) or {}
+            )
+            sibling_skull_strip = config.get(
+                "dmri.preprocessing.distcorr.skull_strip", {}
+            )
+            if isinstance(sibling_skull_strip, dict):
+                self.synb0_cfg.setdefault("skull_strip", sibling_skull_strip)
+        nested_skull_strip = self.synb0_cfg.get("skull_strip") or {}
+        if isinstance(nested_skull_strip, dict):
+            self.synb0_cfg.setdefault(
+                "skull_strip_registration",
+                bool(nested_skull_strip.get("enabled", False)),
+            )
+            self.synb0_cfg.setdefault(
+                "skull_strip_method",
+                nested_skull_strip.get("method", "synthstrip"),
+            )
+            self.synb0_cfg.setdefault(
+                "skull_strip_moving",
+                bool(nested_skull_strip.get("strip_moving", True)),
+            )
+            self.synb0_cfg.setdefault(
+                "skull_strip_fixed",
+                bool(nested_skull_strip.get("strip_fixed", True)),
+            )
         self.synb0_cfg.pop("enabled", None)
         self.logger.info(f"Initialized Synb0 estimation (Deep Learning).")
 
@@ -201,14 +225,16 @@ class Synb0EstimationStep(BaseProcessingStep):
         moving_registration_path = t1w_registration_path
         fixed_registration_path = registration_ref_path
         if self._skull_strip_registration_enabled():
-            moving_registration_path = self._skull_strip_registration_image(
-                t1w_registration_path,
-                output_dir / "registration_masks" / "t1w_moving",
-            )
-            fixed_registration_path = self._skull_strip_registration_image(
-                registration_ref_path,
-                output_dir / "registration_masks" / "dwi_fixed",
-            )
+            if self.synb0_cfg.get("skull_strip_moving", True):
+                moving_registration_path = self._skull_strip_registration_image(
+                    t1w_registration_path,
+                    output_dir / "registration_masks" / "t1w_moving",
+                )
+            if self.synb0_cfg.get("skull_strip_fixed", True):
+                fixed_registration_path = self._skull_strip_registration_image(
+                    registration_ref_path,
+                    output_dir / "registration_masks" / "dwi_fixed",
+                )
 
         return self._estimate_linear_registration(
             moving_registration_path=moving_registration_path,
@@ -470,11 +496,13 @@ class Synb0EstimationStep(BaseProcessingStep):
         moving_registration_path = t1w_norm_path
         fixed_registration_path = mni_atlas_path
         if self._skull_strip_registration_enabled():
-            moving_registration_path = t1w_brain_path
-            fixed_registration_path = self._skull_strip_registration_image(
-                mni_atlas_path,
-                output_dir / "registration_masks" / "mni_fixed",
-            )
+            if self.synb0_cfg.get("skull_strip_moving", True):
+                moving_registration_path = t1w_brain_path
+            if self.synb0_cfg.get("skull_strip_fixed", True):
+                fixed_registration_path = self._skull_strip_registration_image(
+                    mni_atlas_path,
+                    output_dir / "registration_masks" / "mni_fixed",
+                )
 
         return self._estimate_linear_registration(
             moving_registration_path=moving_registration_path,

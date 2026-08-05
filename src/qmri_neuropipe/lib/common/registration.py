@@ -15,6 +15,7 @@ from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
 from ...core.types import DWIFile, ImageFile
 from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
+from ...core.utils import resolve_freesurfer_subjects_dir
 from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity
 from .json_metadata import copy_json_with_metadata
@@ -501,8 +502,10 @@ def _resolve_freesurfer_subject(config, context: Optional[dict], input_image=Non
     if subjects_dir:
         subjects_dir = Path(subjects_dir)
     else:
-        bids_dir = config.get("bids_dir") if hasattr(config, "get") else None
-        subjects_dir = Path(bids_dir) / "derivatives" / "freesurfer" if bids_dir else None
+        try:
+            subjects_dir = resolve_freesurfer_subjects_dir(config)
+        except ValueError:
+            subjects_dir = None
 
     if not subjects_dir:
         return None, None

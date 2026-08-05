@@ -95,6 +95,11 @@ anat:
       template: /path/to/template.nii.gz
     recon_all:
       enabled: false
+      method: standard
+      longitudinal:
+        enabled: false
+        # timepoints: [baseline, followup]  # Optional; defaults to all BIDS sessions
+        # base_id: sub-{subject}_base      # Optional; defaults per subject
   super_synth:
     enabled: false
 ```
@@ -109,7 +114,7 @@ anat:
 | Sharpening | `anat.preprocessing.sharpen` | `ants` | Optional ANTs sharpening |
 | T1w/T2w coregistration | `anat.preprocessing.coregistration` | `ants`, `fsl`, `freesurfer` | Can use SuperSynth references |
 | Brain masking | `anat.preprocessing.brain_masking` | `fsl`, `mrtrix`, `ants`, `freesurfer`, `synthstrip`, `hd-bet` | `use_gpu` is available for GPU-capable tools |
-| FreeSurfer reconstruction | `anat.preprocessing.recon_all` | `standard`, `clinical` | `clinical` uses `recon-all-clinical` when configured |
+| FreeSurfer reconstruction | `anat.preprocessing.recon_all` | `standard`, `clinical` | Defaults to `<output_dir>/freesurfer`; `longitudinal.enabled` adds cross-sectional, unbiased base, and longitudinal runs |
 | Normalization | `anat.preprocessing.normalization` | `ants`, `fsl` | `ants` is the primary nonlinear mode; `fsl` is affine-oriented |
 | Segmentation/statistics | `anat.segmentation` | atlas-driven extraction | Configure `atlas_file`, `atlas_labels`, `metrics`, `atlas_threshold` |
 | SuperSynth | `anat.super_synth` | FreeSurfer `mri_super_synth` | Produces segmentation and synthetic T1w/T2w/FLAIR when available |

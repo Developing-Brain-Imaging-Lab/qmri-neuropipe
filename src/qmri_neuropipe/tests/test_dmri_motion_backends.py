@@ -382,7 +382,16 @@ def test_post_tortoise_synb0_topup_workflow_order():
             "method": "synb0",
             "application": "post_tortoise",
             "apply_method": "jac",
-            "synb0": {"registration_backend": "ants"},
+            "synb0": {
+                "registration": "supersynth",
+                "registration_backend": "synthmorph",
+            },
+            "skull_strip": {
+                "enabled": True,
+                "method": "synthstrip",
+                "strip_moving": True,
+                "strip_fixed": False,
+            },
         },
     }
     config = PipelineConfig(
@@ -404,8 +413,53 @@ def test_post_tortoise_synb0_topup_workflow_order():
         ApplyTopupStep,
     ]
     assert workflow.steps[0].options["epi"] == "off"
-    assert workflow.steps[1].synb0_cfg["registration_backend"] == "ants"
+    assert workflow.steps[1].synb0_cfg["registration_backend"] == "synthmorph"
+    assert workflow.steps[1].synb0_cfg["registration"] == "supersynth"
+    assert workflow.steps[1].synb0_cfg["skull_strip_registration"] is True
+    assert workflow.steps[1].synb0_cfg["skull_strip_method"] == "synthstrip"
+    assert workflow.steps[1].synb0_cfg["skull_strip_moving"] is True
+    assert workflow.steps[1].synb0_cfg["skull_strip_fixed"] is False
     assert workflow.steps[3].method == "jac"
+
+
+def test_post_tortoise_accepts_yaml_boolean_off_and_ignores_legacy_synb0():
+    preprocessing = {
+        "motion_correction": {
+            "method": "tortoise_v4",
+            "tortoise_v4": {
+                "epi": "DRBUDDI",
+                "use_synb0": True,
+                "synb0": {"enabled": True},
+            },
+        },
+        # An unquoted YAML `off` is loaded by PyYAML as False.  The modern
+        # top-level stream must also replace, rather than merge, the legacy
+        # TORTOISE options above.
+        "tortoise_v4": {"epi": False},
+        "distcorr": {
+            "method": "synb0",
+            "application": "post_tortoise",
+        },
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    workflow.build_pipeline({
+        "dwi_files": [DWIFile(entities={"suffix": "dwi"}, img=Path("/tmp/dwi.nii.gz"))],
+        "topup_groups": [],
+        "t1w_files": [object()],
+    })
+
+    assert [type(step) for step in workflow.steps] == [
+        TortoiseV4CorrectionStep,
+        Synb0EstimationStep,
+        TopupStep,
+        ApplyTopupStep,
+    ]
+    assert workflow.steps[0].options["epi"] == "off"
+    assert workflow.steps[0].options.get("use_synb0") is None
 
 
 def test_post_tortoise_topup_rejects_native_reverse_pe_until_two_stream_support():

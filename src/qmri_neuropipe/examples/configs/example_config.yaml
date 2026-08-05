@@ -306,6 +306,13 @@ dmri:
         # original non-skull-stripped images used by Synb0.
         skull_strip_registration: false
         skull_strip_method: synthstrip
+      # Equivalent nested form; registration is estimated on these brain-only
+      # proxies and then applied to the original full-head images.
+      # skull_strip:
+      #   enabled: true
+      #   method: synthstrip
+      #   strip_moving: true
+      #   strip_fixed: true
       drbuddi:
         transform_type: SyNOnly
         interpolator: linear

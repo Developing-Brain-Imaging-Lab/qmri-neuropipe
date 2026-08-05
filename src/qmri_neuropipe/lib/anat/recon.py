@@ -7,8 +7,10 @@ from typing import Optional, Any
 
 from ...core import BaseProcessingStep, ValidationError
 from ...core.types import ImageFile
+from ...core.utils import resolve_freesurfer_subjects_dir
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
+from ...io.anat.bids import bids_find_t1w
 import pandas as pd
 
 class ReconAllStep(BaseProcessingStep):
@@ -28,6 +30,11 @@ class ReconAllStep(BaseProcessingStep):
         extra_args = self.recon_config.get("extra_args", "")
         self.args = f"{base_args} {extra_args}".strip()
         self.subjects_dir = self.recon_config.get("subjects_dir")
+        longitudinal = self.recon_config.get("longitudinal", {}) or {}
+        if isinstance(longitudinal, bool):
+            longitudinal = {"enabled": longitudinal}
+        self.longitudinal_config = longitudinal
+        self.longitudinal = bool(longitudinal.get("enabled", False))
         
         # Check global use_freesurfer flag (or nested in generic options)
         # Checking: anat.use_freesurfer OR anat.preprocessing.use_freesurfer
@@ -99,6 +106,242 @@ class ReconAllStep(BaseProcessingStep):
             return standard_complete
         return standard_complete or clinical_complete
 
+    @staticmethod
+    def longitudinal_subject_id(timepoint_id: str, base_id: str) -> str:
+        return f"{timepoint_id}.long.{base_id}"
+
+    @staticmethod
+    def longitudinal_base_id(subject: str, configured: Optional[str] = None) -> str:
+        value = str(configured or "sub-{subject}_base")
+        try:
+            return value.format(subject=subject)
+        except (KeyError, ValueError) as exc:
+            raise ValidationError(
+                "FreeSurfer longitudinal base_id may only use the {subject} placeholder."
+            ) from exc
+
+    @staticmethod
+    def _normalize_session_label(value: Any) -> str:
+        label = str(value)
+        return label[4:] if label.startswith("ses-") else label
+
+    def _timepoint_specs(
+        self,
+        subject: str,
+        current_session: Optional[str],
+        current_input: Any,
+    ) -> list[dict[str, Any]]:
+        """Resolve configured or BIDS-discovered longitudinal timepoints."""
+        configured = self.longitudinal_config.get("timepoints") or []
+        specs: list[dict[str, Any]] = []
+
+        if configured:
+            for item in configured:
+                if isinstance(item, dict):
+                    session = item.get("session") or item.get("ses")
+                    timepoint_id = item.get("id") or item.get("subject_id")
+                    image = item.get("input") or item.get("in_file")
+                else:
+                    value = str(item)
+                    session = None if value.startswith("sub-") else value
+                    timepoint_id = value if value.startswith("sub-") else None
+                    image = None
+
+                if session is None and timepoint_id and "_ses-" in str(timepoint_id):
+                    session = str(timepoint_id).split("_ses-", 1)[1]
+
+                if session is not None:
+                    session = self._normalize_session_label(session)
+                if not timepoint_id:
+                    timepoint_id = f"sub-{subject}"
+                    if session:
+                        timepoint_id += f"_ses-{session}"
+                if image is None and session:
+                    images = bids_find_t1w(
+                        Path(self.config.bids_dir)
+                        / f"sub-{subject}"
+                        / f"ses-{session}"
+                        / "anat"
+                    )
+                    if images:
+                        image = images[0]
+                specs.append({"id": str(timepoint_id), "session": session, "input": image})
+        else:
+            subject_dir = Path(self.config.bids_dir) / f"sub-{subject}"
+            session_dirs = sorted(path for path in subject_dir.glob("ses-*") if path.is_dir())
+            if session_dirs:
+                for session_dir in session_dirs:
+                    session = session_dir.name[4:]
+                    images = bids_find_t1w(session_dir / "anat")
+                    if images:
+                        specs.append({
+                            "id": f"sub-{subject}_ses-{session}",
+                            "session": session,
+                            "input": images[0],
+                        })
+            else:
+                images = bids_find_t1w(subject_dir / "anat")
+                if images:
+                    specs.append({"id": f"sub-{subject}", "session": None, "input": images[0]})
+
+        current_session = (
+            self._normalize_session_label(current_session)
+            if current_session is not None
+            else None
+        )
+        current_id = f"sub-{subject}"
+        if current_session:
+            current_id += f"_ses-{current_session}"
+        matched_current = False
+        for spec in specs:
+            if spec["id"] == current_id or spec.get("session") == current_session:
+                spec["id"] = current_id
+                spec["session"] = current_session
+                spec["input"] = current_input
+                matched_current = True
+                break
+        if not matched_current:
+            specs.append({"id": current_id, "session": current_session, "input": current_input})
+
+        seen: set[str] = set()
+        unique_specs = []
+        for spec in specs:
+            if spec["id"] not in seen:
+                seen.add(spec["id"])
+                unique_specs.append(spec)
+        return unique_specs
+
+    def _run_longitudinal_unlocked(
+        self,
+        *,
+        subject: str,
+        session: Optional[str],
+        current_input: Any,
+        subjects_dir: Path,
+        n_threads: int,
+        force: bool,
+    ) -> tuple[Path, Path, Path, list[str]]:
+        if self.method != "standard":
+            raise ValidationError(
+                "FreeSurfer longitudinal processing requires recon_all.method: standard."
+            )
+
+        specs = self._timepoint_specs(subject, session, current_input)
+        timepoint_ids = [spec["id"] for spec in specs]
+        if not timepoint_ids:
+            raise ValidationError("No T1w timepoints were found for longitudinal recon-all.")
+
+        base_id = self.longitudinal_base_id(
+            subject, self.longitudinal_config.get("base_id")
+        )
+        if base_id in timepoint_ids:
+            raise ValidationError("FreeSurfer longitudinal base_id must differ from every timepoint ID.")
+
+        current_id = f"sub-{subject}"
+        if session:
+            current_id += f"_ses-{self._normalize_session_label(session)}"
+        if current_id not in timepoint_ids:
+            raise ValidationError(f"Current longitudinal timepoint {current_id} was not resolved.")
+
+        import shutil
+
+        # Stage 1: independent cross-sectional reconstructions for every timepoint.
+        for spec in specs:
+            cross_dir = subjects_dir / spec["id"]
+            if force and cross_dir.exists():
+                shutil.rmtree(cross_dir)
+            if not self.has_complete_recon(cross_dir, method="standard"):
+                if not spec.get("input"):
+                    raise ValidationError(
+                        f"Cross-sectional FreeSurfer input is missing for {spec['id']}. "
+                        "Provide longitudinal.timepoints[].input or process that timepoint first."
+                    )
+                if self._is_t2w_image(spec["input"]):
+                    raise ValidationError(f"Longitudinal timepoint {spec['id']} resolved to a T2w image.")
+                self.logger.info(f"Running cross-sectional recon-all for {spec['id']}...")
+                freesurfer.recon_all(
+                    in_file=spec["input"],
+                    subject_id=spec["id"],
+                    subjects_dir=subjects_dir,
+                    openmp=n_threads,
+                    extra_args=self.args,
+                )
+            if not self.has_complete_recon(cross_dir, method="standard"):
+                raise ValidationError(f"Cross-sectional recon-all is incomplete for {spec['id']}.")
+
+        # Stage 2: unbiased within-subject template.
+        base_dir = subjects_dir / base_id
+        if force and base_dir.exists():
+            shutil.rmtree(base_dir)
+        if not self.has_complete_recon(base_dir, method="standard"):
+            self.logger.info(
+                f"Creating FreeSurfer longitudinal base {base_id} from {len(timepoint_ids)} timepoint(s)..."
+            )
+            freesurfer.recon_all_base(
+                timepoint_ids=timepoint_ids,
+                base_id=base_id,
+                subjects_dir=subjects_dir,
+                openmp=n_threads,
+                extra_args=self.longitudinal_config.get("base_args", "-all"),
+            )
+        if not self.has_complete_recon(base_dir, method="standard"):
+            raise ValidationError(f"FreeSurfer longitudinal base is incomplete: {base_dir}")
+
+        # Stage 3: initialize each longitudinal timepoint from the base.
+        for timepoint_id in timepoint_ids:
+            long_id = self.longitudinal_subject_id(timepoint_id, base_id)
+            long_dir = subjects_dir / long_id
+            if force and long_dir.exists():
+                shutil.rmtree(long_dir)
+            if not self.has_complete_recon(long_dir, method="standard"):
+                self.logger.info(f"Running longitudinal recon-all for {timepoint_id}...")
+                freesurfer.recon_all_longitudinal(
+                    timepoint_id=timepoint_id,
+                    base_id=base_id,
+                    subjects_dir=subjects_dir,
+                    openmp=n_threads,
+                    extra_args=self.longitudinal_config.get("long_args", "-all"),
+                )
+            if not self.has_complete_recon(long_dir, method="standard"):
+                raise ValidationError(f"Longitudinal recon-all is incomplete: {long_dir}")
+
+        current_cross_dir = subjects_dir / current_id
+        current_long_dir = subjects_dir / self.longitudinal_subject_id(current_id, base_id)
+        return current_long_dir, current_cross_dir, base_dir, timepoint_ids
+
+    def _run_longitudinal(
+        self,
+        *,
+        subject: str,
+        session: Optional[str],
+        current_input: Any,
+        subjects_dir: Path,
+        n_threads: int,
+        force: bool,
+    ) -> tuple[Path, Path, Path, list[str]]:
+        """Serialize shared base/long writes across parallel session workers."""
+        subjects_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = subjects_dir / f".sub-{subject}.longitudinal.lock"
+        with lock_path.open("a+") as lock_file:
+            try:
+                import fcntl
+            except ImportError:  # pragma: no cover - FreeSurfer targets POSIX systems.
+                fcntl = None
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                return self._run_longitudinal_unlocked(
+                    subject=subject,
+                    session=session,
+                    current_input=current_input,
+                    subjects_dir=subjects_dir,
+                    n_threads=n_threads,
+                    force=force,
+                )
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         # Check explicit enable OR use_freesurfer
         if not self.enabled and not self.use_freesurfer:
@@ -124,8 +367,13 @@ class ReconAllStep(BaseProcessingStep):
              fs_sub_id += f"_ses-{ses}"
 
         # FS Directory
-        fs_dir = Path(self.subjects_dir) if self.subjects_dir else (self.config.bids_dir / "derivatives" / "freesurfer")
+        fs_dir = resolve_freesurfer_subjects_dir(self.config, self.subjects_dir)
         subj_dir = fs_dir / fs_sub_id
+        if self.longitudinal:
+            base_id = self.longitudinal_base_id(
+                str(sub), self.longitudinal_config.get("base_id")
+            )
+            subj_dir = fs_dir / self.longitudinal_subject_id(fs_sub_id, base_id)
         
         # === FAST PATH: Check if we can skip everything ===
         # Define expected output files
@@ -164,11 +412,11 @@ class ReconAllStep(BaseProcessingStep):
         # === END FAST PATH ===
         
         # Check force run
-        if kwargs.get('force', False) and subj_dir.exists():
+        if not self.longitudinal and kwargs.get('force', False) and subj_dir.exists():
              self.logger.info(f"Recon-all force run: Removing existing subject dir {subj_dir}")
              import shutil
              shutil.rmtree(subj_dir)
-        elif subj_dir.exists() and not aparc_aseg.exists():
+        elif not self.longitudinal and subj_dir.exists() and not aparc_aseg.exists():
              self.logger.warning(
                  f"FreeSurfer directory exists for {fs_sub_id} but {aparc_aseg.name} is missing. "
                  "Removing the subject directory and restarting recon-all."
@@ -181,7 +429,25 @@ class ReconAllStep(BaseProcessingStep):
         # Check integrity of key FS outputs, including aparc+aseg.mgz as a completion sentinel.
         fs_complete = self.has_complete_recon(subj_dir, method=self.method)
         
-        if not fs_complete:
+        if self.longitudinal:
+             if not recon_input:
+                 raise ValidationError("No T1w input image was provided for longitudinal recon-all.")
+             n_threads = kwargs.get("nthreads") or self.config.get("n_cpus") or 8
+             subj_dir, cross_dir, base_dir, timepoint_ids = self._run_longitudinal(
+                 subject=str(sub),
+                 session=ses,
+                 current_input=recon_input,
+                 subjects_dir=fs_dir,
+                 n_threads=n_threads,
+                 force=bool(kwargs.get("force", False)),
+             )
+             aparc_aseg = self._aparc_aseg_path(subj_dir)
+             if context:
+                 context["freesurfer_cross_sectional_dir"] = cross_dir
+                 context["freesurfer_base_dir"] = base_dir
+                 context["freesurfer_timepoint_ids"] = timepoint_ids
+                 context["freesurfer_longitudinal_dir"] = subj_dir
+        elif not fs_complete:
              if not recon_input:
                  raise ValidationError("FreeSurfer output missing and no input image provided to run recon-all.")
              if self._is_t2w_image(recon_input):

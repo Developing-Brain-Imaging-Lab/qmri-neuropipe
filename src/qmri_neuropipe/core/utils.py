@@ -2,6 +2,30 @@ from pathlib import Path
 from typing import Optional, Union
 from .types import ImageLike
 
+
+def resolve_freesurfer_subjects_dir(config, explicit=None) -> Path:
+    """Return the configured or output-derived FreeSurfer ``SUBJECTS_DIR``.
+
+    BIDS inputs are commonly mounted read-only in containers, so generated
+    FreeSurfer subjects belong under the writable pipeline output root rather
+    than under ``<bids_dir>/derivatives``.
+    """
+    if explicit:
+        return Path(explicit)
+
+    output_dir = config.get("output_dir") if hasattr(config, "get") else None
+    if output_dir:
+        return Path(output_dir) / "freesurfer"
+
+    bids_dir = config.get("bids_dir") if hasattr(config, "get") else None
+    if bids_dir:
+        return Path(bids_dir) / "derivatives" / "freesurfer"
+
+    raise ValueError(
+        "Cannot determine FreeSurfer SUBJECTS_DIR: configure "
+        "anat.preprocessing.recon_all.subjects_dir or output_dir."
+    )
+
 def ensure_path(path_like: Union[str, Path, None]) -> Union[Path, None]:
     """
     Ensure the input is a Path object or None.

@@ -49,13 +49,21 @@ def _resolve_tortoise_v4_config(dmri_cfg: dict) -> tuple[bool, dict]:
     top_level_present = 'tortoise_v4' in dmri_cfg
     top_level = dmri_cfg.get('tortoise_v4', {}) or {}
 
-    options = dict(legacy)
-    options.update(top_level)
+    # The top-level preprocessing stream is authoritative when present.  Do
+    # not inherit stale integrated Synb0/DRBUDDI flags from the legacy motion
+    # alias, since that can silently move a requested post-TORTOISE correction
+    # to the pre-TORTOISE DRBUDDI path.
+    options = dict(top_level if top_level_present else legacy)
     if top_level_present:
         enabled = bool(options.get('enabled', True))
     else:
         enabled = motion_cfg.get('method') in _TORTOISE_V4_METHODS
     options.pop('enabled', None)
+
+    # PyYAML follows YAML 1.1 and parses an unquoted ``off`` as False.  Accept
+    # that spelling as the documented disabled EPI mode.
+    if 'epi' in options and (options['epi'] is False or options['epi'] is None):
+        options['epi'] = 'off'
 
     synb0_cfg = options.get('synb0')
     if isinstance(synb0_cfg, dict):
@@ -129,6 +137,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         )
 
         dmri_cfg = (self.config.get('dmri') or {}).get('preprocessing', {})
+        self._log_effective_distortion_plan(dmri_cfg)
         
         # Add steps based on configuration
         self._add_merge_step(dmri_cfg, context)
@@ -150,6 +159,28 @@ class PreprocessingWorkflow(BaseWorkflow):
         self._add_final_gnl_alignment_step(dmri_cfg)
         
         self.logger.info(f"Pipeline built with {len(self.steps)} steps")
+
+    def _log_effective_distortion_plan(self, dmri_cfg: dict) -> None:
+        """Report susceptibility routing before any workflow steps are added."""
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        distcorr_cfg = dmri_cfg.get('distcorr', {}) or {}
+        method = str(distcorr_cfg.get('method', 'none')).lower()
+        epi = str(tortoise_cfg.get('epi', 'off')).lower()
+
+        if _post_tortoise_distcorr_requested(dmri_cfg):
+            self.logger.info(
+                f"Effective distortion plan: TORTOISEV4 (epi={epi}) -> Synb0 -> "
+                "Topup -> ApplyTopup"
+            )
+        elif tortoise_enabled and epi != 'off':
+            source = 'Synb0' if tortoise_cfg.get('use_synb0', False) else 'reverse-PE data'
+            self.logger.info(
+                f"Effective distortion plan: {source} -> TORTOISEV4 epi={epi.upper()}"
+            )
+        else:
+            self.logger.info(
+                f"Effective distortion plan: distcorr.method={method} before motion correction"
+            )
 
     def _add_reorientation_step(self, dmri_cfg: dict):
         """Add reorientation step if enabled."""
@@ -333,11 +364,14 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         context['do_topup'] = True
         self.logger.info("Adding post-TORTOISE Synb0 estimation, Topup, and ApplyTopup")
+        synb0_cfg = dict(distcorr_cfg.get('synb0') or {})
+        if isinstance(distcorr_cfg.get('skull_strip'), dict):
+            synb0_cfg.setdefault('skull_strip', distcorr_cfg['skull_strip'])
         self.add_step(Synb0EstimationStep(
             self.config,
             self.logger,
             self.provenance,
-            synb0_config=distcorr_cfg.get('synb0'),
+            synb0_config=synb0_cfg,
         ))
         self.add_step(TopupStep(self.config, self.logger, self.provenance))
         self.add_step(ApplyTopupStep(

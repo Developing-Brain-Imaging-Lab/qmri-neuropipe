@@ -374,7 +374,7 @@ anat:
       method: ants
     recon_all:
       enabled: false
-      subjects_dir: null   # default: <bids_dir>/derivatives/freesurfer
+      subjects_dir: null   # default: <output_dir>/freesurfer
     normalization:
       enabled: false
 ```

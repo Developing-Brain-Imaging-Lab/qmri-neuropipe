@@ -344,6 +344,13 @@ anat:
       enabled: true
       method: standard        # standard | clinical
       subjects_dir: /path/to/freesurfer_subjects
+      longitudinal:
+        enabled: true
+        # By default, use every BIDS session containing a T1w image.
+        # timepoints: [baseline, month12]
+        # base_id: sub-{subject}_base
+        base_args: -all
+        long_args: -all
 ```
 
 **Parameters**
@@ -351,7 +358,20 @@ anat:
 | --- | --- | --- | --- |
 | `anat.preprocessing.recon_all.enabled` | bool | false | Enable step |
 | `anat.preprocessing.recon_all.method` | str | `standard` | `standard` (recon-all) or `clinical` (recon-all-clinical.sh) |
-| `anat.preprocessing.recon_all.subjects_dir` | path | `<bids_dir>/derivatives/freesurfer` | Optional external FreeSurfer `SUBJECTS_DIR` to reuse or write recon-all outputs |
+| `anat.preprocessing.recon_all.subjects_dir` | path | `<output_dir>/freesurfer` | Optional external FreeSurfer `SUBJECTS_DIR`; it must be writable and explicitly bound into a container when outside the output root |
+| `anat.preprocessing.recon_all.longitudinal.enabled` | bool | false | Run all cross-sectional timepoints, create the unbiased base, then run every longitudinal timepoint |
+| `anat.preprocessing.recon_all.longitudinal.timepoints` | list | all BIDS sessions with T1w | Optional session labels, FreeSurfer timepoint IDs, or mappings with `session`, `id`, and `input` |
+| `anat.preprocessing.recon_all.longitudinal.base_id` | str | `sub-<id>_base` | FreeSurfer ID for the unbiased within-subject template; `{subject}` is expanded per participant and the result must differ from all timepoint IDs |
+| `anat.preprocessing.recon_all.longitudinal.base_args` | str | `-all` | Processing directives passed to the base run |
+| `anat.preprocessing.recon_all.longitudinal.long_args` | str | `-all` | Processing directives passed to each longitudinal run |
+
+Longitudinal mode uses FreeSurfer's three-stage stream in one pipeline run: it
+first completes an independent cross-sectional reconstruction for every
+timepoint, creates the unbiased within-subject base with `recon-all -base`, and
+then creates `<timepoint>.long.<base>` outputs with `recon-all -long`. The
+longitudinal directory for the current session is used for exported images,
+statistics, and downstream FreeSurfer registration. `clinical` mode is not
+compatible with the longitudinal stream.
 
 ### 9. SuperSynth (Optional)
 

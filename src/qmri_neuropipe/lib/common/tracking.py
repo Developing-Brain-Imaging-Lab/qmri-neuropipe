@@ -559,7 +559,11 @@ class TrackingStep(BaseProcessingStep):
             session_root = output_dir.parent
 
         # 1. FreeSurfer / Segmentation (Anatomical)
-        fs_dir = self.config.bids_dir / "derivatives" / "freesurfer" / sub_prefix
+        from ...core.utils import resolve_freesurfer_subjects_dir
+        recon_cfg = self.config.get("anat.preprocessing.recon_all", {}) or {}
+        fs_dir = resolve_freesurfer_subjects_dir(
+            self.config, recon_cfg.get("subjects_dir")
+        ) / sub_prefix
         if (fs_dir / "mri" / "brain.mgz").exists():
             results['Anatomical']['Segmentation'] = 'Complete'
             results['Anatomical']['Segmentation_Method'] = 'FreeSurfer'

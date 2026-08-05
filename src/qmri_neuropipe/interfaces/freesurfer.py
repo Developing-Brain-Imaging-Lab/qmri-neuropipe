@@ -1,6 +1,7 @@
 
 from pathlib import Path
 import json
+import shlex
 from datetime import datetime
 import logging
 from typing import Optional, Union
@@ -412,15 +413,65 @@ def recon_all(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, op
     sd_path.mkdir(parents=True, exist_ok=True)
     subj_dir = sd_path / subject_id
 
-    if (subj_dir / "mri" / "aseg.mgz").exists():
-        return subj_dir
-
     omp_arg = f"-openmp {openmp}" if openmp else ""
     if subj_dir.exists():
         cmd = f"recon-all -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
     else:
         cmd = f"recon-all -i {in_p} -s {subject_id} -sd {sd_path} {extra_args} {omp_arg}"
     run_cmd(cmd, label="recon-all")
+
+
+def recon_all_base(
+    timepoint_ids: list[str],
+    base_id: str,
+    subjects_dir: Path,
+    openmp: int = None,
+    extra_args: str = "-all",
+):
+    """Create a FreeSurfer unbiased within-subject template.
+
+    All ``timepoint_ids`` must already exist as cross-sectional recon-all
+    subjects in ``subjects_dir``.
+    """
+    if not timepoint_ids:
+        raise ValueError("recon-all -base requires at least one timepoint")
+
+    sd_path = Path(subjects_dir)
+    sd_path.mkdir(parents=True, exist_ok=True)
+    args = ["recon-all", "-base", str(base_id)]
+    for timepoint_id in timepoint_ids:
+        args.extend(["-tp", str(timepoint_id)])
+    args.extend(["-sd", str(sd_path)])
+    args.extend(shlex.split(extra_args or "-all"))
+    if openmp:
+        args.extend(["-openmp", str(openmp)])
+    run_cmd(shlex.join(args), label="recon-all-base")
+    return sd_path / base_id
+
+
+def recon_all_longitudinal(
+    timepoint_id: str,
+    base_id: str,
+    subjects_dir: Path,
+    openmp: int = None,
+    extra_args: str = "-all",
+):
+    """Run one FreeSurfer timepoint through the longitudinal stream."""
+    sd_path = Path(subjects_dir)
+    sd_path.mkdir(parents=True, exist_ok=True)
+    args = [
+        "recon-all",
+        "-long",
+        str(timepoint_id),
+        str(base_id),
+        "-sd",
+        str(sd_path),
+    ]
+    args.extend(shlex.split(extra_args or "-all"))
+    if openmp:
+        args.extend(["-openmp", str(openmp)])
+    run_cmd(shlex.join(args), label="recon-all-long")
+    return sd_path / f"{timepoint_id}.long.{base_id}"
 
 
 def recon_all_clinical(in_file: ImageLike | Path, subject_id: str, subjects_dir: Path, nthreads: int = 1):
@@ -432,10 +483,6 @@ def recon_all_clinical(in_file: ImageLike | Path, subject_id: str, subjects_dir:
     in_p = extract_image_path(in_file)
     sd_path = Path(subjects_dir)
     sd_path.mkdir(parents=True, exist_ok=True)
-
-    # Key output for clinical script is slightly different but brain.mgz should still exist
-    if (sd_path / subject_id / "mri" / "brain.mgz").exists():
-        return sd_path / subject_id
 
     cmd = f"recon-all-clinical.sh {in_p} {subject_id} {nthreads} {sd_path}"
     run_cmd(cmd, label="recon-all-clinical")
