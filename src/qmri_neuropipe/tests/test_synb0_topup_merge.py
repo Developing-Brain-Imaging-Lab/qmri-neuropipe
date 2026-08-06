@@ -1,5 +1,6 @@
 import json
 import logging
+import shlex
 import shutil
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def test_applytopup_uses_first_topup_row_for_post_tortoise_dwi(tmp_path, monkeyp
     out_file = tmp_path / "corrected.nii.gz"
     base = tmp_path / "topup_group0"
     datain = tmp_path / "topup_group0_topup_datain.txt"
-    datain.write_text("0 -1 0 0.075\n0 1 0 0.000\n")
+    datain.write_text("0 -1 0 0.075\n0 -1 0 0.000\n")
     (tmp_path / "topup_group0_fieldcoef.nii.gz").write_bytes(b"field")
     (tmp_path / "topup_group0_movpar.txt").write_text("0 0 0 0 0 0\n")
     commands = []
@@ -83,7 +84,7 @@ def test_applytopup_step_preserves_tortoise_gradients_and_updates_context(
     base = tmp_path / "topup" / "topup_group0"
     base.parent.mkdir()
     datain = base.with_name(base.name + "_topup_datain.txt")
-    datain.write_text("0 -1 0 0.075\n0 1 0 0.000\n")
+    datain.write_text("0 -1 0 0.075\n0 -1 0 0.000\n")
 
     def fake_applytopup(in_file, out_file, **kwargs):
         shutil.copy2(in_file.img, out_file)
@@ -111,3 +112,38 @@ def test_applytopup_step_preserves_tortoise_gradients_and_updates_context(
     metadata = json.loads(corrected.json.read_text())
     assert metadata["SusceptibilityDistortionCorrection"].startswith("FSL TOPUP")
     assert result["dwi_files"] == [corrected]
+
+
+def test_fugue_forward_distortion_converts_topup_field_units(tmp_path, monkeypatch):
+    source = tmp_path / "undistorted.nii.gz"
+    field_hz = tmp_path / "topup_field.nii.gz"
+    output = tmp_path / "synthetic_reverse.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((3, 4, 5)), np.eye(4)), source)
+    nib.save(nib.Nifti1Image(np.ones((3, 4, 5)), np.eye(4)), field_hz)
+    commands = []
+
+    def fake_run(command, label=None, **kwargs):
+        commands.append((label, command))
+        parts = shlex.split(command)
+        if label == "topup_field_hz_to_rads":
+            shutil.copy2(field_hz, Path(parts[-1]))
+        elif label == "fugue_forward_distort":
+            shutil.copy2(source, Path(parts[parts.index("-w") + 1]))
+
+    monkeypatch.setattr(fsl, "run_cmd", fake_run)
+
+    result = fsl.forward_distort_with_fugue(
+        source,
+        field_hz,
+        output,
+        dwell_time=0.0005,
+        unwarp_direction="y-",
+        intensity_correction=True,
+    )
+
+    assert result == output
+    assert "-mul 6.283185307179586" in commands[0][1]
+    assert "--dwell=0.0005" in commands[1][1]
+    assert "--unwarpdir=y-" in commands[1][1]
+    assert "--nokspace" in commands[1][1]
+    assert "--icorr" in commands[1][1]

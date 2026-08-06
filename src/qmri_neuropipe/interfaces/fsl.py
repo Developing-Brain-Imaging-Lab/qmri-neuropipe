@@ -326,6 +326,7 @@ def topup(
     acqp: Optional[Path] = None,
     index: Optional[Path] = None,
     nthreads: int = 1,
+    force: bool = False,
 ) -> Path:
     """
     Run FSL topup using the mean B0 images from a group of reversed PE DWIs.
@@ -425,7 +426,13 @@ def topup(
     movpar = out_base.with_name(out_base.name + "_movpar.txt")
     fieldcoef = out_base.with_name(out_base.name + "_fieldcoef.nii.gz")
     
-    if movpar.exists() and fieldcoef.exists():
+    field_map = out_base.with_name(out_base.name + "_field.nii.gz")
+    if (
+        not force
+        and movpar.exists()
+        and fieldcoef.exists()
+        and (not field_output or field_map.exists())
+    ):
         return out_base
 
     imain = out_base.with_name(out_base.name + "_topup_imain.nii.gz")
@@ -510,6 +517,71 @@ def applytopup(
     run_cmd(" ".join(shlex.quote(part) for part in cmd_parts), label="applytopup")
     if not out_path.exists():
         raise RuntimeError(f"applytopup did not create its requested output: {out_path}")
+    return out_path
+
+
+def forward_distort_with_fugue(
+    undistorted_file: ImageLike | Path,
+    field_hz: Path,
+    out_file: Path,
+    *,
+    dwell_time: float,
+    unwarp_direction: str,
+    intensity_correction: bool = True,
+    force: bool = False,
+) -> Path:
+    """Forward-warp an undistorted image using a TOPUP field estimate.
+
+    TOPUP ``--fout`` is in Hz, whereas FUGUE ``--loadfmap`` expects rad/s.
+    This wrapper performs that conversion and uses FUGUE's image-space
+    forward-warp mode to create an explicitly synthetic distorted image.
+    """
+    source = extract_image_path(undistorted_file)
+    field_hz = Path(field_hz)
+    out_path = ensure_dir(out_file)
+    direction = str(unwarp_direction).strip().lower()
+    if direction not in {"x", "x-", "y", "y-", "z", "z-"}:
+        raise ValueError("FUGUE unwarp direction must be x, x-, y, y-, z, or z-")
+    if float(dwell_time) <= 0:
+        raise ValueError("FUGUE dwell_time must be positive")
+    if out_path.exists() and not force:
+        return out_path
+    if not source.exists():
+        raise RuntimeError(f"FUGUE forward-warp input does not exist: {source}")
+    if not field_hz.exists():
+        raise RuntimeError(f"TOPUP field map does not exist: {field_hz}")
+
+    field_rads = out_path.with_name(out_path.name.split(".nii", 1)[0] + "_field-rads.nii.gz")
+    run_cmd(
+        " ".join(
+            shlex.quote(part)
+            for part in [
+                "fslmaths",
+                str(field_hz),
+                "-mul",
+                "6.283185307179586",
+                str(field_rads),
+            ]
+        ),
+        label="topup_field_hz_to_rads",
+    )
+    command = [
+        "fugue",
+        "-i", str(source),
+        f"--loadfmap={field_rads}",
+        f"--dwell={float(dwell_time):.12g}",
+        f"--unwarpdir={direction}",
+        "--nokspace",
+        "-w", str(out_path),
+    ]
+    if intensity_correction:
+        command.append("--icorr")
+    run_cmd(
+        " ".join(shlex.quote(part) for part in command),
+        label="fugue_forward_distort",
+    )
+    if not out_path.exists():
+        raise RuntimeError(f"FUGUE did not create its requested output: {out_path}")
     return out_path
 
 

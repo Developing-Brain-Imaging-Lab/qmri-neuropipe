@@ -258,7 +258,7 @@ class ReportGenerator:
         # For now, if details has 'File' or 'Stem', it's per-image.
         # If it's a global step (like Topup), we overwrite.
         
-        is_global = step_name in ["TopupStep", "ApplyTopupStep", "Synb0EstimationStep", "MergeStep", "DMRIReorientStep", "EddyQuadStep", "EddyCorrectionStep", "NativeDrbuddiStep"]
+        is_global = step_name in ["TopupStep", "ApplyTopupStep", "Synb0EstimationStep", "SyntheticReversePEStep", "MergeStep", "DMRIReorientStep", "EddyQuadStep", "EddyCorrectionStep", "NativeDrbuddiStep"]
         
         if is_global:
             existing = None

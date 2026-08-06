@@ -209,6 +209,23 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         output_dir: Path,
         force: bool,
     ) -> Optional[list[Path]]:
+        if self.options.get("use_synb0", False):
+            if not context:
+                raise ValidationError(
+                    "TORTOISEV4 use_synb0 requested but no pipeline context is available"
+                )
+            selected = context.get("synb0_undistorted_reference")
+            if selected is None:
+                synthetic = self._find_synb0_output(context)
+                selected = synthetic.img if synthetic is not None else None
+            if selected is None:
+                raise ValidationError(
+                    "TORTOISEV4 use_synb0 requested but no Synb0 undistorted "
+                    "structural reference was generated"
+                )
+            context["tortoise_structural_source"] = "synb0_undistorted_reference"
+            return [Path(selected)]
+
         configured = self.options.get("structural_file")
         if configured:
             values = configured if isinstance(configured, (list, tuple)) else [configured]
@@ -329,6 +346,44 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             and sorted(payload.get("StructuralBrainMaskingTargets", []))
             == requested_targets
         )
+
+    def _cached_synb0_role_matches(
+        self,
+        sidecar: Path,
+        output: Path,
+        context: Optional[dict],
+    ) -> bool:
+        """Invalidate outputs created when Synb0 was incorrectly used as down_data."""
+        expected = bool(self.options.get("use_synb0", False))
+        try:
+            payload = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if bool(payload.get("Synb0UsedAsStructural", False)) != expected:
+            return False
+        if bool(payload.get("SyntheticReversePE", False)) != bool(
+            self.options.get("use_synthetic_reverse_pe", False)
+        ):
+            return False
+        if not expected:
+            return True
+        reference = (context or {}).get("synb0_undistorted_reference")
+        reference_current = bool(
+            reference
+            and Path(reference).exists()
+            and output.stat().st_mtime >= Path(reference).stat().st_mtime
+        )
+        if not reference_current:
+            return False
+        if self.options.get("use_synthetic_reverse_pe", False):
+            generated = (context or {}).get("tortoise_synthetic_reverse_pe")
+            generated_path = getattr(generated, "img", None)
+            return bool(
+                generated_path
+                and Path(generated_path).exists()
+                and output.stat().st_mtime >= Path(generated_path).stat().st_mtime
+            )
+        return True
 
     @staticmethod
     def _structural_masking_targets(config: dict) -> set[str]:
@@ -511,32 +566,34 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         return requested
 
     def _resolve_repol(self) -> bool:
-        """Avoid TORTOISEV4's final WLLS crash for b0-only Synb0 down data."""
+        """Return the requested outlier-replacement setting."""
         requested = bool(self.options.get("repol", False))
-        if not requested or not self.options.get("use_synb0", False):
+        if not requested or not self.options.get("use_synthetic_reverse_pe", False):
             return requested
-
-        policy = str(self.options.get("synb0_repol_policy", "disable")).strip().lower()
+        configured = self.options.get("synthetic_reverse_pe") or {}
+        policy = str(
+            configured.get("repol_policy", "disable")
+            if isinstance(configured, dict)
+            else "disable"
+        ).strip().lower()
         if policy == "allow":
             self.logger.warning(
-                "TORTOISEV4 repol is explicitly allowed with b0-only Synb0 down_data; "
-                "TORTOISE V4.1.1 may segfault during final WLLS fitting."
+                "TORTOISEV4 repol is enabled with experimental b0-only synthetic "
+                "reverse-PE data; validate final WLLS and outlier results carefully"
             )
             return True
         if policy == "error":
             raise ValidationError(
-                "TORTOISEV4 repol with b0-only Synb0 down_data is unsafe because "
-                "TORTOISE V4.1.1 segfaults during final WLLS fitting. Set repol: false, "
-                "use synb0_repol_policy: disable, or use native reverse-PE DWI data."
+                "TORTOISEV4 repol is incompatible with the default safety policy for "
+                "b0-only synthetic reverse-PE data"
             )
         if policy != "disable":
             raise ValidationError(
-                "TORTOISEV4 synb0_repol_policy must be disable, error, or allow"
+                "synthetic_reverse_pe.repol_policy must be disable, error, or allow"
             )
         self.logger.warning(
-            "Disabling TORTOISEV4 repol for b0-only Synb0 down_data to avoid the "
-            "TORTOISE V4.1.1 final-WLLS segmentation fault. Configure the pipeline's "
-            "post-TORTOISE outliers step if additional outlier rejection is required."
+            "Disabling TORTOISEV4 repol for experimental b0-only synthetic "
+            "reverse-PE down_data"
         )
         return False
 
@@ -548,7 +605,7 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             shutil.rmtree(temp_folder)
         return temp_folder
 
-    def _find_synb0_down(self, context: dict) -> Optional[DWIFile]:
+    def _find_synb0_output(self, context: dict) -> Optional[DWIFile]:
         for group_item in context.get("topup_groups", []):
             inputs = group_item.get("inputs", []) if isinstance(group_item, dict) else group_item
             for candidate in inputs:
@@ -561,10 +618,13 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         if not context:
             return fallback, None
         files = list(context.get("dwi_files") or [fallback])
-        if self.options.get("use_synb0", False):
-            synthetic = self._find_synb0_down(context)
-            if synthetic is None:
-                raise ValidationError("TORTOISEV4 use_synb0 requested but no Synb0 image was generated")
+        if self.options.get("use_synthetic_reverse_pe", False):
+            synthetic = context.get("tortoise_synthetic_reverse_pe")
+            if not isinstance(synthetic, DWIFile):
+                raise ValidationError(
+                    "TORTOISEV4 synthetic_reverse_pe requested but no generated "
+                    "synthetic down_data is available"
+                )
             return files[0], synthetic
         if not self.options.get("use_reverse_pe", False):
             return files[0], None
@@ -616,6 +676,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 ):
                     raise ValueError(
                         "structural brain-masking configuration changed"
+                    )
+                if not self._cached_synb0_role_matches(
+                    _nifti_json_path(out_file), out_file, context
+                ):
+                    raise ValueError(
+                        "Synb0 structural-reference role or input changed"
                     )
             except Exception as exc:
                 self.logger.warning(
@@ -681,15 +747,23 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         )
         epi = str(self.options.get("epi", "off"))
         if epi.lower() == "drbuddi" and down_dwi is None:
-            raise ValidationError("TORTOISEV4 epi=DRBUDDI requires reverse-PE or Synb0 down_data")
+            raise ValidationError(
+                "TORTOISEV4 epi=DRBUDDI requires actual reverse-PE down_data; "
+                "Synb0 is an undistorted structural target, not a reverse-PE acquisition"
+            )
         if epi.lower() == "t2wreg" and not structurals:
-            raise ValidationError("TORTOISEV4 epi=T2Wreg requires an undistorted T2-weighted image")
-        if self.options.get("use_synb0", False) and epi.lower() != "drbuddi":
-            raise ValidationError("TORTOISEV4 use_synb0 is only meaningful with epi=DRBUDDI")
+            raise ValidationError(
+                "TORTOISEV4 epi=T2Wreg requires an undistorted structural reference"
+            )
+        if self.options.get("use_synb0", False) and epi.lower() not in {"t2wreg", "drbuddi"}:
+            raise ValidationError(
+                "TORTOISEV4 use_synb0 requires epi=T2Wreg, or epi=DRBUDDI with "
+                "actual reverse-PE data"
+            )
         output_combination = self.options.get("output_data_combination")
-        if self.options.get("use_synb0", False) and not output_combination:
-            # Keep the synthetic reverse-PE b0 out of the downstream DWI. In
-            # JacSep mode TORTOISE writes the corrected up series at --output.
+        if self.options.get("use_synthetic_reverse_pe", False) and not output_combination:
+            # Never concatenate the manufactured b0-only down series into the
+            # final diffusion data.
             output_combination = "JacSep"
         self._resolved_nthreads = requested_threads
         effective_repol = self._resolve_repol()
@@ -740,6 +814,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         payload["Denoising"] = self.options.get("denoising", "off")
         payload["GibbsRingingCorrection"] = bool(self.options.get("gibbs", False))
         payload["SusceptibilityDistortionCorrection"] = self.options.get("epi", "off")
+        payload["Synb0UsedAsStructural"] = bool(self.options.get("use_synb0", False))
+        payload["SyntheticReversePE"] = bool(
+            self.options.get("use_synthetic_reverse_pe", False)
+        )
+        if self.options.get("use_synthetic_reverse_pe", False):
+            payload["SyntheticReversePEExperimental"] = True
         payload["CoregistrationToAnatomy"] = bool(
             self._coregistration_config().get("enabled", False)
         )

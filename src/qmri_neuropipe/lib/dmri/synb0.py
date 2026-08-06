@@ -82,11 +82,11 @@ class Synb0EstimationStep(BaseProcessingStep):
     """
     Synb0 estimation step.
     
-    Generates a synthetic b0 image (representing the reverse phase encoding direction)
-    using a Deep Learning model (DIPY Synb0).
+    Generates an undistorted synthetic b0 image using a Deep Learning model
+    (DIPY Synb0).
     
-    This synthetic b0 is then paired with the real b0 to form a Topup config,
-    allowing Topup to estimate the susceptibility field.
+    The synthetic b0 can be used directly as an undistorted structural target,
+    or paired with the real b0 using Synb0's zero-readout Topup convention.
     
     Attributes:
         method: 'dipy-dl'
@@ -141,13 +141,14 @@ class Synb0EstimationStep(BaseProcessingStep):
         )
 
     @staticmethod
-    def _opposite_phase_encoding(direction: str) -> str:
+    def _synb0_phase_encoding(direction: str) -> str:
+        """Keep the acquired PE sign; zero readout makes Synb0 undistorted."""
         direction = str(direction or "").strip()
         if direction not in {"i", "i-", "j", "j-", "k", "k-"}:
             raise ProcessingError(
-                f"Cannot create Synb0 reverse-PE metadata from direction {direction!r}"
+                f"Cannot create Synb0 metadata from direction {direction!r}"
             )
-        return direction[:-1] if direction.endswith("-") else f"{direction}-"
+        return direction
 
     def _bias_correct_t1(self, t1w_mgz: Path, output_dir: Path) -> Path:
         """Bias-correct the Synb0 T1, using ANTs when FreeSurfer lacks MINC."""
@@ -913,6 +914,7 @@ class Synb0EstimationStep(BaseProcessingStep):
         # 1. Check if outputs exist
         syn_b0_path = output_dir / "syn_b0_desc-synthetic.nii.gz"
         syn_b0_native_path = output_dir / "syn_b0_native.nii.gz"
+        syn_b0_structural_path = output_dir / "syn_b0_desc-undistortedStructural.nii.gz"
         syn_json_path = syn_b0_path.with_suffix(".json")
         b0_path = output_dir / "real_b0.nii.gz"
         dummy_bval_path = output_dir / "b0.bval"
@@ -1109,8 +1111,27 @@ class Synb0EstimationStep(BaseProcessingStep):
             if img_b0.ndim == 3:
                  nib.Nifti1Image(img_b0.get_fdata()[..., np.newaxis], img_b0.affine, img_b0.header).to_filename(b0_path)
 
-            
-            
+        # TORTOISE uses Synb0 as an undistorted structural target, never as
+        # reverse-PE down_data.  Keep a dedicated 3D image for that interface;
+        # the singleton-4D copy below remains available for Topup workflows.
+        if (
+            force
+            or not syn_b0_structural_path.exists()
+            or syn_b0_native_path.stat().st_mtime > syn_b0_structural_path.stat().st_mtime
+        ):
+            syn_native = nib.load(str(syn_b0_native_path))
+            syn_structural_data = np.asanyarray(syn_native.dataobj)
+            if syn_structural_data.ndim == 4:
+                syn_structural_data = syn_structural_data[..., 0]
+            nib.save(
+                nib.Nifti1Image(
+                    syn_structural_data,
+                    syn_native.affine,
+                    syn_native.header.copy(),
+                ),
+                syn_b0_structural_path,
+            )
+        context["synb0_undistorted_reference"] = syn_b0_structural_path
 
         # Always refresh the cheap sidecars, including for cached Synb0 images
         # created before synthetic gradients and reverse-PE metadata were fixed.
@@ -1120,9 +1141,12 @@ class Synb0EstimationStep(BaseProcessingStep):
                 real_meta = json.load(f)
         real_pe = real_meta.get("PhaseEncodingDirection", "j-")
         syn_meta = {
-            "PhaseEncodingDirection": self._opposite_phase_encoding(real_pe),
+            # Synb0-DISCO's Topup convention preserves the acquired PE
+            # direction and assigns zero readout (infinite bandwidth).
+            "PhaseEncodingDirection": self._synb0_phase_encoding(real_pe),
             "TotalReadoutTime": 0.0,
             "Synthesized": True,
+            "Undistorted": True,
         }
         syn_json_path.write_text(json.dumps(syn_meta, indent=2) + "\n")
         dummy_bval_path.write_text("0\n")
@@ -1165,5 +1189,8 @@ class Synb0EstimationStep(BaseProcessingStep):
         # We might need to manually update topup_map in TopupStep or ensure parameters match.
         # If we copy TotalReadoutTime, it should match.
         
-        self.logger.info("Synb0 synthetic image generated and added to Topup groups.")
+        self.logger.info(
+            "Synb0 undistorted reference generated; it is available as a structural "
+            "target and was also added to Topup groups."
+        )
         return context

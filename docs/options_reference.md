@@ -244,6 +244,14 @@ keys from the top-level configuration for compatibility:
 | `distcorr.drbuddi.symmetric_pairwise` | boolean | `true` | Estimate symmetric half-warps. |
 | `distcorr.drbuddi.pe_axis_constraint` | number | `1.0` | Warp constraint along the PE axis, from `0` to `1`. |
 | `distcorr.drbuddi.registration_options` | object | `{}` | Extra ANTs registration keyword arguments. |
+| `tortoise_v4.synthetic_reverse_pe.enabled` | boolean | `false` | Experimental Synb0/TOPUP field forward-warp into b0-only synthetic reverse-PE data for TORTOISE DRBUDDI. |
+| `tortoise_v4.synthetic_reverse_pe.forward_warp_backend` | string | `fugue` | Forward-distortion backend; currently only FSL FUGUE is supported. |
+| `tortoise_v4.synthetic_reverse_pe.fugue_unwarpdir` | string | `auto` | FUGUE voxel-axis direction (`x`, `x-`, `y`, `y-`, `z`, `z-`); protocol validation is recommended, especially for the x axis. |
+| `tortoise_v4.synthetic_reverse_pe.intensity_correction` | boolean | `true` | Request FUGUE pixel-shift intensity correction. |
+| `tortoise_v4.synthetic_reverse_pe.duplicate_volumes` | integer | `2` | Number of duplicate synthetic b0 volumes supplied as the down series. |
+| `tortoise_v4.synthetic_reverse_pe.repol_policy` | string | `disable` | `disable`, `error`, or `allow`; protects b0-only synthetic down processing. |
+| `tortoise_v4.synthetic_reverse_pe.effective_echo_spacing` | number/null | BIDS metadata | Explicit FUGUE dwell-time override in seconds. |
+| `tortoise_v4.synthetic_reverse_pe.total_readout_time` | number/null | BIDS metadata | Readout-time override used to derive echo spacing and write synthetic metadata. |
 
 ### Gradient nonlinearity (GNL)
 

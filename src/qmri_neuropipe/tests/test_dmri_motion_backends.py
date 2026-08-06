@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from qmri_neuropipe.lib.dmri.tortoise_v4 import TortoiseV4CorrectionStep, _image
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
 from qmri_neuropipe.lib.dmri.topup import TopupStep
 from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
+from qmri_neuropipe.lib.dmri.synthetic_reverse_pe import SyntheticReversePEStep
 from qmri_neuropipe.workflows.pipelines.integrated_preprocessing_workflow import (
     PreprocessingWorkflow,
 )
@@ -257,9 +259,9 @@ def test_tortoise_rejects_mismatched_gradient_dimensions_before_execution(tmp_pa
         _validate_tortoise_v4_gradients(source, "up")
 
 
-def test_synb0_phase_encoding_is_opposite_acquired_direction():
-    assert Synb0EstimationStep._opposite_phase_encoding("j-") == "j"
-    assert Synb0EstimationStep._opposite_phase_encoding("i") == "i-"
+def test_synb0_phase_encoding_preserves_acquired_direction():
+    assert Synb0EstimationStep._synb0_phase_encoding("j-") == "j-"
+    assert Synb0EstimationStep._synb0_phase_encoding("i") == "i"
 
 
 def _workflow(method: str) -> PreprocessingWorkflow:
@@ -310,7 +312,7 @@ def test_top_level_tortoise_stream_is_enabled_by_presence():
     assert isinstance(workflow.steps[0], TortoiseV4CorrectionStep)
 
 
-def test_nested_synb0_config_enables_tortoise_drbuddi():
+def test_nested_synb0_config_enables_tortoise_structural_correction():
     preprocessing = {
         "tortoise_v4": {
             "synb0": {
@@ -335,8 +337,160 @@ def test_nested_synb0_config_enables_tortoise_drbuddi():
         TortoiseV4CorrectionStep,
     ]
     assert workflow.steps[0].synb0_cfg["registration_backend"] == "ants"
-    assert workflow.steps[1].options["epi"] == "DRBUDDI"
+    assert workflow.steps[1].options["epi"] == "T2Wreg"
     assert workflow.steps[1].options["use_synb0"] is True
+
+
+def test_tortoise_uses_synb0_as_structural_not_down_data(tmp_path: Path):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        use_synb0=True,
+        epi="T2Wreg",
+    )
+    acquired = DWIFile(entities={"dir": "AP"}, img=tmp_path / "up.nii.gz")
+    synb0_reference = tmp_path / "synb0_undistorted.nii.gz"
+    context = {
+        "dwi_files": [acquired],
+        "synb0_undistorted_reference": synb0_reference,
+    }
+
+    up, down = step._select_up_down(context, acquired)
+    structurals = step._select_structural(context, tmp_path, False)
+
+    assert up is acquired
+    assert down is None
+    assert structurals == [synb0_reference]
+
+
+def test_tortoise_drbuddi_uses_native_down_with_synb0_structural(tmp_path: Path):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        use_synb0=True,
+        use_reverse_pe=True,
+        epi="DRBUDDI",
+    )
+    up = DWIFile(entities={"dir": "AP"}, img=tmp_path / "up.nii.gz")
+    down = DWIFile(entities={"dir": "PA"}, img=tmp_path / "down.nii.gz")
+    synb0_reference = tmp_path / "synb0_undistorted.nii.gz"
+    context = {
+        "dwi_files": [up, down],
+        "synb0_undistorted_reference": synb0_reference,
+    }
+
+    selected_up, selected_down = step._select_up_down(context, up)
+    structurals = step._select_structural(context, tmp_path, False)
+
+    assert selected_up is up
+    assert selected_down is down
+    assert structurals == [synb0_reference]
+
+
+def test_experimental_synb0_reverse_pe_workflow_order():
+    preprocessing = {
+        "tortoise_v4": {
+            "synb0": {"enabled": True, "registration_backend": "ants"},
+            "synthetic_reverse_pe": {
+                "enabled": True,
+                "forward_warp_backend": "fugue",
+            },
+        }
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    workflow.build_pipeline({
+        "dwi_files": [],
+        "topup_groups": [],
+        "t1w_files": [object()],
+    })
+
+    assert [type(step) for step in workflow.steps] == [
+        Synb0EstimationStep,
+        TopupStep,
+        SyntheticReversePEStep,
+        TortoiseV4CorrectionStep,
+    ]
+    options = workflow.steps[-1].options
+    assert options["epi"] == "DRBUDDI"
+    assert options["use_synb0"] is True
+    assert options["use_synthetic_reverse_pe"] is True
+    assert options.get("use_reverse_pe") is None
+
+
+def test_synthetic_reverse_pe_generation_uses_bids_readout(tmp_path: Path, monkeypatch):
+    acquired = _dwi(
+        tmp_path,
+        np.ones((5, 6, 7, 2), dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    acquired.entities["dir"] = "PA"
+    acquired.json.write_text(json.dumps({
+        "PhaseEncodingDirection": "j-",
+        "TotalReadoutTime": 0.050,
+    }))
+    undistorted = tmp_path / "synb0_undistorted.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((5, 6, 7), dtype=np.float32), np.eye(4)), undistorted)
+    topup_base = tmp_path / "topup_group0"
+    (tmp_path / "topup_group0_field.nii.gz").write_bytes(b"field")
+    captured = {}
+
+    def fake_forward(source, field, output, **kwargs):
+        captured.update(kwargs)
+        nib.save(nib.load(str(source)), output)
+        return output
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.synthetic_reverse_pe.fsl.forward_distort_with_fugue",
+        fake_forward,
+    )
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = SyntheticReversePEStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        options={"duplicate_volumes": 2},
+    )
+    context = {
+        "dwi_files": [acquired],
+        "current_image": acquired,
+        "synb0_undistorted_reference": undistorted,
+        "topup_base": str(topup_base),
+    }
+
+    result = step(context, output_dir=tmp_path / "work")
+    generated = result["tortoise_synthetic_reverse_pe"]
+
+    assert captured["dwell_time"] == pytest.approx(0.010)
+    assert captured["unwarp_direction"] == "y"
+    assert nib.load(str(generated.img)).shape == (5, 6, 7, 2)
+    assert np.loadtxt(generated.bval).size == 2
+    assert np.loadtxt(generated.bvec).shape == (3, 2)
+    metadata = json.loads(generated.json.read_text())
+    assert metadata["PhaseEncodingDirection"] == "j"
+    assert metadata["SyntheticReversePE"] is True
+
+    tortoise = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        use_synb0=True,
+        use_synthetic_reverse_pe=True,
+        synthetic_reverse_pe={"repol_policy": "disable"},
+        repol=True,
+        epi="DRBUDDI",
+    )
+    selected_up, selected_down = tortoise._select_up_down(result, acquired)
+    assert selected_up is acquired
+    assert selected_down is generated
+    assert tortoise._resolve_repol() is False
 
 
 def test_full_tortoise_workflow_avoids_duplicate_pipeline_stages():
@@ -802,7 +956,7 @@ def test_forced_tortoise_rerun_discards_failed_temp_state(tmp_path: Path):
     assert not temp_folder.exists()
 
 
-def test_tortoise_disables_repol_for_synb0_b0_down_by_default(tmp_path: Path):
+def test_tortoise_keeps_repol_when_synb0_is_structural(tmp_path: Path):
     config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
     step = TortoiseV4CorrectionStep(
         config,
@@ -812,7 +966,7 @@ def test_tortoise_disables_repol_for_synb0_b0_down_by_default(tmp_path: Path):
         use_synb0=True,
     )
 
-    assert step._resolve_repol() is False
+    assert step._resolve_repol() is True
 
 
 def test_tortoise_keeps_repol_for_native_reverse_pe(tmp_path: Path):

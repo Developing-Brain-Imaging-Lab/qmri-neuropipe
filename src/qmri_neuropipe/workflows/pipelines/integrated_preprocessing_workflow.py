@@ -20,6 +20,7 @@ from qmri_neuropipe.lib.dmri.eddy import EddyCorrectionStep
 from qmri_neuropipe.lib.dmri.synb0 import Synb0EstimationStep
 from qmri_neuropipe.lib.dmri.topup import TopupStep
 from qmri_neuropipe.lib.dmri.apply_topup import ApplyTopupStep
+from qmri_neuropipe.lib.dmri.synthetic_reverse_pe import SyntheticReversePEStep
 from qmri_neuropipe.lib.common.bias import BiasCorrectionStep
 from qmri_neuropipe.lib.dmri.grad_nonlin import (
     TortoiseGradNonlinCorrectStep,
@@ -69,10 +70,30 @@ def _resolve_tortoise_v4_config(dmri_cfg: dict) -> tuple[bool, dict]:
     if isinstance(synb0_cfg, dict):
         synb0_enabled = bool(synb0_cfg.get('enabled', True))
         options.setdefault('use_synb0', synb0_enabled)
-        if synb0_enabled:
-            options.setdefault('epi', 'DRBUDDI')
-    if str(options.get('epi', 'off')).lower() == 'drbuddi':
-        options.setdefault('use_reverse_pe', not bool(options.get('use_synb0', False)))
+    synthetic_reverse_configured = 'synthetic_reverse_pe' in options
+    synthetic_reverse_cfg = options.get('synthetic_reverse_pe') or {}
+    synthetic_reverse_enabled = synthetic_reverse_configured and (
+        bool(synthetic_reverse_cfg.get('enabled', True))
+        if isinstance(synthetic_reverse_cfg, dict)
+        else bool(synthetic_reverse_cfg)
+    )
+    if synthetic_reverse_enabled:
+        options['use_synb0'] = True
+        options['use_synthetic_reverse_pe'] = True
+        options.setdefault('epi', 'DRBUDDI')
+    # Synb0 is an undistorted b0 target, not a reverse-PE acquisition.  With a
+    # single acquired PE series it therefore drives structural (T2Wreg-style)
+    # correction.  DRBUDDI remains reserved for actual blip-up/blip-down data;
+    # Synb0 may still be supplied as its optional structural target.
+    if options.get('use_reverse_pe', False):
+        options.setdefault('epi', 'DRBUDDI')
+    elif options.get('use_synb0', False):
+        options.setdefault('epi', 'T2Wreg')
+    if (
+        str(options.get('epi', 'off')).lower() == 'drbuddi'
+        and not options.get('use_synthetic_reverse_pe', False)
+    ):
+        options.setdefault('use_reverse_pe', True)
     return enabled, options
 
 
@@ -173,7 +194,22 @@ class PreprocessingWorkflow(BaseWorkflow):
                 "Topup -> ApplyTopup"
             )
         elif tortoise_enabled and epi != 'off':
-            source = 'Synb0' if tortoise_cfg.get('use_synb0', False) else 'reverse-PE data'
+            if epi == 'drbuddi':
+                if tortoise_cfg.get('use_synthetic_reverse_pe', False):
+                    source = 'experimental TOPUP-derived synthetic reverse-PE data'
+                else:
+                    source = 'native reverse-PE data'
+                if (
+                    tortoise_cfg.get('use_synb0', False)
+                    and not tortoise_cfg.get('use_synthetic_reverse_pe', False)
+                ):
+                    source += ' + Synb0 structural target'
+                elif tortoise_cfg.get('use_synthetic_reverse_pe', False):
+                    source += ' + Synb0 structural target'
+            elif tortoise_cfg.get('use_synb0', False):
+                source = 'Synb0 structural target'
+            else:
+                source = 'anatomical structural target'
             self.logger.info(
                 f"Effective distortion plan: {source} -> TORTOISEV4 epi={epi.upper()}"
             )
@@ -261,13 +297,44 @@ class PreprocessingWorkflow(BaseWorkflow):
                     or context.get("anatomical_files")
                 ):
                     raise ValueError("TORTOISEV4 use_synb0 requires an anatomical image")
-                self.logger.info("Adding Synb0EstimationStep for TORTOISEV4 DRBUDDI input")
+                self.logger.info(
+                    "Adding Synb0EstimationStep for TORTOISEV4 structural reference"
+                )
                 self.add_step(Synb0EstimationStep(
                     self.config,
                     self.logger,
                     self.provenance,
                     synb0_config=tortoise_cfg.get('synb0'),
                 ))
+                if tortoise_cfg.get('use_synthetic_reverse_pe', False):
+                    if tortoise_cfg.get('use_reverse_pe', False):
+                        raise ValueError(
+                            "TORTOISEV4 synthetic_reverse_pe cannot be combined with "
+                            "use_reverse_pe; use the acquired reverse-PE series directly"
+                        )
+                    if context.get('topup_groups'):
+                        raise ValueError(
+                            "TORTOISEV4 synthetic_reverse_pe is only for datasets without "
+                            "an acquired reverse-PE group"
+                        )
+                    synthetic_cfg = dict(tortoise_cfg.get('synthetic_reverse_pe') or {})
+                    context['do_topup'] = True
+                    self.logger.warning(
+                        "Adding experimental Synb0 -> TOPUP -> synthetic reverse-PE "
+                        "forward-warp workflow"
+                    )
+                    self.add_step(TopupStep(
+                        self.config,
+                        self.logger,
+                        self.provenance,
+                        topup_config=synthetic_cfg.get('topup_config'),
+                    ))
+                    self.add_step(SyntheticReversePEStep(
+                        self.config,
+                        self.logger,
+                        self.provenance,
+                        options=synthetic_cfg,
+                    ))
             else:
                 self.logger.info("TORTOISEV4 owns susceptibility distortion correction")
             return
@@ -751,8 +818,8 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         # Calculate total tasks
         GLOBAL_STEPS = (
-            Synb0EstimationStep, TopupStep, ApplyTopupStep, GradientCheckStep,
-            DMRIReorientStep, MergeStep
+            Synb0EstimationStep, TopupStep, ApplyTopupStep,
+            SyntheticReversePEStep, GradientCheckStep, DMRIReorientStep, MergeStep
         )
         calc_total = sum(
             1 if isinstance(s, GLOBAL_STEPS) else len(dwi_files)

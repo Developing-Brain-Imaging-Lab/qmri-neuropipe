@@ -155,16 +155,15 @@ dmri:
       correction_mode: quadratic  # motion, eddy_only, quadratic, or cubic
       slice_to_volume: true
       repol: true
-      # TORTOISE V4.1.1 crashes in final WLLS fitting when repol is combined
-      # with a b0-only Synb0 down series. Safe default: disable.
-      synb0_repol_policy: disable  # disable, error, or allow (unsafe)
       niter: 3
 
       # Native blip-up/blip-down data are selected automatically for DRBUDDI.
       epi: DRBUDDI           # off, T2Wreg, or DRBUDDI
       use_reverse_pe: true
-      # Alternatively, remove use_reverse_pe and enable this block. Its
-      # presence generates a synthetic down image and implies epi: DRBUDDI.
+      # Synb0 is an undistorted structural target, never down_data. With no
+      # native reverse-PE series, enabling this block defaults epi to T2Wreg.
+      # With use_reverse_pe: true, native up/down data drive DRBUDDI and Synb0
+      # is supplied through TORTOISEProcess --structural as optional guidance.
       synb0:
         enabled: false
         anatomical_input: auto
@@ -174,6 +173,22 @@ dmri:
         # synthmorph_rigid_model: rigid
         # synthmorph_affine_model: affine
         # synthmorph_register_args: ""
+
+      # EXPERIMENTAL: estimate a field from acquired b0 + undistorted Synb0,
+      # forward-distort Synb0 with the opposite PE polarity, and provide that
+      # manufactured b0-only series to TORTOISE DRBUDDI. Remove/disable
+      # use_reverse_pe when enabling this mode. It does not add independent
+      # acquisition information and requires careful visual QC.
+      synthetic_reverse_pe:
+        enabled: false
+        forward_warp_backend: fugue
+        fugue_unwarpdir: auto  # x/x-/y/y-/z/z- override recommended after validation
+        intensity_correction: true
+        duplicate_volumes: 2
+        repol_policy: disable  # disable, error, or allow
+        # topup_config: ${FSLDIR}/etc/flirtsch/b02b0.cnf
+        # effective_echo_spacing: 0.0005  # otherwise derive from BIDS metadata
+        # total_readout_time: 0.05
 
       # Select the T2w supplied to T2Wreg and, optionally, DRBUDDI. "auto"
       # prefers an acquired T2w and synthesizes one only when needed;

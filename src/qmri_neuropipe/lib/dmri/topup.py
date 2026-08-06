@@ -25,8 +25,10 @@ class TopupStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
+        topup_config: Optional[str] = None,
     ):
         super().__init__(config, logger, provenance)
+        self.topup_config = topup_config
     
     def validate_inputs(self, first_arg, **kwargs) -> None:
         """
@@ -67,7 +69,7 @@ class TopupStep(BaseProcessingStep):
         # Retrieve topup config from distcorr section
         dmri_cfg = self.config.get('dmri', {}).get('preprocessing', {})
         distcorr_cfg = dmri_cfg.get('distcorr', {})
-        topup_config = distcorr_cfg.get('config')
+        topup_config = self.topup_config or distcorr_cfg.get('config')
         
         if topup_config:
             self.logger.info(f"Using Topup config file: {topup_config}")
@@ -106,13 +108,15 @@ class TopupStep(BaseProcessingStep):
                 # Define output paths
                 fieldcoef = base.with_name(f"{base_name}_fieldcoef.nii.gz")
                 movpar = base.with_name(f"{base_name}_movpar.txt")
-                field_map = base.with_name(f"{base_name}_fmap.nii.gz")
+                # interfaces.fsl.topup writes --fout as <base>_field.nii.gz.
+                field_map = base.with_name(f"{base_name}_field.nii.gz")
                 
                 should_skip = False
                 if fieldcoef.exists() and movpar.exists() and field_map.exists() and not kwargs.get('force', False):
-                     # Check timestamps of inputs (peek at first entry)
+                     # Re-run when either the acquired or synthetic b0 changed.
                      from ...core.utils import extract_image_path
-                     in_p = extract_image_path(group[0])
+                     input_paths = [extract_image_path(item) for item in group]
+                     in_p = max(input_paths, key=lambda path: path.stat().st_mtime)
                      in_mtime = in_p.stat().st_mtime
                      out_mtime = fieldcoef.stat().st_mtime
                      
@@ -280,6 +284,7 @@ class TopupStep(BaseProcessingStep):
                         config=topup_config,
                         acqp=Path(group_acqp) if group_acqp else None,
                         index=Path(group_index) if group_index else None,
+                        force=True,
                     )
                 
                 # Map each input image in the group to this topup result
