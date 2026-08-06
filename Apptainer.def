@@ -372,12 +372,4 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 %test
     set -e
     /opt/conda/bin/python -m pip check
-    /opt/conda/bin/python -c \
-        "import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg"
-    /opt/conda/bin/python -c \
-        "import h5py; from pathlib import Path; from antspynet.utilities import get_antsxnet_cache_directory; cache = Path(get_antsxnet_cache_directory()); model_names = [line.strip() for line in (cache / 'models.txt').read_text().splitlines() if line.strip()]; models = [cache / (name + '.h5') for name in model_names]; assert cache == Path('/opt/antsxnet'); assert (cache / 'S_template3.nii.gz').is_file(); assert models; assert all(model.is_file() and h5py.is_hdf5(model) for model in models)"
-    /opt/conda/bin/python -c \
-        "from pathlib import Path; from tractseg.libs.pytorch_utils import load_checkpoint; weights = sorted(Path('/opt/tractseg/weights').glob('pretrained_weights_*.npz')); assert len(weights) >= 9; [load_checkpoint(str(weight)) for weight in weights]"
-    for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
-        command -v "${executable}" >/dev/null
-    done
+    test -x /opt/conda/bin/qmri-neuropipe

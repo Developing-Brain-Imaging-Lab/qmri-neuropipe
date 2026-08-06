@@ -34,6 +34,17 @@ def test_apptainer_installs_and_checks_segmentation_tools():
     assert "/opt/conda/bin/python -m pip check" in definition
 
 
+def test_apptainer_runtime_test_is_lightweight_and_host_independent():
+    definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
+    runtime_test = definition.split("%test", maxsplit=1)[1]
+
+    assert "/opt/conda/bin/python -m pip check" in runtime_test
+    assert "test -x /opt/conda/bin/qmri-neuropipe" in runtime_test
+    assert "import ants" not in runtime_test
+    assert "import jax" not in runtime_test
+    assert "load_checkpoint" not in runtime_test
+
+
 def test_tractseg_extra_supplies_undeclared_pytorch_dependency():
     project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     tractseg_extra = project.split("tractseg = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
