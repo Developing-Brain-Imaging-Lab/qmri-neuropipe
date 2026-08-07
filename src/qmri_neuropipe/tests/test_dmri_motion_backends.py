@@ -665,6 +665,61 @@ def test_tortoise_output_grid_matches_selected_reference(tmp_path: Path):
     assert anatomical_step._resolve_output_grid(dwi, anatomical) == _image_grid(anatomical)
 
 
+@pytest.mark.parametrize("spatial_shape", [(60, 128, 128), (17, 23, 31)])
+def test_tortoise_default_output_grid_preserves_reoriented_dwi_matrix(
+    tmp_path: Path,
+    spatial_shape: tuple[int, int, int],
+):
+    reoriented = tmp_path / "desc-reor_dwi.nii.gz"
+    affine = np.diag([2.5, 2.0, 2.0, 1.0])
+    nib.save(
+        nib.Nifti1Image(np.zeros((*spatial_shape, 2)), affine),
+        reoriented,
+    )
+    dwi = DWIFile(entities={}, img=reoriented)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {}
+
+    assert step._resolve_output_grid(dwi, None) == _image_grid(reoriented)
+
+
+def test_tortoise_rejects_cached_output_with_cropped_reoriented_matrix(tmp_path: Path):
+    reoriented = tmp_path / "desc-reor_dwi.nii.gz"
+    cropped = tmp_path / "desc-tortoisev4corrected_dwi.nii.gz"
+    nib.save(
+        nib.Nifti1Image(np.zeros((60, 128, 128, 2)), np.eye(4)),
+        reoriented,
+    )
+    nib.save(
+        nib.Nifti1Image(np.zeros((60, 128, 60, 2)), np.eye(4)),
+        cropped,
+    )
+    dwi = DWIFile(entities={}, img=reoriented)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {}
+
+    assert not step._cached_output_matrix_matches(cropped, dwi)
+
+
+def test_synb0_reextracts_cached_b0_from_changed_reoriented_grid(tmp_path: Path):
+    source = tmp_path / "desc-reor_dwi.nii.gz"
+    cached = tmp_path / "real_b0.nii.gz"
+    affine = np.diag([2.5, 2.0, 2.0, 1.0])
+    data = np.arange(60 * 8 * 9 * 2, dtype=np.float32).reshape(60, 8, 9, 2)
+    nib.save(nib.Nifti1Image(data, affine), source)
+    nib.save(nib.Nifti1Image(np.zeros((9, 8, 60, 1)), np.eye(4)), cached)
+    dwi = DWIFile(entities={}, img=source)
+    step = Synb0EstimationStep.__new__(Synb0EstimationStep)
+    step.logger = logging.getLogger(__name__)
+
+    step._extract_mean_b0(dwi, cached)
+
+    extracted = nib.load(cached)
+    assert extracted.shape == (60, 8, 9, 1)
+    np.testing.assert_allclose(extracted.affine, affine)
+    np.testing.assert_allclose(np.asanyarray(extracted.dataobj)[..., 0], data[..., 0])
+
+
 def test_tortoise_synthesizes_t2w_when_only_t1w_exists(tmp_path: Path, monkeypatch):
     source = tmp_path / "T1w.nii.gz"
     synth = tmp_path / "SynthT2.mgz"

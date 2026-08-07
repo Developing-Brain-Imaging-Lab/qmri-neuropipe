@@ -78,6 +78,20 @@ def _validate_nifti(path: Path, logger: logging.Logger, label: str) -> None:
         except Exception as e:
             raise ProcessingError(f"{label} is not valid gzip: {path} ({e})")
 
+
+def _spatial_grids_match(first: Path, second: Path) -> bool:
+    """Return whether two images occupy the same voxel grid."""
+    try:
+        first_image = nib.load(str(first))
+        second_image = nib.load(str(second))
+    except (OSError, ValueError):
+        return False
+    return (
+        first_image.shape[:3] == second_image.shape[:3]
+        and np.allclose(first_image.affine, second_image.affine, atol=1e-4)
+    )
+
+
 class Synb0EstimationStep(BaseProcessingStep):
     """
     Synb0 estimation step.
@@ -519,7 +533,23 @@ class Synb0EstimationStep(BaseProcessingStep):
 
     def _extract_mean_b0(self, input_dwi: DWIFile, b0_path: Path, force: bool = False, as_4d: bool = True) -> Path:
         if b0_path.exists() and not force:
-            return b0_path
+            try:
+                if (
+                    b0_path.stat().st_mtime >= Path(input_dwi.img).stat().st_mtime
+                    and _spatial_grids_match(b0_path, Path(input_dwi.img))
+                ):
+                    return b0_path
+                self.logger.info(
+                    "Cached Synb0 real-b0 reference is stale or uses a different "
+                    "DWI grid; extracting it again."
+                )
+            except (OSError, ValueError) as exc:
+                self.logger.warning(
+                    "Could not validate cached Synb0 real-b0 reference %s (%s); "
+                    "extracting it again.",
+                    b0_path,
+                    exc,
+                )
 
         _validate_nifti(input_dwi.img, self.logger, "Input DWI")
         try:
@@ -959,6 +989,7 @@ class Synb0EstimationStep(BaseProcessingStep):
                 or dwi_mtime > out_mtime
                 or registration_ref_mtime > out_mtime
                 or missing_matched_moving
+                or not _spatial_grids_match(syn_b0_native_path, b0_path)
             ):
                  self.logger.info(
                      "Synb0 inputs or registration proxies changed. Re-running."
@@ -968,6 +999,13 @@ class Synb0EstimationStep(BaseProcessingStep):
                  should_skip = True
         
         if not should_skip:
+            # The inference wrapper intentionally reuses an existing output.
+            # Remove stale products here so a changed/reoriented DWI actually
+            # triggers inference and native-grid resampling instead of silently
+            # retaining the previous geometry.
+            syn_b0_path.unlink(missing_ok=True)
+            syn_b0_native_path.unlink(missing_ok=True)
+
             #Preprocess T1w
             #Normalize T1w
             t1w_mgz = output_dir / "t1w.mgz"
@@ -1088,6 +1126,14 @@ class Synb0EstimationStep(BaseProcessingStep):
                                   transforms=[t1w_2_dwi.path, mni_2_t1w.path],
                                   invert_transforms=[t1w_2_dwi.invert, mni_2_t1w.invert],
                                   interpolator="bSpline")
+
+            if not _spatial_grids_match(syn_b0_native_path, b0_path):
+                native_shape = nib.load(str(syn_b0_native_path)).shape[:3]
+                expected_shape = nib.load(str(b0_path)).shape[:3]
+                raise ProcessingError(
+                    "Synb0 native-space output does not match the current DWI "
+                    f"grid: got {native_shape}, expected {expected_shape}"
+                )
 
             #Warp T1w mask to DWI space
             t1w_mask_2_dwi = output_dir / "t1w_mask_2_dwi.nii.gz"

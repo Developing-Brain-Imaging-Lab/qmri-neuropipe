@@ -4,6 +4,19 @@ This page is a practical first-run guide for students and lab members processing
 
 > **Recommended first run:** validate the YAML, process one participant/session, review the outputs and QC, and only then expand to a cohort.
 
+## Table of contents
+
+- [1. Choose how you will run](#1-choose-how-you-will-run)
+- [2. Check the BIDS input](#2-check-the-bids-input)
+- [3. Create the pipeline YAML](#3-create-the-pipeline-yaml)
+- [4. Validate before processing](#4-validate-before-processing)
+- [5. Run one participant/session](#5-run-one-participantsession)
+- [6. Review the result before scaling up](#6-review-the-result-before-scaling-up)
+- [7. Resume or deliberately rerun](#7-resume-or-deliberately-rerun)
+- [8. Container settings file](#8-container-settings-file-optional)
+- [9. Troubleshooting quick reference](#9-troubleshooting-quick-reference)
+- [Detailed processing manuals](#detailed-processing-manuals)
+
 ## 1. Choose how you will run
 
 ### Local installation
@@ -371,6 +384,20 @@ Command-line flags override settings-file values, while pipeline behavior still 
 | Out of disk space | Check both output and work locations; the work directory can be much larger than final derivatives. |
 | Existing output was unexpectedly skipped | Review `skip_existing`; use a scoped `rerun_from_step` when regeneration is intentional. |
 | Processing fails after a tool update | Record `qmri-neuropipe --version`, image name/digest, YAML commit, and failing command from provenance. |
+
+## Detailed processing manuals
+
+Continue in the full SOP/manual for the processing branches enabled by the study YAML:
+
+- [Anatomical processing](QMRI_NEUROPIPE_SOP_SOURCE.md#7-anatomical-processing-manual)
+- [Diffusion processing](QMRI_NEUROPIPE_SOP_SOURCE.md#8-diffusion-processing-manual)
+- [Relaxometry and mcDESPOT](QMRI_NEUROPIPE_SOP_SOURCE.md#9-relaxometry-and-mcdespot-processing-manual)
+- [Standard-space normalization](QMRI_NEUROPIPE_SOP_SOURCE.md#10-standard-space-normalization-manual)
+- [Tractography, tractometry, and connectomes](QMRI_NEUROPIPE_SOP_SOURCE.md#11-tractography-tractometry-and-connectome-manual)
+- [Atlas registration and ROI extraction](QMRI_NEUROPIPE_SOP_SOURCE.md#12-atlas-registration-and-roi-extraction-manual)
+- [Study tracker](QMRI_NEUROPIPE_SOP_SOURCE.md#13-study-tracker-manual)
+- [Validation and execution](QMRI_NEUROPIPE_SOP_SOURCE.md#14-validation-and-execution)
+- [Quality control](QMRI_NEUROPIPE_SOP_SOURCE.md#15-quality-control)
 
 ## Further reference
 

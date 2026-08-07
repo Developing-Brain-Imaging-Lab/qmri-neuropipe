@@ -539,6 +539,17 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 "coregistration_to_anatomy.output_resolution must be 'native' or 'anatomical'"
             )
 
+        # Correction-only TORTOISE runs should preserve the current DWI grid.
+        # This is especially important after axis reorientation: asking only
+        # for the new orientation lets TORTOISE choose its own field of view,
+        # which can reuse a pre-reorientation dimension and crop the volume.
+        if (
+            grid_reference is None
+            and output_res is None
+            and output_voxels is None
+        ):
+            grid_reference = Path(input_dwi.img)
+
         if grid_reference:
             derived_res, derived_voxels, derived_orientation = _image_grid(grid_reference)
             output_res = output_res or derived_res
@@ -547,6 +558,30 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         if not output_orientation:
             output_orientation = _image_grid(Path(input_dwi.img))[2]
         return output_res, output_voxels, output_orientation
+
+    def _cached_output_matrix_matches(
+        self,
+        output: Path,
+        input_dwi: DWIFile,
+    ) -> bool:
+        """Reject cached outputs that lost a requested/native spatial dimension."""
+        requested = self.options.get("output_voxels")
+        resolution_mode = str(
+            self._coregistration_config().get("output_resolution", "")
+        ).strip().lower()
+        if requested is not None:
+            expected = tuple(int(value) for value in requested)
+        elif resolution_mode == "native" or (
+            resolution_mode != "anatomical"
+            and self.options.get("output_res") is None
+        ):
+            expected = tuple(int(value) for value in nib.load(str(input_dwi.img)).shape[:3])
+        else:
+            # An anatomical grid is resolved later, and an explicit resolution
+            # without a matrix intentionally lets TORTOISE determine the FOV.
+            return True
+        actual = tuple(int(value) for value in nib.load(str(output)).shape[:3])
+        return actual == expected
 
     def _resolve_nthreads(self, runtime_nthreads=None) -> int:
         """Resolve the per-step override before the pipeline-wide CPU count."""
@@ -671,6 +706,10 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 cached_shape = nib.load(str(out_file)).shape
                 if len(cached_shape) != 4:
                     raise ValueError(f"expected a 4D DWI, got {cached_shape}")
+                if not self._cached_output_matrix_matches(out_file, input_dwi):
+                    raise ValueError(
+                        "cached output matrix does not match the current DWI grid"
+                    )
                 if not self._cached_structural_masking_matches(
                     _nifti_json_path(out_file)
                 ):

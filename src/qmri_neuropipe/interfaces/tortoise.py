@@ -263,6 +263,14 @@ def tortoise_v4_motion_eddy(
             raise ProcessingError(
                 f"TORTOISEV4 corrected output must be 4D, got {image.shape}"
             )
+    if output_voxels is not None:
+        expected_shape = tuple(int(value) for value in output_voxels)
+        actual_shape = tuple(int(value) for value in image.shape[:3])
+        if actual_shape != expected_shape:
+            raise ProcessingError(
+                "TORTOISEV4 corrected output changed the requested spatial "
+                f"matrix: got {actual_shape}, expected {expected_shape}"
+            )
     out_bvec = Path(f"{base}.bvec")
     out_bval = Path(f"{base}.bval")
     shutil.copy2(generated_bvec, out_bvec)
