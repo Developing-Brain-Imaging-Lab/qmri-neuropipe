@@ -149,6 +149,7 @@ class PreprocessingWorkflow(BaseWorkflow):
     def build_pipeline(self, context: dict):
         """Build the preprocessing pipeline based on configuration."""
         self.steps = []  # Reset steps
+        self._delegate_reorientation_to_tortoise = False
         dwi_files: list[DWIFile] = context.get("dwi_files", [])
         topup_groups = context.get("topup_groups", [])
         
@@ -222,9 +223,29 @@ class PreprocessingWorkflow(BaseWorkflow):
         """Add reorientation step if enabled."""
         reor_cfg = dmri_cfg.get('reorient', {})
         if reor_cfg.get('enabled', False):
+            target_orientation = reor_cfg.get(
+                'orientation', reor_cfg.get('target_orientation', 'RAS')
+            )
+            tortoise_enabled, _ = _resolve_tortoise_v4_config(dmri_cfg)
+            if tortoise_enabled:
+                # TORTOISE assumes SliceTiming describes NIfTI axis 3 while it
+                # imports and performs slice-wise processing.  Reorienting the
+                # 4D DWI first can move the acquired slice axis elsewhere and
+                # makes TORTOISE crop/pad it back to len(SliceTiming).  Keep the
+                # acquired layout here and use TORTOISE's final reorientation.
+                self._delegate_reorientation_to_tortoise = True
+                self.logger.info(
+                    "Delegating dMRI reorientation to TORTOISEV4 final-output "
+                    "reorientation so its input slice axis remains native"
+                )
+                self._tortoise_target_orientation = target_orientation
+                return
             self.logger.info("Adding DMRIReorientStep")
             self.add_step(DMRIReorientStep(
-                self.config, self.logger, self.provenance
+                self.config,
+                self.logger,
+                self.provenance,
+                target_orientation=target_orientation,
             ))
 
     def _add_resample_step(self, dmri_cfg: dict):
@@ -544,6 +565,10 @@ class PreprocessingWorkflow(BaseWorkflow):
 
         tortoise_enabled, tortoise_options = _resolve_tortoise_v4_config(dmri_cfg)
         if tortoise_enabled:
+            if getattr(self, '_delegate_reorientation_to_tortoise', False):
+                tortoise_options['reorient_to_orientation'] = getattr(
+                    self, '_tortoise_target_orientation', 'RAS'
+                )
             tortoise_options.setdefault(
                 'reference_selection', motion_cfg.get('reference_selection', {})
             )

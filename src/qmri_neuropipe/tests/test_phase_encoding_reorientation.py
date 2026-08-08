@@ -13,7 +13,10 @@ from qmri_neuropipe.io.dmri.bids import (
     transform_acqparams_file,
     transform_phase_encoding_direction,
 )
-from qmri_neuropipe.lib.dmri.reorient import DMRIReorientStep
+from qmri_neuropipe.lib.dmri.reorient import (
+    DMRIReorientStep,
+    normalize_target_orientation,
+)
 
 
 def test_phase_encoding_direction_follows_axis_permutation():
@@ -29,6 +32,46 @@ def test_phase_encoding_direction_follows_axis_permutation():
 
     assert transform_phase_encoding_direction("i", source_affine, target_affine) == "j-"
     assert transform_phase_encoding_direction("j-", source_affine, target_affine) == "i-"
+
+
+def test_reorient_step_honors_explicit_orientation_and_rotates_bvecs(tmp_path: Path):
+    source_path = tmp_path / "source_dwi.nii.gz"
+    source_json = tmp_path / "source_dwi.json"
+    source_bval = tmp_path / "source_dwi.bval"
+    source_bvec = tmp_path / "source_dwi.bvec"
+    source_affine = np.array(
+        [
+            [0.0, 0.0, 2.0, -4.0],
+            [2.0, 0.0, 0.0, -2.0],
+            [0.0, 2.0, 0.0, -3.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    nib.save(nib.Nifti1Image(np.zeros((2, 3, 4, 2)), source_affine), source_path)
+    source_json.write_text('{"PhaseEncodingDirection": "i"}\n')
+    source_bval.write_text("0 1000\n")
+    source_bvec.write_text("1 0\n0 1\n0 0\n")
+    source = DWIFile(
+        img=source_path,
+        json=source_json,
+        bval=source_bval,
+        bvec=source_bvec,
+        entities={"suffix": "dwi"},
+    )
+    step = DMRIReorientStep({}, target_orientation="LAS")
+
+    result = step.run(source, tmp_path / "output")
+
+    result_image = nib.load(result.img)
+    assert "".join(nib.aff2axcodes(result_image.affine)) == "LAS"
+    transform = phase_encoding_transform_matrix(source_affine, result_image.affine)
+    np.testing.assert_allclose(np.loadtxt(result.bvec), transform @ np.loadtxt(source_bvec))
+
+
+def test_reorientation_rejects_invalid_or_repeated_axes():
+    for value in ("RA", "XYZ", "RRS"):
+        with np.testing.assert_raises_regex(Exception, "orientation|axis code"):
+            normalize_target_orientation(value)
 
 
 def test_phase_encoding_direction_follows_axis_flip():

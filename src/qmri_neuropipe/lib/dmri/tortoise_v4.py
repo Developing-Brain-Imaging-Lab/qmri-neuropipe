@@ -9,16 +9,21 @@ from pathlib import Path
 from typing import Optional
 
 import nibabel as nib
+import numpy as np
 
 from ...core import BaseProcessingStep, ProcessingError, ValidationError
 from ...core.types import DWIFile, ImageFile
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
 from ...interfaces.tortoise import tortoise_v4_motion_eddy
-from ...io.dmri.bids import infer_phase_encoding_direction
+from ...io.dmri.bids import (
+    infer_phase_encoding_direction,
+    transform_phase_encoding_direction,
+)
 from ..anat.super_synth import ensure_supersynth_outputs_for_image
 from ..common.mask import BrainMaskingStep
 from .b0_reference import select_optimal_b0
+from .reorient import normalize_target_orientation, reorient_image_to_orientation
 
 
 def _nifti_json_path(path: Path) -> Path:
@@ -77,6 +82,13 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             "reference", self.options.get("anatomical_reference", "auto")
         )
         return result
+
+    def _requested_output_orientation(self) -> Optional[str]:
+        """Return the delegated axis orientation, including the legacy flag."""
+        requested = self.options.get("reorient_to_orientation")
+        if requested is None and self.options.get("reorient_to_canonical", False):
+            requested = "RAS"
+        return normalize_target_orientation(requested) if requested is not None else None
 
     @staticmethod
     def _first_path(context: Optional[dict], key: str) -> Optional[Path]:
@@ -538,6 +550,8 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             raise ValidationError(
                 "coregistration_to_anatomy.output_resolution must be 'native' or 'anatomical'"
             )
+        elif reorientation is not None and self._requested_output_orientation() is not None:
+            grid_reference = reorientation
 
         # Correction-only TORTOISE runs should preserve the current DWI grid.
         # This is especially important after axis reorientation: asking only
@@ -559,6 +573,103 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             output_orientation = _image_grid(Path(input_dwi.img))[2]
         return output_res, output_voxels, output_orientation
 
+    def _uses_implicit_native_output_grid(
+        self,
+        reorientation: Optional[Path],
+    ) -> bool:
+        """Return whether TORTOISE should retain the current DWI field of view."""
+        resolution_mode = str(
+            self._coregistration_config().get("output_resolution", "")
+        ).strip().lower()
+        return (
+            reorientation is None
+            and resolution_mode != "anatomical"
+            and self.options.get("output_res") is None
+            and self.options.get("output_voxels") is None
+        )
+
+    def _native_grid_reference(
+        self,
+        input_dwi: DWIFile,
+        output_dir: Path,
+        *,
+        volume_index: int,
+        selection=None,
+        force: bool = False,
+    ) -> Path:
+        """Create a 3D reference carrying the exact current DWI affine/FOV."""
+        if selection is not None:
+            return Path(selection.reference_image)
+
+        destination = output_dir / "b0_reference" / "native_grid_reference.nii.gz"
+        if destination.exists() and not force:
+            reference = nib.load(str(destination))
+            source = nib.load(str(input_dwi.img))
+            if (
+                reference.shape[:3] == source.shape[:3]
+                and np.allclose(reference.affine, source.affine, atol=1e-4)
+            ):
+                return destination
+
+        source = nib.load(str(input_dwi.img))
+        if len(source.shape) != 4:
+            raise ProcessingError(
+                f"Cannot create TORTOISE native-grid reference from {source.shape}"
+            )
+        index = int(volume_index)
+        if index < 0 or index >= source.shape[3]:
+            index = 0
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        header = source.header.copy()
+        header.set_data_dtype(np.float32)
+        nib.save(
+            nib.Nifti1Image(
+                np.asarray(source.dataobj[..., index], dtype=np.float32),
+                source.affine,
+                header,
+            ),
+            destination,
+        )
+        return destination
+
+    def _canonical_grid_reference(
+        self,
+        native_reference: Path,
+        output_dir: Path,
+        *,
+        target_orientation: str = "RAS",
+        force: bool = False,
+    ) -> Path:
+        """Create an oriented 3D reference for TORTOISE's final reorientation."""
+        target = normalize_target_orientation(target_orientation)
+        destination = output_dir / "b0_reference" / f"orientation-{target}_reference.nii.gz"
+        source = nib.load(str(native_reference))
+        expected = reorient_image_to_orientation(source, target)
+        if destination.exists() and not force:
+            cached = nib.load(str(destination))
+            if (
+                cached.shape[:3] == expected.shape[:3]
+                and np.allclose(cached.affine, expected.affine, atol=1e-4)
+            ):
+                return destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        nib.save(expected, destination)
+        return destination
+
+    def _tortoise_extra_options(self, *, preserve_native_grid: bool) -> dict:
+        """Resolve passthrough options while protecting native-grid placement."""
+        extra = dict(self.options.get("options", {}) or {})
+        if "center_of_mass" not in extra:
+            configured = self.options.get("center_of_mass")
+            if configured is not None:
+                extra["center_of_mass"] = bool(configured)
+            elif preserve_native_grid:
+                # TORTOISE defaults this to on, deliberately translating the
+                # processing image to the center voxel. That can crop a DWI
+                # whose affine/FOV has already been reoriented.
+                extra["center_of_mass"] = False
+        return extra
+
     def _cached_output_matrix_matches(
         self,
         output: Path,
@@ -569,8 +680,17 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         resolution_mode = str(
             self._coregistration_config().get("output_resolution", "")
         ).strip().lower()
+        target_orientation = self._requested_output_orientation()
+        canonical_output = target_orientation is not None and not bool(
+            self._coregistration_config().get("enabled", False)
+        )
         if requested is not None:
             expected = tuple(int(value) for value in requested)
+        elif canonical_output and self.options.get("output_res") is None:
+            expected_image = reorient_image_to_orientation(
+                nib.load(str(input_dwi.img)), target_orientation
+            )
+            expected = tuple(int(value) for value in expected_image.shape[:3])
         elif resolution_mode == "native" or (
             resolution_mode != "anatomical"
             and self.options.get("output_res") is None
@@ -580,8 +700,16 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             # An anatomical grid is resolved later, and an explicit resolution
             # without a matrix intentionally lets TORTOISE determine the FOV.
             return True
-        actual = tuple(int(value) for value in nib.load(str(output)).shape[:3])
-        return actual == expected
+        output_image = nib.load(str(output))
+        actual = tuple(int(value) for value in output_image.shape[:3])
+        if actual != expected:
+            return False
+        if canonical_output and requested is None and self.options.get("output_res") is None:
+            return np.allclose(output_image.affine, expected_image.affine, atol=1e-4)
+        if requested is None and resolution_mode != "anatomical" and self.options.get("output_res") is None:
+            input_image = nib.load(str(input_dwi.img))
+            return np.allclose(output_image.affine, input_image.affine, atol=1e-4)
+        return True
 
     def _resolve_nthreads(self, runtime_nthreads=None) -> int:
         """Resolve the per-step override before the pipeline-wide CPU count."""
@@ -781,6 +909,32 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             force=force,
             nthreads=requested_threads,
         )
+        target_orientation = self._requested_output_orientation()
+        canonical_output = target_orientation is not None and reorientation is None
+        preserve_native_grid = self._uses_implicit_native_output_grid(reorientation) and not canonical_output
+        output_grid_reference = None
+        if preserve_native_grid or canonical_output:
+            native_reference = self._native_grid_reference(
+                input_dwi,
+                output_dir,
+                volume_index=b0_id,
+                selection=selection,
+                force=force,
+            )
+            reorientation = native_reference
+            if canonical_output:
+                reorientation = self._canonical_grid_reference(
+                    native_reference,
+                    output_dir,
+                    target_orientation=target_orientation,
+                    force=force,
+                )
+            output_grid_reference = reorientation
+            self.logger.info(
+                "Using %s DWI b0 as TORTOISEV4 final reorientation/FOV reference: %s",
+                target_orientation if canonical_output else "native-grid",
+                reorientation,
+            )
         output_res, output_voxels, orientation = self._resolve_output_grid(
             input_dwi, reorientation
         )
@@ -833,8 +987,23 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             use_gpu=bool(self.options.get("use_gpu", self.config.use_gpu)),
             nthreads=requested_threads,
             do_qc=bool(self.options.get("do_qc", True)),
-            extra_options=self.options.get("options", {}),
+            extra_options=self._tortoise_extra_options(
+                preserve_native_grid=bool(output_grid_reference)
+            ),
         )
+        if output_grid_reference:
+            result_image = nib.load(str(result.img))
+            expected_image = nib.load(str(output_grid_reference))
+            if (
+                result_image.shape[:3] != expected_image.shape[:3]
+                or not np.allclose(result_image.affine, expected_image.affine, atol=1e-4)
+            ):
+                raise ProcessingError(
+                    "TORTOISEV4 output does not match its requested final reference "
+                    f"field of view: output shape/affine={result_image.shape[:3]}/"
+                    f"{result_image.affine.tolist()}, expected {expected_image.shape[:3]}/"
+                    f"{expected_image.affine.tolist()}"
+                )
         result.entities = entities
         result.json = self._write_json(input_dwi, result, selection)
         return self._return_result(context, result, selection)
@@ -846,6 +1015,39 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 payload = json.loads(Path(source.json).read_text())
             except (OSError, json.JSONDecodeError):
                 payload = {}
+        target_orientation = self._requested_output_orientation()
+        canonical_output = target_orientation is not None and not bool(
+            self._coregistration_config().get("enabled", False)
+        )
+        if canonical_output:
+            source_image = nib.load(str(source.img))
+            result_image = nib.load(str(result.img))
+            phase_direction = infer_phase_encoding_direction(source)
+            if phase_direction:
+                payload["PhaseEncodingDirection"] = transform_phase_encoding_direction(
+                    phase_direction,
+                    source_image.affine,
+                    result_image.affine,
+                )
+            slice_direction = payload.get("SliceEncodingDirection")
+            if not slice_direction and isinstance(payload.get("SliceTiming"), list):
+                timing_count = len(payload["SliceTiming"])
+                matching_axes = [
+                    axis
+                    for axis, size in enumerate(source_image.shape[:3])
+                    if int(size) == timing_count
+                ]
+                if len(matching_axes) == 1:
+                    slice_direction = "ijk"[matching_axes[0]]
+            if slice_direction:
+                payload["SliceEncodingDirection"] = transform_phase_encoding_direction(
+                    slice_direction,
+                    source_image.affine,
+                    result_image.affine,
+                )
+            payload["TORTOISEInputOrientationPreserved"] = True
+            payload["TORTOISEFinalOrientation"] = target_orientation
+            payload["TORTOISEFinalCanonicalReorientation"] = target_orientation == "RAS"
         payload["MotionCorrection"] = "TORTOISEV4"
         payload["EddyCurrentCorrection"] = "TORTOISEV4"
         payload["SliceToVolumeCorrection"] = bool(self.options.get("slice_to_volume", False))

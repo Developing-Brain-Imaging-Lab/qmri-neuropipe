@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Union
 import gzip
+import json
 import shutil
 import shlex
 import os
@@ -192,8 +193,10 @@ def tortoise_v4_motion_eddy(
         else None
     )
     _validate_tortoise_v4_gradients(staged_up, "up")
+    _validate_tortoise_v4_slice_timing(staged_up, "up")
     if staged_down:
         _validate_tortoise_v4_gradients(staged_down, "down")
+        _validate_tortoise_v4_slice_timing(staged_down, "down")
     if tortoise_out != out_file:
         tortoise_out.unlink(missing_ok=True)
     command = build_tortoise_v4_command(
@@ -388,6 +391,27 @@ def _validate_tortoise_v4_gradients(dwi_file: DWIFile, label: str) -> None:
             f"TORTOISEV4 {label}_data has {nvolumes} image volumes, "
             f"{bvals.size} b-values, and bvec shape {tuple(bvecs.shape)}; "
             "these dimensions must match"
+        )
+
+
+def _validate_tortoise_v4_slice_timing(dwi_file: DWIFile, label: str) -> None:
+    """Prevent TORTOISE from silently cropping a DWI with a moved slice axis."""
+    if not dwi_file.json or not Path(dwi_file.json).exists():
+        return
+    try:
+        payload = json.loads(Path(dwi_file.json).read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+    slice_timing = payload.get("SliceTiming")
+    if not isinstance(slice_timing, list) or not slice_timing:
+        return
+    shape = nib.load(str(dwi_file.img)).shape
+    if len(slice_timing) != int(shape[2]):
+        raise ProcessingError(
+            f"TORTOISEV4 {label}_data has {shape[2]} voxels on NIfTI axis 3 "
+            f"but {len(slice_timing)} SliceTiming entries. TORTOISE would "
+            "silently pad/crop this image. Keep the acquired DWI orientation "
+            "for TORTOISE input and apply reorientation to its final output."
         )
 
 def diffprep(

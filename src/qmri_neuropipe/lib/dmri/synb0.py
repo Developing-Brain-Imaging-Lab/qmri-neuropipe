@@ -92,6 +92,15 @@ def _spatial_grids_match(first: Path, second: Path) -> bool:
     )
 
 
+def _image_has_only_finite_values(path: Path) -> bool:
+    """Return whether an image contains no NaN or infinite intensities."""
+    try:
+        image = nib.load(str(path))
+        return bool(np.isfinite(np.asanyarray(image.dataobj)).all())
+    except (OSError, ValueError):
+        return False
+
+
 class Synb0EstimationStep(BaseProcessingStep):
     """
     Synb0 estimation step.
@@ -537,6 +546,7 @@ class Synb0EstimationStep(BaseProcessingStep):
                 if (
                     b0_path.stat().st_mtime >= Path(input_dwi.img).stat().st_mtime
                     and _spatial_grids_match(b0_path, Path(input_dwi.img))
+                    and _image_has_only_finite_values(b0_path)
                 ):
                     return b0_path
                 self.logger.info(
@@ -574,8 +584,32 @@ class Synb0EstimationStep(BaseProcessingStep):
             except Exception as e:
                 self.logger.warning(f"Could not parse bvals for Synb0 b0 extraction; using first volume: {e}")
 
+        nonfinite_count = int(np.size(b0_vol) - np.count_nonzero(np.isfinite(b0_vol)))
+        if nonfinite_count:
+            self.logger.warning(
+                "Synb0 b0 source contains %d non-finite samples; ignoring them "
+                "when averaging and replacing voxels with no finite sample by zero.",
+                nonfinite_count,
+            )
         if b0_vol.ndim == 4:
-            b0_vol = b0_vol.mean(axis=-1)
+            finite = np.isfinite(b0_vol)
+            finite_count = finite.sum(axis=-1)
+            finite_sum = np.where(finite, b0_vol, 0.0).sum(axis=-1)
+            b0_vol = np.divide(
+                finite_sum,
+                finite_count,
+                out=np.zeros_like(finite_sum),
+                where=finite_count > 0,
+            )
+        else:
+            b0_vol = np.nan_to_num(b0_vol, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if not np.any(np.isfinite(b0_vol) & (b0_vol > 0)):
+            raise ProcessingError(
+                "Synb0 could not extract a usable b0: the selected b0 volumes "
+                "contain no finite positive signal"
+            )
+        b0_vol = np.asarray(b0_vol, dtype=np.float32)
         if as_4d and b0_vol.ndim == 3:
             b0_vol = b0_vol[..., np.newaxis]
 

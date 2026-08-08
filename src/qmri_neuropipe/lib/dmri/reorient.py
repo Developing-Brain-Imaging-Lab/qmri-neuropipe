@@ -4,13 +4,13 @@ dMRI Reorientation step.
 from pathlib import Path
 from typing import Any
 import json
+import shutil
 import nibabel as nib
 import numpy as np
 
 from ...core import BaseProcessingStep, ValidationError
 from ...core.caching import all_outputs_exist, reuse_enabled
 from ...core.types import DWIFile
-from ...interfaces import mrtrix
 from ...io.bids import build_bids_name
 from ...io.dmri.bids import (
     infer_phase_encoding_direction,
@@ -20,18 +20,60 @@ from ...io.dmri.bids import (
     transform_acqparams_file,
     transform_phase_encoding_direction,
 )
-from ..common.json_metadata import copy_json_with_metadata, write_sanitized_json_copy
+from ..common.json_metadata import copy_json_with_metadata
 from ..common.spatial_transforms import write_transform_chain_to_sidecar
+
+
+def normalize_target_orientation(value: Any) -> str:
+    """Validate and normalize a three-letter NIfTI voxel-axis orientation."""
+    orientation = str(value or "RAS").strip().upper()
+    if len(orientation) != 3:
+        raise ValidationError(
+            f"dMRI reorientation must be a three-letter axis code, got {value!r}"
+        )
+    axis_groups = ({"L", "R"}, {"A", "P"}, {"S", "I"})
+    if any(sum(code in group for code in orientation) != 1 for group in axis_groups):
+        raise ValidationError(
+            "dMRI reorientation must contain exactly one left/right, one "
+            f"anterior/posterior, and one superior/inferior axis, got {orientation!r}"
+        )
+    return orientation
+
+
+def reorient_image_to_orientation(
+    image: nib.spatialimages.SpatialImage,
+    target_orientation: str,
+) -> nib.Nifti1Image:
+    """Permute/flip image axes to a requested orientation without interpolation."""
+    target = normalize_target_orientation(target_orientation)
+    source_ornt = nib.orientations.io_orientation(image.affine)
+    target_ornt = nib.orientations.axcodes2ornt(tuple(target))
+    transform = nib.orientations.ornt_transform(source_ornt, target_ornt)
+    data = nib.orientations.apply_orientation(np.asanyarray(image.dataobj), transform)
+    affine = image.affine @ nib.orientations.inv_ornt_aff(transform, image.shape[:3])
+    header = image.header.copy()
+    return nib.Nifti1Image(data, affine, header)
+
 
 class DMRIReorientStep(BaseProcessingStep):
     """
-    Reorient dMRI image to standard orientation (RAS, stride 1,2,3,4) using mrconvert.
-    Crucially, this also rotates the b-vectors to match the new image orientation.
+    Reorient a dMRI to a requested voxel-axis convention without interpolation.
+
+    The image axes, b-vectors, and axis-dependent BIDS metadata are transformed
+    together. RAS is the default, but any valid three-letter orientation is
+    supported.
     """
     
-    def __init__(self, config, logger=None, provenance=None):
+    def __init__(
+        self,
+        config,
+        logger=None,
+        provenance=None,
+        target_orientation: str = "RAS",
+    ):
         super().__init__(config, logger, provenance)
-        self.method = "mrconvert (stride 1,2,3,4)"
+        self.target_orientation = normalize_target_orientation(target_orientation)
+        self.method = f"NIfTI axis permutation/flip ({self.target_orientation})"
 
     def run(self, first_arg, output_dir: Path, **kwargs) -> Any:
         context, input_image = self.unpack_input(first_arg)
@@ -87,10 +129,6 @@ class DMRIReorientStep(BaseProcessingStep):
         out_bvec_path = out_path.with_suffix("").with_suffix(".bvec")
         out_bval_path = out_path.with_suffix("").with_suffix(".bval")
         
-        # Run mrconvert
-        # Standardize stride to 1,2,3,4 (x,y,z,vol) which is usually RAS or close to standard convention
-        stride = "1,2,3,4"
-        
         # If output exists and skip_existing, assume done
         if reuse_enabled(
             self.config,
@@ -98,7 +136,12 @@ class DMRIReorientStep(BaseProcessingStep):
             force_keys=(),
         ) and all_outputs_exist((out_path, out_bvec_path)):
              try:
-                 _ = nib.load(out_path)
+                 cached_image = nib.load(out_path)
+                 cached_orientation = "".join(nib.aff2axcodes(cached_image.affine))
+                 if cached_orientation != self.target_orientation:
+                     raise ValueError(
+                         f"expected {self.target_orientation}, got {cached_orientation}"
+                     )
              except Exception as e:
                  self.logger.warning(
                      f"Existing reoriented DWI is invalid ({out_path.name}): {e}. Re-running."
@@ -122,25 +165,27 @@ class DMRIReorientStep(BaseProcessingStep):
                  self._update_output_phase_encoding(input_image, result)
                  return result
         
-        sanitized_json_import = None
-        if getattr(input_image, "json", None):
-            sanitized_json_import = output_dir / f"{out_path.stem}.mrtrix_import.json"
-            write_sanitized_json_copy(input_image.json, sanitized_json_import)
-
-        mrtrix.mrconvert(
-                 in_file=input_image.img,
-                 out_file=out_path,
-                 stride=stride,
-                 in_bvec=in_bvec,
-                 in_bval=in_bval,
-                 export_grad_fsl=(out_bvec_path, out_bval_path) if in_bvec else None,
-                 json_import=sanitized_json_import,
-                 json_export=out_path.with_suffix("").with_suffix(".json"), # Export sidecar
-                 nthreads=self.config.get("n_cpus", 1),
-                 force=True # We checked above
-             )
-        if sanitized_json_import:
-            sanitized_json_import.unlink(missing_ok=True)
+        source_image = nib.load(str(input_image.img))
+        reoriented_image = reorient_image_to_orientation(
+            source_image,
+            self.target_orientation,
+        )
+        nib.save(reoriented_image, out_path)
+        if in_bvec:
+            bvecs = np.asarray(np.loadtxt(in_bvec), dtype=float)
+            if bvecs.ndim == 1:
+                bvecs = bvecs.reshape(3, 1)
+            if bvecs.shape[0] != 3 and bvecs.shape[1] == 3:
+                bvecs = bvecs.T
+            if bvecs.shape[0] != 3:
+                raise ValidationError(f"Expected a 3xN b-vector table, got {bvecs.shape}")
+            voxel_transform = phase_encoding_transform_matrix(
+                source_image.affine,
+                reoriented_image.affine,
+            )
+            np.savetxt(out_bvec_path, voxel_transform @ bvecs, fmt="%.10f")
+        if in_bval:
+            shutil.copy2(in_bval, out_bval_path)
 
         out_json = out_path.with_suffix("").with_suffix(".json")
         copy_json_with_metadata(getattr(input_image, "json", None), out_json)
@@ -157,9 +202,9 @@ class DMRIReorientStep(BaseProcessingStep):
         )
         spatial_transform = {
             "type": "reorient_header",
-            "method": "mrtrix_mrconvert_stride",
+            "method": "nifti_axis_permutation_flip",
             "usable_for_gnl_mapping": False,
-            "stride": stride,
+            "target_orientation": self.target_orientation,
             "bvecs_rotated": bool(in_bvec),
         }
         write_transform_chain_to_sidecar(result.json, [spatial_transform])

@@ -11,6 +11,7 @@ from qmri_neuropipe.core.types import DWIFile, ImageFile
 from qmri_neuropipe.interfaces.tortoise import (
     _stage_tortoise_v4_input,
     _validate_tortoise_v4_gradients,
+    _validate_tortoise_v4_slice_timing,
     build_tortoise_v4_command,
     tortoise_v4_motion_eddy,
 )
@@ -259,6 +260,18 @@ def test_tortoise_rejects_mismatched_gradient_dimensions_before_execution(tmp_pa
         _validate_tortoise_v4_gradients(source, "up")
 
 
+def test_tortoise_rejects_slice_timing_axis_mismatch_before_execution(tmp_path: Path):
+    source = _dwi(
+        tmp_path,
+        np.ones((60, 128, 128, 2), dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    source.json.write_text(json.dumps({"SliceTiming": [0.0] * 60}) + "\n")
+
+    with pytest.raises(ProcessingError, match="silently pad/crop"):
+        _validate_tortoise_v4_slice_timing(source, "up")
+
+
 def test_synb0_phase_encoding_preserves_acquired_direction():
     assert Synb0EstimationStep._synb0_phase_encoding("j-") == "j-"
     assert Synb0EstimationStep._synb0_phase_encoding("i") == "i"
@@ -310,6 +323,23 @@ def test_top_level_tortoise_stream_is_enabled_by_presence():
 
     assert len(workflow.steps) == 1
     assert isinstance(workflow.steps[0], TortoiseV4CorrectionStep)
+
+
+def test_reorientation_is_delegated_to_tortoise_final_output():
+    preprocessing = {
+        "reorient": {"enabled": True, "orientation": "LAS"},
+        "tortoise_v4": {"slice_to_volume": True},
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    workflow.build_pipeline({"dwi_files": [], "topup_groups": []})
+
+    assert len(workflow.steps) == 1
+    assert isinstance(workflow.steps[0], TortoiseV4CorrectionStep)
+    assert workflow.steps[0].options["reorient_to_orientation"] == "LAS"
 
 
 def test_nested_synb0_config_enables_tortoise_structural_correction():
@@ -701,6 +731,138 @@ def test_tortoise_rejects_cached_output_with_cropped_reoriented_matrix(tmp_path:
     assert not step._cached_output_matrix_matches(cropped, dwi)
 
 
+def test_tortoise_rejects_native_output_with_shifted_affine(tmp_path: Path):
+    source = tmp_path / "desc-reor_dwi.nii.gz"
+    shifted = tmp_path / "desc-tortoisev4corrected_dwi.nii.gz"
+    source_affine = np.diag([2.0, 2.0, 2.0, 1.0])
+    shifted_affine = source_affine.copy()
+    shifted_affine[:3, 3] = [0.0, 0.0, 20.0]
+    nib.save(nib.Nifti1Image(np.zeros((17, 23, 31, 2)), source_affine), source)
+    nib.save(nib.Nifti1Image(np.zeros((17, 23, 31, 2)), shifted_affine), shifted)
+    dwi = DWIFile(entities={}, img=source)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {}
+
+    assert not step._cached_output_matrix_matches(shifted, dwi)
+
+
+def test_tortoise_native_grid_uses_dwi_reference_and_disables_recentering(
+    tmp_path: Path,
+):
+    affine = np.array(
+        [
+            [0.0, 0.0, 2.0, -90.0],
+            [2.0, 0.0, 0.0, -120.0],
+            [0.0, 2.0, 0.0, -70.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    dwi = _dwi(
+        tmp_path,
+        np.ones((7, 9, 11, 2), dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    image = nib.load(str(dwi.img))
+    nib.save(nib.Nifti1Image(np.asanyarray(image.dataobj), affine), dwi.img)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {}
+
+    reference = step._native_grid_reference(
+        dwi,
+        tmp_path / "work",
+        volume_index=0,
+    )
+
+    reference_image = nib.load(str(reference))
+    assert reference_image.shape == (7, 9, 11)
+    np.testing.assert_allclose(reference_image.affine, affine)
+    assert step._uses_implicit_native_output_grid(None)
+    assert step._tortoise_extra_options(preserve_native_grid=True)["center_of_mass"] is False
+
+
+def test_tortoise_canonical_reference_permutates_native_grid_dynamically(tmp_path: Path):
+    native = tmp_path / "native_b0.nii.gz"
+    # World R, A, S correspond to voxel k, j, i respectively, so canonical
+    # reorientation changes 128x128x60 to 60x128x128 without resampling.
+    affine = np.array(
+        [
+            [0.0, 0.0, 2.0, -60.0],
+            [0.0, 2.0, 0.0, -128.0],
+            [2.0, 0.0, 0.0, -128.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    nib.save(nib.Nifti1Image(np.zeros((128, 128, 60)), affine), native)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {"reorient_to_canonical": True}
+
+    reference = step._canonical_grid_reference(native, tmp_path / "work")
+
+    assert nib.load(reference).shape == (60, 128, 128)
+
+
+def test_tortoise_reference_honors_requested_axis_orientation(tmp_path: Path):
+    native = tmp_path / "native_b0.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((7, 9, 11)), np.eye(4)), native)
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {"reorient_to_orientation": "LPS"}
+
+    reference = step._canonical_grid_reference(
+        native,
+        tmp_path / "work",
+        target_orientation="LPS",
+    )
+
+    assert "".join(nib.aff2axcodes(nib.load(reference).affine)) == "LPS"
+
+
+def test_tortoise_canonical_output_updates_slice_axis_metadata(tmp_path: Path):
+    source_path = tmp_path / "source_dwi.nii.gz"
+    result_path = tmp_path / "result_dwi.nii.gz"
+    source_json = tmp_path / "source_dwi.json"
+    affine = np.array(
+        [
+            [0.0, 0.0, 2.0, -60.0],
+            [0.0, 2.0, 0.0, -128.0],
+            [2.0, 0.0, 0.0, -128.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    source_image = nib.Nifti1Image(np.zeros((128, 128, 60, 2)), affine)
+    canonical = nib.as_closest_canonical(source_image)
+    nib.save(source_image, source_path)
+    nib.save(canonical, result_path)
+    source_json.write_text(
+        json.dumps({"PhaseEncodingDirection": "j-", "SliceTiming": [0.0] * 60}) + "\n"
+    )
+    config = PipelineConfig(
+        bids_dir=tmp_path, output_dir=tmp_path,
+        config_data={},
+    )
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        reorient_to_canonical=True,
+    )
+    source = DWIFile(img=source_path, json=source_json, entities={})
+    result = DWIFile(img=result_path, entities={})
+
+    destination = step._write_json(source, result, selection=None)
+    payload = json.loads(destination.read_text())
+
+    assert payload["SliceEncodingDirection"] == "i"
+    assert payload["PhaseEncodingDirection"] == "j-"
+    assert payload["TORTOISEInputOrientationPreserved"] is True
+
+
+def test_tortoise_native_recentering_can_be_explicitly_enabled():
+    step = TortoiseV4CorrectionStep.__new__(TortoiseV4CorrectionStep)
+    step.options = {"center_of_mass": True}
+
+    assert step._tortoise_extra_options(preserve_native_grid=True)["center_of_mass"] is True
+
+
 def test_synb0_reextracts_cached_b0_from_changed_reoriented_grid(tmp_path: Path):
     source = tmp_path / "desc-reor_dwi.nii.gz"
     cached = tmp_path / "real_b0.nii.gz"
@@ -718,6 +880,26 @@ def test_synb0_reextracts_cached_b0_from_changed_reoriented_grid(tmp_path: Path)
     assert extracted.shape == (60, 8, 9, 1)
     np.testing.assert_allclose(extracted.affine, affine)
     np.testing.assert_allclose(np.asanyarray(extracted.dataobj)[..., 0], data[..., 0])
+
+
+def test_synb0_b0_extraction_ignores_nonfinite_corrected_samples(tmp_path: Path):
+    data = np.ones((3, 4, 5, 3), dtype=np.float32)
+    data[..., 0] *= 2
+    data[..., 1] *= 4
+    data[0, 0, 0, 0] = np.nan
+    data[1, 1, 1, :2] = np.nan
+    dwi = _dwi(tmp_path, data, np.array([0, 0, 1000]))
+    destination = tmp_path / "real_b0.nii.gz"
+    step = Synb0EstimationStep.__new__(Synb0EstimationStep)
+    step.logger = logging.getLogger(__name__)
+
+    step._extract_mean_b0(dwi, destination)
+
+    extracted = np.asanyarray(nib.load(destination).dataobj)[..., 0]
+    assert np.isfinite(extracted).all()
+    assert extracted[0, 0, 0] == pytest.approx(4.0)
+    assert extracted[1, 1, 1] == 0.0
+    assert extracted[2, 2, 2] == pytest.approx(3.0)
 
 
 def test_tortoise_synthesizes_t2w_when_only_t1w_exists(tmp_path: Path, monkeypatch):

@@ -77,6 +77,30 @@ gzips and validates the image as a 4D NIfTI before exposing the final `.nii.gz`
 to downstream steps. This avoids TORTOISE V4 compressed-NIfTI compatibility and
 output-content/filename-extension mismatches.
 
+The desired voxel-axis convention is explicit and defaults to RAS:
+
+```yaml
+dmri:
+  preprocessing:
+    reorient:
+      enabled: true
+      orientation: RAS  # Any valid code, for example LAS, LPS, or RPI
+```
+
+`target_orientation` is accepted as an alias for `orientation`. This is a
+lossless axis permutation/flip based on the NIfTI affine, similar in purpose to
+`fslreorient2std`; it is not registration or normalization to a template.
+
+When reorientation and the TORTOISE stream are both enabled, neuropipe keeps
+the acquired 4D DWI orientation for TORTOISE input and delegates the requested
+orientation to TORTOISE's final-output `--reorientation` reference. TORTOISE
+assumes that `SliceTiming` describes NIfTI axis 3 during
+input processing; permuting the acquired slice axis before TORTOISE can make it
+pad or crop the DWI to the number of timing entries. The final reference is a
+3D b0 derived from the input and permuted/flipped without resampling, so its
+matrix, resolution, affine, and field of view remain data-driven. Neuropipe
+also rejects an input timing/axis mismatch before TORTOISE can crop it.
+
 When TORTOISE owns a stage, neuropipe skips its duplicate denoising, Gibbs,
 resampling, distortion-correction, and anatomical-coregistration steps. Native
 opposite-PE series remain separate and are passed as `--up_data/--down_data`.
