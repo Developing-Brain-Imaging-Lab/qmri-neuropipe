@@ -168,32 +168,77 @@ class DMRIReorientStep(BaseProcessingStep):
         return result
 
     def _update_output_phase_encoding(self, source: DWIFile, target: DWIFile) -> None:
-        """Update the target sidecar and retain the voxel-axis transform for context files."""
+        """Update axis-dependent BIDS metadata after reorienting the voxel grid."""
         source_image = nib.load(str(source.img))
         target_image = nib.load(str(target.img))
         transform = phase_encoding_transform_matrix(source_image.affine, target_image.affine)
         setattr(target, "phase_encoding_transform", transform)
 
-        direction = infer_phase_encoding_direction(source)
-        if not direction:
-            return
+        source_payload = {}
+        if source.json and Path(source.json).exists():
+            try:
+                source_payload = json.loads(Path(source.json).read_text())
+            except (OSError, json.JSONDecodeError):
+                source_payload = {}
 
-        transformed_direction = transform_phase_encoding_direction(
-            direction,
-            source_image.affine,
-            target_image.affine,
-        )
         target_json = Path(target.json) if target.json else target.img.with_suffix("").with_suffix(".json")
         payload = {}
         if target_json.exists():
             payload = json.loads(target_json.read_text())
-        payload["PhaseEncodingDirection"] = transformed_direction
+        if "SliceTiming" in source_payload:
+            payload.setdefault("SliceTiming", source_payload["SliceTiming"])
+
+        direction = infer_phase_encoding_direction(source)
+        if direction:
+            transformed_direction = transform_phase_encoding_direction(
+                direction,
+                source_image.affine,
+                target_image.affine,
+            )
+            payload["PhaseEncodingDirection"] = transformed_direction
+            self.logger.info(
+                f"Updated PhaseEncodingDirection for {target.img.name}: "
+                f"{direction} -> {transformed_direction}"
+            )
+
+        slice_direction = source_payload.get("SliceEncodingDirection")
+        if not slice_direction:
+            slice_timing = source_payload.get("SliceTiming")
+            if isinstance(slice_timing, list):
+                matching_axes = [
+                    axis
+                    for axis, size in enumerate(source_image.shape[:3])
+                    if size == len(slice_timing)
+                ]
+                if len(matching_axes) == 1:
+                    slice_direction = "ijk"[matching_axes[0]]
+                    self.logger.info(
+                        "Inferred SliceEncodingDirection=%s from %d SliceTiming "
+                        "entries before reorientation",
+                        slice_direction,
+                        len(slice_timing),
+                    )
+
+        if slice_direction:
+            try:
+                transformed_slice_direction = transform_phase_encoding_direction(
+                    slice_direction,
+                    source_image.affine,
+                    target_image.affine,
+                )
+            except ValueError as exc:
+                raise ValidationError(
+                    "Cannot transform SliceEncodingDirection after dMRI "
+                    f"reorientation: {slice_direction!r}"
+                ) from exc
+            payload["SliceEncodingDirection"] = transformed_slice_direction
+            self.logger.info(
+                f"Updated SliceEncodingDirection for {target.img.name}: "
+                f"{slice_direction} -> {transformed_slice_direction}"
+            )
+
         target_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         target.json = target_json
-        self.logger.info(
-            f"Updated PhaseEncodingDirection for {target.img.name}: "
-            f"{direction} -> {transformed_direction}"
-        )
 
     def _update_context_phase_encoding(
         self,

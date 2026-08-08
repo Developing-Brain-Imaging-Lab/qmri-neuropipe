@@ -131,3 +131,75 @@ def test_reorient_step_updates_sidecar_and_pipeline_context(tmp_path: Path):
     assert context["topup_groups"][0]["acqp"] == expected_acqparams
     assert expected_acqparams.read_text() == "0 -1 0 0.050000\n"
     assert context["merge_source_info"][0]["phase_encoding_direction"] == "j-"
+
+
+def test_reorient_step_updates_slice_axis_for_slice_to_volume_correction(
+    tmp_path: Path,
+):
+    source_affine = np.eye(4)
+    # Target voxel axes correspond to source k, i, j respectively.
+    target_affine = np.array(
+        [
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    source_img = tmp_path / "source.nii.gz"
+    target_img = tmp_path / "target.nii.gz"
+    source_json = tmp_path / "source.json"
+    target_json = tmp_path / "target.json"
+    nib.save(nib.Nifti1Image(np.zeros((2, 3, 4, 2)), source_affine), source_img)
+    nib.save(nib.Nifti1Image(np.zeros((4, 2, 3, 2)), target_affine), target_img)
+    source_json.write_text(
+        json.dumps(
+            {
+                "PhaseEncodingDirection": "i-",
+                "SliceEncodingDirection": "k",
+                "SliceTiming": [0.0, 0.1, 0.2, 0.3],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    target_json.write_text("{}\n", encoding="utf-8")
+    source = DWIFile(img=source_img, json=source_json, entities={})
+    target = DWIFile(img=target_img, json=target_json, entities={})
+    step = DMRIReorientStep(config={})
+
+    step._update_output_phase_encoding(source, target)
+
+    payload = json.loads(target_json.read_text())
+    assert payload["PhaseEncodingDirection"] == "j-"
+    assert payload["SliceEncodingDirection"] == "i"
+    assert payload["SliceTiming"] == [0.0, 0.1, 0.2, 0.3]
+
+
+def test_reorient_step_infers_unique_slice_axis_from_slice_timing(tmp_path: Path):
+    source_img = tmp_path / "source.nii.gz"
+    target_img = tmp_path / "target.nii.gz"
+    source_json = tmp_path / "source.json"
+    target_json = tmp_path / "target.json"
+    target_affine = np.array(
+        [
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    nib.save(nib.Nifti1Image(np.zeros((2, 3, 4, 2)), np.eye(4)), source_img)
+    nib.save(nib.Nifti1Image(np.zeros((4, 2, 3, 2)), target_affine), target_img)
+    source_json.write_text(
+        '{"PhaseEncodingDirection": "i", "SliceTiming": [0, 1, 2, 3]}\n',
+        encoding="utf-8",
+    )
+    target_json.write_text("{}\n", encoding="utf-8")
+    source = DWIFile(img=source_img, json=source_json, entities={})
+    target = DWIFile(img=target_img, json=target_json, entities={})
+    step = DMRIReorientStep(config={})
+
+    step._update_output_phase_encoding(source, target)
+
+    assert json.loads(target_json.read_text())["SliceEncodingDirection"] == "i"
