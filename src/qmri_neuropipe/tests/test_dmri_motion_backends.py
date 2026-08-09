@@ -523,6 +523,85 @@ def test_synthetic_reverse_pe_generation_uses_bids_readout(tmp_path: Path, monke
     assert tortoise._resolve_repol() is False
 
 
+def test_synthetic_reverse_pe_can_warp_full_dwi_for_drbuddi_repol(
+    tmp_path: Path,
+    monkeypatch,
+):
+    acquired = _dwi(
+        tmp_path,
+        np.arange(5 * 6 * 7 * 3, dtype=np.float32).reshape(5, 6, 7, 3),
+        np.array([0, 1000, 2000]),
+    )
+    acquired.entities["dir"] = "PA"
+    acquired.json.write_text(json.dumps({
+        "PhaseEncodingDirection": "j-",
+        "TotalReadoutTime": 0.050,
+        "SliceTiming": [float(index) for index in range(7)],
+    }))
+    undistorted_b0 = tmp_path / "synb0_undistorted.nii.gz"
+    nib.save(nib.Nifti1Image(np.ones((5, 6, 7)), np.eye(4)), undistorted_b0)
+    topup_base = tmp_path / "topup_group0"
+    for suffix in ("_field.nii.gz", "_fieldcoef.nii.gz"):
+        nib.save(nib.Nifti1Image(np.ones((5, 6, 7)), np.eye(4)), Path(f"{topup_base}{suffix}"))
+    Path(f"{topup_base}_movpar.txt").write_text("0 0 0 0 0 0\n")
+    Path(f"{topup_base}_topup_datain.txt").write_text("0 -1 0 0.05\n0 -1 0 0\n")
+    calls = []
+
+    def fake_apply(source, output, **kwargs):
+        calls.append(("unwarp", kwargs))
+        nib.save(nib.load(str(source.img)), output)
+        return output
+
+    def fake_forward(source, field, output, **kwargs):
+        calls.append(("forward", kwargs))
+        nib.save(nib.load(str(source)), output)
+        return output
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.synthetic_reverse_pe.fsl.applytopup", fake_apply
+    )
+    monkeypatch.setattr(
+        "qmri_neuropipe.lib.dmri.synthetic_reverse_pe.fsl.forward_distort_with_fugue",
+        fake_forward,
+    )
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = SyntheticReversePEStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        options={"series_mode": "full_dwi"},
+    )
+    context = {
+        "dwi_files": [acquired],
+        "current_image": acquired,
+        "synb0_undistorted_reference": undistorted_b0,
+        "topup_base": str(topup_base),
+    }
+
+    result = step(context, output_dir=tmp_path / "work")
+    generated = result["tortoise_synthetic_reverse_pe"]
+
+    assert [name for name, _ in calls] == ["unwarp", "forward"]
+    assert nib.load(str(generated.img)).shape == (5, 6, 7, 3)
+    np.testing.assert_allclose(np.loadtxt(generated.bval), np.loadtxt(acquired.bval))
+    np.testing.assert_allclose(np.loadtxt(generated.bvec), np.loadtxt(acquired.bvec))
+    metadata = json.loads(generated.json.read_text())
+    assert metadata["PhaseEncodingDirection"] == "j"
+    assert metadata["SyntheticReversePESeriesMode"] == "full_dwi"
+    assert metadata["StatisticallyIndependentAcquisition"] is False
+    assert metadata["SliceTiming"] == [float(index) for index in range(7)]
+
+    tortoise = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        use_synthetic_reverse_pe=True,
+        synthetic_reverse_pe={"series_mode": "full_dwi"},
+        repol=True,
+    )
+    assert tortoise._resolve_repol() is True
+
+
 def test_full_tortoise_workflow_avoids_duplicate_pipeline_stages():
     preprocessing = {
         "merging": {"enabled": True},
@@ -1214,6 +1293,21 @@ def test_tortoise_keeps_repol_for_native_reverse_pe(tmp_path: Path):
         None,
         repol=True,
         use_reverse_pe=True,
+    )
+
+    assert step._resolve_repol() is True
+
+
+def test_tortoise_honors_documented_top_level_synb0_repol_policy(tmp_path: Path):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    step = TortoiseV4CorrectionStep(
+        config,
+        logging.getLogger(__name__),
+        None,
+        repol=True,
+        use_synthetic_reverse_pe=True,
+        synthetic_reverse_pe={"repol_policy": "disable"},
+        synb0_repol_policy="allow",
     )
 
     assert step._resolve_repol() is True

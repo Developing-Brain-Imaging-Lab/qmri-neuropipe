@@ -734,25 +734,37 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         if not requested or not self.options.get("use_synthetic_reverse_pe", False):
             return requested
         configured = self.options.get("synthetic_reverse_pe") or {}
-        policy = str(
-            configured.get("repol_policy", "disable")
+        series_mode = str(
+            configured.get("series_mode", "b0_duplicates")
             if isinstance(configured, dict)
-            else "disable"
+            else "b0_duplicates"
+        ).strip().lower()
+        full_dwi = series_mode in {"full", "dwi", "full_series", "full_dwi"}
+        nested_policy = (
+            configured.get("repol_policy")
+            if isinstance(configured, dict)
+            else None
+        )
+        default_policy = "allow" if full_dwi else "disable"
+        policy = str(
+            self.options.get("synb0_repol_policy", nested_policy or default_policy)
         ).strip().lower()
         if policy == "allow":
             self.logger.warning(
-                "TORTOISEV4 repol is enabled with experimental b0-only synthetic "
-                "reverse-PE data; validate final WLLS and outlier results carefully"
+                "TORTOISEV4 repol is enabled with experimental %s synthetic "
+                "reverse-PE data; validate final WLLS and outlier results carefully",
+                "full-DWI" if full_dwi else "b0-only",
             )
             return True
         if policy == "error":
             raise ValidationError(
                 "TORTOISEV4 repol is incompatible with the default safety policy for "
-                "b0-only synthetic reverse-PE data"
+                "synthetic reverse-PE data"
             )
         if policy != "disable":
             raise ValidationError(
-                "synthetic_reverse_pe.repol_policy must be disable, error, or allow"
+                "synb0_repol_policy (or synthetic_reverse_pe.repol_policy) must "
+                "be disable, error, or allow"
             )
         self.logger.warning(
             "Disabling TORTOISEV4 repol for experimental b0-only synthetic "

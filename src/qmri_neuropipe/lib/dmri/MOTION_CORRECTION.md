@@ -142,8 +142,39 @@ TORTOISE V4.1.1 segfaults in its final WLLS outlier model when `repol` is used
 with a b0-only Synb0 down series. The adapter therefore defaults
 `synb0_repol_policy` to `disable`, logs the change, and records requested versus
 applied outlier replacement in the output JSON. `error` fails before execution;
-`allow` preserves the raw TORTOISE behavior for testing newer releases. Native
+`allow` preserves the raw TORTOISE behavior for testing newer releases. The
+equivalent nested spelling is
+`synthetic_reverse_pe.repol_policy: allow`. Native
 reverse-PE DWI pairs continue to support `repol: true` normally.
+
+An opt-in full-series mode can instead unwarp the acquired DWI with the
+Synb0-derived TOPUP field and forward-warp every volume with the opposite PE
+sign. It copies the acquired b-values and b-vectors to the synthetic series, so
+DRBUDDI receives matching full-shell up/down inputs and TORTOISE `repol` remains
+enabled by default for this explicitly experimental mode:
+
+```yaml
+dmri:
+  preprocessing:
+    tortoise_v4:
+      epi: DRBUDDI
+      repol: true
+      niter: 3
+      synb0:
+        enabled: true
+      synthetic_reverse_pe:
+        enabled: true
+        series_mode: full_dwi
+```
+
+The undistorted Synb0 b0 is still passed separately as DRBUDDI's structural
+reference, and `JacSep` ensures the synthetic volumes are not concatenated into
+the final modeling DWI. This mode is not equivalent to an acquired reverse-PE
+series: both PE streams contain the same underlying signal, motion, dropout,
+and outliers. It can exercise DRBUDDI/repol with a complete gradient table, but
+it adds no independent information and cannot restore signal absent from the
+acquired data. Outputs record `StatisticallyIndependentAcquisition: false` and
+must be treated as experimental in QC and analysis.
 
 `epi: T2Wreg` instead performs TORTOISE's b0-to-undistorted-T2W susceptibility
 correction. `t2w_fallback.source: auto` (the default) prefers an acquired T2w;

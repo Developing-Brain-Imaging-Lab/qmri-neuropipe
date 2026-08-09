@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -88,6 +89,25 @@ class SyntheticReversePEStep(BaseProcessingStep):
             total_readout = dwell * float(max(pe_samples - 1, 1))
         return dwell, float(total_readout)
 
+    def _series_mode(self) -> str:
+        """Return the requested synthetic reverse-PE payload type."""
+        requested = str(self.options.get("series_mode", "b0_duplicates")).strip().lower()
+        aliases = {
+            "b0": "b0_duplicates",
+            "b0_only": "b0_duplicates",
+            "duplicate_b0": "b0_duplicates",
+            "duplicated_b0": "b0_duplicates",
+            "full": "full_dwi",
+            "dwi": "full_dwi",
+            "full_series": "full_dwi",
+        }
+        mode = aliases.get(requested, requested)
+        if mode not in {"b0_duplicates", "full_dwi"}:
+            raise ValidationError(
+                "synthetic_reverse_pe.series_mode must be b0_duplicates or full_dwi"
+            )
+        return mode
+
     def run(self, first_arg, output_dir: Path, **kwargs) -> dict:
         context, fallback = self.unpack_input(first_arg)
         if context is None:
@@ -112,6 +132,7 @@ class SyntheticReversePEStep(BaseProcessingStep):
 
         step_dir = self.get_step_output_dir(output_dir)
         force = bool(kwargs.get("force", False))
+        series_mode = self._series_mode()
         undistorted = Path(context["synb0_undistorted_reference"])
         topup_base = Path(context["topup_base"])
         field_hz = topup_base.with_name(topup_base.name + "_field.nii.gz")
@@ -119,15 +140,63 @@ class SyntheticReversePEStep(BaseProcessingStep):
             raise ValidationError(f"Synb0 undistorted reference does not exist: {undistorted}")
         if not field_hz.exists():
             raise ValidationError(f"TOPUP field map does not exist: {field_hz}")
-        warped_3d = step_dir / "synb0_desc-forwardDistortedReversePE_b0.nii.gz"
-        warp_sidecar = step_dir / "synb0_desc-forwardDistortedReversePE_b0.json"
+        if series_mode == "full_dwi":
+            if not acquired.bval or not acquired.bvec or not all(
+                Path(path).exists() for path in (acquired.bval, acquired.bvec)
+            ):
+                raise ValidationError(
+                    "Full-DWI synthetic reverse-PE generation requires acquired gradients"
+                )
+            datain = topup_base.with_name(topup_base.name + "_topup_datain.txt")
+            if not datain.exists():
+                raise ValidationError(
+                    f"Full-DWI synthetic reverse-PE generation requires TOPUP datain: {datain}"
+                )
+            required_topup = [
+                topup_base.with_name(topup_base.name + "_fieldcoef.nii.gz"),
+                topup_base.with_name(topup_base.name + "_movpar.txt"),
+            ]
+            missing_topup = [path for path in required_topup if not path.exists()]
+            if missing_topup:
+                raise ValidationError(
+                    "Full-DWI synthetic reverse-PE generation is missing TOPUP "
+                    f"outputs: {', '.join(str(path) for path in missing_topup)}"
+                )
+            undistorted_source = step_dir / "desc-topupUndistorted_sourceDWI.nii.gz"
+            force_unwarp = (
+                force
+                or not undistorted_source.exists()
+                or max(
+                    Path(acquired.img).stat().st_mtime,
+                    required_topup[0].stat().st_mtime,
+                    required_topup[1].stat().st_mtime,
+                    datain.stat().st_mtime,
+                ) > undistorted_source.stat().st_mtime
+            )
+            fsl.applytopup(
+                acquired,
+                undistorted_source,
+                topup_base=topup_base,
+                datain=datain,
+                in_index=int(self.options.get("topup_in_index", 1)),
+                method="jac",
+                force=force_unwarp,
+            )
+            warp_source = undistorted_source
+            warped_3d = step_dir / "desc-forwardDistortedReversePE_fullDWI.nii.gz"
+            warp_sidecar = step_dir / "desc-forwardDistortedReversePE_fullDWI.json"
+        else:
+            warp_source = undistorted
+            warped_3d = step_dir / "synb0_desc-forwardDistortedReversePE_b0.nii.gz"
+            warp_sidecar = step_dir / "synb0_desc-forwardDistortedReversePE_b0.json"
         intensity_correction = bool(self.options.get("intensity_correction", True))
         warp_config = {
-            "Source": str(undistorted),
+            "Source": str(warp_source),
             "Field": str(field_hz),
             "DwellTime": dwell,
             "FUGUEUnwarpDirection": fugue_direction,
             "IntensityCorrection": intensity_correction,
+            "SeriesMode": series_mode,
         }
         try:
             cached_warp_config = (
@@ -139,12 +208,12 @@ class SyntheticReversePEStep(BaseProcessingStep):
             force
             or not warped_3d.exists()
             or not field_hz.exists()
-            or max(undistorted.stat().st_mtime, field_hz.stat().st_mtime)
+            or max(warp_source.stat().st_mtime, field_hz.stat().st_mtime)
             > warped_3d.stat().st_mtime
             or cached_warp_config != warp_config
         )
         fsl.forward_distort_with_fugue(
-            undistorted,
+            warp_source,
             field_hz,
             warped_3d,
             dwell_time=dwell,
@@ -154,32 +223,42 @@ class SyntheticReversePEStep(BaseProcessingStep):
         )
         warp_sidecar.write_text(json.dumps(warp_config, indent=2) + "\n")
 
-        try:
-            duplicates = int(self.options.get("duplicate_volumes", 2))
-        except (TypeError, ValueError) as exc:
-            raise ValidationError(
-                "synthetic_reverse_pe.duplicate_volumes must be a positive integer"
-            ) from exc
-        if duplicates < 1:
-            raise ValidationError("synthetic_reverse_pe.duplicate_volumes must be positive")
-        series_path = step_dir / "synb0_desc-syntheticReversePE_dwi.nii.gz"
+        duplicates = None
+        if series_mode == "b0_duplicates":
+            try:
+                duplicates = int(self.options.get("duplicate_volumes", 2))
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(
+                    "synthetic_reverse_pe.duplicate_volumes must be a positive integer"
+                ) from exc
+            if duplicates < 1:
+                raise ValidationError("synthetic_reverse_pe.duplicate_volumes must be positive")
+        series_path = step_dir / (
+            "desc-syntheticReversePE_fullDWI.nii.gz"
+            if series_mode == "full_dwi"
+            else "synb0_desc-syntheticReversePE_dwi.nii.gz"
+        )
         base = Path(str(series_path).split(".nii", 1)[0])
         bval = Path(f"{base}.bval")
         bvec = Path(f"{base}.bvec")
         sidecar = Path(f"{base}.json")
-        metadata = {
+        metadata = self._metadata(acquired) if series_mode == "full_dwi" else {}
+        metadata.update({
             "PhaseEncodingDirection": synthetic_pe,
             "EffectiveEchoSpacing": dwell,
             "TotalReadoutTime": total_readout,
             "Synthesized": True,
             "SyntheticReversePE": True,
             "Experimental": True,
-            "GeneratedFrom": [str(undistorted), str(field_hz)],
+            "GeneratedFrom": [str(acquired.img), str(undistorted), str(field_hz)],
             "ForwardWarpBackend": "FSL FUGUE",
             "FUGUEUnwarpDirection": fugue_direction,
             "IntensityCorrection": bool(self.options.get("intensity_correction", True)),
-            "DuplicateVolumes": duplicates,
-        }
+            "SyntheticReversePESeriesMode": series_mode,
+            "StatisticallyIndependentAcquisition": False,
+        })
+        if duplicates is not None:
+            metadata["DuplicateVolumes"] = duplicates
         try:
             cached_metadata = json.loads(sidecar.read_text()) if sidecar.exists() else {}
         except (OSError, json.JSONDecodeError):
@@ -192,21 +271,57 @@ class SyntheticReversePEStep(BaseProcessingStep):
             or warped_3d.stat().st_mtime > series_path.stat().st_mtime
             or cached_metadata != metadata
         )
+        if series_mode == "full_dwi":
+            if not bval.exists() or not bvec.exists():
+                rebuild_series = True
+            else:
+                source_gradient_mtime = max(
+                    Path(acquired.bval).stat().st_mtime,
+                    Path(acquired.bvec).stat().st_mtime,
+                )
+                output_gradient_mtime = min(
+                    bval.stat().st_mtime,
+                    bvec.stat().st_mtime,
+                )
+                rebuild_series = rebuild_series or (
+                    source_gradient_mtime > output_gradient_mtime
+                )
         if rebuild_series:
             warped_img = nib.load(str(warped_3d))
             warped_data = np.asanyarray(warped_img.dataobj)
-            if warped_data.ndim == 4:
-                warped_data = warped_data[..., 0]
-            series = np.repeat(warped_data[..., np.newaxis], duplicates, axis=3)
-            nib.save(
-                nib.Nifti1Image(series, warped_img.affine, warped_img.header.copy()),
-                series_path,
-            )
-            bval.write_text(" ".join("0" for _ in range(duplicates)) + "\n")
-            bvec.write_text(
-                "\n".join(" ".join("0" for _ in range(duplicates)) for _ in range(3))
-                + "\n"
-            )
+            if series_mode == "full_dwi":
+                if warped_data.ndim != 4:
+                    raise ProcessingError(
+                        f"Synthetic full reverse-PE DWI must be 4D, got {warped_data.shape}"
+                    )
+                if warped_data.shape[3] != nib.load(str(acquired.img)).shape[3]:
+                    raise ProcessingError(
+                        "Synthetic full reverse-PE DWI changed the acquired volume count"
+                    )
+                acquired_image = nib.load(str(acquired.img))
+                if (
+                    warped_img.shape[:3] != acquired_image.shape[:3]
+                    or not np.allclose(warped_img.affine, acquired_image.affine, atol=1e-4)
+                ):
+                    raise ProcessingError(
+                        "Synthetic full reverse-PE DWI changed the acquired spatial grid"
+                    )
+                shutil.copy2(warped_3d, series_path)
+                shutil.copy2(acquired.bval, bval)
+                shutil.copy2(acquired.bvec, bvec)
+            else:
+                if warped_data.ndim == 4:
+                    warped_data = warped_data[..., 0]
+                series = np.repeat(warped_data[..., np.newaxis], duplicates, axis=3)
+                nib.save(
+                    nib.Nifti1Image(series, warped_img.affine, warped_img.header.copy()),
+                    series_path,
+                )
+                bval.write_text(" ".join("0" for _ in range(duplicates)) + "\n")
+                bvec.write_text(
+                    "\n".join(" ".join("0" for _ in range(duplicates)) for _ in range(3))
+                    + "\n"
+                )
             sidecar.write_text(json.dumps(metadata, indent=2) + "\n")
         generated_entities = {**acquired.entities, "desc": "syntheticReversePE"}
         generated_entities.pop("dir", None)
@@ -216,12 +331,15 @@ class SyntheticReversePEStep(BaseProcessingStep):
             json=sidecar,
             bval=bval,
             bvec=bvec,
+            Delta=getattr(acquired, "Delta", None),
+            delta=getattr(acquired, "delta", None),
         )
         context["tortoise_synthetic_reverse_pe"] = generated
         context["synthetic_reverse_pe_provenance"] = json.loads(sidecar.read_text())
         self.logger.warning(
-            "Generated experimental synthetic reverse-PE data for TORTOISE DRBUDDI; "
-            "this is not an independently acquired reverse-PE series"
+            "Generated experimental %s synthetic reverse-PE data for TORTOISE "
+            "DRBUDDI; this is not an independently acquired reverse-PE series",
+            series_mode,
         )
         return context
 
