@@ -133,10 +133,10 @@ the existing Synb0 transform chains are applied. Deformable SynthMorph models
 are intentionally rejected here because Synb0 requires composable linear
 T1w-to-DWI and T1w-to-MNI transforms.
 
-The presence of `synb0` enables it unless `enabled: false` is set, implies
-`epi: DRBUDDI`, and automatically uses `JacSep`, returning only the corrected
-acquired up series to downstream modeling rather than concatenating synthetic
-b0 volumes.
+The presence of `synb0` enables it unless `enabled: false` is set and implies
+`epi: DRBUDDI`. When a synthetic reverse-PE series is generated, the adapter
+requires `JacSep`, returning only the corrected acquired up series to downstream
+modeling rather than merging or concatenating derived duplicate signal.
 
 TORTOISE V4.1.1 segfaults in its final WLLS outlier model when `repol` is used
 with a b0-only Synb0 down series. The adapter therefore defaults
@@ -169,12 +169,20 @@ dmri:
 
 The undistorted Synb0 b0 is still passed separately as DRBUDDI's structural
 reference, and `JacSep` ensures the synthetic volumes are not concatenated into
-the final modeling DWI. This mode is not equivalent to an acquired reverse-PE
+the final modeling DWI. The separately corrected synthetic series is retained
+with a `_down` suffix for QC. This mode is not equivalent to an acquired reverse-PE
 series: both PE streams contain the same underlying signal, motion, dropout,
 and outliers. It can exercise DRBUDDI/repol with a complete gradient table, but
 it adds no independent information and cannot restore signal absent from the
 acquired data. Outputs record `StatisticallyIndependentAcquisition: false` and
 must be treated as experimental in QC and analysis.
+
+For genuinely acquired reverse-PE DWI pairs, the adapter explicitly requests
+TORTOISE's native `Merge` default. Matching up/down B-matrices are combined into
+one corrected series; TORTOISE can fall back to `JacConcat` when they differ.
+Set `output_data_combination: JacSep` to retain acquired up/down series
+separately instead. The corrected down series is preserved with a `_down`
+suffix, while the acquired up series remains the pipeline's downstream DWI.
 
 `epi: T2Wreg` instead performs TORTOISE's b0-to-undistorted-T2W susceptibility
 correction. `t2w_fallback.source: auto` (the default) prefers an acquired T2w;

@@ -15,7 +15,7 @@ from qmri_neuropipe.interfaces.tortoise import (
     build_tortoise_v4_command,
     tortoise_v4_motion_eddy,
 )
-from qmri_neuropipe.core import ProcessingError
+from qmri_neuropipe.core import ProcessingError, ValidationError
 from qmri_neuropipe.lib.dmri.ants_motion import (
     AntsDiffusionMotionCorrectionStep,
     closest_rotation,
@@ -224,6 +224,89 @@ def test_tortoise_v4_command_exposes_full_pipeline_and_reverse_pe(tmp_path: Path
     assert command[command.index("--epi") + 1] == "DRBUDDI"
     assert command[command.index("--output_res") + 1:command.index("--output_res") + 4] == ["1.5"] * 3
     assert command[command.index("--output_data_combination") + 1] == "JacConcat"
+
+
+def test_tortoise_jacsep_preserves_separate_corrected_down_series(
+    tmp_path: Path, monkeypatch
+):
+    up_dir = tmp_path / "up_source"
+    down_dir = tmp_path / "down_source"
+    up_dir.mkdir()
+    down_dir.mkdir()
+    up = _dwi(
+        up_dir,
+        np.ones((3, 4, 5, 2), dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    down = _dwi(
+        down_dir,
+        np.full((3, 4, 5, 2), 2, dtype=np.float32),
+        np.array([0, 1000]),
+    )
+    requested = tmp_path / "corrected.nii.gz"
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.tortoise.shutil.which",
+        lambda executable: f"/opt/tortoise/{executable}",
+    )
+
+    def fake_run_cmd(command, **kwargs):
+        nib.save(
+            nib.Nifti1Image(np.ones((3, 4, 5, 2), dtype=np.float32), np.eye(4)),
+            tmp_path / "corrected.nii",
+        )
+        (tmp_path / "corrected.bvals").write_text("0 1000\n")
+        (tmp_path / "corrected.bvecs").write_text("0 0\n0 0\n0 0\n")
+        nib.save(
+            nib.Nifti1Image(np.full((3, 4, 5, 2), 2, dtype=np.float32), np.eye(4)),
+            tmp_path / "down_proc_TORTOISE_final.nii",
+        )
+        (tmp_path / "down_proc_TORTOISE_final.bvals").write_text("0 1000\n")
+        (tmp_path / "down_proc_TORTOISE_final.bvecs").write_text(
+            "0 0\n0 0\n0 0\n"
+        )
+
+    monkeypatch.setattr("qmri_neuropipe.interfaces.tortoise.run_cmd", fake_run_cmd)
+
+    result = tortoise_v4_motion_eddy(
+        up,
+        requested,
+        down_file=down,
+        output_data_combination="jac_sep",
+    )
+
+    corrected_down = result.corrected_reverse_pe
+    assert result.output_data_combination == "JacSep"
+    assert corrected_down.img == tmp_path / "corrected_down.nii.gz"
+    assert corrected_down.img.exists()
+    assert corrected_down.bval.exists()
+    assert corrected_down.bvec.exists()
+    np.testing.assert_allclose(
+        np.asanyarray(nib.load(corrected_down.img).dataobj), 2
+    )
+
+
+def test_tortoise_output_combination_policy_distinguishes_synthetic_and_native_pairs(
+    tmp_path: Path,
+):
+    config = PipelineConfig(bids_dir=tmp_path, output_dir=tmp_path, config_data={})
+    down = DWIFile(entities={"dir": "PA"}, img=tmp_path / "down.nii.gz")
+
+    native = TortoiseV4CorrectionStep(config, use_reverse_pe=True)
+    assert native._resolve_output_data_combination(down) == "Merge"
+
+    synthetic = TortoiseV4CorrectionStep(
+        config,
+        use_synthetic_reverse_pe=True,
+    )
+    assert synthetic._resolve_output_data_combination(down) == "JacSep"
+
+    unsafe = TortoiseV4CorrectionStep(
+        config,
+        use_synthetic_reverse_pe=True,
+        output_data_combination="JacConcat",
+    )
+    with pytest.raises(ValidationError, match="must use.*JacSep"):
+        unsafe._resolve_output_data_combination(down)
 
 
 def test_tortoise_stages_single_synb0_without_mutating_source(tmp_path: Path):

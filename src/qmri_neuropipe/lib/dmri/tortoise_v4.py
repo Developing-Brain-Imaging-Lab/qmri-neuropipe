@@ -15,7 +15,10 @@ from ...core import BaseProcessingStep, ProcessingError, ValidationError
 from ...core.types import DWIFile, ImageFile
 from ...interfaces import freesurfer
 from ...io.bids import build_bids_name
-from ...interfaces.tortoise import tortoise_v4_motion_eddy
+from ...interfaces.tortoise import (
+    normalize_output_data_combination,
+    tortoise_v4_motion_eddy,
+)
 from ...io.dmri.bids import (
     infer_phase_encoding_direction,
     transform_phase_encoding_direction,
@@ -396,6 +399,18 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 and output.stat().st_mtime >= Path(generated_path).stat().st_mtime
             )
         return True
+
+    @staticmethod
+    def _cached_output_combination_matches(
+        sidecar: Path, expected: Optional[str]
+    ) -> bool:
+        """Invalidate paired-data outputs when the requested final policy changed."""
+        try:
+            payload = json.loads(sidecar.read_text()) if sidecar.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        cached = payload.get("TORTOISEOutputDataCombinationRequested")
+        return cached == expected if expected else cached in {None, ""}
 
     @staticmethod
     def _structural_masking_targets(config: dict) -> set[str]:
@@ -828,9 +843,41 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
             )
         return up, down
 
+    def _resolve_output_data_combination(
+        self, down_dwi: Optional[DWIFile]
+    ) -> Optional[str]:
+        """Choose a safe, explicit final-data policy for the selected PE pair."""
+        configured = self.options.get("output_data_combination")
+        try:
+            configured = normalize_output_data_combination(configured)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        if down_dwi is None:
+            if configured:
+                self.logger.warning(
+                    "Ignoring TORTOISEV4 output_data_combination=%s because no "
+                    "reverse-PE series was selected",
+                    configured,
+                )
+            return None
+        if self.options.get("use_synthetic_reverse_pe", False):
+            if configured and configured != "JacSep":
+                raise ValidationError(
+                    "Synthetic reverse-PE data must use "
+                    "tortoise_v4.output_data_combination: JacSep; Merge or "
+                    "JacConcat would treat derived duplicate signal as independent data"
+                )
+            return "JacSep"
+        # TORTOISE's native default is Merge. Make it explicit so the selected
+        # behavior is visible in the command and output provenance. TORTOISE
+        # may automatically fall back to JacConcat when B-matrices differ.
+        return configured or "Merge"
+
     def run(self, first_arg, output_dir: Path, **kwargs):
         context, fallback_dwi = self.unpack_input(first_arg)
         input_dwi, down_dwi = self._select_up_down(context, fallback_dwi)
+        output_combination = self._resolve_output_data_combination(down_dwi)
+        self._requested_output_data_combination = output_combination
         output_dir = self.get_step_output_dir(output_dir)
         entities = {**input_dwi.entities, "desc": "tortoisev4corrected"}
         if down_dwi:
@@ -862,6 +909,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                     raise ValueError(
                         "Synb0 structural-reference role or input changed"
                     )
+                if not self._cached_output_combination_matches(
+                    _nifti_json_path(out_file), output_combination
+                ):
+                    raise ValueError(
+                        "TORTOISE output-data combination policy changed"
+                    )
             except Exception as exc:
                 self.logger.warning(
                     "Ignoring unreadable cached TORTOISEV4 output %s: %s",
@@ -878,6 +931,29 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                     Delta=getattr(input_dwi, "Delta", None),
                     delta=getattr(input_dwi, "delta", None),
                 )
+                corrected_down_base = Path(
+                    f"{Path(str(out_file).split('.nii', 1)[0])}_down"
+                )
+                corrected_down_img = Path(f"{corrected_down_base}.nii.gz")
+                corrected_down_bval = Path(f"{corrected_down_base}.bval")
+                corrected_down_bvec = Path(f"{corrected_down_base}.bvec")
+                if (
+                    context is not None
+                    and down_dwi is not None
+                    and output_combination == "JacSep"
+                    and corrected_down_img.exists()
+                    and corrected_down_bval.exists()
+                    and corrected_down_bvec.exists()
+                ):
+                    context["tortoise_corrected_reverse_pe"] = DWIFile(
+                        entities=dict(down_dwi.entities),
+                        img=corrected_down_img,
+                        json=down_dwi.json,
+                        bval=corrected_down_bval,
+                        bvec=corrected_down_bvec,
+                        Delta=getattr(down_dwi, "Delta", None),
+                        delta=getattr(down_dwi, "delta", None),
+                    )
                 return self._return_result(context, result)
 
         reference_cfg = dict(self.options.get("reference_selection") or {})
@@ -965,11 +1041,6 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 "TORTOISEV4 use_synb0 requires epi=T2Wreg, or epi=DRBUDDI with "
                 "actual reverse-PE data"
             )
-        output_combination = self.options.get("output_data_combination")
-        if self.options.get("use_synthetic_reverse_pe", False) and not output_combination:
-            # Never concatenate the manufactured b0-only down series into the
-            # final diffusion data.
-            output_combination = "JacSep"
         self._resolved_nthreads = requested_threads
         effective_repol = self._resolve_repol()
         self._effective_repol = effective_repol
@@ -1003,6 +1074,12 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
                 preserve_native_grid=bool(output_grid_reference)
             ),
         )
+        corrected_reverse_pe = getattr(result, "corrected_reverse_pe", None)
+        if context is not None:
+            if corrected_reverse_pe is not None:
+                context["tortoise_corrected_reverse_pe"] = corrected_reverse_pe
+            else:
+                context.pop("tortoise_corrected_reverse_pe", None)
         if output_grid_reference:
             result_image = nib.load(str(result.img))
             expected_image = nib.load(str(output_grid_reference))
@@ -1071,6 +1148,14 @@ class TortoiseV4CorrectionStep(BaseProcessingStep):
         payload["SyntheticReversePE"] = bool(
             self.options.get("use_synthetic_reverse_pe", False)
         )
+        requested_combination = getattr(
+            self, "_requested_output_data_combination", None
+        )
+        if requested_combination:
+            payload["TORTOISEOutputDataCombinationRequested"] = requested_combination
+        actual_combination = getattr(result, "output_data_combination", None)
+        if actual_combination:
+            payload["TORTOISEOutputDataCombination"] = actual_combination
         if self.options.get("use_synthetic_reverse_pe", False):
             payload["SyntheticReversePEExperimental"] = True
         payload["CoregistrationToAnatomy"] = bool(

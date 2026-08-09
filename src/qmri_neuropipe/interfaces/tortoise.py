@@ -14,6 +14,26 @@ from ..core.utils import ensure_dir
 from ..core import ProcessingError
 
 
+_OUTPUT_DATA_COMBINATIONS = {
+    "merge": "Merge",
+    "jacconcat": "JacConcat",
+    "jacsep": "JacSep",
+}
+
+
+def normalize_output_data_combination(value: Optional[str]) -> Optional[str]:
+    """Return TORTOISE's canonical spelling for a final-data combination mode."""
+    if value is None or not str(value).strip():
+        return None
+    normalized = str(value).strip().lower().replace("_", "").replace("-", "")
+    try:
+        return _OUTPUT_DATA_COMBINATIONS[normalized]
+    except KeyError as exc:
+        raise ValueError(
+            "TORTOISEV4 output_data_combination must be Merge, JacConcat, or JacSep"
+        ) from exc
+
+
 def _format_v4_option(name: str, value: Any) -> list[str]:
     """Format a TORTOISEProcess option without shell-specific ambiguity."""
     option = f"--{name}"
@@ -57,6 +77,9 @@ def build_tortoise_v4_command(
     """
     if not dwi_file.bval or not dwi_file.bvec:
         raise ValueError("TORTOISEV4 requires bval and bvec sidecars")
+    output_data_combination = normalize_output_data_combination(
+        output_data_combination
+    )
     command = [
         executable,
         "--up_data", str(dwi_file.img),
@@ -140,6 +163,9 @@ def tortoise_v4_motion_eddy(
 ) -> DWIFile:
     """Run TORTOISEV4 and return its corrected gradients to the pipeline."""
     out_file = Path(out_file)
+    output_data_combination = normalize_output_data_combination(
+        output_data_combination
+    )
     out_file.parent.mkdir(parents=True, exist_ok=True)
     # TORTOISE V4.1.1 can write an uncompressed NIfTI payload when given a
     # .nii.gz output name. Always let TORTOISE write native .nii, then create
@@ -158,6 +184,27 @@ def tortoise_v4_motion_eddy(
     staged_down = (
         _stage_tortoise_v4_input(down_file, staging_dir, "down") if down_file else None
     )
+    # In JacSep mode TORTOISE derives the down-series filename from its staged
+    # basename rather than --output. Remove prior products so a mode change or
+    # failed rerun cannot be mistaken for a newly generated separate series.
+    separate_down_source = out_file.parent / "down_proc_TORTOISE_final.nii"
+    separate_down_source_base = Path(str(separate_down_source).split(".nii", 1)[0])
+    separate_down_target = Path(
+        f"{Path(str(out_file).split('.nii', 1)[0])}_down.nii.gz"
+    )
+    separate_down_target_base = Path(
+        str(separate_down_target).split(".nii", 1)[0]
+    )
+    for candidate in (
+        separate_down_source,
+        Path(f"{separate_down_source_base}.bvals"),
+        Path(f"{separate_down_source_base}.bvecs"),
+        Path(f"{separate_down_source_base}.bmtxt"),
+        separate_down_target,
+        Path(f"{separate_down_target_base}.bval"),
+        Path(f"{separate_down_target_base}.bvec"),
+    ):
+        candidate.unlink(missing_ok=True)
     staged_anatomicals: dict[Path, Path] = {}
 
     def stage_anatomical(source: Path, label: str) -> Path:
@@ -266,6 +313,26 @@ def tortoise_v4_motion_eddy(
             raise ProcessingError(
                 f"TORTOISEV4 corrected output must be 4D, got {image.shape}"
             )
+    output_volume_count = int(image.shape[3])
+    generated_bvals = np.asarray(np.loadtxt(generated_bval), dtype=float).reshape(-1)
+    generated_bvecs = np.asarray(np.loadtxt(generated_bvec), dtype=float)
+    if generated_bvecs.ndim == 1 and generated_bvecs.size % 3 == 0:
+        generated_bvecs = generated_bvecs.reshape(3, -1)
+    if (
+        generated_bvecs.ndim == 2
+        and generated_bvecs.shape[0] != 3
+        and generated_bvecs.shape[1] == 3
+    ):
+        generated_bvecs = generated_bvecs.T
+    if generated_bvals.size != output_volume_count or generated_bvecs.shape != (
+        3,
+        output_volume_count,
+    ):
+        raise ProcessingError(
+            "TORTOISEV4 output image/gradient count mismatch: "
+            f"image={output_volume_count}, bvals={generated_bvals.size}, "
+            f"bvecs={generated_bvecs.shape}"
+        )
     if output_voxels is not None:
         expected_shape = tuple(int(value) for value in output_voxels)
         actual_shape = tuple(int(value) for value in image.shape[:3])
@@ -278,7 +345,7 @@ def tortoise_v4_motion_eddy(
     out_bval = Path(f"{base}.bval")
     shutil.copy2(generated_bvec, out_bvec)
     shutil.copy2(generated_bval, out_bval)
-    return DWIFile(
+    result = DWIFile(
         entities=dict(dwi_file.entities),
         img=out_file,
         json=dwi_file.json,
@@ -287,6 +354,77 @@ def tortoise_v4_motion_eddy(
         Delta=getattr(dwi_file, "Delta", None),
         delta=getattr(dwi_file, "delta", None),
     )
+    actual_combination = output_data_combination
+    if staged_down and separate_down_source.exists():
+        down_source_bval = Path(f"{separate_down_source_base}.bvals")
+        down_source_bvec = Path(f"{separate_down_source_base}.bvecs")
+        if not down_source_bval.exists() or not down_source_bvec.exists():
+            raise ProcessingError(
+                "TORTOISEV4 wrote a separate corrected reverse-PE image without "
+                "its gradient sidecars"
+            )
+        down_target = separate_down_target
+        down_target_base = separate_down_target_base
+        down_target_bval = Path(f"{down_target_base}.bval")
+        down_target_bvec = Path(f"{down_target_base}.bvec")
+        with separate_down_source.open("rb") as source, gzip.open(
+            down_target, "wb", compresslevel=6
+        ) as destination:
+            shutil.copyfileobj(source, destination, length=1024 * 1024)
+        shutil.copy2(down_source_bval, down_target_bval)
+        shutil.copy2(down_source_bvec, down_target_bvec)
+        down_image = nib.load(str(down_target))
+        down_bvals = np.asarray(np.loadtxt(down_target_bval), dtype=float).reshape(-1)
+        down_bvecs = np.asarray(np.loadtxt(down_target_bvec), dtype=float)
+        if down_bvecs.ndim == 1 and down_bvecs.size % 3 == 0:
+            down_bvecs = down_bvecs.reshape(3, -1)
+        if (
+            down_bvecs.ndim == 2
+            and down_bvecs.shape[0] != 3
+            and down_bvecs.shape[1] == 3
+        ):
+            down_bvecs = down_bvecs.T
+        if (
+            len(down_image.shape) != 4
+            or down_bvals.size != down_image.shape[3]
+            or down_bvecs.shape != (3, down_image.shape[3])
+        ):
+            raise ProcessingError(
+                "TORTOISEV4 separate corrected reverse-PE output has inconsistent "
+                "image and gradient dimensions"
+            )
+        corrected_reverse_pe = DWIFile(
+            entities=dict(down_file.entities),
+            img=down_target,
+            json=down_file.json,
+            bval=down_target_bval,
+            bvec=down_target_bvec,
+            Delta=getattr(down_file, "Delta", None),
+            delta=getattr(down_file, "delta", None),
+        )
+        setattr(result, "corrected_reverse_pe", corrected_reverse_pe)
+        actual_combination = "JacSep"
+        for candidate in (
+            separate_down_source,
+            down_source_bval,
+            down_source_bvec,
+            Path(f"{separate_down_source_base}.bmtxt"),
+        ):
+            candidate.unlink(missing_ok=True)
+    elif staged_down and output_data_combination == "JacSep":
+        raise ProcessingError(
+            "TORTOISEV4 JacSep was requested but no separate corrected "
+            "reverse-PE output was created"
+        )
+    elif staged_down and output_data_combination == "Merge":
+        up_count = int(nib.load(str(staged_up.img)).shape[3])
+        down_count = int(nib.load(str(staged_down.img)).shape[3])
+        if output_volume_count == up_count + down_count:
+            actual_combination = "JacConcat"
+        else:
+            actual_combination = "Merge"
+    setattr(result, "output_data_combination", actual_combination)
+    return result
 
 
 def _stage_uncompressed_nifti(source: Path, destination: Path) -> Path:
