@@ -361,6 +361,45 @@ def _spatial_grids_match(first: Path, second: Path, atol: float = 1e-5) -> bool:
     )
 
 
+def _mrtrix_header_alignment_matches(
+    output_file: Path,
+    input_file: Path,
+    transform_file: Path,
+    atol: float = 1e-5,
+) -> bool:
+    """Return whether MRtrix applied a linear transform without regridding.
+
+    Without ``-template``, ``mrtransform -linear`` retains the input voxel
+    array and composes the inverse of MRtrix's fixed-to-moving transform into
+    the image header.  This deliberately changes the affine, so native output
+    must not be compared with the input using :func:`_spatial_grids_match`.
+    """
+    try:
+        output_image = nib.load(str(output_file))
+        input_image = nib.load(str(input_file))
+        transform = np.asarray(np.loadtxt(transform_file), dtype=float)
+    except (OSError, ValueError):
+        return False
+    if output_image.shape != input_image.shape:
+        return False
+
+    if transform.shape == (3, 4):
+        transform = np.vstack([transform, [0.0, 0.0, 0.0, 1.0]])
+    if transform.shape != (4, 4) or not np.all(np.isfinite(transform)):
+        return False
+
+    try:
+        expected_affine = np.linalg.inv(transform) @ input_image.affine
+    except np.linalg.LinAlgError:
+        return False
+    return np.allclose(
+        output_image.affine,
+        expected_affine,
+        rtol=1e-5,
+        atol=atol,
+    )
+
+
 def _ants_affine_to_ras_matrix(transform_file: Path) -> np.ndarray:
     """Read an ANTs/ITK affine and return its moving-to-fixed RAS matrix.
 
@@ -952,21 +991,32 @@ class CoregistrationStep(BaseProcessingStep):
                  "until transform application."
              )
 
-        # The output grid is distinct from the images used to estimate the
-        # transform. Native/DWI output means the exact input DWI lattice—not
-        # merely its voxel sizes—so matrix, affine, and field of view remain
-        # unchanged.
+        # The output geometry is distinct from the images used to estimate the
+        # transform. Resampling back to the native grid uses the exact input
+        # DWI lattice. MRtrix native application instead retains the voxel
+        # array and moves that lattice into anatomical space via its header.
         output_grid_ref = _coregistration_output_reference(
             in_path,
             registration_target,
             application_fixed,
             out_res,
         )
+        mrtrix_native_header_alignment = (
+            apply_method == "mrtrix"
+            and application_mode != "header"
+            and out_res in {"dwi", "native"}
+        )
         if out_res in {"dwi", "native"}:
-            self.logger.info(
-                "Native resolution mode: applying the transform on the exact input "
-                f"DWI grid ({output_grid_ref.name})."
-            )
+            if mrtrix_native_header_alignment:
+                self.logger.info(
+                    "Native MRtrix mode: retaining the DWI voxel array and applying "
+                    "the registration through its image header."
+                )
+            else:
+                self.logger.info(
+                    "Native resolution mode: applying the transform on the exact input "
+                    f"DWI grid ({output_grid_ref.name})."
+                )
 
         # Skip main coregistration if output exists and is valid
         should_run = True
@@ -1002,18 +1052,32 @@ class CoregistrationStep(BaseProcessingStep):
                              self.logger.info(f"Dimension mismatch (In: {in_shape[3]}, Out: {out_shape[3]}). Re-running.")
                      expected_image = nib.load(str(output_grid_ref))
                      expected_spatial_shape = expected_image.shape[:3]
-                     if (
-                         out_shape[:3] != expected_spatial_shape
-                         or (application_mode != "header" and not np.allclose(
-                             nib.load(str(output_img)).affine,
-                             expected_image.affine,
-                             rtol=1e-5,
-                             atol=1e-5,
-                         ))
-                     ):
+                     if mrtrix_native_header_alignment:
+                         grid_matches = (
+                             mrtrix_transform.exists()
+                             and _mrtrix_header_alignment_matches(
+                                 output_img,
+                                 in_path,
+                                 mrtrix_transform,
+                             )
+                         )
+                     else:
+                         grid_matches = (
+                             out_shape[:3] == expected_spatial_shape
+                             and (
+                                 application_mode == "header"
+                                 or np.allclose(
+                                     nib.load(str(output_img)).affine,
+                                     expected_image.affine,
+                                     rtol=1e-5,
+                                     atol=1e-5,
+                                 )
+                             )
+                         )
+                     if not grid_matches:
                          dims_consistent = False
                          self.logger.info(
-                             "Coregistration output grid mismatch "
+                             "Coregistration output geometry mismatch "
                              f"(output={out_shape[:3]}, expected={expected_spatial_shape}). Re-running."
                          )
                  except Exception as e:
@@ -1275,10 +1339,9 @@ class CoregistrationStep(BaseProcessingStep):
                         'force': True
                     }
                     
-                    # Native/DWI output keeps the moving image lattice. Passing it
-                    # back via -template asks MRtrix to reslice through the imported
-                    # transform and can yield an empty image for bbregister matrices.
-                    # Anatomical output still needs an explicit target grid.
+                    # Without -template MRtrix retains the voxel array and composes
+                    # the linear transform into the header. Anatomical output still
+                    # uses -template and is resliced onto the requested target grid.
                     mt_kwargs.update(
                         _mrtrix_coregistration_grid_options(output_grid_ref, out_res)
                     )
@@ -1654,16 +1717,31 @@ class CoregistrationStep(BaseProcessingStep):
         if not check_nifti_integrity(output_img):
              raise ProcessingError(f"Coregistration step finished but output is corrupt/truncated: {output_img}")
 
-        if (
-             out_res in {"dwi", "native"}
-             and application_mode != "header"
-             and not _spatial_grids_match(output_img, in_path)
-        ):
-             raise ProcessingError(
-                 "Native coregistration output does not preserve the exact input DWI grid: "
-                 f"input={nib.load(str(in_path)).shape[:3]}, "
-                 f"output={nib.load(str(output_img)).shape[:3]}"
-             )
+        if out_res in {"dwi", "native"} and application_mode != "header":
+             if mrtrix_native_header_alignment:
+                 native_geometry_matches = (
+                     mrtrix_transform.exists()
+                     and _mrtrix_header_alignment_matches(
+                         output_img,
+                         in_path,
+                         mrtrix_transform,
+                     )
+                 )
+                 failure_detail = (
+                     "MRtrix native coregistration did not preserve the input voxel "
+                     "array while applying the expected header transform"
+                 )
+             else:
+                 native_geometry_matches = _spatial_grids_match(output_img, in_path)
+                 failure_detail = (
+                     "Native coregistration output does not preserve the exact input DWI grid"
+                 )
+             if not native_geometry_matches:
+                 raise ProcessingError(
+                     f"{failure_detail}: "
+                     f"input={nib.load(str(in_path)).shape[:3]}, "
+                     f"output={nib.load(str(output_img)).shape[:3]}"
+                 )
         if application_mode == "header":
              header_output = nib.load(str(output_img))
              header_input = nib.load(str(in_path))
@@ -1782,9 +1860,16 @@ class CoregistrationStep(BaseProcessingStep):
                                 "nthreads": nthreads,
                                 "force": True,
                             }
-                            if self.method != "freesurfer":
-                                mask_kwargs["template"] = mask_grid_ref
-                                mask_kwargs["strides"] = mask_grid_ref
+                            if self.method != "freesurfer" or not is_anatomical:
+                                # Native output omits -template and updates the mask
+                                # header without interpolation, just like the DWI.
+                                # Anatomical output retains template-based reslicing.
+                                mask_kwargs.update(
+                                    _mrtrix_coregistration_grid_options(
+                                        mask_grid_ref,
+                                        out_res,
+                                    )
+                                )
                             mrtrix.mrtransform(**mask_kwargs)
                         else:
                              self.logger.warning(f"MRTrix transform not found. Falling back to FSL for mask.")

@@ -15,6 +15,7 @@ from qmri_neuropipe.lib.common.registration import (
     _coregistration_output_reference,
     _ensure_fsl_registration_nifti,
     _mrtrix_coregistration_grid_options,
+    _mrtrix_header_alignment_matches,
     _spatial_grids_match,
     _write_header_registered_image,
 )
@@ -296,6 +297,57 @@ def test_spatial_grid_check_rejects_same_resolution_with_changed_matrix(tmp_path
 
     assert _spatial_grids_match(original, same)
     assert not _spatial_grids_match(original, changed)
+
+
+def test_mrtrix_native_header_alignment_accepts_expected_changed_affine(tmp_path: Path):
+    source_path = tmp_path / "source_dwi.nii.gz"
+    output_path = tmp_path / "coreg_dwi.nii.gz"
+    transform_path = tmp_path / "transform_mrtrix.txt"
+    data = np.arange(5 * 6 * 7 * 2, dtype=np.float32).reshape((5, 6, 7, 2))
+    source_affine = np.diag([2.0, 2.0, 2.5, 1.0])
+    transform = np.eye(4)
+    transform[:3, :3] = np.array(
+        [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    transform[:3, 3] = [4.0, -3.0, 2.0]
+    output_affine = np.linalg.inv(transform) @ source_affine
+
+    nib.save(nib.Nifti1Image(data, source_affine), source_path)
+    nib.save(nib.Nifti1Image(data, output_affine), output_path)
+    np.savetxt(transform_path, transform)
+
+    assert not _spatial_grids_match(output_path, source_path)
+    assert _mrtrix_header_alignment_matches(
+        output_path,
+        source_path,
+        transform_path,
+    )
+
+
+def test_mrtrix_native_header_alignment_rejects_resampled_or_wrong_output(tmp_path: Path):
+    source_path = tmp_path / "source_dwi.nii.gz"
+    wrong_shape_path = tmp_path / "wrong_shape.nii.gz"
+    wrong_affine_path = tmp_path / "wrong_affine.nii.gz"
+    transform_path = tmp_path / "transform_mrtrix.txt"
+    source_affine = np.diag([2.0, 2.0, 2.5, 1.0])
+    transform = np.eye(4)
+    transform[:3, 3] = [4.0, -3.0, 2.0]
+
+    nib.save(nib.Nifti1Image(np.zeros((5, 6, 7, 2)), source_affine), source_path)
+    nib.save(nib.Nifti1Image(np.zeros((6, 6, 7, 2)), source_affine), wrong_shape_path)
+    nib.save(nib.Nifti1Image(np.zeros((5, 6, 7, 2)), source_affine), wrong_affine_path)
+    np.savetxt(transform_path, transform)
+
+    assert not _mrtrix_header_alignment_matches(
+        wrong_shape_path,
+        source_path,
+        transform_path,
+    )
+    assert not _mrtrix_header_alignment_matches(
+        wrong_affine_path,
+        source_path,
+        transform_path,
+    )
 
 
 def test_header_registration_preserves_voxels_matrix_and_resolution(tmp_path: Path):
