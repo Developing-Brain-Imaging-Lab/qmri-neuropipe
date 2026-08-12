@@ -11,10 +11,12 @@ from ...utils.relax_params import _extract_bids_param
 from ..common.json_metadata import copy_json_with_metadata
 from ..common.registration import prepare_registration_images, _ALL_SKULL_STRIP_OPTION_KEYS
 
-class SPGRMotionCorrectionStep(BaseProcessingStep):
+class RelaxometryMotionCorrectionStep(BaseProcessingStep):
     """
-    Motion Correction for VFA (SPGR/SSFP) data.
-    Registers all volumes to the volume with the highest Flip Angle (highest SNR).
+    Motion correction for relaxometry SPGR, SSFP, and IR-SPGR data.
+
+    The workflow normally supplies a materialized shared SPGR reference. The
+    highest-flip-angle fallback is retained for direct callers.
     """
     
 
@@ -22,6 +24,25 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
         super().__init__(config, logger, provenance)
         self.method = method
         self.options = options or {}
+
+    @staticmethod
+    def normalize_tracker_module(step_name: str) -> str:
+        return "Motion_Correction"
+
+    @staticmethod
+    def _preprocessed_entities(img: ImageFile, modality: Optional[str]) -> dict:
+        """Return output entities without repeating a modality in ``desc``."""
+        entities = dict(img.entities)
+        acquisition = str(entities.get("acq", "") or "").strip().lower()
+        acquisition_key = acquisition.replace("-", "").replace("_", "")
+
+        if acquisition_key in {"spgr", "ssfp", "irspgr"}:
+            entities["desc"] = "preproc"
+            return entities
+
+        fallback_label = str(modality or acquisition or "moco").upper()
+        entities["desc"] = f"{fallback_label}preproc"
+        return entities
 
     @staticmethod
     def _normalize_ants_transform(transform: str) -> str:
@@ -114,20 +135,10 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
             except:
                 pass
             
-            # Prepare Output Name
-            ents = dict(img.entities)
-            
-            # Naming Logic: Force desc to {Modality}preproc
-            # e.g. sub-01_acq-spgr_desc-SPGRpreproc_VFA.nii.gz
-            if modality:
-                acq_label = modality.upper()
-            else:
-                acq_label = ents.get('acq', '').upper()
-                
-            if not acq_label: acq_label = "Moco" # Fallback
-            
-            new_desc = f"{acq_label}preproc"
-            ents['desc'] = new_desc
+            # acq-SPGR/acq-SSFP already identifies the sequence, so the
+            # canonical derivative is simply desc-preproc. Retain the legacy
+            # modality-qualified fallback when no recognized acq is present.
+            ents = self._preprocessed_entities(img, modality)
             
             out_name = build_bids_name(ents)
             out_path = output_dir / out_name
@@ -148,7 +159,14 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                 except:
                     pass 
 
-            self.logger.info(f"Processing Motion Correction for: {img.img.name}")
+            sequence_label = str(
+                modality or img.entities.get("acq") or "Relaxometry"
+            ).upper()
+            self.logger.info(
+                "Processing %s Motion Correction for: %s",
+                sequence_label,
+                img.img.name,
+            )
             
             if is_4d:
                 from ...interfaces.fsl import split, merge
@@ -276,3 +294,8 @@ class SPGRMotionCorrectionStep(BaseProcessingStep):
                      out_file=out_file,
                      extra_args=f"-applyxfm -init {mat_file} -interp {self.options.get('interpolation', 'trilinear')}",
                  )
+
+
+# Compatibility alias for external imports. Instances report the new,
+# modality-neutral class name in logs and provenance.
+SPGRMotionCorrectionStep = RelaxometryMotionCorrectionStep

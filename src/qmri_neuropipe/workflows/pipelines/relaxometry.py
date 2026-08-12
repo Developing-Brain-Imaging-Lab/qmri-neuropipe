@@ -17,7 +17,7 @@ from ...core.utils import get_nifti_stem
 
 
 # Import Steps
-from ...lib.relax.motion import SPGRMotionCorrectionStep
+from ...lib.relax.motion import RelaxometryMotionCorrectionStep
 from ...lib.relax.b1 import B1MappingStep
 from ...lib.common.reorient import ReorientStep
 from ...lib.common.denoise import DenoisingStep
@@ -117,10 +117,15 @@ class RelaxometryWorkflow(BaseWorkflow):
         # 3. Motion Correction
         moco_cfg = preproc_cfg.motion_correction
         if moco_cfg.get("enabled", False):
-            # Extract extra options (exclude 'enabled' and 'method')
-            moco_opts = {k: v for k, v in moco_cfg.items() if k not in ['enabled', 'method']}
+            # reference_volume is consumed by the workflow when it materializes
+            # the shared 3D SPGR reference; it is not a backend registration arg.
+            moco_opts = {
+                k: v
+                for k, v in moco_cfg.items()
+                if k not in ["enabled", "method", "reference_volume"]
+            }
             self.add_step(
-                SPGRMotionCorrectionStep(
+                RelaxometryMotionCorrectionStep(
                     self.config, self.logger, self.provenance, method=moco_cfg.get("method", "ants"), options=moco_opts
                 )
             )
@@ -521,10 +526,21 @@ class RelaxometryWorkflow(BaseWorkflow):
         if not spgr_images:
             raise ValueError("Cannot build SPGR reference without SPGR images.")
 
+        anat_out_dir.mkdir(parents=True, exist_ok=True)
         subj = context.get("subject")
         sess = context.get("session")
-        ref_cfg = getattr(self.relax_config.preprocessing, "spgr_reference", {}) or {}
-        mode = str(ref_cfg.get("mode", "mean") or "mean").strip().lower()
+        ref_cfg = dict(
+            getattr(self.relax_config.preprocessing, "spgr_reference", {}) or {}
+        )
+        motion_ref_volume = (
+            getattr(self.relax_config.preprocessing, "motion_correction", {}) or {}
+        ).get("reference_volume")
+        if motion_ref_volume is not None:
+            # A motion-scoped selection is also used downstream so every stage
+            # operates in exactly the same SPGR reference space.
+            ref_cfg.update({"mode": "index", "index": motion_ref_volume})
+
+        mode = str(ref_cfg.get("mode", "max_flip") or "max_flip").strip().lower()
         volume_index = ref_cfg.get("index", ref_cfg.get("volume_index"))
 
         def _logical_volumes(images: List[ImageFile]) -> List[tuple[ImageFile, int]]:
@@ -546,6 +562,11 @@ class RelaxometryWorkflow(BaseWorkflow):
                 return float(fa)
             except Exception:
                 return 0.0
+
+        def _load_volume(img: ImageFile, idx: int) -> tuple[nib.spatialimages.SpatialImage, np.ndarray]:
+            nii = nib.load(str(img.img))
+            data = nii.dataobj[..., idx] if len(nii.shape) >= 4 else nii.dataobj
+            return nii, np.asanyarray(data, dtype=np.float32)
 
         logical_vols = _logical_volumes(spgr_images)
         if not logical_vols:
@@ -573,10 +594,19 @@ class RelaxometryWorkflow(BaseWorkflow):
             generation_details["selected_volume_index"] = global_idx
         elif mode in {"max_flip", "maxfa", "highest_flip"}:
             ranked = sorted(
-                ((img_obj, vol_idx, _flip_angle_for_volume(img_obj, vol_idx)) for img_obj, vol_idx in logical_vols),
-                key=lambda item: item[2],
+                (
+                    (
+                        global_idx,
+                        img_obj,
+                        vol_idx,
+                        _flip_angle_for_volume(img_obj, vol_idx),
+                    )
+                    for global_idx, (img_obj, vol_idx) in enumerate(logical_vols)
+                ),
+                key=lambda item: item[3],
             )
-            metadata_source, selected_idx, selected_fa = ranked[-1]
+            global_idx, metadata_source, selected_idx, selected_fa = ranked[-1]
+            generation_details["selected_volume_index"] = global_idx
             generation_details["selected_flip_angle"] = selected_fa
         else:
             raise ValueError(
@@ -594,9 +624,19 @@ class RelaxometryWorkflow(BaseWorkflow):
         out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
         out_json = out_path.with_suffix("").with_suffix(".json")
 
+        cached_generation = None
+        if out_json.exists():
+            try:
+                cached_generation = json.loads(out_json.read_text()).get(
+                    "SPGRReferenceGeneration"
+                )
+            except Exception:
+                pass
+        generation_matches = cached_generation == generation_details
         reuse_requested = (
             self.config.get("skip_existing", False)
             and not self.is_forced()
+            and generation_matches
         )
         cached_reference = reuse_if_exists(
             out_entities,
@@ -616,27 +656,31 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out_path.name,
             )
             return cached_reference
-        if reuse_requested and out_path.exists():
+        if self.config.get("skip_existing", False) and out_path.exists():
             self.logger.warning(
-                "Existing SPGR reference is unreadable; regenerating %s",
+                "Existing SPGR reference is unreadable or was generated with "
+                "different settings; regenerating %s",
                 out_path,
             )
 
-        first_img = nib.load(str(logical_vols[0][0].img))
-        first_vol = np.asanyarray(first_img.dataobj[..., logical_vols[0][1]], dtype=np.float32)
+        first_img, first_vol = _load_volume(*logical_vols[0])
         out_data: np.ndarray
 
         if mode in {"mean", "average", "avg"}:
             acc = np.zeros(first_vol.shape, dtype=np.float32)
             for img_obj, vol_idx in logical_vols:
-                nii = nib.load(str(img_obj.img))
-                acc += np.asanyarray(nii.dataobj[..., vol_idx], dtype=np.float32)
+                _, volume = _load_volume(img_obj, vol_idx)
+                acc += volume
             out_data = acc / float(len(logical_vols))
         else:
-            nii = nib.load(str(metadata_source.img))
-            out_data = np.asanyarray(nii.dataobj[..., selected_idx], dtype=np.float32)
+            nii, out_data = _load_volume(metadata_source, selected_idx)
 
-        out_img = nib.Nifti1Image(out_data, first_img.affine, first_img.header.copy())
+        geometry_source = first_img if mode in {"mean", "average", "avg"} else nii
+        out_img = nib.Nifti1Image(
+            out_data,
+            geometry_source.affine,
+            geometry_source.header.copy(),
+        )
         nib.save(out_img, str(out_path))
 
         json_result = copy_json_with_metadata(getattr(metadata_source, "json", None), out_json)
@@ -976,6 +1020,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             "ReorientStep",
             "DenoisingStep",
             "GibbsUnringingStep",
+            "RelaxometryMotionCorrectionStep",
             "SPGRMotionCorrectionStep",
             "motion_correction",
         ]
@@ -991,10 +1036,10 @@ class RelaxometryWorkflow(BaseWorkflow):
         """
         Locate final preprocessed relaxometry series that can feed modeling.
 
-        These are the expensive products after reorient/denoise/gibbs/motion,
-        normally named ``desc-SPGRpreproc`` or ``desc-SSFPpreproc`` in the final
-        anat derivatives folder. If present and readable, they let us skip the
-        preprocessing chain even when scratch/work intermediates are absent.
+        These are the expensive products after reorient/denoise/gibbs/motion.
+        Canonical outputs use ``acq-SPGR_desc-preproc`` or
+        ``acq-SSFP_desc-preproc``. Legacy modality-qualified ``desc`` values
+        remain discoverable so existing derivatives can still be reused.
         """
         if (
             not self.config.get("skip_existing", False)
@@ -1013,9 +1058,31 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         label = modality_label.upper()
         patterns = [
-            f"{base_prefix}_*desc-{label}preproc*_*.nii.gz" if base_prefix else f"*desc-{label}preproc*_*.nii.gz",
-            f"{base_prefix}_desc-{label}preproc*_*.nii.gz" if base_prefix else f"desc-{label}preproc*_*.nii.gz",
-            f"{base_prefix}_*desc-{label}preproc*.nii.gz" if base_prefix else f"*desc-{label}preproc*.nii.gz",
+            (
+                f"{base_prefix}_*desc-preproc*_*.nii.gz"
+                if base_prefix
+                else "*desc-preproc*_*.nii.gz"
+            ),
+            (
+                f"{base_prefix}_desc-preproc*_*.nii.gz"
+                if base_prefix
+                else "desc-preproc*_*.nii.gz"
+            ),
+            (
+                f"{base_prefix}_*desc-{label}preproc*_*.nii.gz"
+                if base_prefix
+                else f"*desc-{label}preproc*_*.nii.gz"
+            ),
+            (
+                f"{base_prefix}_desc-{label}preproc*_*.nii.gz"
+                if base_prefix
+                else f"desc-{label}preproc*_*.nii.gz"
+            ),
+            (
+                f"{base_prefix}_*desc-{label}preproc*.nii.gz"
+                if base_prefix
+                else f"*desc-{label}preproc*.nii.gz"
+            ),
         ]
 
         candidates: list[Path] = []
@@ -1039,6 +1106,14 @@ class RelaxometryWorkflow(BaseWorkflow):
                     exc,
                 )
                 continue
+            desc = str(entities.get("desc", "") or "").lower()
+            if desc.startswith("preproc"):
+                acquisition = str(entities.get("acq", "") or "")
+                acquisition_key = (
+                    acquisition.replace("-", "").replace("_", "").lower()
+                )
+                if acquisition_key != label.lower():
+                    continue
             json_path = path.with_suffix("").with_suffix(".json")
             cached_series = reuse_path_if_exists(
                 path,
@@ -1072,6 +1147,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             return
 
         patterns = [
+            "*desc-preproc_chunk-*_VFA*",
             "*desc-SPGRpreproc_chunk-*",
             "*desc-SSFPpreproc_chunk-*",
             "*chunk-*_ants_*",
@@ -1173,21 +1249,6 @@ class RelaxometryWorkflow(BaseWorkflow):
             processed_images.append(curr)
         return processed_images
 
-    def _select_reference(self, spgr_pre: List[ImageFile]) -> ImageFile:
-        """
-        Select the reference image from preprocessed SPGR images (max FlipAngle).
-        """
-        ref_img = spgr_pre[0]  # Default
-        max_fa = -1
-        for img in spgr_pre:
-            fa = _extract_bids_param(img, "FlipAngle", 0.0)
-            if isinstance(fa, list):
-                fa = max(fa) if fa else 0.0
-            if float(fa) > max_fa:
-                max_fa = float(fa)
-                ref_img = img
-        return ref_img
-
     def _run_motion_correction(
         self,
         spgr_pre: List[ImageFile],
@@ -1200,7 +1261,14 @@ class RelaxometryWorkflow(BaseWorkflow):
         """
         Run motion correction step on SPGR, SSFP, and IR images.
         """
-        moco_step = next((s for s in self.steps if isinstance(s, SPGRMotionCorrectionStep)), None)
+        moco_step = next(
+            (
+                s
+                for s in self.steps
+                if isinstance(s, RelaxometryMotionCorrectionStep)
+            ),
+            None,
+        )
 
         spgr_moco = spgr_pre
         ssfp_moco = ssfp_pre
@@ -1904,13 +1972,23 @@ class RelaxometryWorkflow(BaseWorkflow):
             irspgr_files, "IRSPGR", intermediate_dir
         )
 
-        ref_img = self._select_reference(spgr_pre)
+        # Materialize the configured logical SPGR volume as a 3D image before
+        # motion correction.  The same image is retained for masking, B1
+        # alignment, modeling, normalization, and analysis.
+        reference_source = existing_spgr_moco or spgr_pre
+        ref_img = self._build_spgr_reference(
+            reference_source, anat_out_dir, context
+        )
         self.logger.info(
-            "Selected Relaxometry Reference Source: %s", ref_img.img.name
+            "Selected shared Relaxometry SPGR Reference: %s", ref_img.img.name
         )
 
         moco_step = next(
-            (s for s in self.steps if isinstance(s, SPGRMotionCorrectionStep)),
+            (
+                s
+                for s in self.steps
+                if isinstance(s, RelaxometryMotionCorrectionStep)
+            ),
             None,
         )
         self.advance_force_state(moco_step or "motion_correction")
@@ -1954,7 +2032,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
 
-        spgr_ref = self._build_spgr_reference(spgr_moco, anat_out_dir, context)
+        spgr_ref = ref_img
         context["relax_reference"] = spgr_ref
         context["spgr_ref"] = spgr_ref
         context["current_image"] = spgr_ref

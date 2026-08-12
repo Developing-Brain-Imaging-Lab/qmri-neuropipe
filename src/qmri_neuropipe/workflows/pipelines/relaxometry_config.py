@@ -62,7 +62,7 @@ class RelaxometryPreprocConfig:
         default_factory=lambda: {"enabled": False, "method": "ants"}
     )
     b1: dict = field(default_factory=lambda: {"method": "afi", "smoothing_fwhm": 0.0})
-    spgr_reference: dict = field(default_factory=lambda: {"mode": "mean"})
+    spgr_reference: dict = field(default_factory=lambda: {"mode": "max_flip"})
     brain_masking: dict = field(default_factory=dict)
     exclude_indices: dict = field(default_factory=dict)
 

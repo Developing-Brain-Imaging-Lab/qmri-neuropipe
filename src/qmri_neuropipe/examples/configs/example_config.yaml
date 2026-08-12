@@ -485,9 +485,13 @@ dmri:
 #     motion_correction:
 #       enabled: true
 #       method: ants
+#       # Optional zero-based logical SPGR volume. When set, this overrides
+#       # spgr_reference.mode/index and the selected 3D reference is shared by
+#       # motion correction, masking, B1 alignment, modeling, and normalization.
+#       # reference_volume: 7
 #     spgr_reference:
-#       # Options: mean, last, index, max_flip
-#       mode: mean
+#       # Shared reference options: max_flip (default), mean, last, index.
+#       mode: max_flip
 #       # index: 7
 #     b1:
 #       method: afi
