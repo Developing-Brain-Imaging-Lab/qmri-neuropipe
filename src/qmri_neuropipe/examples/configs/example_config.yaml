@@ -502,6 +502,12 @@ dmri:
 #       enabled: true
 #     mcdespot:
 #       enabled: true
+#       # When enabled, mcDESPOT automatically reuses an existing or newly
+#       # computed DESPOT2FM F0 map. An explicit per-subject template overrides
+#       # automatic discovery; supported fields include {subject}, {session},
+#       # {sub}, {ses}, {subject_session}, {output_dir}, {bids_dir}, and {work_dir}.
+#       # fix-f0: true
+#       # f0: "{output_dir}/{sub}/{ses}/anat/models/{subject_session}_model-DESPOT2FM_F0.nii.gz"
 #   normalization:
 #     enabled: true
 #     template: /path/to/MNI152_T1_1mm.nii.gz

@@ -34,6 +34,20 @@ def test_apptainer_installs_and_checks_segmentation_tools():
     assert "/opt/conda/bin/python -m pip check" in definition
 
 
+def test_container_definitions_upgrade_freesurfer_torch_with_cpu_and_cuda_support():
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
+
+    for source in (dockerfile, definition):
+        assert "FREESURFER_TORCH_VERSION=2.4.1" in source
+        assert "https://download.pytorch.org/whl/cu121" in source
+        assert 'torch.version.cuda is not None' in source
+        # A CUDA-enabled wheel must also pass a host-independent CPU tensor
+        # operation during the image build.
+        assert "torch.ones(1).item() == 1" in source
+        assert 'python/bin/python3.8' in source
+
+
 def test_apptainer_runtime_test_is_lightweight_and_host_independent():
     definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
     runtime_test = definition.split("%test", maxsplit=1)[1]

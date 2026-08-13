@@ -1468,6 +1468,91 @@ class RelaxometryWorkflow(BaseWorkflow):
             if key not in exclude
         }
 
+    def _expand_model_path(
+        self,
+        value: Any,
+        *,
+        subject: str,
+        session: Optional[str],
+    ) -> Path:
+        """Expand subject/session and standard root placeholders in a model path."""
+        template_values = {
+            "subject": subject,
+            "session": session or "",
+            "sub": f"sub-{subject}",
+            "ses": f"ses-{session}" if session else "",
+            "subject_session": (
+                f"sub-{subject}_ses-{session}" if session else f"sub-{subject}"
+            ),
+            "bids_dir": str(self.config.get("bids_dir") or ""),
+            "output_dir": str(self.config.get("output_dir") or ""),
+            "work_dir": str(self.config.get("work_dir") or ""),
+        }
+        try:
+            return Path(str(value).format_map(template_values))
+        except KeyError as exc:
+            supported = ", ".join(f"{{{key}}}" for key in template_values)
+            raise ValueError(
+                f"Unknown placeholder {exc} in mcDESPOT F0 path. "
+                f"Supported placeholders: {supported}."
+            ) from exc
+
+    def _resolve_mcdespot_f0(
+        self,
+        model_cfg: Dict,
+        modeling_results: Dict[str, Dict[str, Path]],
+        *,
+        subject: str,
+        session: Optional[str],
+        reference_file: Path,
+    ) -> Optional[Path]:
+        """Resolve and validate an explicit or DESPOT2FM-derived F0 map."""
+        configured = model_cfg.get("f0", model_cfg.get("f0_file"))
+        fix_f0 = bool(model_cfg.get("fix-f0", model_cfg.get("fix_f0", False)))
+
+        source = "configured"
+        f0_path: Optional[Path] = None
+        if configured not in (None, ""):
+            f0_path = self._expand_model_path(
+                configured,
+                subject=subject,
+                session=session,
+            )
+        elif fix_f0:
+            candidate = (modeling_results.get("DESPOT2FM", {}) or {}).get("F0")
+            if candidate:
+                f0_path = Path(candidate)
+                source = "DESPOT2FM"
+
+        if f0_path is None:
+            if fix_f0:
+                raise ValueError(
+                    "mcDESPOT fix-f0 is enabled, but no F0 map was configured "
+                    "and no existing or newly computed DESPOT2FM F0 map was found."
+                )
+            return None
+        if not f0_path.is_file():
+            raise ValueError(f"mcDESPOT F0 map does not exist: {f0_path}")
+
+        try:
+            f0_img = nib.load(str(f0_path))
+            reference_img = nib.load(str(reference_file))
+        except Exception as exc:
+            raise ValueError(f"Unable to read mcDESPOT F0/reference image: {exc}") from exc
+        if f0_img.shape[:3] != reference_img.shape[:3] or not np.allclose(
+            f0_img.affine,
+            reference_img.affine,
+            rtol=1e-5,
+            atol=1e-4,
+        ):
+            raise ValueError(
+                "mcDESPOT F0 map must match the SSFP spatial grid: "
+                f"F0 shape={f0_img.shape[:3]}, SSFP shape={reference_img.shape[:3]}."
+            )
+
+        self.logger.info("Using %s F0 map for mcDESPOT: %s", source, f0_path)
+        return f0_path
+
     def _model_nthreads(self, config: Dict) -> int:
         return int((config or {}).get("nthreads", self.config.get("n_cpus", 1)))
 
@@ -1615,6 +1700,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         skip_existing: bool,
         fitted_maps: Dict[str, ImageFile],
         modeling_results: Dict[str, Dict[str, Path]],
+        context: Optional[dict] = None,
     ) -> None:
         for spec in DESPOT_SPECS:
             model_cfg = dict(getattr(modeling_cfg, spec.cfg_attr, {}) or {})
@@ -1660,6 +1746,18 @@ class RelaxometryWorkflow(BaseWorkflow):
                 "verbose",
                 *spec.extra_excludes,
             }
+            if spec.name == "mcDESPOT":
+                excluded_options.update({"f0", "f0_file", "fix_f0"})
+            extra_options = self._model_cli_options(
+                model_cfg,
+                excluded_options,
+            )
+            if (
+                spec.name == "mcDESPOT"
+                and "fix_f0" in model_cfg
+                and "fix-f0" not in extra_options
+            ):
+                extra_options["fix-f0"] = bool(model_cfg["fix_f0"])
             fit_kwargs = {
                 "ssfp_file": ssfp_stack,
                 "t1_file": t1_path,
@@ -1671,15 +1769,30 @@ class RelaxometryWorkflow(BaseWorkflow):
                 "algo": model_cfg.get("algo", spec.default_algo),
                 "nthreads": self._model_nthreads(model_cfg),
                 "verbose": bool(model_cfg.get("verbose", False)),
-                "extra_options": self._model_cli_options(
-                    model_cfg,
-                    excluded_options,
-                ),
+                "extra_options": extra_options,
             }
             if spec.include_spgr:
                 fit_kwargs["spgr_file"] = spgr_stack
             if spec.supports_cuda:
                 fit_kwargs["cuda"] = bool(model_cfg.get("cuda", False))
+            if spec.name == "mcDESPOT":
+                run_context = context or {}
+                subject = str(
+                    run_context.get("subject")
+                    or base_prefix.removeprefix("sub-").split("_ses-", 1)[0]
+                )
+                session = run_context.get("session")
+                if session is None and "_ses-" in base_prefix:
+                    session = base_prefix.split("_ses-", 1)[1]
+                resolved_f0 = self._resolve_mcdespot_f0(
+                    model_cfg,
+                    modeling_results,
+                    subject=subject,
+                    session=session,
+                    reference_file=ssfp_stack,
+                )
+                if resolved_f0 is not None:
+                    fit_kwargs["f0_file"] = resolved_f0
 
             raw_results = spec.fit_fn(**fit_kwargs)
             self._record_model_results(
@@ -1776,6 +1889,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 skip_existing,
                 fitted_maps,
                 modeling_results,
+                context,
             )
         finally:
             if created_temp_inputs and cleanup_temp_inputs and input_dir.exists():

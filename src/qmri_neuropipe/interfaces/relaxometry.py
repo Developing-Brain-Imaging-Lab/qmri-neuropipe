@@ -36,7 +36,12 @@ def _append_cli_options(cmd_parts: list[str], options: Optional[Dict[str, Any]] 
             continue
         flag = f"--{key}"
         if isinstance(value, bool):
-            if value:
+            # These options take an explicit boolean value; omitting False is
+            # not equivalent for all qmri-fit builds (notably mcDESPOT's
+            # t1f-despot-bounds parser).
+            if key in {"t1f-despot-bounds", "scale-to-mean"}:
+                cmd_parts.append(f"{flag}={'true' if value else 'false'}")
+            elif value:
                 cmd_parts.append(flag)
             continue
         cmd_parts.append(f"{flag}={value}")
@@ -279,18 +284,21 @@ def fit_mcdespot(
     Wrapper for `qmri_fit mcdespot`.
 
     This uses the unified CLI contract: SPGR and SSFP stacks plus params, B1,
-    optional F0/mask, and standard output/threading flags.
+    optional F0/mask, and standard output/threading flags. ``t1_file`` is kept
+    in the Python API for compatibility with existing workflow callers, but
+    current CPU and CUDA mcDESPOT CLIs derive any requested DESPOT1 bounds from
+    the SPGR data and do not accept a ``--t1`` option.
     """
     out_d = ensure_dir(out_dir)
 
-    cmd_parts = (
+    command = (
         [_get_binary("qmri_fit_mcdespot_cuda")]
         if cuda
         else _get_qmri_fit_command("mcdespot", legacy_binary="qmri_fit_mcdespot")
-    ) + [
+    )
+    cmd_parts = command + [
         f"--spgr={extract_image_path(spgr_file)}",
         f"--ssfp={extract_image_path(ssfp_file)}",
-        f"--t1={extract_image_path(t1_file)}",
         f"--b1={extract_image_path(b1_file)}",
         f"--params={params_file}",
         f"--out_dir={out_d}",
@@ -298,6 +306,12 @@ def fit_mcdespot(
         f"--algo={algo}",
         f"--nthreads={nthreads}"
     ]
+
+    # Pre-unified standalone CPU builds required an external DESPOT1 map. The
+    # unified and CUDA interfaces no longer expose --t1, so only preserve it
+    # for the one-element legacy command returned by the resolver.
+    if not cuda and len(command) == 1:
+        cmd_parts.append(f"--t1={extract_image_path(t1_file)}")
 
     if f0_file:
         cmd_parts.append(f"--f0={extract_image_path(f0_file)}")

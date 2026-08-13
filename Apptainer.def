@@ -6,6 +6,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # Nifreeze are excluded for now because their nitransforms requirements
     # conflict.
     PYTHON_EXTRAS=dmipy-cuda12,amico,nexi,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
+    FREESURFER_TORCH_VERSION=2.4.1
+    FREESURFER_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
     # ANTsPyNet contains more than 100 networks spanning human, animal, lung,
     # and X-ray applications. Cache the MRI brain-extraction networks used by
     # qmri-neuropipe by default. Override this comma-separated list at build
@@ -36,6 +38,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     FREESURFER_VERSION="${FREESURFER_VERSION:-8.2.0}"
     FREESURFER_PACKAGE="${FREESURFER_PACKAGE:-freesurfer_ubuntu22-8.2.0_amd64.deb}"
     FREESURFER_URL="${FREESURFER_URL:-https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/${FREESURFER_VERSION}/${FREESURFER_PACKAGE}}"
+    FREESURFER_TORCH_VERSION="{{ FREESURFER_TORCH_VERSION }}"
+    FREESURFER_TORCH_INDEX_URL="{{ FREESURFER_TORCH_INDEX_URL }}"
 
     # The default FreeSurfer package below targets version 8.2.0 for Ubuntu 22.
 
@@ -137,6 +141,16 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     if [ -x "${FREESURFER_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FREESURFER_HOME}/bin/mri_synthseg" ]; then
         ln -s "${FREESURFER_HOME}/python/scripts/mri_synthseg" "${FREESURFER_HOME}/bin/mri_synthseg"
     fi
+    FS_PYTHON="${FREESURFER_HOME}/python/bin/python3.8"
+    if [ ! -x "${FS_PYTHON}" ]; then
+        echo "Could not locate FreeSurfer Python 3.8 at ${FS_PYTHON}." >&2
+        exit 1
+    fi
+    "${FS_PYTHON}" -m pip install --no-cache-dir --upgrade \
+        "torch==${FREESURFER_TORCH_VERSION}" \
+        --index-url "${FREESURFER_TORCH_INDEX_URL}"
+    "${FS_PYTHON}" -c \
+        "import torch; assert torch.version.cuda is not None, 'FreeSurfer torch is CPU-only'; assert torch.ones(1).item() == 1; print('FreeSurfer torch', torch.__version__, 'CUDA runtime', torch.version.cuda)"
 
     # --------------------------------------------------------------------------------
     # 5. Convert3D (C3D)

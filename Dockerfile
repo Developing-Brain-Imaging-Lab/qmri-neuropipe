@@ -10,6 +10,8 @@ ARG PYTHON_VERSION=3.10
 ARG FREESURFER_VERSION=8.2.0
 ARG FREESURFER_PACKAGE=freesurfer_ubuntu22-8.2.0_amd64.deb
 ARG FREESURFER_URL=https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/${FREESURFER_VERSION}/${FREESURFER_PACKAGE}
+ARG FREESURFER_TORCH_VERSION=2.4.1
+ARG FREESURFER_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV CONDA_DIR=/opt/conda
@@ -111,7 +113,13 @@ RUN mkdir -p ${FREESURFER_HOME} && \
     touch ${FS_LICENSE} && \
     mkdir -p "${FS_ACTUAL_HOME}/models" && \
     wget -O "${FS_ACTUAL_HOME}/models/SuperSynth_August_2025.pth" "https://ftp.nmr.mgh.harvard.edu/pub/dist/lcnpublic/dist/SuperSynth_Iglesias_2025/SuperSynth_August_2025.pth" && \
-    if [ -x "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FS_ACTUAL_HOME}/bin/mri_synthseg" ]; then ln -s "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" "${FS_ACTUAL_HOME}/bin/mri_synthseg"; fi
+    if [ -x "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" ] && [ ! -e "${FS_ACTUAL_HOME}/bin/mri_synthseg" ]; then ln -s "${FS_ACTUAL_HOME}/python/scripts/mri_synthseg" "${FS_ACTUAL_HOME}/bin/mri_synthseg"; fi && \
+    FS_PYTHON="${FS_ACTUAL_HOME}/python/bin/python3.8" && \
+    if [ ! -x "${FS_PYTHON}" ]; then echo "Could not locate FreeSurfer Python 3.8 at ${FS_PYTHON}." >&2; exit 1; fi && \
+    "${FS_PYTHON}" -m pip install --no-cache-dir --upgrade \
+        "torch==${FREESURFER_TORCH_VERSION}" \
+        --index-url "${FREESURFER_TORCH_INDEX_URL}" && \
+    "${FS_PYTHON}" -c "import torch; assert torch.version.cuda is not None, 'FreeSurfer torch is CPU-only'; assert torch.ones(1).item() == 1; print('FreeSurfer torch', torch.__version__, 'CUDA runtime', torch.version.cuda)"
 
 # --------------------------------------------------------------------------------
 # 5. Convert3D (C3D)
