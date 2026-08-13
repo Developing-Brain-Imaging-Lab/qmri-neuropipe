@@ -10,7 +10,9 @@ ARG PYTHON_VERSION=3.10
 ARG FREESURFER_VERSION=8.2.0
 ARG FREESURFER_PACKAGE=freesurfer_ubuntu22-8.2.0_amd64.deb
 ARG FREESURFER_URL=https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/${FREESURFER_VERSION}/${FREESURFER_PACKAGE}
-ARG FREESURFER_TORCH_VERSION=2.4.1
+# Torch 2.4.1+cu121 requires the no-longer-published cuDNN 9.1.0.70 wheel.
+# Keep FreeSurfer's Python 3.8 runtime on the installable CUDA 12.1 line.
+ARG FREESURFER_TORCH_VERSION=2.3.1
 ARG FREESURFER_TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 
 ENV DEBIAN_FRONTEND=noninteractive

@@ -39,7 +39,7 @@ def test_container_definitions_upgrade_freesurfer_torch_with_cpu_and_cuda_suppor
     definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
 
     for source in (dockerfile, definition):
-        assert "FREESURFER_TORCH_VERSION=2.4.1" in source
+        assert "FREESURFER_TORCH_VERSION=2.3.1" in source
         assert "https://download.pytorch.org/whl/cu121" in source
         assert 'torch.version.cuda is not None' in source
         # A CUDA-enabled wheel must also pass a host-independent CPU tensor
