@@ -94,6 +94,7 @@ T1W_SKIP = (
     NonlinearRegistrationStep,
     SegmentationStep,
     FreeSurferStatsStep,
+    SuperSynthStep,
 )
 T2W_SKIP = (
     ReconAllStep,
@@ -102,6 +103,7 @@ T2W_SKIP = (
     CoregistrationStep,
     SegmentationStep,
     FreeSurferStatsStep,
+    SuperSynthStep,
 )
 FREESURFER_T1W_SKIP = (
     ResampleStep,
@@ -2154,7 +2156,13 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             self._anat_force_from_step_active = force_super_synth
             if force_super_synth:
                 self.logger.info("Forcing SuperSynth because rerun_from_step has been reached.")
-            ss_step(context, output_dir=output_dir, force=force_super_synth)
+            result = ss_step(
+                context,
+                output_dir=output_dir,
+                force=force_super_synth,
+            )
+            if isinstance(result, dict):
+                context.update(result)
 
             # Log volumes to the study tracker when computed.
             volumes = context.get("super_synth_volumes")

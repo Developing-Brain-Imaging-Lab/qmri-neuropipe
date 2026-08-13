@@ -173,7 +173,12 @@ def test_generic_nexi_fit_passes_separate_timings_and_writes_bids_outputs(
 
 
 def test_fit_dmipy_cli_exposes_independent_timing_options():
-    result = CliRunner().invoke(tools.app, ["fit-dmipy", "--help"])
+    result = CliRunner().invoke(
+        tools.app,
+        ["fit-dmipy", "--help"],
+        env={"COLUMNS": "120"},
+        terminal_width=120,
+    )
 
     assert result.exit_code == 0
     assert "--delta" in result.stdout
