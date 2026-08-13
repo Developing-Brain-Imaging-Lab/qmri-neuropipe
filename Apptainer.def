@@ -241,7 +241,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
     cd "${REPO_DIR}"
     rm -rf build dist *.egg-info src/*.egg-info
-    ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel
+    ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=83" wheel
     ${CONDA_DIR}/bin/python -m pip install \
         --no-cache-dir \
         --no-compile \
@@ -261,7 +261,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         "${PACKAGE_SPEC}"
     ${CONDA_DIR}/bin/python -m pip check
     ${CONDA_DIR}/bin/python -c \
-        "import amico; import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import pkg_resources; import torch; import tractseg"
+        "import amico; import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg"
     for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
         command -v "${executable}" >/dev/null
     done

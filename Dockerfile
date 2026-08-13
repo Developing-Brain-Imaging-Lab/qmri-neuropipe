@@ -182,9 +182,9 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md /app/
 COPY src /app/src
 
-RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=68,<82" wheel && \
+RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=83" wheel && \
     ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
-    ${CONDA_DIR}/bin/python -c "import dmipy_fit; import pkg_resources" && \
+    ${CONDA_DIR}/bin/python -c "import dmipy_fit" && \
     mkdir -p "${DIPY_HOME}" && \
     ${CONDA_DIR}/bin/python -c "from dipy.data import fetch_synb0_weights; fetch_synb0_weights()" && \
     chmod -R a+rX "${DIPY_HOME}"
