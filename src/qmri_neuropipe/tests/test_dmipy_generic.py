@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import nibabel as nib
 import numpy as np
 import pytest
-from typer.testing import CliRunner
+import typer
 
 from qmri_neuropipe import tools
 from qmri_neuropipe.interfaces import dmipy_generic
@@ -173,20 +173,22 @@ def test_generic_nexi_fit_passes_separate_timings_and_writes_bids_outputs(
 
 
 def test_fit_dmipy_cli_exposes_independent_timing_options():
-    result = CliRunner().invoke(
-        tools.app,
-        ["fit-dmipy", "--help"],
-        env={"COLUMNS": "120"},
-        terminal_width=120,
-    )
+    root_command = typer.main.get_command(tools.app)
+    fit_command = root_command.commands["fit-dmipy"]
+    registered_options = {
+        option
+        for parameter in fit_command.params
+        for option in (*parameter.opts, *parameter.secondary_opts)
+    }
 
-    assert result.exit_code == 0
-    assert "--delta" in result.stdout
-    assert "--big-delta" in result.stdout
-    assert "--te" in result.stdout
-    assert "--grad-nonlin" in result.stdout
-    assert "--gpu-device" in result.stdout
-    assert "--heartbeat-interval" in result.stdout
+    assert {
+        "--delta",
+        "--big-delta",
+        "--te",
+        "--grad-nonlin",
+        "--gpu-device",
+        "--heartbeat-interval",
+    } <= registered_options
 
 
 def test_microglia_registry_adapter_adds_paper_outputs():
