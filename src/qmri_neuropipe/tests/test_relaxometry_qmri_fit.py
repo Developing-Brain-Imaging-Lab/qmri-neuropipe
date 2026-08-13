@@ -80,6 +80,7 @@ def test_unified_mcdespot_command_does_not_emit_retired_t1_option(
 
     assert captured["command"].startswith("qmri_fit mcdespot ")
     assert "--t1=" not in captured["command"]
+    assert "--out_base=mcdespot_" in captured["command"]
 
 
 def test_legacy_mcdespot_command_keeps_required_t1_option(tmp_path, monkeypatch):
@@ -104,3 +105,43 @@ def test_legacy_mcdespot_command_keeps_required_t1_option(tmp_path, monkeypatch)
     )
 
     assert f"--t1={t1_file}" in captured["command"]
+
+
+def test_mcdespot_returns_native_3pool_outputs_with_single_separator(
+    tmp_path, monkeypatch
+):
+    def fake_run(command, label):
+        out_dir = tmp_path / "out"
+        for metric in (
+            "VFm", "T1m", "T2m", "T1f", "T2f", "Tau", "F0",
+            "VFcsf", "T1csf", "T2csf",
+        ):
+            (out_dir / f"sub-01_model-mcDESPOT_{metric}.nii.gz").touch()
+        (out_dir / "sub-01_model-mcDESPOTrun_metadata.json").touch()
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.relaxometry._get_qmri_fit_command",
+        lambda *args, **kwargs: ["qmri_fit", "mcdespot"],
+    )
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.relaxometry.run_cmd", fake_run
+    )
+
+    outputs = fit_mcdespot(
+        spgr_file=tmp_path / "spgr.nii.gz",
+        ssfp_file=tmp_path / "ssfp.nii.gz",
+        t1_file=tmp_path / "t1.nii.gz",
+        b1_file=tmp_path / "b1.nii.gz",
+        params_file=tmp_path / "params.json",
+        out_dir=tmp_path / "out",
+        out_base="sub-01_model-mcDESPOT_",
+        extra_options={"model": "3pool"},
+    )
+
+    assert set(outputs) == {
+        "vfm", "t1m", "t2m", "t1f", "t2f", "tau", "f0",
+        "vfcsf", "t1csf", "t2csf",
+    }
+    assert outputs["vfm"].name == "sub-01_model-mcDESPOT_VFm.nii.gz"
+    assert all(path.exists() for path in outputs.values())
+    assert (tmp_path / "out/sub-01_model-mcDESPOT_run_metadata.json").exists()

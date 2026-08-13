@@ -208,11 +208,15 @@ class RelaxometryWorkflow(BaseWorkflow):
                 "metrics": {
                     "vfm": "VFm",
                     "mwf": "VFm",
-                    "t1_fast": "T1_fast",
-                    "t1_slow": "T1_slow",
-                    "t2_fast": "T2_fast",
-                    "t2_slow": "T2_slow",
+                    "t1m": "T1m",
+                    "t2m": "T2m",
+                    "t1f": "T1f",
+                    "t2f": "T2f",
+                    "vfcsf": "VFcsf",
+                    "t1csf": "T1csf",
+                    "t2csf": "T2csf",
                     "tau": "Tau",
+                    "f0": "F0",
                 },
             },
         }
@@ -243,10 +247,17 @@ class RelaxometryWorkflow(BaseWorkflow):
             "mwf": "VFm",
             "vfm": "VFm",
             "myelinwaterfraction": "VFm",
-            "t1fast": "T1_fast",
-            "t1slow": "T1_slow",
-            "t2fast": "T2_fast",
-            "t2slow": "T2_slow",
+            "t1m": "T1m",
+            "t1fast": "T1m",
+            "t1f": "T1f",
+            "t1slow": "T1f",
+            "t2m": "T2m",
+            "t2fast": "T2m",
+            "t2f": "T2f",
+            "t2slow": "T2f",
+            "vfcsf": "VFcsf",
+            "t1csf": "T1csf",
+            "t2csf": "T2csf",
             "tau": "Tau",
         }
         if token in alias_map:
@@ -469,7 +480,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         return filtered
 
     def _default_analysis_registration_metric(self, modeling_results: Dict[str, Dict[str, Path]]) -> Optional[str]:
-        preferred_metrics = ["T1", "VFm", "T2", "M0", "T1_slow", "T1_fast"]
+        preferred_metrics = ["T1", "VFm", "T2", "M0", "T1f", "T1m"]
         for preferred in preferred_metrics:
             for metrics in modeling_results.values():
                 if preferred in metrics:

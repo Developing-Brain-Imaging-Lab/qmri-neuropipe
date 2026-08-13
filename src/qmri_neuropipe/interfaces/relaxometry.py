@@ -290,6 +290,12 @@ def fit_mcdespot(
     the SPGR data and do not accept a ``--t1`` option.
     """
     out_d = ensure_dir(out_dir)
+    # qmri_fit concatenates mcDESPOT parameter names directly onto out_base
+    # (for example, ``out_base + "VFm.nii.gz"``). Keep the public API tolerant
+    # of either spelling while always giving the executable one trailing
+    # underscore, yielding BIDS-like ``..._model-mcDESPOT_VFm.nii.gz`` names.
+    canonical_out_base = out_base.rstrip("_")
+    cli_out_base = f"{canonical_out_base}_"
 
     command = (
         [_get_binary("qmri_fit_mcdespot_cuda")]
@@ -302,7 +308,7 @@ def fit_mcdespot(
         f"--b1={extract_image_path(b1_file)}",
         f"--params={params_file}",
         f"--out_dir={out_d}",
-        f"--out_base={out_base}",
+        f"--out_base={cli_out_base}",
         f"--algo={algo}",
         f"--nthreads={nthreads}"
     ]
@@ -324,18 +330,35 @@ def fit_mcdespot(
     _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="mcdespot_fit")
+    model = str((extra_options or {}).get("model", "2pool")).lower()
+    metrics = ["VFm", "T1m", "T2m", "T1f", "T2f", "Tau", "F0"]
+    if model == "3pool":
+        metrics.extend(["VFcsf", "T1csf", "T2csf"])
     _normalize_legacy_outputs(
         out_d,
-        out_base,
-        ["MWF", "T1_fast", "T1_slow", "T2_fast", "T2_slow", "Tau", "T2", "M0", "F0"],
+        canonical_out_base,
+        metrics,
     )
+    legacy_metadata = out_d / f"{canonical_out_base}run_metadata.json"
+    canonical_metadata = out_d / f"{canonical_out_base}_run_metadata.json"
+    if legacy_metadata.exists() and not canonical_metadata.exists():
+        legacy_metadata.rename(canonical_metadata)
 
+    output_keys = {
+        "vfm": "VFm",
+        "t1m": "T1m",
+        "t2m": "T2m",
+        "t1f": "T1f",
+        "t2f": "T2f",
+        "tau": "Tau",
+        "f0": "F0",
+    }
+    if model == "3pool":
+        output_keys.update(
+            {"vfcsf": "VFcsf", "t1csf": "T1csf", "t2csf": "T2csf"}
+        )
     outputs = {
-        "mwf": _resolve_output_path(out_d, out_base, "MWF"),
-        "t1_fast": _resolve_output_path(out_d, out_base, "T1_fast"),
-        "t1_slow": _resolve_output_path(out_d, out_base, "T1_slow"),
-        "t2_fast": _resolve_output_path(out_d, out_base, "T2_fast"),
-        "t2_slow": _resolve_output_path(out_d, out_base, "T2_slow"),
-        "tau": _resolve_output_path(out_d, out_base, "Tau"),
+        key: _resolve_output_path(out_d, canonical_out_base, metric)
+        for key, metric in output_keys.items()
     }
     return outputs
