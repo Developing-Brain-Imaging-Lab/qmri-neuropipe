@@ -1,6 +1,6 @@
 """Voxel-parallel gradient-nonlinearity fitting for dmipy-fit's JAX solver.
 
-dmipy-fit 2.1 normally closes its JAX forward function over one acquisition
+dmipy-fit 2.3 normally closes its JAX forward function over one acquisition
 scheme.  A gradient-deviation tensor changes both the b-value and direction at
 each voxel, so calling ``model.fit`` separately for every voxel is exact but
 defeats JAX batching.  This module keeps the scheme as a JAX pytree argument
@@ -230,7 +230,7 @@ def fit_model_jax_gnl(
         for compartment in model.models
     ):
         raise NotImplementedError(
-            "dmipy-fit 2.1 does not provide a valid JAX forward model for the "
+            "dmipy-fit 2.3 does not provide a valid JAX forward model for the "
             "oriented Kärger/NEXI parameterization. Use a native solver without "
             "GNL acceleration until dmipy fixes that forward model."
         )

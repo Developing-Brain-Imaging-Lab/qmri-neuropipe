@@ -198,8 +198,8 @@ def test_microglia_registry_adapter_adds_paper_outputs():
             "partial_volume_3": np.array([0.1]),
             "SD1WatsonDistributed_1_partial_volume_0": np.array([0.25]),
             "SD1WatsonDistributed_1_SD1Watson_1_odi": np.array([0.5]),
-            "S2SphereStejskalTannerApproximation_1_diameter": np.array([8e-6]),
-            "S2SphereStejskalTannerApproximation_2_diameter": np.array([16e-6]),
+            "S4SphereGaussianPhaseApproximation_1_diameter": np.array([8e-6]),
+            "S4SphereGaussianPhaseApproximation_2_diameter": np.array([16e-6]),
         }
     )
 

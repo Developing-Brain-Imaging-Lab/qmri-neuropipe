@@ -27,6 +27,8 @@ SETTING_KEYS = {
     "cpus",
     "n_cpus",
     "memory_gb",
+    "jobs",
+    "gpu_ids",
     "runtime",
     "bind",
     "extra_arg",
@@ -287,6 +289,17 @@ def copy_support_file(source: str, support_dir: Path, *, label: str, required: b
     return dest.name
 
 
+def write_subjects_file(pairs: list[tuple[str, str]], destination: Path) -> None:
+    """Write a normalized subject/session list for the in-container CLI."""
+    with destination.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, lineterminator="\n")
+        for subject, session in pairs:
+            subject = norm_label(subject, "sub-")
+            session = norm_label(session, "ses-")
+            if subject:
+                writer.writerow([subject, "" if is_empty_label(session) else session])
+
+
 def bind_arg(host: Path | str, container: str, mode: str = "") -> str:
     src = str(host)
     bind = f"{src}:{container}"
@@ -304,6 +317,7 @@ def build_container_command(
     fs_license_name: str,
     subject: str,
     session: str,
+    subjects_file_name: str = "",
 ) -> list[str]:
     bids_dir = Path(args.bids_dir).expanduser().absolute()
     output_dir = Path(args.output_dir).expanduser().absolute()
@@ -369,6 +383,13 @@ def build_container_command(
         cmd.extend(["--n-cpus", str(args.n_cpus)])
     if args.memory_gb is not None:
         cmd.extend(["--memory-gb", str(args.memory_gb)])
+    if args.jobs is not None:
+        cmd.extend(["--jobs", str(args.jobs)])
+    if args.gpu_ids:
+        cmd.extend(["--gpu-ids", args.gpu_ids])
+
+    if subjects_file_name:
+        cmd.extend(["--subjects-file", f"/config/{subjects_file_name}"])
 
     subject = norm_label(subject, "sub-")
     session = norm_label(session, "ses-")
@@ -400,7 +421,19 @@ def run(args: argparse.Namespace) -> int:
     if not bids_dir.is_dir():
         raise FileNotFoundError(f"BIDS directory not found: {bids_dir}")
 
+    if args.jobs is not None and args.jobs < 1:
+        raise ValueError("--jobs must be at least 1")
+    if args.gpu_ids:
+        try:
+            gpu_ids = [int(item.strip()) for item in args.gpu_ids.split(",")]
+        except ValueError as exc:
+            raise ValueError("--gpu-ids must be a comma-separated list of integers") from exc
+        if not gpu_ids or any(gpu_id < 0 for gpu_id in gpu_ids):
+            raise ValueError("--gpu-ids must contain non-negative integer IDs")
+        args.gpu_ids = ",".join(str(gpu_id) for gpu_id in gpu_ids)
+
     pairs = selected_pairs(args)
+    batch_in_container = bool(args.jobs and args.jobs > 1 and args.subjects_file)
     failures = 0
 
     with tempfile.TemporaryDirectory(prefix="qneuro_container.") as tmp:
@@ -411,8 +444,16 @@ def run(args: argparse.Namespace) -> int:
         if args.gnl_coeff_file:
             copy_support_file(args.gnl_coeff_file, support_dir, label="GNL coefficient file")
 
+        subjects_file_name = ""
+        if batch_in_container:
+            subjects_file_name = "subjects.txt"
+            write_subjects_file(pairs, support_dir / subjects_file_name)
+            pairs = [("", "")]
+
         for subject, session in pairs:
-            label = "all subjects" if not subject else f"sub-{norm_label(subject, 'sub-')}"
+            label = "batch subjects" if subjects_file_name else (
+                "all subjects" if not subject else f"sub-{norm_label(subject, 'sub-')}"
+            )
             session_norm = norm_label(session, "ses-")
             if not is_empty_label(session_norm):
                 label += f" ses-{session_norm}"
@@ -425,6 +466,7 @@ def run(args: argparse.Namespace) -> int:
                 fs_license_name=fs_license_name,
                 subject=subject,
                 session=session,
+                subjects_file_name=subjects_file_name,
             )
             print(f"Running {label}:")
             print("  " + " ".join(shlex_quote(part) for part in cmd))
@@ -472,6 +514,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pipeline", default=None, help="Pipeline passed to qmri-neuropipe (otherwise read from config).")
     parser.add_argument("--n-cpus", "--cpus", dest="n_cpus", type=int, default=None, help="CPU count passed to qmri-neuropipe (otherwise read from config).")
     parser.add_argument("--memory-gb", type=float, default=None, help="Memory GB passed to qmri-neuropipe (otherwise read from config).")
+    parser.add_argument("--jobs", "-j", type=int, default=None, help="Number of subject workers to run inside the container.")
+    parser.add_argument("--gpu-ids", default="", help="Comma-separated GPU IDs assigned across parallel subject workers.")
     parser.add_argument("--runtime", default="", help="Container runtime executable. Defaults to apptainer, then singularity.")
     parser.add_argument("--bind", action="append", default=[], help="Additional bind spec, e.g. /host/path:/container/path:ro.")
     parser.add_argument("--extra-arg", action="append", default=[], help="Additional argument passed through to qmri-neuropipe.")

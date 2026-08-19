@@ -1,6 +1,6 @@
 """Vectorized JAX fitting for the dedicated spherical-mean SANDI model.
 
-dmipy-fit 2.1 can evaluate the individual Stick, Ball, and GPA Sphere
+dmipy-fit 2.3 can evaluate the individual Stick, Ball, and GPA Sphere
 compartments with JAX, but its generic spherical-mean dispatcher cannot
 traverse the nested ``BundleModel`` used by the historical SANDI adapter.
 This module composes those validated primitives directly and keeps the
@@ -117,7 +117,7 @@ def _build_forward(model: Any):
     def forward(parameters_normalized, scheme):
         parameters = parameters_normalized * scales
         diameter, d_in, d_ec, f_neurite_in_tissue, f_tissue = parameters
-        # dmipy-fit 2.1's public Stick spherical-mean primitive evaluates a
+        # dmipy-fit 2.3's public Stick spherical-mean primitive evaluates a
         # 0/0 expression on b=0 before jnp.where selects its unit-signal
         # branch. The value is correct, but autodiff then returns NaN for d_in.
         # A safe inactive argument preserves the identical analytical formula

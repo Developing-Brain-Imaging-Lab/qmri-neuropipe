@@ -27,8 +27,8 @@ import numpy as np
 from ..core import ProcessingError
 
 
-DMIPY_FIT_MIN_VERSION = (2, 1)
-DMIPY_FIT_MAX_VERSION = (2, 2)
+DMIPY_FIT_MIN_VERSION = (2, 3)
+DMIPY_FIT_MAX_VERSION = (2, 4)
 SUPPORTED_SOLVERS = frozenset({"brute2fine", "mix", "jax"})
 SUPPORTED_DEVICES = frozenset({"auto", "cpu", "gpu"})
 
@@ -98,7 +98,7 @@ class DmipyRuntime:
             installed = version("dmipy-fit")
         except PackageNotFoundError as exc:
             raise ProcessingError(
-                "dmipy-fit 2.1 is required. Install qmri-neuropipe with its "
+                "dmipy-fit 2.3 is required. Install qmri-neuropipe with its "
                 "default dependencies, or use .[dmipy-jax]/.[dmipy-cuda12]."
             ) from exc
 
@@ -106,7 +106,7 @@ class DmipyRuntime:
         if not (release >= DMIPY_FIT_MIN_VERSION and release < DMIPY_FIT_MAX_VERSION):
             raise ProcessingError(
                 f"Unsupported dmipy-fit version {installed}; this release supports "
-                "dmipy-fit>=2.1,<2.2."
+                "dmipy-fit>=2.3,<2.4."
             )
 
         if solver != "jax":
@@ -261,9 +261,9 @@ def _nested_to_normalized_fractions_numpy(nested: np.ndarray) -> np.ndarray:
 
 
 def install_dmipy_jax_postprocessing_workaround() -> bool:
-    """Replace dmipy 2.1's per-row JAX fraction conversion with NumPy.
+    """Replace dmipy 2.3's per-row JAX fraction conversion with NumPy.
 
-    dmipy-fit 2.1 converts every fitted voxel from nested to normalized volume
+    dmipy-fit 2.3 converts every fitted voxel from nested to normalized volume
     fractions in a Python loop. Its released implementation dispatches a tiny
     JAX operation for every row, which can take longer than the GPU fit for a
     whole-brain mask. Patch only implementations that still contain that JAX
@@ -517,8 +517,8 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
             "SD1WatsonDistributed_1_SD1Watson_1_mu": "mu",
             "SD1WatsonDistributed_1_SD1Watson_1_odi": "odi",
             "SD1WatsonDistributed_1_partial_volume_0": "bundle_stick_fraction",
-            "S2SphereStejskalTannerApproximation_1_diameter": "small_sphere_diameter",
-            "S2SphereStejskalTannerApproximation_2_diameter": "large_sphere_diameter",
+            "S4SphereGaussianPhaseApproximation_1_diameter": "small_sphere_diameter",
+            "S4SphereGaussianPhaseApproximation_2_diameter": "large_sphere_diameter",
             "partial_volume_0": "f_bundle",
             "partial_volume_1": "f_small_sphere",
             "partial_volume_2": "f_large_sphere",
@@ -560,7 +560,7 @@ def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
     if request.runtime.uses_jax and not spec.jax_supported:
         raise ValueError(
             f"dmipy model {spec.name!r} does not have a validated JAX "
-            "implementation in dmipy-fit 2.1."
+            "implementation in dmipy-fit 2.3."
         )
     if not isinstance(request.nthreads, int) or request.nthreads < 1:
         raise ValueError("nthreads must be a positive integer.")

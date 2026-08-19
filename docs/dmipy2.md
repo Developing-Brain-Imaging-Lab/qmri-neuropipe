@@ -93,7 +93,7 @@ The cache directory must not be writable by untrusted users. Use
 dmipy progress remain visible, and qmri-neuropipe prints a liveness heartbeat
 every 30 seconds by default; change this with `--heartbeat-interval`.
 
-dmipy-fit 2.1.0 performs its final nested-volume-fraction conversion with one
+dmipy-fit 2.3.0 performs its final nested-volume-fraction conversion with one
 small JAX dispatch per voxel. On whole-brain masks this post-processing step can
 take substantially longer than the GPU optimization after the progress bar
 reaches 100%. qmri-neuropipe detects that released implementation inside each
@@ -141,7 +141,7 @@ model-specific. The model registry records requirements such as `delta`,
 
 ## Generic reference-model command
 
-`fit-dmipy` fits any allow-listed dmipy-fit 2.1 reference model and sends every
+`fit-dmipy` fits any allow-listed dmipy-fit 2.3 reference model and sends every
 fitted parameter through the shared derivative writer. Models based on PGSE
 timing receive small-delta and big-Delta from separate files:
 
@@ -202,9 +202,11 @@ commands use the same registered model factory and publish the paper-facing
 stick, extracellular, tissue, sphere-radius, dispersion, and orientation maps.
 The generic command also accepts `--grad-nonlin` when `--solver jax` is used.
 
-dmipy-fit 2.1 exposes optional surface-relaxivity parameters on its restricted
-sphere implementation. The diffusion-only microglia model fixes both to zero,
-because they cannot be identified without a relaxation-sensitive acquisition.
+The microglia model uses dmipy's `S4SphereGaussianPhaseApproximation`, which
+implements the finite-pulse Gaussian-phase restricted-sphere signal required
+by the paper and uses the supplied small-delta and big-Delta values. The bare
+dmipy-fit 2.3 sphere is diffusion-only, so no unidentifiable relaxation
+parameter is added.
 
 Gradient-nonlinearity correction uses a distinct acquisition scheme for each
 voxel. With `--solver jax`, qmri-neuropipe now passes those schemes through a
@@ -223,7 +225,7 @@ primitives directly and evaluates the response at every voxel-corrected
 measurement. NODDI with an external voxelwise FISO constraint and SMT-NODDI
 retain the existing exact per-voxel path.
 
-The oriented Kärger/NEXI model is also excluded in dmipy-fit 2.1: its released
+The oriented Kärger/NEXI model is also excluded in dmipy-fit 2.3: its released
 JAX forward expects obsolete parameter names and does not reproduce the native
 relaxation model. qmri-neuropipe raises a clear error instead of silently using
 an approximate objective.
@@ -249,7 +251,7 @@ qmri-tools fit-dmipy \
 ## Model registry
 
 `qmri_neuropipe.interfaces.dmipy_backend.MODEL_REGISTRY` provides stable,
-allow-listed identifiers for the published dmipy-fit 2.1 reference factories
+allow-listed identifiers for the published dmipy-fit 2.3 reference factories
 and project-maintained models such as `microglia`. It includes
 Gaussian/tensor, NODDI/SMT, axon-diameter, soma, exchange, time-dependent, and
 multi-TE model families.
@@ -328,7 +330,7 @@ separate `delta` and `Delta` paths stored on the pipeline's `DWIFile`; explicit
 Model names and execution capabilities are validated against the registry.
 Duplicate entries are rejected. NODDI, SANDI, and microglia cannot be enabled
 both in this list and in their legacy model-specific configuration block.
-Unsupported combinations, such as dmipy-fit 2.1 NEXI with JAX, fail before
+Unsupported combinations, such as dmipy-fit 2.3 NEXI with JAX, fail before
 optimization begins.
 
 The dedicated `fit-sandi` compatibility command uses the historical

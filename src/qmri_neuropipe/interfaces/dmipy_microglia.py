@@ -604,7 +604,7 @@ def fit_microglia(
             "Minimum": float(np.min(Delta_arr)),
             "Maximum": float(np.max(Delta_arr)),
         },
-        "SphereSignalModel": "S2SphereStejskalTannerApproximation",
+        "SphereSignalModel": "S4SphereGaussianPhaseApproximation",
         "SmallSphereDiameterBoundsMeters": list(map(float, small_diameter_bounds)),
         "LargeSphereDiameterBoundsMeters": list(map(float, large_diameter_bounds)),
         "ParallelDiffusivityMetersSquaredPerSecond": parallel_diffusivity,

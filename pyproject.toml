@@ -17,7 +17,7 @@ dependencies = [
     "jinja2>=3.1", 
     "matplotlib>=3.8", 
     "antspyx>=0.3", 
-    "dmipy-fit>=2.1,<2.2",
+    "dmipy-fit>=2.3,<2.4",
     "nibabel>=5.0",
     "numpy>=2.0,<3",
     "numba",
@@ -36,13 +36,13 @@ dev = [
     "ruff>=0.12,<1",
 ]
 dmipy-jax = [
-    "dmipy-fit[jax]>=2.1,<2.2"
+    "dmipy-fit[jax]>=2.3,<2.4"
 ]
 dmipy-cuda12 = [
-    "dmipy-fit[jax-gpu]>=2.1,<2.2"
+    "dmipy-fit[jax-gpu]>=2.3,<2.4"
 ]
 dmipy-legacy = [
-    "dmipy-fit[legacy]>=2.1,<2.2"
+    "dmipy-fit[legacy]>=2.3,<2.4"
 ]
 amico = [
     "dmri-amico"

@@ -200,7 +200,7 @@ def test_motion_and_downstream_receive_the_same_materialized_reference(
     )
     captured = {}
 
-    def fake_motion(spgr, ssfp, ir, anat_dir, intermediate_dir, reference):
+    def fake_motion(spgr, ssfp, ir, intermediate_dir, reference):
         captured["reference"] = reference
         return spgr, ssfp, ir
 
@@ -220,6 +220,38 @@ def test_motion_and_downstream_receive_the_same_materialized_reference(
     np.testing.assert_array_equal(
         nib.load(downstream_reference.img).get_fdata(), 7
     )
+
+
+def test_motion_correction_writes_all_sequences_to_intermediate_dir(
+    tmp_path, monkeypatch
+):
+    workflow = _workflow(
+        tmp_path,
+        motion_correction={"enabled": True, "method": "fsl"},
+    )
+    motion_step = next(
+        step
+        for step in workflow.steps
+        if isinstance(step, RelaxometryMotionCorrectionStep)
+    )
+    output_dirs = []
+
+    def fake_run(images, output_dir, **kwargs):
+        output_dirs.append(output_dir)
+        return images
+
+    monkeypatch.setattr(motion_step, "run", fake_run)
+    image = ImageFile(
+        img=tmp_path / "input.nii.gz",
+        entities={"sub": "01", "suffix": "VFA"},
+    )
+    intermediate_dir = tmp_path / "work" / "anat" / "intermediate"
+
+    workflow._run_motion_correction(
+        [image], [image], [image], intermediate_dir, image
+    )
+
+    assert output_dirs == [intermediate_dir, intermediate_dir, intermediate_dir]
 
 
 def test_reference_builder_supports_separate_3d_spgr_images(tmp_path):

@@ -7,7 +7,7 @@ files shipped by those projects.
 ## dmipy-fit
 
 - Project: https://github.com/dmrai-lab/dmipy-fit
-- Package constraint: `dmipy-fit>=2.1,<2.2`
+- Package constraint: `dmipy-fit>=2.3,<2.4`
 - License: `AGPL-3.0-only OR LicenseRef-Commercial`
 
 The open-source integration in qmri-neuropipe uses dmipy-fit under
@@ -18,7 +18,7 @@ AGPL-3.0-only.
 - Project: https://github.com/dmrai-lab/dmipy-sim
 - License: `AGPL-3.0-only OR LicenseRef-Commercial`
 
-dmipy-fit 2.1 declares dmipy-sim as a runtime dependency. qmri-neuropipe's
+dmipy-fit 2.3 declares dmipy-sim as a runtime dependency. qmri-neuropipe's
 Phase 1 integration uses the analytical fitting engine; direct Monte Carlo
 simulation support is not yet exposed.
 

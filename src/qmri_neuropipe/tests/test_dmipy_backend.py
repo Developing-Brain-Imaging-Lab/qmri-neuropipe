@@ -38,12 +38,12 @@ def test_model_registry_rejects_arbitrary_factory_names():
 
 def test_runtime_rejects_incompatible_version(monkeypatch):
     monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.2.0")
-    with pytest.raises(Exception, match=r"supports dmipy-fit>=2.1,<2.2"):
+    with pytest.raises(Exception, match=r"supports dmipy-fit>=2.3,<2.4"):
         dmipy_backend.DmipyRuntime.resolve()
 
 
 def test_native_runtime_does_not_import_jax(monkeypatch):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
 
     def fail_import(name):
         raise AssertionError(f"unexpected import: {name}")
@@ -51,11 +51,11 @@ def test_native_runtime_does_not_import_jax(monkeypatch):
     monkeypatch.setattr(dmipy_backend, "import_module", fail_import)
     runtime = dmipy_backend.DmipyRuntime.resolve("mix", "cpu")
     assert runtime.backend == "native-cpu"
-    assert runtime.provenance()["FittingSoftwareVersion"] == "2.1.0"
+    assert runtime.provenance()["FittingSoftwareVersion"] == "2.3.0"
 
 
 def test_jax_gpu_requirement_is_explicit(monkeypatch):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
     fake_device = SimpleNamespace(platform="cpu")
     fake_jax = SimpleNamespace(devices=lambda: [fake_device])
     monkeypatch.setattr(dmipy_backend, "import_module", lambda _: fake_jax)
@@ -67,7 +67,7 @@ def test_jax_gpu_requirement_is_explicit(monkeypatch):
 def test_jax_runtime_configures_device_cache_and_compile_logging(
     monkeypatch, tmp_path
 ):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
     monkeypatch.delitem(sys.modules, "jax", raising=False)
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.delenv("JAX_CUDA_VISIBLE_DEVICES", raising=False)
@@ -101,7 +101,7 @@ def test_jax_runtime_configures_device_cache_and_compile_logging(
 
 
 def test_gpu_selector_respects_scheduler_visible_device_order(monkeypatch):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
     monkeypatch.delitem(sys.modules, "jax", raising=False)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3,7")
     monkeypatch.delenv("QMRI_DMIPY_GPU_SELECTOR", raising=False)
@@ -212,7 +212,7 @@ def test_pool_collection_emits_heartbeat(capsys):
 
 
 def test_fit_model_translates_cpu_parallelism(monkeypatch):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
 
     class FakeModel:
         def fit(
@@ -251,7 +251,7 @@ def test_fit_model_translates_cpu_parallelism(monkeypatch):
 
 
 def test_fit_model_rejects_unknown_solver_options(monkeypatch):
-    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.1.0")
+    monkeypatch.setattr(dmipy_backend, "version", lambda _: "2.3.0")
 
     class FakeModel:
         def fit(self, scheme, data, solver="brute2fine"):

@@ -1039,13 +1039,13 @@ class RelaxometryWorkflow(BaseWorkflow):
 
     def _find_existing_preprocessed_series(
         self,
-        anat_out_dir: Path,
+        cache_dir: Path,
         *,
         modality_label: str,
         context: dict,
     ) -> List[ImageFile]:
         """
-        Locate final preprocessed relaxometry series that can feed modeling.
+        Locate cached preprocessed relaxometry series that can feed modeling.
 
         These are the expensive products after reorient/denoise/gibbs/motion.
         Canonical outputs use ``acq-SPGR_desc-preproc`` or
@@ -1058,7 +1058,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             or self._rerun_targets_final_preproc()
         ):
             return []
-        if not anat_out_dir.exists():
+        if not cache_dir.exists():
             return []
 
         subj = context.get("subject")
@@ -1099,7 +1099,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         candidates: list[Path] = []
         seen: set[Path] = set()
         for pattern in patterns:
-            for path in sorted(anat_out_dir.glob(pattern)):
+            for path in sorted(cache_dir.glob(pattern)):
                 if "chunk-" in path.name or path in seen:
                     continue
                 seen.add(path)
@@ -1143,7 +1143,7 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         if existing:
             self.logger.info(
-                "Skipping %s preprocessing (found existing final preprocessed series: %s).",
+                "Skipping %s preprocessing (found existing cached preprocessed series: %s).",
                 label,
                 ", ".join(path.img.name for path in existing),
             )
@@ -1183,7 +1183,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         self,
         images: List[ImageFile],
         *,
-        anat_out_dir: Path,
+        output_dir: Path,
         modality_label: str,
         force_merge: bool = False,
     ) -> List[ImageFile]:
@@ -1198,7 +1198,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         out_entities = dict(source_images[0].entities)
         out_entities.pop("chunk", None)
         suffix = out_entities.get("suffix") or "VFA"
-        out_path = anat_out_dir / build_bids_name(out_entities, suffix=suffix)
+        out_path = output_dir / build_bids_name(out_entities, suffix=suffix)
         out_json = out_path.with_suffix("").with_suffix(".json")
 
         rebuild = True
@@ -1265,7 +1265,6 @@ class RelaxometryWorkflow(BaseWorkflow):
         spgr_pre: List[ImageFile],
         ssfp_pre: List[ImageFile],
         ir_pre: List[ImageFile],
-        anat_out_dir: Path,
         intermediate_dir: Path,
         ref_img: ImageFile,
     ):
@@ -1288,11 +1287,29 @@ class RelaxometryWorkflow(BaseWorkflow):
         if moco_step:
             self.advance_force_state(moco_step)
             force_moco = self.is_forced()
-            spgr_moco = moco_step(spgr_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SPGR", force=force_moco)
+            spgr_moco = moco_step(
+                spgr_pre,
+                output_dir=intermediate_dir,
+                reference_image=ref_img,
+                modality="SPGR",
+                force=force_moco,
+            )
             if ssfp_pre:
-                ssfp_moco = moco_step(ssfp_pre, output_dir=anat_out_dir, reference_image=ref_img, modality="SSFP", force=force_moco)
+                ssfp_moco = moco_step(
+                    ssfp_pre,
+                    output_dir=intermediate_dir,
+                    reference_image=ref_img,
+                    modality="SSFP",
+                    force=force_moco,
+                )
             if ir_pre:
-                ir_moco = moco_step(ir_pre, output_dir=intermediate_dir, reference_image=ref_img, modality="IR-SPGR", force=force_moco)
+                ir_moco = moco_step(
+                    ir_pre,
+                    output_dir=intermediate_dir,
+                    reference_image=ref_img,
+                    modality="IR-SPGR",
+                    force=force_moco,
+                )
         return spgr_moco, ssfp_moco, ir_moco
 
     def _update_study_tracker(self, context: dict, output_dir: Path) -> None:
@@ -2081,9 +2098,13 @@ class RelaxometryWorkflow(BaseWorkflow):
         ssfp_exclude: set[int],
     ) -> tuple[List[ImageFile], List[ImageFile], List[ImageFile], ImageFile]:
         existing_spgr_moco = self._find_existing_preprocessed_series(
+            intermediate_dir, modality_label="SPGR", context=context
+        ) or self._find_existing_preprocessed_series(
             anat_out_dir, modality_label="SPGR", context=context
         )
         existing_ssfp_moco = self._find_existing_preprocessed_series(
+            intermediate_dir, modality_label="SSFP", context=context
+        ) or self._find_existing_preprocessed_series(
             anat_out_dir, modality_label="SSFP", context=context
         )
 
@@ -2124,7 +2145,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             and not force_moco
         ):
             self.logger.info(
-                "Skipping relaxometry motion correction (found existing final "
+                "Skipping relaxometry motion correction (found existing cached "
                 "preprocessed inputs for modeling)."
             )
             spgr_moco = existing_spgr_moco
@@ -2135,7 +2156,6 @@ class RelaxometryWorkflow(BaseWorkflow):
                 existing_spgr_moco or spgr_pre,
                 existing_ssfp_moco or ssfp_pre,
                 ir_pre,
-                anat_out_dir,
                 intermediate_dir,
                 ref_img,
             )
@@ -2143,14 +2163,14 @@ class RelaxometryWorkflow(BaseWorkflow):
         if spgr_exclude:
             spgr_moco = self._collapse_chunked_series(
                 spgr_moco,
-                anat_out_dir=anat_out_dir,
+                output_dir=intermediate_dir,
                 modality_label="SPGR",
                 force_merge=True,
             )
         if ssfp_exclude:
             ssfp_moco = self._collapse_chunked_series(
                 ssfp_moco,
-                anat_out_dir=anat_out_dir,
+                output_dir=intermediate_dir,
                 modality_label="SSFP",
                 force_merge=True,
             )

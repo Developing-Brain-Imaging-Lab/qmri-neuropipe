@@ -127,9 +127,9 @@ def microglia(
     """Build the Garcia-Hernandez et al. glial activation model.
 
     The signal comprises a Watson-dispersed stick/zeppelin bundle, small and
-    large restricted spheres, and free water. Sphere surface relaxivity is
-    fixed to zero because the published diffusion-only model does not estimate
-    relaxation.
+    large restricted spheres, and free water. The bare dmipy-fit 2.3 sphere
+    compartments are diffusion-only; relaxation factors are not composed into
+    this model.
     """
     if _components is None:
         from dmipy_fit.core.modeling_framework import MultiCompartmentModel
@@ -160,8 +160,17 @@ def microglia(
         float(parallel_diffusivity),
     )
 
-    small_sphere = sphere_models.S2SphereStejskalTannerApproximation()
-    large_sphere = sphere_models.S2SphereStejskalTannerApproximation()
+    # Garcia-Hernandez et al. use Neuman's finite-pulse restricted-sphere
+    # expression (their reference 46, equation 18).  dmipy's matching model is
+    # the Gaussian phase approximation, not the q-only short-gradient-pulse S2
+    # approximation.  The paper fixes diffusivity inside every restriction to
+    # 1e-9 m^2/s, supplied here through parallel_diffusivity.
+    small_sphere = sphere_models.S4SphereGaussianPhaseApproximation(
+        diffusion_constant=float(parallel_diffusivity)
+    )
+    large_sphere = sphere_models.S4SphereGaussianPhaseApproximation(
+        diffusion_constant=float(parallel_diffusivity)
+    )
     ball = gaussian_models.G1Ball()
     model = MultiCompartmentModel(
         models=[dispersed_bundle, small_sphere, large_sphere, ball]
@@ -191,20 +200,12 @@ def microglia(
                 f"optimization bounds [{bounds[0]:g}, {bounds[1]:g}] m."
             )
 
-    small_key = "S2SphereStejskalTannerApproximation_1_diameter"
-    large_key = "S2SphereStejskalTannerApproximation_2_diameter"
+    small_key = "S4SphereGaussianPhaseApproximation_1_diameter"
+    large_key = "S4SphereGaussianPhaseApproximation_2_diameter"
     model.set_parameter_optimization_bounds(small_key, small_bounds)
     model.set_parameter_optimization_bounds(large_key, large_bounds)
     model.set_initial_guess_parameter(small_key, float(small_diameter))
     model.set_initial_guess_parameter(large_key, float(large_diameter))
-    model.set_fixed_parameter(
-        "S2SphereStejskalTannerApproximation_1_surface_relaxivity",
-        0.0,
-    )
-    model.set_fixed_parameter(
-        "S2SphereStejskalTannerApproximation_2_surface_relaxivity",
-        0.0,
-    )
     model.set_fixed_parameter("G1Ball_1_lambda_iso", float(iso_diffusivity))
     return model
 
@@ -233,9 +234,9 @@ def microglia_output_alias(parameter_name: str) -> str:
         return "bundle_radial_diffusivity"
     if parameter_name.endswith("SD1WatsonDistributed_1_partial_volume_0"):
         return "bundle_stick_fraction"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_1_diameter"):
+    if parameter_name.endswith("S4SphereGaussianPhaseApproximation_1_diameter"):
         return "small_sphere_diameter"
-    if parameter_name.endswith("S2SphereStejskalTannerApproximation_2_diameter"):
+    if parameter_name.endswith("S4SphereGaussianPhaseApproximation_2_diameter"):
         return "large_sphere_diameter"
     return parameter_name.replace("SD1WatsonDistributed_1_", "")
 
@@ -249,10 +250,10 @@ def microglia_output_maps(
     bundle_stick = maps.get("SD1WatsonDistributed_1_partial_volume_0")
     f_iso = maps.get("partial_volume_3")
     small_diameter = maps.get(
-        "S2SphereStejskalTannerApproximation_1_diameter"
+        "S4SphereGaussianPhaseApproximation_1_diameter"
     )
     large_diameter = maps.get(
-        "S2SphereStejskalTannerApproximation_2_diameter"
+        "S4SphereGaussianPhaseApproximation_2_diameter"
     )
     odi = maps.get("SD1WatsonDistributed_1_SD1Watson_1_odi")
     if f_bundle is not None and bundle_stick is not None:

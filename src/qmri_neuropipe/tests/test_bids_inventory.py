@@ -296,6 +296,8 @@ def test_container_run_forwards_help_to_legacy_runner():
     assert "--config" in result.output
     assert "--participant-label" in result.output
     assert "--n-cpus" in result.output
+    assert "--jobs" in result.output
+    assert "--gpu-ids" in result.output
     assert "--contain-all" in result.output
 
 
@@ -359,3 +361,41 @@ def test_container_uses_canonical_internal_paths_and_containall(tmp_path, monkey
     assert (output_dir / "work" / ".tmp").is_dir()
     assert "--bids-dir /data" in command
     assert "--output-dir /out" in command
+
+
+def test_container_batches_subjects_file_with_jobs_and_gpu_ids(tmp_path, monkeypatch, capsys):
+    from qmri_neuropipe import container_runner
+
+    bids_dir = tmp_path / "bids"
+    bids_dir.mkdir()
+    output_dir = tmp_path / "out"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"bids_dir: {bids_dir}\noutput_dir: {output_dir}\n",
+        encoding="utf-8",
+    )
+    subjects = tmp_path / "subjects.txt"
+    subjects.write_text(
+        "subject,session\nsub-001,ses-01\n002,none\n003,ses-02\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "qmri-neuropipe.sif"
+    image.touch()
+
+    monkeypatch.setattr(container_runner, "find_container_runtime", lambda _: "/usr/bin/apptainer")
+    result = container_runner.main([
+        "--container-image", str(image),
+        "--config", str(config),
+        "--subjects-file", str(subjects),
+        "--jobs", "4",
+        "--gpu-ids", "0, 2,4,6",
+        "--dry-run",
+    ])
+
+    assert result == 0
+    command = capsys.readouterr().out
+    assert command.count("Running batch subjects:") == 1
+    assert "--subjects-file /config/subjects.txt" in command
+    assert "--jobs 4" in command
+    assert "--gpu-ids 0,2,4,6" in command
+    assert "--participant-label" not in command

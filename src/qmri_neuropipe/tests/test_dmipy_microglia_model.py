@@ -45,16 +45,20 @@ def test_microglia_model_fits_orientation_and_dispersion_independently():
     )
     assert axial_link[2].value == pytest.approx(1.0e-9)
 
+    for sphere in model.models[1:3]:
+        assert sphere.__class__.__name__ == "S4SphereGaussianPhaseApproximation"
+        assert sphere.diffusion_constant == pytest.approx(1.0e-9)
+
     # Radial extracellular diffusivity remains independently fitted: no
     # tortuosity constraint links it to the stick fraction or diffusivity.
     assert "G2Zeppelin_1_lambda_perp" in bundle.parameter_names
 
     diameter_parameters = {
-        "S2SphereStejskalTannerApproximation_1_diameter": (
+        "S4SphereGaussianPhaseApproximation_1_diameter": (
             [5e-6, 11e-6],
             8e-6,
         ),
-        "S2SphereStejskalTannerApproximation_2_diameter": (
+        "S4SphereGaussianPhaseApproximation_2_diameter": (
             [12e-6, 18e-6],
             16e-6,
         ),
@@ -70,8 +74,7 @@ def test_microglia_model_fits_orientation_and_dispersion_independently():
         assert model.x0_parameters[parameter] == pytest.approx(expected_initial)
         assert model.parameter_optimization_flags[parameter]
 
-    # dmipy-fit 2.1 adds optional sphere surface-relaxivity parameters. They
-    # are not identifiable in this diffusion-only model and must remain fixed.
+    # The diffusion-only paper model must not acquire a relaxation parameter.
     assert not any(
         name.endswith("surface_relaxivity") for name in model.parameter_names
     )
@@ -148,8 +151,8 @@ def test_timing_rejects_nonphysical_order(tmp_path):
         ("SD1WatsonDistributed_1_SD1Watson_1_mu", "mu"),
         ("SD1WatsonDistributed_1_SD1Watson_1_odi", "odi"),
         ("SD1WatsonDistributed_1_partial_volume_0", "bundle_stick_fraction"),
-        ("S2SphereStejskalTannerApproximation_1_diameter", "small_sphere_diameter"),
-        ("S2SphereStejskalTannerApproximation_2_diameter", "large_sphere_diameter"),
+        ("S4SphereGaussianPhaseApproximation_1_diameter", "small_sphere_diameter"),
+        ("S4SphereGaussianPhaseApproximation_2_diameter", "large_sphere_diameter"),
     ],
 )
 def test_metric_names_are_stable_and_interpretable(parameter, metric):
@@ -167,8 +170,8 @@ def test_paper_maps_are_derived_from_nested_dmipy_parameters():
         "partial_volume_0": np.array([0.6]),
         "SD1WatsonDistributed_1_partial_volume_0": np.array([0.25]),
         "partial_volume_3": np.array([0.1]),
-        "S2SphereStejskalTannerApproximation_1_diameter": np.array([8e-6]),
-        "S2SphereStejskalTannerApproximation_2_diameter": np.array([16e-6]),
+        "S4SphereGaussianPhaseApproximation_1_diameter": np.array([8e-6]),
+        "S4SphereGaussianPhaseApproximation_2_diameter": np.array([16e-6]),
         "SD1WatsonDistributed_1_SD1Watson_1_odi": np.array([0.5]),
     }
     _add_paper_microglia_maps(maps)
@@ -213,8 +216,8 @@ def test_registered_microglia_model_simulates_finite_signal():
         "SD1WatsonDistributed_1_SD1Watson_1_mu": np.array([np.pi / 2, 0]),
         "SD1WatsonDistributed_1_SD1Watson_1_odi": 0.3,
         "SD1WatsonDistributed_1_partial_volume_0": 0.6,
-        "S2SphereStejskalTannerApproximation_1_diameter": 8e-6,
-        "S2SphereStejskalTannerApproximation_2_diameter": 16e-6,
+        "S4SphereGaussianPhaseApproximation_1_diameter": 8e-6,
+        "S4SphereGaussianPhaseApproximation_2_diameter": 16e-6,
         "partial_volume_0": 0.4,
         "partial_volume_1": 0.1,
         "partial_volume_2": 0.1,
@@ -230,3 +233,37 @@ def test_registered_microglia_model_simulates_finite_signal():
     assert signal[0] == pytest.approx(1.0)
     assert np.all(np.isfinite(signal))
     assert np.all((signal >= 0) & (signal <= 1.0))
+
+
+def test_microglia_sphere_signal_uses_finite_pulse_timing():
+    pytest.importorskip("dmipy_fit")
+    from qmri_neuropipe.interfaces.dmipy_backend import (
+        acquisition_scheme_from_bvalues,
+        build_reference_model,
+    )
+
+    model = build_reference_model("microglia")
+    bvalues = np.array([0.0, 4e9, 4e9])
+    directions = np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]], dtype=float)
+    scheme = acquisition_scheme_from_bvalues(
+        bvalues,
+        directions,
+        delta=np.array([0.005, 0.005, 0.005]),
+        Delta=np.array([0.025, 0.025, 0.060]),
+    )
+    parameters = {
+        "SD1WatsonDistributed_1_G2Zeppelin_1_lambda_perp": 0.5e-9,
+        "SD1WatsonDistributed_1_SD1Watson_1_mu": np.array([np.pi / 2, 0]),
+        "SD1WatsonDistributed_1_SD1Watson_1_odi": 0.3,
+        "SD1WatsonDistributed_1_partial_volume_0": 0.6,
+        "S4SphereGaussianPhaseApproximation_1_diameter": 8e-6,
+        "S4SphereGaussianPhaseApproximation_2_diameter": 16e-6,
+        "partial_volume_0": 0.0,
+        "partial_volume_1": 1.0,
+        "partial_volume_2": 0.0,
+        "partial_volume_3": 0.0,
+    }
+
+    signal = model.simulate_signal(scheme, parameters)
+
+    assert signal[1] != pytest.approx(signal[2])
