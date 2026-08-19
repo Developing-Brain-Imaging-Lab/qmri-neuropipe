@@ -29,6 +29,7 @@ _UNSET = object()
 _STANDARD_CONFIG_DEFAULTS = {
     "bids_dir": None,
     "output_dir": None,
+    "models_dir": None,
     "work_dir": None,
     "participant_label": None,
     "session_label": None,
@@ -45,7 +46,7 @@ _STANDARD_CONFIG_DEFAULTS = {
     "anat_input": None,
     "tracker": None,
 }
-_PATH_CONFIG_FIELDS = {"bids_dir", "output_dir", "work_dir", "subjects_file"}
+_PATH_CONFIG_FIELDS = {"bids_dir", "output_dir", "models_dir", "work_dir", "subjects_file"}
 
 
 class UniqueKeyYamlLoader(yaml.SafeLoader):
@@ -87,6 +88,7 @@ class PipelineConfig:
     Attributes:
         bids_dir: Path to BIDS dataset
         output_dir: Path to output directory
+        models_dir: Optional separate root for diffusion model derivatives
         work_dir: Path to working directory (temporary files)
         participant_label: Optional list of subject IDs to process
         session_label: Optional list of session IDs to process
@@ -116,6 +118,7 @@ class PipelineConfig:
     # Core paths
     bids_dir: Optional[Path]
     output_dir: Optional[Path]
+    models_dir: Optional[Path]
     work_dir: Optional[Path]
     
     # Subject/session selection
@@ -169,6 +172,7 @@ class PipelineConfig:
         anat_input=_UNSET,
         tracker=_UNSET,
         config_data: Optional[Dict[str, Any]] = None,
+        models_dir=_UNSET,
     ) -> None:
         """Build typed attribute views over one canonical configuration store."""
         data = dict(config_data or {})
@@ -178,6 +182,7 @@ class PipelineConfig:
         explicit_values = {
             "bids_dir": bids_dir,
             "output_dir": output_dir,
+            "models_dir": models_dir,
             "work_dir": work_dir,
             "participant_label": participant_label,
             "session_label": session_label,
@@ -222,7 +227,7 @@ class PipelineConfig:
     # pickling, etc.), while still reading/writing the single canonical
     # ``_data`` store underneath. Each property is a thin, identical wrapper
     # around the shared get/set helpers above; the duplication here is the
-    # deliberate, low-risk kind (17 one-line properties) rather than the kind
+    # deliberate, low-risk kind (18 one-line properties) rather than the kind
     # that hides a behavior difference.
     bids_dir = property(
         lambda self: self._get_standard_field("bids_dir"),
@@ -231,6 +236,10 @@ class PipelineConfig:
     output_dir = property(
         lambda self: self._get_standard_field("output_dir"),
         lambda self, value: self._set_standard_field("output_dir", value),
+    )
+    models_dir = property(
+        lambda self: self._get_standard_field("models_dir"),
+        lambda self, value: self._set_standard_field("models_dir", value),
     )
     work_dir = property(
         lambda self: self._get_standard_field("work_dir"),

@@ -593,7 +593,13 @@ class DMRIPipeline(BasePipeline):
         self.logger.info("  RUNNING MODEL FITTING        ")
         self.logger.info("="*60)
         
-        models_out = output_dir / "models"
+        if self.config.models_dir:
+            # Keep the same sub-*/ses-*/dwi hierarchy as the preprocessing
+            # derivative while allowing models to use a separate root.
+            relative_output_dir = output_dir.relative_to(self.config.output_dir)
+            models_out = self.config.models_dir / relative_output_dir
+        else:
+            models_out = output_dir / "models"
         models_out.mkdir(parents=True, exist_ok=True)
         
         self.modeling.build_pipeline(context)

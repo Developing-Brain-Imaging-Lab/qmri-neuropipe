@@ -364,6 +364,7 @@ def _print_args(config: PipelineConfig, **extra_kwargs):
     # Core paths
     table.add_row("bids_dir", str(config.bids_dir) if config.bids_dir else "Not set")
     table.add_row("output_dir", str(config.output_dir) if config.output_dir else "Not set")
+    table.add_row("models_dir", str(config.models_dir) if config.models_dir else "Not set")
     table.add_row("work_dir", str(config.work_dir) if config.work_dir else "Not set")
     
     # Subject/session selection
@@ -733,6 +734,14 @@ def main(
         dir_okay=True,
         writable=True
     ),
+    models_dir: Optional[Path] = typer.Option(
+        None,
+        "--models-dir",
+        help="Optional separate output root for diffusion model derivatives",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+    ),
     work_dir: Optional[Path] = typer.Option(
         None, 
         "--work-dir",
@@ -948,6 +957,7 @@ def main(
             'import.auto_run': True if dicom_dir is not None else None,
             'bids_dir': bids_dir,
             'output_dir': output_dir,
+            'models_dir': models_dir,
             'work_dir': work_dir,
             'participant_label': participant_label,
             'session_label': session_label,

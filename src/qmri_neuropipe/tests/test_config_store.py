@@ -11,6 +11,7 @@ def test_config_data_seeds_typed_attribute_views(tmp_path):
         config_data={
             "bids_dir": str(tmp_path / "bids"),
             "output_dir": str(tmp_path / "out"),
+            "models_dir": str(tmp_path / "models"),
             "n_cpus": 6,
             "skip_existing": False,
         }
@@ -18,6 +19,7 @@ def test_config_data_seeds_typed_attribute_views(tmp_path):
 
     assert config.bids_dir == tmp_path / "bids"
     assert config.output_dir == tmp_path / "out"
+    assert config.models_dir == tmp_path / "models"
     assert config.work_dir == tmp_path / "out" / "work"
     assert config.n_cpus == config.get("n_cpus") == 6
     assert config.skip_existing is config.get("skip_existing") is False

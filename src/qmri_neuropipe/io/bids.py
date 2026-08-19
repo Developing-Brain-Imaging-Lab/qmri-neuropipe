@@ -180,6 +180,16 @@ def extract_bids_entities(path):
 def get_entities_from_path(path):
     return parse_bids_filename(path).copy()
 
+
+def _is_hidden_artifact(path: Path, root: Path) -> bool:
+    """Return whether *path* is hidden relative to the requested search root."""
+    try:
+        relative_path = path.relative_to(root)
+    except ValueError:
+        relative_path = path
+    return any(part.startswith(".") for part in relative_path.parts)
+
+
 def bids_find(root, suffix=None, extension=None):
     """
     Recursively find BIDS-like files under root.
@@ -226,6 +236,8 @@ def bids_find(root, suffix=None, extension=None):
     # Process paths
     for path in paths_to_process:
         if not path.is_file():
+            continue
+        if _is_hidden_artifact(path, root):
             continue
 
         # Get full extension

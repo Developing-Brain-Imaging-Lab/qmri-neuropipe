@@ -15,6 +15,7 @@ SETTING_KEYS = {
     "config_file",
     "bids_dir",
     "output_dir",
+    "models_dir",
     "work_dir",
     "freesurfer_license",
     "gnl_coeff_file",
@@ -89,7 +90,7 @@ def pipeline_path_defaults(path: Path) -> dict[str, object]:
     data = load_settings_file(path)
     return {
         key: data[key]
-        for key in ("bids_dir", "output_dir", "work_dir")
+        for key in ("bids_dir", "output_dir", "models_dir", "work_dir")
         if data.get(key) not in (None, "")
     }
 
@@ -321,9 +322,12 @@ def build_container_command(
 ) -> list[str]:
     bids_dir = Path(args.bids_dir).expanduser().absolute()
     output_dir = Path(args.output_dir).expanduser().absolute()
+    models_dir = Path(args.models_dir).expanduser().absolute() if args.models_dir else None
     work_dir = Path(args.work_dir).expanduser().absolute() if args.work_dir else output_dir / "work"
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    if models_dir:
+        models_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
     container_tmp_dir = work_dir / ".tmp"
     container_tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -357,6 +361,8 @@ def build_container_command(
         "--bind",
         bind_arg(support_dir, "/config", "ro"),
     ])
+    if models_dir:
+        cmd.extend(["--bind", bind_arg(models_dir, "/models")])
 
     for extra_bind in args.bind:
         cmd.extend(["--bind", extra_bind])
@@ -376,6 +382,8 @@ def build_container_command(
         "--work-dir",
         "/work",
     ])
+    if models_dir:
+        cmd.extend(["--models-dir", "/models"])
 
     if args.pipeline:
         cmd.extend(["--pipeline", args.pipeline])
@@ -410,6 +418,7 @@ def run(args: argparse.Namespace) -> int:
     config_defaults = pipeline_path_defaults(config_path)
     args.bids_dir = args.bids_dir or config_defaults.get("bids_dir")
     args.output_dir = args.output_dir or config_defaults.get("output_dir")
+    args.models_dir = args.models_dir or config_defaults.get("models_dir") or ""
     args.work_dir = args.work_dir or config_defaults.get("work_dir") or ""
     if not args.bids_dir or not args.output_dir:
         raise ValueError(
@@ -500,6 +509,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", "-c", "--config-file", dest="config", required=True, help="qmri-neuropipe YAML/JSON config file.")
     parser.add_argument("--bids-dir", default="", help="Host BIDS dataset directory. Defaults to bids_dir in --config.")
     parser.add_argument("--output-dir", default="", help="Host output directory. Defaults to output_dir in --config.")
+    parser.add_argument("--models-dir", default="", help="Optional host diffusion models directory. Defaults to models_dir in --config.")
     parser.add_argument("--work-dir", default="", help="Host work directory. Defaults to work_dir in --config, then <output-dir>/work.")
     parser.add_argument("--freesurfer-license", default="", help="Optional FreeSurfer license file.")
     parser.add_argument("--gnl-coeff-file", default="", help="Optional GNL coefficient file copied into /config.")

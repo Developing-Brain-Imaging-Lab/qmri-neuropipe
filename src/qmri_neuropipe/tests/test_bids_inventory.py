@@ -363,6 +363,37 @@ def test_container_uses_canonical_internal_paths_and_containall(tmp_path, monkey
     assert "--output-dir /out" in command
 
 
+def test_container_binds_configured_models_dir(tmp_path, monkeypatch, capsys):
+    from qmri_neuropipe import container_runner
+
+    bids_dir = tmp_path / "bids"
+    bids_dir.mkdir()
+    output_dir = tmp_path / "preproc"
+    models_dir = tmp_path / "models"
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        f"bids_dir: {bids_dir}\n"
+        f"output_dir: {output_dir}\n"
+        f"models_dir: {models_dir}\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "qmri-neuropipe.sif"
+    image.touch()
+
+    monkeypatch.setattr(container_runner, "find_container_runtime", lambda _: "/usr/bin/apptainer")
+    result = container_runner.main([
+        "--container-image", str(image),
+        "--config", str(config),
+        "--dry-run",
+    ])
+
+    assert result == 0
+    command = capsys.readouterr().out
+    assert f"{models_dir}:/models" in command
+    assert "--models-dir /models" in command
+    assert models_dir.is_dir()
+
+
 def test_container_batches_subjects_file_with_jobs_and_gpu_ids(tmp_path, monkeypatch, capsys):
     from qmri_neuropipe import container_runner
 

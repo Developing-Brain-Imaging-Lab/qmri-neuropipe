@@ -10,6 +10,11 @@
 bids_dir: /path/to/bids/dataset
 output_dir: /path/to/output/derivatives
 
+# Optional: Separate root for diffusion model derivatives. Outputs retain the
+# sub-<label>/ses-<label>/dwi hierarchy beneath this directory.
+# If omitted, models are written below output_dir in each dwi/models directory.
+models_dir: /path/to/model/derivatives
+
 # Optional: Working directory for temporary files
 # If not specified, defaults to output_dir/work
 work_dir: /path/to/work
