@@ -205,18 +205,21 @@ def test_motion_and_downstream_receive_the_same_materialized_reference(
         return spgr, ssfp, ir
 
     monkeypatch.setattr(workflow, "_run_motion_correction", fake_motion)
-    _, _, _, downstream_reference = workflow._prepare_modeling_inputs(
+    context = {"subject": "01", "session": None}
+    spgr_inputs, _, _, downstream_reference = workflow._prepare_modeling_inputs(
         [source],
         [],
         [],
         tmp_path / "anat",
         tmp_path / "work",
-        {"subject": "01", "session": None},
+        context,
         set(),
         set(),
     )
 
     assert captured["reference"] is downstream_reference
+    assert spgr_inputs[0].img.parent == tmp_path / "anat"
+    assert context["processed_spgr"] == spgr_inputs
     np.testing.assert_array_equal(
         nib.load(downstream_reference.img).get_fdata(), 7
     )
@@ -252,6 +255,73 @@ def test_motion_correction_writes_all_sequences_to_intermediate_dir(
     )
 
     assert output_dirs == [intermediate_dir, intermediate_dir, intermediate_dir]
+
+
+@pytest.mark.parametrize("modality", ["SPGR", "SSFP"])
+def test_final_preprocessed_series_are_published_to_anat(tmp_path, modality):
+    workflow = _workflow(tmp_path)
+    intermediate_dir = tmp_path / "work" / "anat" / "intermediate"
+    intermediate_dir.mkdir(parents=True)
+    source = intermediate_dir / f"sub-01_acq-{modality}_desc-preproc_VFA.nii.gz"
+    source_json = source.with_suffix("").with_suffix(".json")
+    nib.save(
+        nib.Nifti1Image(np.full((2, 2, 2), 7, dtype=np.float32), np.eye(4)),
+        source,
+    )
+    source_json.write_text(json.dumps({"FlipAngle": [3, 9]}))
+    image = ImageFile(
+        img=source,
+        json=source_json,
+        entities={
+            "sub": "01",
+            "acq": modality,
+            "desc": "preproc",
+            "suffix": "VFA",
+        },
+    )
+
+    published = workflow._publish_preprocessed_series(
+        [image],
+        anat_out_dir=tmp_path / "derivatives" / "anat",
+        modality_label=modality,
+    )
+
+    assert published[0].img == (
+        tmp_path
+        / "derivatives"
+        / "anat"
+        / f"sub-01_acq-{modality}_desc-preproc_VFA.nii.gz"
+    )
+    assert published[0].img.exists()
+    assert published[0].json is not None and published[0].json.exists()
+    np.testing.assert_array_equal(nib.load(published[0].img).get_fdata(), 7)
+    assert json.loads(published[0].json.read_text()) == {"FlipAngle": [3, 9]}
+
+
+def test_published_preprocessed_series_refreshes_existing_derivative(tmp_path):
+    workflow = _workflow(tmp_path)
+    source = tmp_path / "work" / "sub-01_acq-SPGR_desc-preproc_VFA.nii.gz"
+    source.parent.mkdir()
+    destination_dir = tmp_path / "derivatives" / "anat"
+    destination_dir.mkdir(parents=True)
+    destination = destination_dir / source.name
+    nib.save(nib.Nifti1Image(np.ones((2, 2, 2)), np.eye(4)), source)
+    nib.save(nib.Nifti1Image(np.zeros((2, 2, 2)), np.eye(4)), destination)
+    image = ImageFile(
+        img=source,
+        entities={
+            "sub": "01",
+            "acq": "SPGR",
+            "desc": "preproc",
+            "suffix": "VFA",
+        },
+    )
+
+    workflow._publish_preprocessed_series(
+        [image], anat_out_dir=destination_dir, modality_label="SPGR"
+    )
+
+    np.testing.assert_array_equal(nib.load(destination).get_fdata(), 1)
 
 
 def test_reference_builder_supports_separate_3d_spgr_images(tmp_path):

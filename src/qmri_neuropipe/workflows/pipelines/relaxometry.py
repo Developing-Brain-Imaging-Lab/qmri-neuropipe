@@ -1260,6 +1260,64 @@ class RelaxometryWorkflow(BaseWorkflow):
             processed_images.append(curr)
         return processed_images
 
+    def _publish_preprocessed_series(
+        self,
+        images: List[ImageFile],
+        *,
+        anat_out_dir: Path,
+        modality_label: str,
+    ) -> List[ImageFile]:
+        """Copy final relaxometry preprocessing products into derivatives/anat."""
+        if not images:
+            return []
+
+        anat_out_dir.mkdir(parents=True, exist_ok=True)
+        published: List[ImageFile] = []
+        for image in images:
+            entities = RelaxometryMotionCorrectionStep._preprocessed_entities(
+                image, modality_label
+            )
+            suffix = entities.get("suffix") or image.entities.get("suffix") or "VFA"
+            entities["suffix"] = suffix
+            destination = anat_out_dir / build_bids_name(entities, suffix=suffix)
+            source = Path(image.img)
+
+            if not source.exists():
+                raise FileNotFoundError(
+                    f"Final {modality_label} preprocessed image is missing: {source}"
+                )
+
+            # Cached series may already point at the published derivative.
+            if source.resolve() != destination.resolve():
+                shutil.copy2(source, destination)
+
+            source_json = getattr(image, "json", None)
+            destination_json = destination.with_suffix("").with_suffix(".json")
+            published_json = None
+            if source_json and Path(source_json).exists():
+                source_json = Path(source_json)
+                if source_json.resolve() != destination_json.resolve():
+                    shutil.copy2(source_json, destination_json)
+                published_json = destination_json
+            elif destination_json.exists():
+                published_json = destination_json
+
+            published.append(
+                ImageFile(
+                    img=destination,
+                    entities=entities,
+                    json=published_json,
+                )
+            )
+
+        self.logger.info(
+            "Saved %d final preprocessed %s series to %s",
+            len(published),
+            modality_label,
+            anat_out_dir,
+        )
+        return published
+
     def _run_motion_correction(
         self,
         spgr_pre: List[ImageFile],
@@ -2174,6 +2232,20 @@ class RelaxometryWorkflow(BaseWorkflow):
                 modality_label="SSFP",
                 force_merge=True,
             )
+
+        # The preprocessing cache lives under the work/intermediate tree, but
+        # these canonical series are primary derivatives and must survive even
+        # when intermediates are not retained.
+        spgr_moco = self._publish_preprocessed_series(
+            spgr_moco,
+            anat_out_dir=anat_out_dir,
+            modality_label="SPGR",
+        )
+        ssfp_moco = self._publish_preprocessed_series(
+            ssfp_moco,
+            anat_out_dir=anat_out_dir,
+            modality_label="SSFP",
+        )
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
 
