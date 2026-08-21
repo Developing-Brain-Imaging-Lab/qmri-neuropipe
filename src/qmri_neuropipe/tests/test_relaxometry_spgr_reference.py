@@ -12,6 +12,7 @@ from qmri_neuropipe.lib.relax.motion import RelaxometryMotionCorrectionStep
 from qmri_neuropipe.workflows.pipelines.relaxometry import RelaxometryWorkflow
 from qmri_neuropipe.workflows.pipelines.relaxometry_config import (
     RelaxometryConfig,
+    RelaxometryModelingConfig,
     RelaxometryPreprocConfig,
 )
 
@@ -322,6 +323,61 @@ def test_published_preprocessed_series_refreshes_existing_derivative(tmp_path):
     )
 
     np.testing.assert_array_equal(nib.load(destination).get_fdata(), 1)
+
+
+def test_spgr_only_fits_despot1_and_skips_ssfp_models(
+    tmp_path, monkeypatch, caplog
+):
+    from qmri_neuropipe.workflows.pipelines import relaxometry as relax
+
+    modeling = RelaxometryModelingConfig(
+        despot1={"enabled": True},
+        despot2={"enabled": True},
+        despot2fm={"enabled": True},
+        mcdespot={"enabled": True},
+    )
+    workflow = RelaxometryWorkflow(
+        PipelineConfig(
+            bids_dir=tmp_path / "bids",
+            output_dir=tmp_path / "derivatives",
+        ),
+        logging.getLogger("test-spgr-only-model-checks"),
+        {},
+        RelaxometryConfig(modeling=modeling),
+    )
+    spgr = _spgr(tmp_path, values=[1, 2], flip_angles=[3, 12])
+
+    def fake_despot1(**kwargs):
+        t1 = kwargs["out_dir"] / "T1.nii.gz"
+        m0 = kwargs["out_dir"] / "M0.nii.gz"
+        t1.touch()
+        m0.touch()
+        return {"t1": t1, "m0": m0}
+
+    monkeypatch.setattr(relax, "fit_despot1", fake_despot1)
+    context = {}
+    _, results = workflow._run_model_fitting(
+        context,
+        [spgr],
+        [],
+        [],
+        tmp_path / "params.json",
+        tmp_path / "models",
+        None,
+        None,
+        "sub-01",
+    )
+
+    assert set(results) == {"DESPOT1"}
+    assert context["model_fit_capabilities"]["DESPOT1"]["can_fit"] is True
+    assert context["model_fit_capabilities"]["DESPOT2"]["can_fit"] is False
+    assert set(context["models_skipped"]) == {
+        "DESPOT2",
+        "DESPOT2FM",
+        "mcDESPOT",
+    }
+    assert "SSFP" in context["models_skipped"]["DESPOT2"]
+    assert "Skipping DESPOT2 fitting" in caplog.text
 
 
 def test_reference_builder_supports_separate_3d_spgr_images(tmp_path):

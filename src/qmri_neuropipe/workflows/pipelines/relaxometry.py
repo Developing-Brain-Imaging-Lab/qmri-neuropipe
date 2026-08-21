@@ -1546,6 +1546,76 @@ class RelaxometryWorkflow(BaseWorkflow):
 
         return t1_path, despot_b1_path
 
+    def _build_model_fit_capabilities(
+        self,
+        modeling_cfg: RelaxometryModelingConfig,
+        *,
+        has_spgr: bool,
+        has_ssfp: bool,
+        has_irspgr: bool,
+        has_b1: bool,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Describe which DESPOT-family fits the available acquisitions support."""
+        despot1_enabled = bool(modeling_cfg.despot1.get("enabled", False))
+        use_hifi = bool(modeling_cfg.despot1.get("use_hifi", False))
+        legacy_mcdespot = bool(modeling_cfg.despot2.get("mcdespot", False))
+        requested = {
+            "DESPOT1": despot1_enabled and not use_hifi,
+            "DESPOT1HIFI": despot1_enabled and use_hifi,
+            "DESPOT2": bool(modeling_cfg.despot2.get("enabled", False)),
+            "DESPOT2FM": bool(modeling_cfg.despot2fm.get("enabled", False)),
+            "mcDESPOT": bool(modeling_cfg.mcdespot.get("enabled", False))
+            or legacy_mcdespot,
+        }
+        requirements = {
+            "DESPOT1": {"SPGR": has_spgr},
+            "DESPOT1HIFI": {"SPGR": has_spgr, "IR-SPGR": has_irspgr},
+            "DESPOT2": {
+                "SPGR": has_spgr,
+                "SSFP": has_ssfp,
+                "B1 or IR-SPGR": has_b1 or has_irspgr,
+            },
+            "DESPOT2FM": {
+                "SPGR": has_spgr,
+                "SSFP": has_ssfp,
+                "B1 or IR-SPGR": has_b1 or has_irspgr,
+            },
+            "mcDESPOT": {
+                "SPGR": has_spgr,
+                "SSFP": has_ssfp,
+                "B1 or IR-SPGR": has_b1 or has_irspgr,
+            },
+        }
+        capabilities: Dict[str, Dict[str, Any]] = {}
+        for model_name, model_requirements in requirements.items():
+            missing = [
+                name for name, available in model_requirements.items() if not available
+            ]
+            capabilities[model_name] = {
+                "requested": requested[model_name],
+                "can_fit": not missing,
+                "missing_inputs": missing,
+            }
+        return capabilities
+
+    def _skip_unavailable_model(
+        self,
+        model_name: str,
+        missing_requirements: List[str],
+        fit_checks: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> None:
+        """Record and report an enabled model that cannot be fit safely."""
+        if fit_checks is not None:
+            check = fit_checks.setdefault(model_name, {})
+            check["can_fit"] = False
+            check["missing_inputs"] = missing_requirements
+            check["status"] = "skipped"
+        self.logger.warning(
+            "Skipping %s fitting; missing required input(s): %s.",
+            model_name,
+            ", ".join(missing_requirements),
+        )
+
     @staticmethod
     def _model_cli_options(config: Dict, exclude: set[str]) -> Dict:
         return {
@@ -1697,6 +1767,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         skip_existing: bool,
         fitted_maps: Dict[str, ImageFile],
         modeling_results: Dict[str, Dict[str, Path]],
+        fit_checks: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Path]:
         despot1_cfg = dict(modeling_cfg.despot1 or {})
         if not despot1_cfg.get("enabled", False):
@@ -1736,9 +1807,10 @@ class RelaxometryWorkflow(BaseWorkflow):
         )
         if use_hifi:
             if irspgr_stack is None:
-                raise ValueError(
-                    "DESPOT1-HIFI requested, but no IR-SPGR image was found."
+                self._skip_unavailable_model(
+                    "DESPOT1HIFI", ["IR-SPGR"], fit_checks
                 )
+                return {}
             results = fit_despot1_hifi(
                 spgr_file=spgr_stack,
                 irspgr_file=irspgr_stack,
@@ -1770,6 +1842,10 @@ class RelaxometryWorkflow(BaseWorkflow):
             fitted_maps=fitted_maps,
             modeling_results=modeling_results,
         )
+        if fit_checks is not None:
+            fit_checks[model_name].update(
+                {"can_fit": True, "missing_inputs": [], "status": "fit"}
+            )
         return results
 
     def _fit_downstream_despot_models(
@@ -1787,6 +1863,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         fitted_maps: Dict[str, ImageFile],
         modeling_results: Dict[str, Dict[str, Path]],
         context: Optional[dict] = None,
+        fit_checks: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> None:
         for spec in DESPOT_SPECS:
             model_cfg = dict(getattr(modeling_cfg, spec.cfg_attr, {}) or {})
@@ -1802,6 +1879,19 @@ class RelaxometryWorkflow(BaseWorkflow):
                     model_cfg.setdefault("enabled", True)
 
             if not model_cfg.get("enabled", False):
+                continue
+
+            missing_requirements: List[str] = []
+            if ssfp_stack is None:
+                missing_requirements.append("SSFP")
+            if not despot1_results.get("t1"):
+                missing_requirements.append("DESPOT1 T1 map")
+            if not (despot1_results.get("b1") or b1_path):
+                missing_requirements.append("B1 map or DESPOT1-HIFI B1 map")
+            if missing_requirements:
+                self._skip_unavailable_model(
+                    spec.name, missing_requirements, fit_checks
+                )
                 continue
 
             t1_path, despot_b1_path = self._resolve_despot_dependencies(
@@ -1887,6 +1977,10 @@ class RelaxometryWorkflow(BaseWorkflow):
                 fitted_maps=fitted_maps,
                 modeling_results=modeling_results,
             )
+            if fit_checks is not None:
+                fit_checks[spec.name].update(
+                    {"can_fit": True, "missing_inputs": [], "status": "fit"}
+                )
 
     def _run_model_fitting(
         self,
@@ -1949,6 +2043,15 @@ class RelaxometryWorkflow(BaseWorkflow):
             if spgr_stack is None:
                 raise ValueError("DESPOT fitting requires at least one SPGR image.")
 
+            fit_checks = self._build_model_fit_capabilities(
+                modeling_cfg,
+                has_spgr=spgr_stack is not None,
+                has_ssfp=ssfp_stack is not None,
+                has_irspgr=irspgr_stack is not None,
+                has_b1=b1_path is not None,
+            )
+            context["model_fit_capabilities"] = fit_checks
+
             despot1_results = self._fit_despot1_model(
                 modeling_cfg,
                 spgr_stack,
@@ -1961,6 +2064,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 skip_existing,
                 fitted_maps,
                 modeling_results,
+                fit_checks,
             )
             self._fit_downstream_despot_models(
                 modeling_cfg,
@@ -1976,6 +2080,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 fitted_maps,
                 modeling_results,
                 context,
+                fit_checks,
             )
         finally:
             if created_temp_inputs and cleanup_temp_inputs and input_dir.exists():
@@ -1985,6 +2090,11 @@ class RelaxometryWorkflow(BaseWorkflow):
             self._backfill_model_results(existing_model_dir, fitted_maps, modeling_results)
         context["fitted_maps"] = fitted_maps
         context["modeling_results"] = modeling_results
+        context["models_skipped"] = {
+            name: check["missing_inputs"]
+            for name, check in context.get("model_fit_capabilities", {}).items()
+            if check.get("requested") and check.get("status") == "skipped"
+        }
         return fitted_maps, modeling_results
 
     def _run_postprocessing_and_stats(
