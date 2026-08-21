@@ -1568,7 +1568,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             or legacy_mcdespot,
         }
         requirements = {
-            "DESPOT1": {"SPGR": has_spgr},
+            "DESPOT1": {"SPGR": has_spgr, "B1": has_b1},
             "DESPOT1HIFI": {"SPGR": has_spgr, "IR-SPGR": has_irspgr},
             "DESPOT2": {
                 "SPGR": has_spgr,
@@ -1791,6 +1791,15 @@ class RelaxometryWorkflow(BaseWorkflow):
                 modeling_results,
             )
 
+        if use_hifi and irspgr_stack is None:
+            self._skip_unavailable_model(
+                "DESPOT1HIFI", ["IR-SPGR"], fit_checks
+            )
+            return {}
+        if not use_hifi and b1_path is None:
+            self._skip_unavailable_model("DESPOT1", ["B1"], fit_checks)
+            return {}
+
         self.logger.info("Starting %s fitting.", model_name)
         algo = despot1_cfg.get("algo", "lsq")
         nthreads = self._model_nthreads(despot1_cfg)
@@ -1806,11 +1815,6 @@ class RelaxometryWorkflow(BaseWorkflow):
             },
         )
         if use_hifi:
-            if irspgr_stack is None:
-                self._skip_unavailable_model(
-                    "DESPOT1HIFI", ["IR-SPGR"], fit_checks
-                )
-                return {}
             results = fit_despot1_hifi(
                 spgr_file=spgr_stack,
                 irspgr_file=irspgr_stack,

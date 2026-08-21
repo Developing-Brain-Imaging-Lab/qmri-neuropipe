@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+from unittest.mock import Mock
 
 import nibabel as nib
 import numpy as np
@@ -325,7 +326,7 @@ def test_published_preprocessed_series_refreshes_existing_derivative(tmp_path):
     np.testing.assert_array_equal(nib.load(destination).get_fdata(), 1)
 
 
-def test_spgr_only_fits_despot1_and_skips_ssfp_models(
+def test_spgr_and_b1_fit_despot1_and_skip_ssfp_models(
     tmp_path, monkeypatch, caplog
 ):
     from qmri_neuropipe.workflows.pipelines import relaxometry as relax
@@ -356,6 +357,10 @@ def test_spgr_only_fits_despot1_and_skips_ssfp_models(
 
     monkeypatch.setattr(relax, "fit_despot1", fake_despot1)
     context = {}
+    b1_map = ImageFile(
+        img=tmp_path / "B1.nii.gz",
+        entities={"sub": "01", "suffix": "TB1map"},
+    )
     _, results = workflow._run_model_fitting(
         context,
         [spgr],
@@ -364,7 +369,7 @@ def test_spgr_only_fits_despot1_and_skips_ssfp_models(
         tmp_path / "params.json",
         tmp_path / "models",
         None,
-        None,
+        b1_map,
         "sub-01",
     )
 
@@ -378,6 +383,49 @@ def test_spgr_only_fits_despot1_and_skips_ssfp_models(
     }
     assert "SSFP" in context["models_skipped"]["DESPOT2"]
     assert "Skipping DESPOT2 fitting" in caplog.text
+
+
+def test_spgr_without_b1_skips_despot1(tmp_path, monkeypatch, caplog):
+    from qmri_neuropipe.workflows.pipelines import relaxometry as relax
+
+    workflow = RelaxometryWorkflow(
+        PipelineConfig(
+            bids_dir=tmp_path / "bids",
+            output_dir=tmp_path / "derivatives",
+        ),
+        logging.getLogger("test-spgr-without-b1-model-check"),
+        {},
+        RelaxometryConfig(
+            modeling=RelaxometryModelingConfig(despot1={"enabled": True})
+        ),
+    )
+    spgr = _spgr(tmp_path, values=[1, 2], flip_angles=[3, 12])
+    fit_despot1_mock = Mock()
+    monkeypatch.setattr(relax, "fit_despot1", fit_despot1_mock)
+    context = {}
+
+    _, results = workflow._run_model_fitting(
+        context,
+        [spgr],
+        [],
+        [],
+        tmp_path / "params.json",
+        tmp_path / "models",
+        None,
+        None,
+        "sub-01",
+    )
+
+    assert results == {}
+    assert fit_despot1_mock.call_count == 0
+    assert context["model_fit_capabilities"]["DESPOT1"] == {
+        "requested": True,
+        "can_fit": False,
+        "missing_inputs": ["B1"],
+        "status": "skipped",
+    }
+    assert context["models_skipped"] == {"DESPOT1": ["B1"]}
+    assert "Skipping DESPOT1 fitting" in caplog.text
 
 
 def test_reference_builder_supports_separate_3d_spgr_images(tmp_path):

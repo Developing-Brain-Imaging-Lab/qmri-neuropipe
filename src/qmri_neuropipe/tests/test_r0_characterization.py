@@ -422,9 +422,12 @@ class TestR6RelaxModelSpecs:
         ssfp = ImageFile({"sub": "01", "suffix": "VFA"}, tmp_path / "ssfp.nii.gz")
         params = tmp_path / "params.json"
         mask = tmp_path / "mask.nii.gz"
+        external_b1 = ImageFile(
+            {"sub": "01", "suffix": "TB1map"}, tmp_path / "external-b1.nii.gz"
+        )
         fit_dir = tmp_path / "models"
         wf._run_model_fitting(
-            {}, [spgr], [ssfp], [], params, fit_dir, mask, None, "sub-01"
+            {}, [spgr], [ssfp], [], params, fit_dir, mask, external_b1, "sub-01"
         )
 
         assert [name for name, _ in calls] == [
@@ -595,7 +598,7 @@ class TestR6RelaxModelSpecs:
             tmp_path / "params.json",
             tmp_path / "models",
             None,
-            None,
+            ImageFile({"suffix": "TB1map"}, tmp_path / "b1.nii.gz"),
             "sub-01",
         )
 
