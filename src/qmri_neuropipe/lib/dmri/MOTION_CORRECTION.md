@@ -138,6 +138,26 @@ The presence of `synb0` enables it unless `enabled: false` is set and implies
 requires `JacSep`, returning only the corrected acquired up series to downstream
 modeling rather than merging or concatenating derived duplicate signal.
 
+For cohorts containing a mix of acquired reverse-PE pairs and single-direction
+datasets, set `synthetic_reverse_pe.fallback_only: true`. The workflow then uses
+the acquired up/down pair whenever one is detected and generates the synthetic
+reverse-PE input only when no native pair exists. Synb0 remains available as the
+DRBUDDI structural reference in both branches. Without `fallback_only`, synthetic
+mode retains its strict behavior and rejects datasets with acquired reverse-PE
+groups.
+
+```yaml
+dmri:
+  preprocessing:
+    tortoise_v4:
+      epi: DRBUDDI
+      synb0:
+        enabled: true
+      synthetic_reverse_pe:
+        enabled: true
+        fallback_only: true
+```
+
 TORTOISE V4.1.1 segfaults in its final WLLS outlier model when `repol` is used
 with a b0-only Synb0 down series. The adapter therefore defaults
 `synb0_repol_policy` to `disable`, logs the change, and records requested versus

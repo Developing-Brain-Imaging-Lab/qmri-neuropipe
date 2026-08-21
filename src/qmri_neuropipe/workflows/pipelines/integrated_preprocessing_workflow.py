@@ -43,8 +43,16 @@ from qmri_neuropipe.lib.dmri.ants_motion import AntsDiffusionMotionCorrectionSte
 _TORTOISE_V4_METHODS = {'tortoise_v4', 'tortoise-v4', 'tortoise'}
 
 
-def _resolve_tortoise_v4_config(dmri_cfg: dict) -> tuple[bool, dict]:
-    """Resolve the new preprocessing stream and its legacy motion alias."""
+def _resolve_tortoise_v4_config(
+    dmri_cfg: dict,
+    context: dict | None = None,
+) -> tuple[bool, dict]:
+    """Resolve the new preprocessing stream and its legacy motion alias.
+
+    When ``synthetic_reverse_pe.fallback_only`` is enabled, select the native
+    reverse-PE path for datasets that contain an acquired opposite-PE group and
+    reserve synthetic generation for single-direction datasets.
+    """
     motion_cfg = dmri_cfg.get('motion_correction', {}) or {}
     legacy = motion_cfg.get('tortoise_v4', {}) or {}
     top_level_present = 'tortoise_v4' in dmri_cfg
@@ -81,6 +89,14 @@ def _resolve_tortoise_v4_config(dmri_cfg: dict) -> tuple[bool, dict]:
         options['use_synb0'] = True
         options['use_synthetic_reverse_pe'] = True
         options.setdefault('epi', 'DRBUDDI')
+        if isinstance(synthetic_reverse_cfg, dict) and bool(
+            synthetic_reverse_cfg.get('fallback_only', False)
+        ):
+            has_native_reverse_pe = bool(
+                context is not None and context.get('topup_groups')
+            )
+            options['use_synthetic_reverse_pe'] = not has_native_reverse_pe
+            options['use_reverse_pe'] = has_native_reverse_pe
     # Synb0 is an undistorted b0 target, not a reverse-PE acquisition.  With a
     # single acquired PE series it therefore drives structural (T2Wreg-style)
     # correction.  DRBUDDI remains reserved for actual blip-up/blip-down data;
@@ -159,7 +175,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         )
 
         dmri_cfg = (self.config.get('dmri') or {}).get('preprocessing', {})
-        self._log_effective_distortion_plan(dmri_cfg)
+        self._log_effective_distortion_plan(dmri_cfg, context)
         
         # Add steps based on configuration
         self._add_merge_step(dmri_cfg, context)
@@ -171,7 +187,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         self._add_manual_outlier_removal_step(dmri_cfg)
         self._add_denoising_step(dmri_cfg)
         self._add_gibbs_step(dmri_cfg)
-        self._add_motion_correction_step(dmri_cfg)
+        self._add_motion_correction_step(dmri_cfg, context)
         self._add_post_tortoise_distortion_correction_steps(dmri_cfg, context)
         self._add_post_eddy_distortion_refinement_step(dmri_cfg, context)
         self._add_automated_outlier_removal_step(dmri_cfg)
@@ -182,9 +198,9 @@ class PreprocessingWorkflow(BaseWorkflow):
         
         self.logger.info(f"Pipeline built with {len(self.steps)} steps")
 
-    def _log_effective_distortion_plan(self, dmri_cfg: dict) -> None:
+    def _log_effective_distortion_plan(self, dmri_cfg: dict, context: dict) -> None:
         """Report susceptibility routing before any workflow steps are added."""
-        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg, context)
         distcorr_cfg = dmri_cfg.get('distcorr', {}) or {}
         method = str(distcorr_cfg.get('method', 'none')).lower()
         epi = str(tortoise_cfg.get('epi', 'off')).lower()
@@ -303,7 +319,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         distcorr_cfg = dmri_cfg.get('distcorr', {})
         dist_method = distcorr_cfg.get('method', 'none')
         fallback = distcorr_cfg.get('fallback', False)
-        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg, context)
         tortoise_owns_epi = (
             tortoise_enabled
             and str(tortoise_cfg.get('epi', 'off')).lower() != 'off'
@@ -473,7 +489,7 @@ class PreprocessingWorkflow(BaseWorkflow):
         """Add merge step if multiple DWI files need to be combined."""
         dwi_files = context.get("dwi_files", [])
         merge_cfg = dmri_cfg.get('merging', {})
-        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg)
+        tortoise_enabled, tortoise_cfg = _resolve_tortoise_v4_config(dmri_cfg, context)
         if (
             tortoise_enabled
             and (tortoise_cfg.get('use_reverse_pe', False) or tortoise_cfg.get('use_synb0', False))
@@ -558,12 +574,12 @@ class PreprocessingWorkflow(BaseWorkflow):
                 method=method
             ))
 
-    def _add_motion_correction_step(self, dmri_cfg: dict):
+    def _add_motion_correction_step(self, dmri_cfg: dict, context: dict):
         """Add motion/eddy correction step if enabled."""
         motion_cfg = dmri_cfg.get('motion_correction', {})
         legacy_eddy_cfg = dmri_cfg.get('eddy', {})
 
-        tortoise_enabled, tortoise_options = _resolve_tortoise_v4_config(dmri_cfg)
+        tortoise_enabled, tortoise_options = _resolve_tortoise_v4_config(dmri_cfg, context)
         if tortoise_enabled:
             if getattr(self, '_delegate_reorientation_to_tortoise', False):
                 tortoise_options['reorient_to_orientation'] = getattr(

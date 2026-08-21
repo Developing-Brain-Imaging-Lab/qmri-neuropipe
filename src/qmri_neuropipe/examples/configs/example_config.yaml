@@ -181,11 +181,15 @@ dmri:
 
       # EXPERIMENTAL: estimate a field from acquired b0 + undistorted Synb0,
       # forward-distort Synb0 with the opposite PE polarity, and provide that
-      # manufactured b0-only series to TORTOISE DRBUDDI. Remove/disable
-      # use_reverse_pe when enabling this mode. It does not add independent
-      # acquisition information and requires careful visual QC.
+      # manufactured b0-only series to TORTOISE DRBUDDI. Unless fallback_only
+      # is enabled, remove/disable use_reverse_pe when enabling this mode. It
+      # does not add independent acquisition information and requires careful
+      # visual QC. Set
+      # fallback_only: true to prefer acquired reverse-PE data when present and
+      # generate this synthetic series only for single-direction datasets.
       synthetic_reverse_pe:
         enabled: false
+        fallback_only: false
         forward_warp_backend: fugue
         fugue_unwarpdir: auto  # x/x-/y/y-/z/z- override recommended after validation
         intensity_correction: true

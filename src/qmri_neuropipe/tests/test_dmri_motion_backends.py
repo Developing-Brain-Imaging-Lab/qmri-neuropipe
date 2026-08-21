@@ -538,6 +538,96 @@ def test_experimental_synb0_reverse_pe_workflow_order():
     assert options.get("use_reverse_pe") is None
 
 
+def test_synthetic_reverse_pe_fallback_uses_synthetic_for_single_pe():
+    preprocessing = {
+        "tortoise_v4": {
+            "epi": "DRBUDDI",
+            "use_reverse_pe": True,
+            "synb0": {"enabled": True, "registration_backend": "ants"},
+            "synthetic_reverse_pe": {
+                "enabled": True,
+                "fallback_only": True,
+                "forward_warp_backend": "fugue",
+            },
+        }
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    workflow.build_pipeline({
+        "dwi_files": [DWIFile(entities={"suffix": "dwi"}, img=Path("/tmp/up.nii.gz"))],
+        "topup_groups": [],
+        "t1w_files": [object()],
+    })
+
+    assert [type(step) for step in workflow.steps] == [
+        Synb0EstimationStep,
+        TopupStep,
+        SyntheticReversePEStep,
+        TortoiseV4CorrectionStep,
+    ]
+    options = workflow.steps[-1].options
+    assert options["use_synthetic_reverse_pe"] is True
+    assert options["use_reverse_pe"] is False
+
+
+def test_synthetic_reverse_pe_fallback_prefers_native_reverse_pe():
+    preprocessing = {
+        "tortoise_v4": {
+            "epi": "DRBUDDI",
+            "synb0": {"enabled": True, "registration_backend": "ants"},
+            "synthetic_reverse_pe": {
+                "enabled": True,
+                "fallback_only": True,
+                "forward_warp_backend": "fugue",
+            },
+        }
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+    up = DWIFile(entities={"suffix": "dwi", "dir": "AP"}, img=Path("/tmp/up.nii.gz"))
+    down = DWIFile(entities={"suffix": "dwi", "dir": "PA"}, img=Path("/tmp/down.nii.gz"))
+    workflow.build_pipeline({
+        "dwi_files": [up, down],
+        "topup_groups": [[up, down]],
+        "t1w_files": [object()],
+    })
+
+    assert [type(step) for step in workflow.steps] == [
+        Synb0EstimationStep,
+        TortoiseV4CorrectionStep,
+    ]
+    options = workflow.steps[-1].options
+    assert options["use_synthetic_reverse_pe"] is False
+    assert options["use_reverse_pe"] is True
+
+
+def test_strict_synthetic_reverse_pe_still_rejects_native_pair():
+    preprocessing = {
+        "tortoise_v4": {
+            "synb0": {"enabled": True},
+            "synthetic_reverse_pe": {"enabled": True},
+        }
+    }
+    config = PipelineConfig(
+        bids_dir=Path("/tmp/bids"), output_dir=Path("/tmp/out"),
+        config_data={"dmri": {"preprocessing": preprocessing}},
+    )
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+
+    with pytest.raises(ValueError, match="only for datasets without"):
+        workflow.build_pipeline({
+            "dwi_files": [],
+            "topup_groups": [[object(), object()]],
+            "t1w_files": [object()],
+        })
+
+
 def test_synthetic_reverse_pe_generation_uses_bids_readout(tmp_path: Path, monkeypatch):
     acquired = _dwi(
         tmp_path,
