@@ -50,6 +50,9 @@ amico = [
 nexi = [
     "nexi"
 ]
+mapmri = [
+    "cvxpy>=1.4,<2"
+]
 nifreeze = [
     "nifreeze"
 ]
@@ -93,6 +96,7 @@ print3d = [
 all = [
     "dmri-amico",
     "nexi",
+    "cvxpy>=1.4,<2",
     "HD-BET",
     "imagecodecs>=2023.9.18",
     "antspynet>=0.3.2,<0.4",

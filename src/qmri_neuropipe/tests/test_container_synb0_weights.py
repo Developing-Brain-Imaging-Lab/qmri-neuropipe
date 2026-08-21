@@ -69,6 +69,23 @@ def test_tractseg_extra_supplies_undeclared_pytorch_dependency():
     assert '"torch>=2.0"' in all_extra
 
 
+def test_mapmri_extra_and_container_definitions_install_cvxpy():
+    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")
+    mapmri_extra = project.split("mapmri = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+    all_extra = project.split("all = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+
+    assert '"cvxpy>=1.4,<2"' in mapmri_extra
+    assert '"cvxpy>=1.4,<2"' in all_extra
+    assert 'pip install --no-build-isolation --prefer-binary ".[all]"' in dockerfile
+    assert "import cvxpy; import dmipy_fit" in dockerfile
+    assert "'SCS' in cvxpy.installed_solvers()" in dockerfile
+    assert "nexi,mapmri,pyafq" in definition
+    assert "import antspynet; import cvxpy; import dmipy_fit" in definition
+    assert "'SCS' in cvxpy.installed_solvers()" in definition
+
+
 def test_container_definitions_install_tortoise_fftw_runtime_and_check_loader():
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
     definition = (REPO_ROOT / "Apptainer.def").read_text(encoding="utf-8")

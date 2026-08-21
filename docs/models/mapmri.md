@@ -8,6 +8,16 @@ MAP-MRI provides a comprehensive description of the diffusion signal using a bas
 
 **DIPY** (`dipy.reconst.mapmri`).
 
+Constrained MAP-MRI fitting also requires CVXPY. Install it with the MAP-MRI
+extra for local environments:
+
+```bash
+pip install -e ".[mapmri]"
+```
+
+The Docker and Apptainer definitions include this extra and verify that CVXPY
+can be imported while the image is built.
+
 ## Configuration
 
 ```yaml

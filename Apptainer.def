@@ -5,7 +5,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     # Install optional features that currently resolve together. MRIQC and
     # Nifreeze are excluded for now because their nitransforms requirements
     # conflict.
-    PYTHON_EXTRAS=dmipy-cuda12,amico,nexi,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
+    PYTHON_EXTRAS=dmipy-cuda12,amico,nexi,mapmri,pyafq,hdbet,antspynet,tractseg,synb0,tracker,reporting,viewer
     # Torch 2.4.1+cu121 requires nvidia-cudnn-cu12==9.1.0.70, which is no
     # longer published. 2.3.1 is the newest CUDA 12.1 line whose complete
     # dependency set remains available for FreeSurfer's Python 3.8 runtime.
@@ -264,7 +264,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         "${PACKAGE_SPEC}"
     ${CONDA_DIR}/bin/python -m pip check
     ${CONDA_DIR}/bin/python -c \
-        "import amico; import ants; import antspynet; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg"
+        "import amico; import ants; import antspynet; import cvxpy; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg; assert 'SCS' in cvxpy.installed_solvers(), 'CVXPY SCS solver is unavailable'"
     for executable in antsRegistration TractSeg Tracking hd-bet dwi2response; do
         command -v "${executable}" >/dev/null
     done

@@ -186,7 +186,8 @@ COPY src /app/src
 
 RUN ${CONDA_DIR}/bin/python -m pip install --upgrade pip "setuptools>=83" wheel && \
     ${CONDA_DIR}/bin/python -m pip install --no-build-isolation --prefer-binary ".[all]" && \
-    ${CONDA_DIR}/bin/python -c "import dmipy_fit" && \
+    ${CONDA_DIR}/bin/python -m pip check && \
+    ${CONDA_DIR}/bin/python -c "import cvxpy; import dmipy_fit; assert 'SCS' in cvxpy.installed_solvers(), 'CVXPY SCS solver is unavailable'" && \
     mkdir -p "${DIPY_HOME}" && \
     ${CONDA_DIR}/bin/python -c "from dipy.data import fetch_synb0_weights; fetch_synb0_weights()" && \
     chmod -R a+rX "${DIPY_HOME}"
