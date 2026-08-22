@@ -58,7 +58,14 @@ def test_submit_staged_infers_rows_without_manifest(tmp_path):
     staging_dir.mkdir()
     (staging_dir / "sub-10021_ses-01_bids.tar.gz").write_bytes(b"")
     (staging_dir / "sub-10022_ses-02_bids.tar.gz").write_bytes(b"")
-    args = _submit_staged_args(tmp_path, staging_dir, submit_dir, subject="10021", session="01")
+    args = _submit_staged_args(
+        tmp_path,
+        staging_dir,
+        submit_dir,
+        subject="10021",
+        session="01",
+        modeling_only="auto",
+    )
 
     qneuro_condor.cmd_submit_staged(args)
 
@@ -73,6 +80,9 @@ def test_submit_staged_infers_rows_without_manifest(tmp_path):
         ]
     ]
     assert (submit_dir / "qneuro_generated.sub").is_file()
+    submit_text = (submit_dir / "qneuro_generated.sub").read_text()
+    assert "modeling_only = auto" in submit_text
+    assert '"$(gnl_coeff_name)" "$(t1w_match_acq)" "$(t1w_match_desc)"' in submit_text
 
 
 def test_submit_staged_keeps_explicit_manifest_strict(tmp_path):

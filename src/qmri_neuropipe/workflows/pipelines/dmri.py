@@ -191,6 +191,24 @@ def _validate_dwi_gradient_tables(dwi_files) -> None:
         )
 
 
+def _cached_preprocessing_is_model_ready(cached: Optional[dict]) -> bool:
+    """Return whether cached preprocessing has images and core gradient sidecars."""
+    if not cached:
+        return False
+    dwis = cached.get("preprocessed_dwis") or []
+    if not dwis:
+        return False
+    return all(
+        value and Path(value).is_file()
+        for dwi in dwis
+        for value in (
+            getattr(dwi, "img", None),
+            getattr(dwi, "bval", None),
+            getattr(dwi, "bvec", None),
+        )
+    )
+
+
 class DMRIPipeline(BasePipeline):
     """
     Diffusion MRI Processing Pipeline.
@@ -281,14 +299,32 @@ class DMRIPipeline(BasePipeline):
             self.logger.warning(f"No DWI files found for sub-{subject} {ses}. Skipping.")
             return
 
+        dmri_cfg = self.config.get("dmri")
+        modeling_setting = (dmri_cfg or {}).get("modeling_only", False)
+        if isinstance(modeling_setting, str):
+            modeling_mode = modeling_setting.strip().lower()
+        else:
+            modeling_mode = "true" if modeling_setting else "false"
+        if modeling_mode not in {"false", "true", "auto"}:
+            raise ValueError("dmri.modeling_only must be false, true, or auto.")
+        fit_preferred = modeling_mode in {"true", "auto"}
+        preprocessed_candidate = any(output_dir.glob("*desc-preproc*_dwi.nii*"))
+        reuse_candidate = modeling_mode == "true" or (
+            modeling_mode == "auto" and preprocessed_candidate
+        )
+
         # Run MRIQC if enabled
         qc_cfg = self.config.get("qc", {}).get("mriqc", {})
-        if qc_cfg.get("enabled"):
+        if qc_cfg.get("enabled") and not reuse_candidate:
             self._run_mriqc(subject, session)
 
         # Run anatomical preprocessing if enabled
         anat_cfg = self.config.get("anat", {}).get("preprocessing", {})
-        if anat_cfg and (t1w_files or t2w_files):
+        if reuse_candidate:
+            self.logger.info(
+                "Model-fit mode: found staged preprocessing and will reuse it."
+            )
+        elif anat_cfg and (t1w_files or t2w_files):
             t1w_files, t2w_files = self._run_anatomical_preprocessing(
                 subject, session, t1w_files, t2w_files, anat_work_dir, reporter
             )
@@ -300,7 +336,6 @@ class DMRIPipeline(BasePipeline):
             )
 
         # Check if dMRI processing is enabled
-        dmri_cfg = self.config.get("dmri")
         if not dmri_cfg:
             self.logger.info("dMRI processing not enabled. Skipping diffusion steps.")
             reporter.generate()
@@ -340,16 +375,56 @@ class DMRIPipeline(BasePipeline):
             )
             context["dwi_group"] = group_label
 
-            preprocessed_context = self._run_preprocessing(
-                context, group_work_dir, output_dir, reporter
-            )
+            if fit_preferred:
+                cached = self._load_preprocessed_from_output(context, output_dir)
+                if _cached_preprocessing_is_model_ready(cached):
+                    context.update(cached)
+                    context["preprocessing_skipped"] = True
+                    preprocessed_context = context
+                    self.logger.info(
+                        "Model-fit mode: using existing preprocessed DWI derivatives."
+                    )
+                elif modeling_mode == "true":
+                    raise FileNotFoundError(
+                        "dmri.modeling_only is enabled, but no complete preprocessed "
+                        f"DWI derivative set was found in {output_dir}. Stage the "
+                        "subject/session dwi derivative directory before running."
+                    )
+                else:
+                    if cached:
+                        self.logger.warning(
+                            "Cached preprocessing was found but is missing a DWI image, "
+                            "b-value file, or b-vector file; treating it as incomplete."
+                        )
+                    self.logger.info(
+                        "Model-fit auto mode: no complete preprocessing derivatives "
+                        "were found; running diffusion preprocessing first."
+                    )
+                    if reuse_candidate and anat_cfg and (t1w_files or t2w_files):
+                        t1w_files, t2w_files = self._run_anatomical_preprocessing(
+                            subject,
+                            session,
+                            t1w_files,
+                            t2w_files,
+                            anat_work_dir,
+                            reporter,
+                        )
+                        context["t1w_files"] = t1w_files
+                        context["t2w_files"] = t2w_files
+                    preprocessed_context = self._run_preprocessing(
+                        context, group_work_dir, output_dir, reporter
+                    )
+            else:
+                preprocessed_context = self._run_preprocessing(
+                    context, group_work_dir, output_dir, reporter
+                )
 
             if self.modeling.steps or dmri_cfg.get('modeling'):
                 self._run_modeling(
                     preprocessed_context, group_work_dir, output_dir, reporter
                 )
 
-            if self.config.get("gratio", {}).get("enabled", False):
+            if not fit_preferred and self.config.get("gratio", {}).get("enabled", False):
                 from .gratio import run_aggregate_gratio_subject
                 current_dwi = preprocessed_context.get("current_image")
                 gratio_results = run_aggregate_gratio_subject(
@@ -373,17 +448,20 @@ class DMRIPipeline(BasePipeline):
                             key = metric if len(gratio_results) == 1 else f"{metric}_set{result_index}"
                             bucket[key] = path
 
-            if self.normalization.steps or dmri_cfg.get('normalization', {}).get('enabled'):
+            if not fit_preferred and (
+                self.normalization.steps or dmri_cfg.get('normalization', {}).get('enabled')
+            ):
                 self._run_normalization(
                     preprocessed_context, group_work_dir, output_dir, reporter
                 )
 
-            if self.segmentation.steps or dmri_cfg.get('analysis'):
+            if not fit_preferred and (self.segmentation.steps or dmri_cfg.get('analysis')):
                 self._run_segmentation(
                     preprocessed_context, group_work_dir, output_dir, reporter
                 )
 
-            self._update_study_tracker(preprocessed_context, output_dir)
+            if not fit_preferred:
+                self._update_study_tracker(preprocessed_context, output_dir)
         
         # Generate final report
         reporter.generate()

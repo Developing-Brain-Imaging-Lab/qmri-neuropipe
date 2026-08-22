@@ -30,7 +30,7 @@ COMMAND_SETTINGS = {
         "package_dir", "requirements", "getenv", "gpu_minimum_capability",
         "want_flocking", "want_glidein", "want_gpu_lab", "gpu_job_length",
         "notification", "notify_user", "log_dir", "output_directory",
-        "output_destination",
+        "output_destination", "preprocessed_dir", "modeling_only",
     },
     "push-submit": {
         "container_image", "config_file", "freesurfer_license", "gnl_coeff_file", "bids_dir",
@@ -42,11 +42,12 @@ COMMAND_SETTINGS = {
         "requirements", "getenv", "gpu_minimum_capability", "want_flocking",
         "want_glidein", "want_gpu_lab", "gpu_job_length", "notification",
         "notify_user", "log_dir", "output_directory", "output_destination",
+        "preprocessed_dir", "modeling_only",
     },
     "stage-remote": {
         "remote_host", "remote_stage_dir", "bids_dir", "subject", "subjects",
         "subjects_file", "session", "sessions", "bids_include_dirs", "bids_exclude_dirs",
-        "anat_derivatives_dir", "manifest_name",
+        "anat_derivatives_dir", "preprocessed_dir", "manifest_name",
         "bundle_name", "create_remote_dir", "bundle", "no_bundle",
         "include_support_files", "config_file", "freesurfer_license", "gnl_coeff_file",
         "copy_script", "no_copy_script",
@@ -60,7 +61,7 @@ COMMAND_SETTINGS = {
         "submit_file_name", "queue_file_name", "no_submit", "requirements",
         "getenv", "gpu_minimum_capability", "want_flocking", "want_glidein",
         "want_gpu_lab", "gpu_job_length", "notification", "notify_user",
-        "log_dir", "output_directory", "output_destination",
+        "log_dir", "output_directory", "output_destination", "modeling_only",
     },
     "collect-outputs": {
         "outputs_dir", "remote_host", "remote_outputs_dir", "bids_dir",
@@ -495,6 +496,7 @@ def create_bids_archive(
     include_dirs: list[str] | None = None,
     exclude_dirs: list[str] | None = None,
     anat_derivatives_dir: Path | None = None,
+    preprocessed_dir: Path | None = None,
 ) -> Path:
     input_rel, archive_name = tar_members(subject, session)
     if not (bids_dir / input_rel).is_dir():
@@ -532,6 +534,21 @@ def create_bids_archive(
                         arcname=f"{target_anat}/{item.name}",
                         filter=tarinfo_without_macos_metadata,
                     )
+        if preprocessed_dir is not None:
+            derivative_dwi = preprocessed_dir / input_rel / "dwi"
+            if not derivative_dwi.is_dir():
+                print(
+                    "  No preprocessed DWI derivatives found; the job can run "
+                    f"preprocessing in auto mode: {derivative_dwi}",
+                    file=sys.stderr,
+                )
+            else:
+                target_dwi = f"qneuro_preprocessed/{input_rel}/dwi"
+                print(f"  Adding preprocessed DWI derivatives from: {derivative_dwi}")
+                # Modeling needs the published preprocessing products in this
+                # directory, not prior models/normalization subdirectories.
+                add_empty_dir(tf, derivative_dwi, target_dwi)
+                add_direct_files(tf, derivative_dwi, target_dwi)
     return archive
 
 
@@ -753,6 +770,7 @@ def generate_submit_file(
     log_dir: str,
     output_directory: str,
     output_destination: str,
+    modeling_only: str,
 ) -> None:
     container_image = htcondor_transfer_source(container_image)
     config_file = htcondor_transfer_source(config_file)
@@ -815,10 +833,11 @@ gpus = {gpus}
 memory_gb = {memory_gb}
 disk_gb = {disk_gb}
 require_dwi = {require_dwi}
+modeling_only = {modeling_only}
 t1w_match_acq = {t1w_match_acq}
 t1w_match_desc = {t1w_match_desc}
 
-arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) $(gnl_coeff_name) $(t1w_match_acq) $(t1w_match_desc)
+arguments = run $(SUBJECT) $(SESSION) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) "$(gnl_coeff_name)" "$(t1w_match_acq)" "$(t1w_match_desc)" $(modeling_only)
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
@@ -849,6 +868,8 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
     exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
     anat_derivatives_dir = getattr(args, "anat_derivatives_dir", "")
     derivative_root = Path(anat_derivatives_dir).expanduser().resolve() if anat_derivatives_dir else None
+    preprocessed_dir = getattr(args, "preprocessed_dir", "")
+    preprocessed_root = Path(preprocessed_dir).expanduser().resolve() if preprocessed_dir else None
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -864,6 +885,7 @@ def build_queue_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
             include_dirs=include_dirs,
             exclude_dirs=exclude_dirs,
             anat_derivatives_dir=derivative_root,
+            preprocessed_dir=preprocessed_root,
         )
         archives.append(archive)
         bids_input = f"{transfer_uri}/{archive.name}" if transfer_uri else htcondor_transfer_source(str(archive))
@@ -880,6 +902,8 @@ def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
     exclude_dirs = split_csvish(getattr(args, "bids_exclude_dirs", ""))
     anat_derivatives_dir = getattr(args, "anat_derivatives_dir", "")
     derivative_root = Path(anat_derivatives_dir).expanduser().resolve() if anat_derivatives_dir else None
+    preprocessed_dir = getattr(args, "preprocessed_dir", "")
+    preprocessed_root = Path(preprocessed_dir).expanduser().resolve() if preprocessed_dir else None
     rows: list[list[str]] = []
     archives: list[Path] = []
 
@@ -895,6 +919,7 @@ def build_stage_rows(args: argparse.Namespace, archive_dir: Path) -> tuple[list[
             include_dirs=include_dirs,
             exclude_dirs=exclude_dirs,
             anat_derivatives_dir=derivative_root,
+            preprocessed_dir=preprocessed_root,
         )
         archives.append(archive)
         rows.append([subject, session_arg, session_arg, archive.name])
@@ -957,6 +982,23 @@ def add_submit_common_args(parser: argparse.ArgumentParser) -> None:
         "--anat-derivatives-dir",
         default="",
         help="Derivative dataset root whose sub-*/[ses-*]/anat files are added to each archive.",
+    )
+    parser.add_argument(
+        "--preprocessed-dir",
+        default="",
+        help=(
+            "Derivative dataset root containing sub-*/[ses-*]/dwi preprocessed files. "
+            "These files are staged into the job output tree for --modeling-only."
+        ),
+    )
+    parser.add_argument(
+        "--modeling-only",
+        default="false",
+        choices=("auto", "true", "false"),
+        help=(
+            "Model-fit mode: auto reuses preprocessing when available and runs it "
+            "when absent; true requires preprocessing to exist; false runs the normal pipeline."
+        ),
     )
     parser.add_argument(
         "--t1w-match-acq",
@@ -1041,6 +1083,7 @@ def cmd_submit_local(args: argparse.Namespace) -> int:
         log_dir=args.log_dir,
         output_directory=args.output_directory,
         output_destination=args.output_destination,
+        modeling_only=getattr(args, "modeling_only", "false"),
     )
 
     print(f"Wrote submit file: {submit_file}")
@@ -1110,6 +1153,7 @@ def cmd_push_submit(args: argparse.Namespace) -> int:
         log_dir=args.log_dir,
         output_directory=args.output_directory,
         output_destination=args.output_destination,
+        modeling_only=getattr(args, "modeling_only", "false"),
     )
 
     mkdir_cmd = f"mkdir -p {shlex.quote(remote_submit_dir)} {shlex.quote(remote_package_dir)}"
@@ -1286,6 +1330,7 @@ def cmd_submit_staged(args: argparse.Namespace) -> int:
         log_dir=args.log_dir,
         output_directory=args.output_directory,
         output_destination=args.output_destination,
+        modeling_only=getattr(args, "modeling_only", "false"),
     )
 
     print(f"Wrote submit file: {submit_file}")
@@ -1728,6 +1773,25 @@ def apply_t1w_match_desc(config_path: Path, desc: str) -> None:
     apply_t1w_match_entities(config_path, desc=desc)
 
 
+def apply_modeling_only(config_path: Path, enabled: str) -> None:
+    """Enable strict or automatic dMRI model-fit mode in the job-local config."""
+    mode = str(enabled).strip().lower()
+    if mode not in {"true", "auto"}:
+        return
+    import yaml
+
+    payload = yaml.safe_load(config_path.read_text()) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"Pipeline config must contain a mapping: {config_path}")
+    dmri = payload.setdefault("dmri", {})
+    if not isinstance(dmri, dict):
+        raise ValueError("Cannot enable modeling-only mode because config 'dmri' is not a mapping")
+    dmri["modeling_only"] = True if mode == "true" else "auto"
+    payload["skip_existing"] = True
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False))
+    print(f"Enabled dmri.modeling_only={dmri['modeling_only']!r} in the job-local config")
+
+
 def extract_input_archives(cwd: Path, subject: str, session_for_name: str) -> None:
     output_name = f"qneuro_outputs_sub-{subject}_ses-{session_for_name}.tar.gz"
     for archive in sorted(cwd.iterdir()):
@@ -1780,6 +1844,16 @@ def stage_bids_tree(cwd: Path, subject: str, session: str) -> Path:
     return data_dir
 
 
+def stage_preprocessed_tree(cwd: Path) -> None:
+    """Copy packaged preprocessing derivatives into the job-local output tree."""
+    source = cwd / "qneuro_preprocessed"
+    if not source.is_dir():
+        return
+    destination = cwd / "out"
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    print(f"Staged preprocessed DWI derivatives into: {destination}")
+
+
 def preflight_dwi(data_dir: Path, subject: str, session: str, require_dwi: str) -> None:
     dwi_dir = data_dir / f"sub-{subject}"
     if session:
@@ -1816,7 +1890,7 @@ def cmd_run(argv: list[str]) -> int:
         eprint(
             "Usage: qneuro_condor.py run <subject> <session|none> <cpus> "
             "<memory_gb> <pipeline> [config_name] [require_dwi] [license_name] "
-            "[gnl_coeff_name] [t1w_match_acq] [t1w_match_desc]"
+            "[gnl_coeff_name] [t1w_match_acq] [t1w_match_desc] [modeling_only]"
         )
         return 2
 
@@ -1833,6 +1907,7 @@ def cmd_run(argv: list[str]) -> int:
     gnl_coeff_name = argv[8] if len(argv) > 8 else ""
     t1w_match_acq = argv[9] if len(argv) > 9 else ""
     t1w_match_desc = argv[10] if len(argv) > 10 else ""
+    modeling_only = argv[11] if len(argv) > 11 else "false"
 
     cwd = Path(os.environ.get("_CONDOR_SCRATCH_DIR", os.getcwd())).resolve()
     os.chdir(cwd)
@@ -1887,11 +1962,13 @@ def cmd_run(argv: list[str]) -> int:
     staged_config = cwd / "config" / config.name
     shutil.copy2(config, staged_config)
     apply_t1w_match_entities(staged_config, acq=t1w_match_acq, desc=t1w_match_desc)
+    apply_modeling_only(staged_config, modeling_only)
 
     copy_freesurfer_license(cwd, license_name)
     stage_gnl_coeff_file(cwd, gnl_coeff_name)
     extract_input_archives(cwd, subject, session_for_name)
     data_dir = stage_bids_tree(cwd, subject, session)
+    stage_preprocessed_tree(cwd)
 
     print("Staged BIDS tree:")
     for p in sorted(x for x in data_dir.rglob("*") if x.is_dir()):
@@ -1982,6 +2059,14 @@ def main(argv: list[str]) -> int:
         default="",
         help="Derivative dataset root whose sub-*/[ses-*]/anat files are added to each archive.",
     )
+    stage.add_argument(
+        "--preprocessed-dir",
+        default="",
+        help=(
+            "Derivative dataset root containing sub-*/[ses-*]/dwi preprocessed files "
+            "to package for a later modeling-only submission."
+        ),
+    )
     selection = stage.add_mutually_exclusive_group(required=True)
     selection.add_argument("--subject")
     selection.add_argument("--subjects", help="Comma-separated subject labels, for example: 10021,10022")
@@ -2061,6 +2146,15 @@ def main(argv: list[str]) -> int:
     staged.add_argument("--memory-gb", type=int, default=32)
     staged.add_argument("--disk-gb", type=int, default=40)
     staged.add_argument("--require-dwi", default="true", choices=("true", "false"))
+    staged.add_argument(
+        "--modeling-only",
+        default="false",
+        choices=("auto", "true", "false"),
+        help=(
+            "Model-fit mode: auto reuses preprocessing when available and runs it "
+            "when absent; true requires preprocessing to exist; false runs the normal pipeline."
+        ),
+    )
     staged.add_argument(
         "--t1w-match-acq",
         default="",

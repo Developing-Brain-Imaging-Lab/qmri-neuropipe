@@ -40,6 +40,11 @@ disk_gb = 40
 # Set to false only if you intentionally allow no-DWI subject/session jobs.
 require_dwi = true
 
+# Set to auto to reuse transferred preprocessing when present and run
+# preprocessing when absent. Set to true to require transferred derivatives
+# under qneuro_preprocessed/sub-*/[ses-*]/dwi.
+modeling_only = false
+
 # For session datasets, transfer only the requested session directory.
 # For single-session datasets, set session above to "none" and change this to:
 #   bids_input = $(bids_dir)/sub-$(subject)
@@ -59,7 +64,7 @@ bids_input = $(bids_dir)/sub-$(subject)/ses-$(session)
 # directory, your site must expose those paths inside container jobs.
 # ---------------------------------------------------------------------------
 
-arguments = $(subject) $(session) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name)
+arguments = $(subject) $(session) $(cpus) $(memory_gb) $(pipeline) $(config_name) $(require_dwi) $(license_name) "" "" "" $(modeling_only)
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT

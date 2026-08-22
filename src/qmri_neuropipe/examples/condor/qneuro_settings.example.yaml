@@ -34,6 +34,10 @@ stage_remote:
   anat_derivatives_dir: /study/dean_k99/Studies/infmri/derivatives/mpnrage
   # For diffusion processing, package only the BIDS datatypes the job needs.
   bids_include_dirs: [anat, dwi]
+  # To package existing preprocessing outputs for a modeling-only job, point
+  # this at the derivative root containing sub-*/ses-*/dwi. In that case,
+  # bids_include_dirs can normally be reduced to [dwi].
+  # preprocessed_dir: /study/dean_k99/Studies/infmri/derivatives/qmri-neuropipe
   # Pair by position: 10021/base, 10022/post, 10023/base.
   subjects: [10021, 10022, 10023]
   sessions: [base, post, base]
@@ -51,3 +55,7 @@ submit_staged:
   # `gw_magnus.dat` or `config/gw_magnus.dat`, not the osdf:/// URL.
   gnl_coeff_file: osdf:///chtc/staging/deaniii/gw_magnus.dat
   output_destination: osdf:///chtc/staging/deaniii/qneuro-outputs
+  # Use auto for mixed cohorts: complete staged preprocessing is reused, while
+  # subjects without it run preprocessing first. Both paths then run only the
+  # configured model fits. Use true instead to fail when preprocessing is absent.
+  modeling_only: auto
