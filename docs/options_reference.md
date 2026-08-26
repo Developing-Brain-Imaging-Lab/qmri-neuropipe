@@ -106,7 +106,7 @@ Direct keys and `coregistration.options` are merged; direct keys win.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `coregistration.enabled` | boolean | `false` | Enable alignment to an anatomical reference. |
-| `coregistration.method` | string | `ants` | `ants`, `fsl`, or `freesurfer`. |
+| `coregistration.method` | string | `ants` | `ants`, `fsl`, `freesurfer`, or `synthmorph`. |
 | `coregistration.reference_image` | string | `T1w` | `T1w`, `T2w`, `supersynth`, or `supersynth_multivariate`; dMRI also accepts `synthT1w` and `synthetic_t1w`. |
 | `coregistration.transform_type` | string | `Rigid` | ANTs transform (`Rigid`, `Affine`, `SyN`, `SyNOnly`, or another ANTsPy transform name). |
 | `coregistration.interpolation` | string | `linear` | ANTs interpolation, such as `linear`, `nearestNeighbor`, `bSpline`, or `genericLabel`. |

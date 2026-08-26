@@ -138,7 +138,7 @@ anat:
 
 | Key | Values | Notes |
 | --- | --- | --- |
-| `method` | `ants`, `fsl`, `freesurfer` | Transform estimation backend |
+| `method` | `ants`, `fsl`, `freesurfer`, `synthmorph` | Transform estimation backend |
 | `reference_image` | `T1w`, `T2w`, `supersynth`, `supersynth_multivariate` | SuperSynth modes synthesize registration contrasts |
 | `supersynth_input` | `auto`, `T1w`, `T2w` | Source contrast for synthetic target |
 | `supersynth_registration` | `single`, `multivariate` | Multivariate uses synthetic T1w and T2w channels |
@@ -277,7 +277,7 @@ dmri:
 
 | Key | Values | Notes |
 | --- | --- | --- |
-| `method` | `ants`, `fsl`, `freesurfer` | Registration backend |
+| `method` | `ants`, `fsl`, `freesurfer`, `synthmorph` | Registration backend |
 | `reference_image` | `T1w`, `T2w`, `supersynth`, `synthT1w`, `synthetic_t1w` | Target reference |
 | `apply_method` | `native`, `mrtrix` | `mrtrix` applies transforms with gradient handling when supported |
 | `output_resolution` | `anatomical`, `dwi`, `native` | Output grid |

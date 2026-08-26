@@ -277,7 +277,7 @@ dmri:
     # is then applied to the original DWI on the requested output grid.
     coregistration:
       enabled: false
-      method: ants
+      method: ants             # Options: ants, fsl, freesurfer, synthmorph
       reference_image: supersynth  # Or supersynth_multivariate with ANTs
       options:
         output_resolution: anatomical
@@ -638,7 +638,7 @@ dmri:
 #     # and applies it to the original anatomical images.
 #     coregistration:
 #       enabled: false
-#       method: ants              # Options: ants, fsl, freesurfer
+#       method: ants              # Options: ants, fsl, freesurfer, synthmorph
 #       reference_image: supersynth
 #       options:
 #         supersynth_input: t1w   # Fixed source; t2w reverses the pair

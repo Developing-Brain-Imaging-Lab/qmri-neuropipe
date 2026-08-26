@@ -24,6 +24,9 @@ from qmri_neuropipe.lib.dmri.fitting import (
     FWDTIFittingStep,
     MicrogliaFittingStep,
     DmipyModelFittingStep,
+    collect_model_derivatives,
+    _normalize_mapmri_metrics,
+    _mapmri_metric_suffix,
 )
 from qmri_neuropipe.lib.dmri.tractography import (
     MRtrixAnatomicalConstraintsStep,
@@ -776,10 +779,33 @@ class ModelingWorkflow(BaseWorkflow):
                     required = ['MK']
                 elif 'NODDI' in step_name:
                     model_dir = output_dir / 'NODDI'
-                    required = ['ODI']
+                    required = ['ODI', 'ICVF', 'FISO']
+                elif 'SANDI' in step_name:
+                    model_dir = output_dir / 'sandi'
+                    required = ['fsoma', 'fneurite', 'fextra']
+                elif 'MAPMRI' in step_name:
+                    model_dir = output_dir / 'mapmri'
+                    requested = _normalize_mapmri_metrics(
+                        getattr(step, 'kwargs', {}).get('metrics')
+                    )
+                    if not requested:
+                        requested = ['rtop', 'rtap', 'rtpp', 'qiv', 'msd', 'ng']
+                    required = [_mapmri_metric_suffix(metric) for metric in requested]
+                elif 'NEXI' in step_name:
+                    model_dir = output_dir / 'NEXI'
+                    required = ['TEX', 'DI', 'DE', 'F', 'SIGMA']
+                elif 'Microglia' in step_name:
+                    model_dir = output_dir / 'microglia'
+                    required = ['f_small_sphere']
+                elif step_name == 'DmipyModelFittingStep':
+                    # Completion for arbitrary dmipy models is manifest-based;
+                    # let the step validate and restore its declared outputs.
+                    return False
                 elif 'CSD' in step_name:
                     model_dir = output_dir / 'CSD'
-                    required = ['fod']
+                    if not model_dir.exists() or not any(model_dir.glob('*FOD.nii.gz')):
+                        return False
+                    continue
                 elif step_name == 'MRtrixAnatomicalConstraintsStep':
                     if not any((output_dir / 'MRtrix' / 'ACT').glob('*_desc-act5tt_probseg.nii.gz')):
                         return False
@@ -817,17 +843,17 @@ class ModelingWorkflow(BaseWorkflow):
                 if not model_dir.exists():
                     return False
                 
-                found = any(
-                    list(model_dir.glob(f"*{metric}*.nii.gz"))
+                all_found = all(
+                    any(model_dir.glob(f"*_{metric}.nii.gz"))
                     for metric in required
                 )
-                if not found:
+                if not all_found:
                     return False
         
         return True
 
     def _populate_modeling_results_from_cache(self, dwis, output_dir, context):
-        """Populate modeling_results in context when outputs are already cached."""
+        """Populate analysis inputs from every cached model derivative."""
         modeling_results = context.setdefault('modeling_results', {})
 
         # Use first DWI for naming; modeling results are per-subject/session here.
@@ -835,47 +861,34 @@ class ModelingWorkflow(BaseWorkflow):
         if not dwi:
             return
 
-        ents_base = dwi.entities.copy()
-        if 'desc' in ents_base:
-            del ents_base['desc']
-        if 'suffix' in ents_base:
-            del ents_base['suffix']
-
         model_specs = {
-            'DTI': ['FA', 'MD', 'AD', 'RD'],
-            'DKI': ['MK', 'AK', 'RK', 'FA', 'MD', 'AD', 'RD'],
-            'NODDI': ['ODI', 'NDI', 'FISO'],
-            'CSD': ['fod'],
-            'MAPMRI': ['RTOP', 'RTAP', 'RTPP'],
-            'SANDI': ['Fsoma', 'Fneurite'],
-            'FWDTI': ['F', 'MD', 'FA', 'RD', 'AD']
+            'DTI': ('DTI', 'DTI'),
+            'DKI': ('DKI', 'DKI'),
+            'NODDI': ('NODDI', 'NODDI'),
+            'CSD': ('CSD', 'CSD'),
+            'MAPMRI': ('mapmri', 'MAPMRI'),
+            'SANDI': ('sandi', 'SANDI'),
+            'microglia': ('microglia', 'microglia'),
+            'NEXI': ('NEXI', 'NEXI'),
+            'FWE_DTI': ('FWE_DTI', 'FWDTI'),
         }
 
-        for model_name, metrics in model_specs.items():
-            dir_name = 'FWE_DTI' if model_name == 'FWDTI' else model_name
+        for result_key, (dir_name, file_model_name) in model_specs.items():
             model_dir = output_dir / dir_name
             if not model_dir.exists():
                 continue
+            discovered = collect_model_derivatives(model_dir, file_model_name)
+            if discovered:
+                modeling_results.setdefault(result_key, {}).update(discovered)
 
-            model_results = modeling_results.setdefault(model_name, {})
-            ents = ents_base.copy()
-            ents['model'] = model_name
-
-            for metric in metrics:
-                suffix = metric
-                fname = build_bids_name(ents, suffix=suffix)
-                fpath = model_dir / fname
-                if not str(fpath).endswith('.nii.gz'):
-                    fpath = Path(str(fpath) + '.nii.gz')
-
-                if fpath.exists():
-                    model_results[metric] = fpath
-                    continue
-
-                # Fallback glob search
-                matches = list(model_dir.glob(f"*{metric}*.nii.gz"))
-                if matches:
-                    model_results[metric] = matches[0]
+        # Registry-driven dmipy models have dynamic directory and model names.
+        for model_dir in sorted(output_dir.glob('dmipy-*')):
+            if not model_dir.is_dir():
+                continue
+            model_name = model_dir.name.removeprefix('dmipy-')
+            discovered = collect_model_derivatives(model_dir, model_name)
+            if discovered:
+                modeling_results.setdefault(f'dmipy:{model_name}', {}).update(discovered)
 
         tract_root = output_dir / "MRtrix"
         tract_dir = tract_root / "tractography"

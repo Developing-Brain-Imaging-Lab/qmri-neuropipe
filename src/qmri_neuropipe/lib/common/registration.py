@@ -1,7 +1,8 @@
 """
 Registration module for generic coregistration.
 
-Supports coregistration of any two images using ANTs, FSL, or FreeSurfer.
+Supports coregistration of any two images using ANTs, FSL, FreeSurfer, or
+SynthMorph.
 """
 
 from pathlib import Path
@@ -105,6 +106,25 @@ def _bbregister_contrast(
     if target_modality == "T2w":
         return "t2"
     return "t1"
+
+
+def _synthmorph_coregistration_model(options: Dict[str, Any]) -> str:
+    """Resolve a linear SynthMorph model suitable for DWI coregistration."""
+    requested = options.get("synthmorph_model", options.get("transform_type", "rigid"))
+    model = str(requested or "rigid").strip().lower()
+    aliases = {
+        "rigidbody": "rigid",
+        "rigid-body": "rigid",
+        "linear": "affine",
+    }
+    model = aliases.get(model, model)
+    if model not in {"rigid", "affine"}:
+        raise ProcessingError(
+            "dMRI SynthMorph coregistration requires a linear model, either "
+            f"'rigid' or 'affine'; got {requested!r}. Deformable transforms "
+            "cannot be represented by one global b-vector rotation."
+        )
+    return model
 
 
 def _mrtrix_coregistration_grid_options(
@@ -769,6 +789,7 @@ class CoregistrationStep(BaseProcessingStep):
     - 'ants': Uses ANTs registration (Rigid).
     - 'fsl': Uses FSL FLIRT.
     - 'freesurfer': Uses FreeSurfer bbregister (for B0/T1w scenarios mostly).
+    - 'synthmorph': Uses FreeSurfer SynthMorph with a rigid or affine model.
     """
     
     def __init__(
@@ -776,13 +797,16 @@ class CoregistrationStep(BaseProcessingStep):
         config,
         logger: Optional[logging.Logger] = None,
         provenance = None,
-        method: Literal['ants', 'fsl', 'freesurfer'] = 'ants',
+        method: Literal['ants', 'fsl', 'freesurfer', 'synthmorph'] = 'ants',
         options: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(config, logger, provenance)
-        self.method = method
+        normalized_method = str(method).strip().lower()
+        if normalized_method == "mri_synthmorph":
+            normalized_method = "synthmorph"
+        self.method = normalized_method
         self.options = _flatten_registration_options(options)
-        self.logger.info(f"Initialized CoregistrationStep with method: {method}")
+        self.logger.info(f"Initialized CoregistrationStep with method: {self.method}")
 
     def validate_inputs(self, first_arg, **kwargs) -> None:
         pass
@@ -1107,7 +1131,7 @@ class CoregistrationStep(BaseProcessingStep):
             self.logger.info(f"Application method: {apply_method}")
 
             registration_inputs_stripped = False
-            if self.method in {"ants", "fsl"}:
+            if self.method in {"ants", "fsl", "synthmorph"}:
                 moving_for_reg, registration_target, registration_inputs_stripped = prepare_registration_images(
                     self.config,
                     self.logger,
@@ -1166,6 +1190,8 @@ class CoregistrationStep(BaseProcessingStep):
                 'supersynth_registration', 'supersynth_input',
                 'supersynth_mode', 'supersynth_device',
                 'supersynth_sharpen_synths', 'supersynth_b0_threshold', 'force',
+                'synthmorph_model', 'synthmorph_register_args',
+                'synthmorph_apply_args', 'synthmorph_transform_ext',
             ] + list(_ALL_SKULL_STRIP_OPTION_KEYS)
             fsl_opts = {k: v for k, v in options.items() if k not in known_args}
 
@@ -1197,6 +1223,9 @@ class CoregistrationStep(BaseProcessingStep):
                     transform_file = None
                     transform_type = 'flirt' 
                     
+                    transform_ref_image = registration_target
+                    transform_input_image = moving_for_reg
+
                     if self.method == 'freesurfer':
                          transform_file = output_mat
                          if registration_moving and registration_fixed:
@@ -1269,6 +1298,33 @@ class CoregistrationStep(BaseProcessingStep):
                          fsl_mat = output_dir / "coreg_dwi_to_anat_fsl.mat"
                          c3d.ants2fsl(registration_target, moving_for_reg, transform_file, fsl_mat)
                          transform_file = fsl_mat
+
+                    elif self.method == 'synthmorph':
+                         model = _synthmorph_coregistration_model(options)
+                         synthmorph_lta = output_transform.with_suffix(".lta")
+                         freesurfer.mri_synthmorph_register(
+                             moving=moving_for_reg,
+                             target=registration_target,
+                             transform_out=synthmorph_lta,
+                             model=model,
+                             extra_args=str(options.get("synthmorph_register_args", "") or ""),
+                             overwrite=bool(kwargs.get("force", False)),
+                         )
+                         if not synthmorph_lta.exists():
+                              raise ProcessingError(
+                                  "SynthMorph registration did not create its linear LTA transform: "
+                                  f"{synthmorph_lta}"
+                              )
+                         transform_file = output_mat
+                         freesurfer.lta_to_fsl(
+                             synthmorph_lta,
+                             transform_file,
+                             src=in_path,
+                             trg=output_grid_ref,
+                             force=bool(kwargs.get("force", False)),
+                         )
+                         transform_ref_image = output_grid_ref
+                         transform_input_image = in_path
                          
                     else:
                          transform_file = output_dir / "coreg_dwi_to_anat.mat"
@@ -1316,8 +1372,8 @@ class CoregistrationStep(BaseProcessingStep):
                         in_transform=transform_file,
                         out_mrtrix_transform=mrtrix_transform,
                         operation="flirt_import",
-                        ref_image=registration_target,
-                        in_image=moving_for_reg, 
+                        ref_image=transform_ref_image,
+                        in_image=transform_input_image,
                         force=True
                     )
                     
@@ -1554,6 +1610,49 @@ class CoregistrationStep(BaseProcessingStep):
                                 extra_args=f"-applyxfm -init {output_mat} -interp {options.get('interpolation', 'trilinear')}",
                             )
 
+                    elif self.method == 'synthmorph':
+                        model = _synthmorph_coregistration_model(options)
+                        synthmorph_lta = output_transform.with_suffix(".lta")
+                        freesurfer.mri_synthmorph_register(
+                            moving=moving_for_reg,
+                            target=registration_target,
+                            transform_out=synthmorph_lta,
+                            model=model,
+                            extra_args=str(options.get("synthmorph_register_args", "") or ""),
+                            overwrite=bool(kwargs.get("force", False)),
+                        )
+                        if not synthmorph_lta.exists():
+                            raise ProcessingError(
+                                "SynthMorph registration did not create its linear LTA transform: "
+                                f"{synthmorph_lta}"
+                            )
+                        apply_ref = output_grid_ref
+                        freesurfer.lta_to_fsl(
+                            synthmorph_lta,
+                            output_mat,
+                            src=in_path,
+                            trg=apply_ref,
+                            force=bool(kwargs.get("force", False)),
+                        )
+                        if is_dwi:
+                            fsl.apply_xfm_4d(
+                                in_file=in_path,
+                                ref_file=apply_ref,
+                                out_file=output_img,
+                                mat=output_mat,
+                                interp=options.get("interpolation", "trilinear"),
+                            )
+                        else:
+                            fsl.flirt(
+                                in_file=in_path,
+                                ref_file=apply_ref,
+                                out_file=output_img,
+                                extra_args=(
+                                    f"-applyxfm -init {output_mat} -interp "
+                                    f"{options.get('interpolation', 'trilinear')}"
+                                ),
+                            )
+
                     else:
                          raise ValueError(f"Unknown coregistration method: {self.method}")
 
@@ -1599,6 +1698,16 @@ class CoregistrationStep(BaseProcessingStep):
                                  rotated_bvecs = new_bvec_path
                              except Exception as e:
                                  raise ProcessingError(f"FreeSurfer b-vector rotation failed: {e}") from e
+
+                     elif self.method == 'synthmorph':
+                         mat_file = output_transform.with_suffix(".mat")
+                         if c3d.is_valid_fsl_affine(mat_file) and hasattr(input_image, 'bvec') and input_image.bvec and input_image.bvec.exists():
+                             new_bvec_path = output_dir / build_bids_name({**entities, "desc": new_desc}, suffix="bvec", extension=".bvec")
+                             try:
+                                 fsl.rotate_bvecs(input_image.bvec, mat_file, new_bvec_path)
+                                 rotated_bvecs = new_bvec_path
+                             except Exception as e:
+                                 raise ProcessingError(f"SynthMorph b-vector rotation failed: {e}") from e
                      
                      elif self.method == 'ants':
                          # Search for ANTs affine if consistent

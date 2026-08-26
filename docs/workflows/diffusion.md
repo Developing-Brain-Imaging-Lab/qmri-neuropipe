@@ -325,7 +325,7 @@ dmri:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `dmri.preprocessing.coregistration.enabled` | bool | false | Enable step |
-| `dmri.preprocessing.coregistration.method` | str | `ants` | `ants`, `fsl`, `freesurfer` |
+| `dmri.preprocessing.coregistration.method` | str | `ants` | `ants`, `fsl`, `freesurfer`, `synthmorph` |
 | `dmri.preprocessing.coregistration.options.apply_method` | str | `native` | `native`, `mrtrix` |
 | `dmri.preprocessing.coregistration.options.output_resolution` | str | `anatomical` | `anatomical`, `dwi`, `native` |
 | `dmri.preprocessing.coregistration.options.interpolation` | str | `linear` | `linear`, `nearest`, `sinc`, `cubic` |

@@ -229,7 +229,7 @@ anat:
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `enabled` | bool | false | Enable step |
-| `method` | str | `ants` (dmri) / `fsl` (anat) | `ants`, `fsl`, `freesurfer` |
+| `method` | str | `ants` (dmri) / `fsl` (anat) | `ants`, `fsl`, `freesurfer`, `synthmorph` |
 | `reference_image` | str | `t1w` | `t1w`, `t2w`, `supersynth`, or `supersynth_multivariate`; dMRI SuperSynth modes synthesize matching contrasts from a mean b0 and the anatomical input |
 | `supersynth_input` | str | `auto` | `auto`, `T1w`, `T2w`; selects the anatomical source. The dMRI source is an automatically extracted mean b0 |
 | `supersynth_registration` | str | none | Set to `multivariate` with `reference_image: supersynth` to use synthetic T1w and T2w pairs with ANTs. FSL and FreeSurfer use the synthetic T1w pair |

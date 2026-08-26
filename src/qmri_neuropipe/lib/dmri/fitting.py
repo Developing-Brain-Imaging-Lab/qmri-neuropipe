@@ -21,6 +21,32 @@ from ...core.caching import force_requested
 from ...io.bids import build_bids_name
 
 
+def collect_model_derivatives(model_dir: Path, model_name: str) -> dict[str, Path]:
+    """Return every NIfTI derivative in *model_dir*, keyed by its full metric.
+
+    Metric names are taken from the portion of the filename after the model
+    entity instead of the last underscore-delimited token.  The latter loses
+    compound metrics such as MAPMRI ``NG_PAR`` and ``NG_PERP``.
+    """
+    model_dir = Path(model_dir)
+    results: dict[str, Path] = {}
+    marker = f"_model-{model_name}_"
+
+    for path in sorted(model_dir.glob("*.nii.gz")):
+        stem = path.name[:-7]
+        marker_index = stem.lower().find(marker.lower())
+        if marker_index >= 0:
+            metric = stem[marker_index + len(marker):]
+        else:
+            # Backward-compatible fallback for older derivatives without a
+            # model entity in their filename.
+            metric = stem.rsplit("_", 1)[-1]
+        if metric:
+            results[metric] = path
+
+    return results
+
+
 def _resolve_context_gnl_map(context: dict | object, dwi: object | None = None) -> Optional[Path]:
     """Resolve the best GNL tensor for the current DWI, preferring image-specific mappings."""
     if not isinstance(context, dict):
@@ -630,7 +656,11 @@ class NODDIFittingStep(BaseProcessingStep):
         if all_found and not force:
              self.logger.info(f"Skipping NODDI fit for {dwi.img.name} (Found all required NODDI outputs)")
              should_run = False
-             context.setdefault('modeling_results', {})['NODDI'] = existing_results
+             # Required metrics decide whether the fit is complete, but every
+             # derivative already produced must remain available to analysis.
+             context.setdefault('modeling_results', {})['NODDI'] = (
+                 collect_model_derivatives(model_out, 'NODDI')
+             )
              
         if not should_run:
              return context
@@ -751,20 +781,7 @@ class NODDIFittingStep(BaseProcessingStep):
                     json.dump(sidecar, f, indent=4)
              
         # Update Context outputs
-        results = {}
-        # Scan dir for renamed files (since we just renamed them)
-        # Or easier: we know new_path from loop
-        pass # loop above handles renaming, let's scan dir or capture in loop. 
-        # Actually capturing in loop is hard since it replaces implementation.
-        # Let's just scan dir. 
-        for p in model_out.glob("*.nii.gz"):
-             # Parse suffix from filename? or just store filename as key?
-             # We want standard keys like 'ODI', 'ICVF'
-             # Filename: sub-XX_model-NODDI_ODI.nii.gz
-             # Extract suffix after last _ and before .nii.gz
-             name_part = p.name.replace('.nii.gz', '')
-             suffix = name_part.split('_')[-1] # e.g. ODI
-             results[suffix] = p
+        results = collect_model_derivatives(model_out, 'NODDI')
              
         context.setdefault('modeling_results', {})['NODDI'] = results
         return context
@@ -816,7 +833,9 @@ class SANDIFittingStep(BaseProcessingStep):
         if all_found and not force:
              self.logger.info(f"Skipping SANDI fit for {dwi.img.name} (Found all required SANDI outputs)")
              should_run = False
-             context.setdefault('modeling_results', {})['sandi'] = existing_results
+             context.setdefault('modeling_results', {})['sandi'] = (
+                 collect_model_derivatives(model_out, 'SANDI')
+             )
              
         if not should_run:
              return context
@@ -872,11 +891,7 @@ class SANDIFittingStep(BaseProcessingStep):
              raise ValueError(f"Unknown SANDI method: {self.method}")
 
         # Track Outputs for Normalization
-        results = {}
-        for p in model_out.glob("*.nii.gz"):
-              name_part = p.name.replace('.nii.gz', '')
-              suffix = name_part.split('_')[-1]
-              results[suffix] = p
+        results = collect_model_derivatives(model_out, 'SANDI')
         context.setdefault('modeling_results', {})['sandi'] = results
         return context
 
@@ -1327,7 +1342,9 @@ class MAPMRIFittingStep(BaseProcessingStep):
         if all_found and not force:
              self.logger.info(f"Skipping MAPMRI fit for {dwi.img.name} (Found all required MAPMRI outputs)")
              should_run = False
-             context.setdefault('modeling_results', {})['mapmri'] = existing_results
+             context.setdefault('modeling_results', {})['MAPMRI'] = (
+                 collect_model_derivatives(model_out, 'MAPMRI')
+             )
              
         if not should_run:
              return context
@@ -1374,12 +1391,8 @@ class MAPMRIFittingStep(BaseProcessingStep):
              raise ValueError(f"Unknown MAPMRI method: {self.method}")
              
         # Track Outputs for Normalization
-        results = {}
-        for p in model_out.glob("*.nii.gz"):
-              name_part = p.name.replace('.nii.gz', '')
-              suffix = name_part.split('_')[-1]
-              results[suffix] = p
-        context.setdefault('modeling_results', {})['mapmri'] = results
+        results = collect_model_derivatives(model_out, 'MAPMRI')
+        context.setdefault('modeling_results', {})['MAPMRI'] = results
         return context
 
 
@@ -1568,12 +1581,7 @@ class FWDTIFittingStep(BaseProcessingStep):
         
         if self.check_output_validity(fa_path) and self.check_output_validity(f_path) and not force:
              self.logger.info(f"Skipping FWE-DTI fit for {dwi.img.name} (Found valid existing outputs)")
-             # Collect existing
-             existing_results = {}
-             for p in [x for x in model_out.glob("*_FA.nii.gz") if self.check_output_validity(x)]: existing_results['FA'] = p
-             for p in [x for x in model_out.glob("*_F.nii.gz") if self.check_output_validity(x)]: existing_results['F'] = p
-             for p in [x for x in model_out.glob("*_MD.nii.gz") if self.check_output_validity(x)]: existing_results['MD'] = p
-             
+             existing_results = collect_model_derivatives(model_out, 'FWDTI')
              context.setdefault('modeling_results', {})['FWE_DTI'] = existing_results
              return context
 
@@ -1605,12 +1613,7 @@ class FWDTIFittingStep(BaseProcessingStep):
             raise ValueError(f"Unknown FWE-DTI method: {self.method} (only 'dipy' supported)")
             
         # Track Outputs
-        results = {}
-        for p in model_out.glob("*_FA.nii.gz"): results['FA'] = p
-        for p in model_out.glob("*_F.nii.gz"): results['F'] = p
-        for p in model_out.glob("*_MD.nii.gz"): results['MD'] = p
-        for p in model_out.glob("*_AD.nii.gz"): results['AD'] = p
-        for p in model_out.glob("*_RD.nii.gz"): results['RD'] = p
+        results = collect_model_derivatives(model_out, 'FWDTI')
         
         context.setdefault('modeling_results', {})['FWE_DTI'] = results
         return context

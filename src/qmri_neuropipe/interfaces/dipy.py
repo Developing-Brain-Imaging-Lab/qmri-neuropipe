@@ -1128,9 +1128,8 @@ def _normalize_dki_fit_method(fit_method: str) -> str:
         "ULLS": "OLS",
         "LS": "OLS",
         "LLS": "OLS",
-        # DIPY's DKI constructor does not expose NLLS directly. If the caller
-        # requests iterative robust fitting, weights_method drives that path.
-        "NLLS": "WLS",
+        "NLS": "NLLS",
+        "NLLS": "NLLS",
         "IRLS": "WLS",
         "CLS": "CLS",
         "CWLS": "CWLS",

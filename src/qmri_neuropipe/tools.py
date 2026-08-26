@@ -213,6 +213,11 @@ def fit_dki_cli(
     bval: Path = typer.Option(..., "--bval", help="Path to bval file", exists=True),
     bvec: Path = typer.Option(..., "--bvec", help="Path to bvec file", exists=True),
     mask: Optional[Path] = typer.Option(None, "--mask", "-m", help="Path to brain mask", exists=True),
+    method: str = typer.Option(
+        "WLLS",
+        "--method",
+        help="Fitting method (WLLS, OLS, NLLS, RESTORE, IRLS, CLS, or CWLS).",
+    ),
     nthreads: int = typer.Option(1, "--nthreads", "-n", help="Number of threads"),
     smoothing: Optional[float] = typer.Option(None, "--smoothing", help="Sigma/FWHM for smoothing (optional)"),
     mean_signal: bool = typer.Option(False, "--mean-signal", help="Use Mean Signal DKI (MSDKI)."),
@@ -225,7 +230,7 @@ def fit_dki_cli(
     _setup_threading(nthreads)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    console.print(f"[bold blue]Running DKI Fit[/bold blue]")
+    console.print(f"[bold blue]Running DKI Fit ({method})[/bold blue]")
     if mean_signal:
         console.print("  Using Mean Signal DKI (MSDKI)")
         
@@ -245,6 +250,7 @@ def fit_dki_cli(
             bval_file=bval,
             bvec_file=bvec,
             mask_file=mask,
+            fit_method=method,
             metrics=_parse_metric_list(metrics),
             nthreads=nthreads,
             grad_nonlin=grad_nonlin,

@@ -44,6 +44,30 @@ coregistration:
     interpolation: "sinc"   # Output interpolation
 ```
 
+### 3. SynthMorph
+
+SynthMorph uses FreeSurfer's `mri_synthmorph` executable. Generic dMRI
+coregistration supports the linear `rigid` and `affine` models. With a
+SuperSynth reference, the transform is estimated from the matched synthetic
+contrasts, converted for the original image geometries, and applied to the full
+4D DWI with b-vector rotation.
+
+```yaml
+coregistration:
+  enabled: true
+  method: synthmorph
+  reference_image: supersynth
+  options:
+    synthmorph_model: rigid
+    output_resolution: anatomical
+    interpolation: linear
+    # synthmorph_register_args: ""
+```
+
+Deformable SynthMorph models are intentionally rejected for dMRI
+coregistration because one spatially varying transform cannot be represented by
+a single global b-vector rotation.
+
 ## Global Options
 
 The following options apply regardless of the backend:
@@ -60,7 +84,8 @@ The following options apply regardless of the backend:
 | `multivariate_weight` | ANTs weight for each additional contrast channel. | `0.5` |
 | `multivariate_sampling` | ANTs sampling parameter for additional contrast channels. | `32` |
 
-Single-contrast SuperSynth registration supports the ANTs, FSL, and FreeSurfer
-coregistration backends. FreeSurfer uses `mri_coreg` for the arbitrary
-synthetic image pair. Multivariate synthetic T1w+T2w estimation uses ANTs;
-other backends log a warning and use the synthetic T1w pair.
+Single-contrast SuperSynth registration supports the ANTs, FSL, FreeSurfer, and
+SynthMorph coregistration backends. FreeSurfer uses `mri_coreg` for the
+arbitrary synthetic image pair. SynthMorph uses a linear rigid or affine model.
+Multivariate synthetic T1w+T2w estimation uses ANTs; other backends log a
+warning and use the synthetic T1w pair.

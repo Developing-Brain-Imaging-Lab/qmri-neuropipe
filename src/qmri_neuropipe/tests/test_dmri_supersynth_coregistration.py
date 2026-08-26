@@ -6,9 +6,12 @@ import nibabel as nib
 import numpy as np
 
 from qmri_neuropipe.core.config import PipelineConfig
+from qmri_neuropipe.core import ProcessingError
 from qmri_neuropipe.core.types import DWIFile, ImageFile
+from qmri_neuropipe.interfaces import freesurfer
 from qmri_neuropipe.lib.anat.super_synth import extract_mean_b0_for_supersynth
 from qmri_neuropipe.interfaces.fsl import rotate_bvecs
+from qmri_neuropipe.interfaces import fsl
 from qmri_neuropipe.lib.common.registration import (
     CoregistrationStep,
     _bbregister_contrast,
@@ -17,6 +20,7 @@ from qmri_neuropipe.lib.common.registration import (
     _mrtrix_coregistration_grid_options,
     _mrtrix_header_alignment_matches,
     _spatial_grids_match,
+    _synthmorph_coregistration_model,
     _write_header_registered_image,
 )
 from qmri_neuropipe.utils.execution_engine import ExecutionEngine
@@ -183,6 +187,117 @@ def test_dmri_supersynth_coregistration_preserves_freesurfer_backend(tmp_path: P
 
     assert len(workflow.steps) == 1
     assert workflow.steps[0].method == "freesurfer"
+
+
+def test_dmri_supersynth_coregistration_preserves_synthmorph_backend(tmp_path: Path):
+    config = _config(tmp_path, "supersynth", method="synthmorph")
+    workflow = PreprocessingWorkflow(config, logging.getLogger(__name__), None)
+
+    workflow._add_coregistration_step(
+        config.get("dmri.preprocessing"),
+        {},
+    )
+
+    assert len(workflow.steps) == 1
+    assert workflow.steps[0].method == "synthmorph"
+
+
+def test_synthmorph_coregistration_applies_proxy_transform_to_original_dwi(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config = _config(tmp_path, "supersynth", method="synthmorph")
+    dwi_path = tmp_path / "sub-01_dwi.nii.gz"
+    bval_path = tmp_path / "sub-01_dwi.bval"
+    bvec_path = tmp_path / "sub-01_dwi.bvec"
+    original_fixed = tmp_path / "sub-01_T1w.nii.gz"
+    proxy_moving = tmp_path / "moving_SynthT1.mgz"
+    proxy_fixed = tmp_path / "fixed_SynthT1.mgz"
+    dwi_data = np.ones((4, 5, 6, 2), dtype=np.float32)
+    nib.save(nib.Nifti1Image(dwi_data, np.eye(4)), dwi_path)
+    nib.save(
+        nib.Nifti1Image(np.ones((7, 8, 9), dtype=np.float32), np.diag([2, 2, 2, 1])),
+        original_fixed,
+    )
+    nib.save(nib.MGHImage(np.ones((4, 5, 6), dtype=np.float32), np.eye(4)), proxy_moving)
+    nib.save(nib.MGHImage(np.ones((7, 8, 9), dtype=np.float32), np.eye(4)), proxy_fixed)
+    bval_path.write_text("0 1000\n")
+    bvec_path.write_text("1 0\n0 1\n0 0\n")
+    dwi = DWIFile(
+        img=dwi_path,
+        bval=bval_path,
+        bvec=bvec_path,
+        entities={"sub": "01", "suffix": "dwi"},
+    )
+    calls = []
+
+    def fake_register(**kwargs):
+        calls.append(("register", kwargs))
+        Path(kwargs["transform_out"]).touch()
+        return kwargs["transform_out"]
+
+    def fake_lta_to_fsl(in_lta, out_file, src, trg, force=False):
+        calls.append(("lta_to_fsl", in_lta, out_file, src, trg, force))
+        np.savetxt(out_file, np.eye(4))
+        return out_file
+
+    def fake_apply_xfm_4d(**kwargs):
+        calls.append(("apply", kwargs))
+        source = nib.load(str(kwargs["in_file"]))
+        reference = nib.load(str(kwargs["ref_file"]))
+        shape = (*reference.shape[:3], source.shape[3])
+        nib.save(
+            nib.Nifti1Image(np.zeros(shape, dtype=np.float32), reference.affine),
+            kwargs["out_file"],
+        )
+        return kwargs["out_file"]
+
+    def fake_rotate_bvecs(in_bvec, mat, out_bvec):
+        calls.append(("rotate", in_bvec, mat, out_bvec))
+        Path(out_bvec).write_text(Path(in_bvec).read_text())
+        return out_bvec
+
+    monkeypatch.setattr(freesurfer, "mri_synthmorph_register", fake_register)
+    monkeypatch.setattr(freesurfer, "lta_to_fsl", fake_lta_to_fsl)
+    monkeypatch.setattr(fsl, "apply_xfm_4d", fake_apply_xfm_4d)
+    monkeypatch.setattr(fsl, "rotate_bvecs", fake_rotate_bvecs)
+
+    result = CoregistrationStep(
+        config,
+        logging.getLogger(__name__),
+        method="synthmorph",
+    ).run(
+        dwi,
+        tmp_path / "work",
+        target=proxy_fixed,
+        target_modality="T1w",
+        options={
+            "registration_moving": proxy_moving,
+            "registration_fixed": proxy_fixed,
+            "application_fixed": original_fixed,
+            "output_resolution": "anatomical",
+            "synthmorph_model": "rigid",
+        },
+        force=True,
+    )
+
+    register_call = next(call[1] for call in calls if call[0] == "register")
+    conversion_call = next(call for call in calls if call[0] == "lta_to_fsl")
+    apply_call = next(call[1] for call in calls if call[0] == "apply")
+    assert register_call["moving"] == proxy_moving
+    assert register_call["target"] == proxy_fixed
+    assert register_call["model"] == "rigid"
+    assert conversion_call[3] == dwi_path
+    assert conversion_call[4] == original_fixed
+    assert apply_call["in_file"] == dwi_path
+    assert apply_call["ref_file"] == original_fixed
+    assert nib.load(str(result.img)).shape == (7, 8, 9, 2)
+    assert result.bvec is not None and Path(result.bvec).exists()
+
+
+def test_synthmorph_coregistration_rejects_deformable_models():
+    with np.testing.assert_raises_regex(ProcessingError, "linear model"):
+        _synthmorph_coregistration_model({"synthmorph_model": "deform"})
 
 
 def test_supersynth_mean_b0_uses_all_low_b_volumes(tmp_path: Path):
