@@ -1260,6 +1260,234 @@ class RelaxometryWorkflow(BaseWorkflow):
             processed_images.append(curr)
         return processed_images
 
+    def _joint_spgr_ssfp_enabled(self) -> bool:
+        """Return whether SPGR and SSFP should share denoising/Gibbs processing."""
+        setting = self.relax_config.preprocessing.joint_spgr_ssfp
+        if isinstance(setting, bool):
+            return setting
+        return bool((setting or {}).get("enabled", False))
+
+    def _joint_preprocessing_signature(self) -> dict[str, str]:
+        """Describe the enabled joint operations for cache validation."""
+        signature: dict[str, str] = {}
+        for step in self.steps:
+            if isinstance(step, DenoisingStep):
+                signature["denoising"] = step.method
+            elif isinstance(step, GibbsUnringingStep):
+                signature["degibbs"] = step.method
+        return signature
+
+    @staticmethod
+    def _joint_series_was_used(
+        images: List[ImageFile], signature: Optional[dict[str, str]] = None
+    ) -> bool:
+        """Identify compatible cached products from the joint SPGR/SSFP path."""
+        if not images:
+            return False
+        for image in images:
+            payload = RelaxometryWorkflow._load_json_payload(
+                getattr(image, "json", None)
+            )
+            joint_metadata = payload.get("JointSPGRSSFPPreprocessing", {})
+            if not joint_metadata.get("enabled"):
+                return False
+            if signature is not None and joint_metadata.get("configuration") != signature:
+                return False
+        return True
+
+    @staticmethod
+    def _four_dimensional_series(image: ImageFile, label: str):
+        nii = nib.load(str(image.img))
+        if len(nii.shape) != 4 or int(nii.shape[3]) < 1:
+            raise ValueError(
+                f"Joint SPGR/SSFP preprocessing requires one 4D {label} file; "
+                f"got shape {nii.shape} for {image.img}."
+            )
+        return nii
+
+    def _split_joint_spgr_ssfp(
+        self,
+        processed: ImageFile,
+        spgr_source: ImageFile,
+        ssfp_source: ImageFile,
+        *,
+        spgr_count: int,
+        ssfp_count: int,
+        output_dir: Path,
+        operations: List[str],
+        signature: dict[str, str],
+    ) -> tuple[List[ImageFile], List[ImageFile]]:
+        """Split a jointly processed stack at the original modality boundary."""
+        processed_nii = nib.load(str(processed.img))
+        expected = spgr_count + ssfp_count
+        if len(processed_nii.shape) != 4 or int(processed_nii.shape[3]) != expected:
+            raise ValueError(
+                "Joint SPGR/SSFP preprocessing changed the number of volumes: "
+                f"expected {expected}, got {processed_nii.shape}."
+            )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        operation_desc = "joint" + "".join(
+            operation[:1].upper() + operation[1:] for operation in operations
+        )
+        outputs: list[ImageFile] = []
+        boundaries = (
+            ("SPGR", spgr_source, 0, spgr_count),
+            ("SSFP", ssfp_source, spgr_count, expected),
+        )
+        for label, source, start, stop in boundaries:
+            entities = dict(source.entities)
+            old_desc = str(entities.get("desc", "") or "")
+            entities["desc"] = f"{old_desc}{operation_desc}"
+            suffix = entities.get("suffix") or "VFA"
+            out_path = output_dir / build_bids_name(entities, suffix=suffix)
+            out_json = out_path.with_suffix("").with_suffix(".json")
+
+            data = np.asanyarray(processed_nii.dataobj[..., start:stop])
+            header = processed_nii.header.copy()
+            header.set_data_shape(data.shape)
+            nib.save(
+                nib.Nifti1Image(data, processed_nii.affine, header),
+                str(out_path),
+            )
+
+            payload = self._load_json_payload(getattr(source, "json", None))
+            payload["JointSPGRSSFPPreprocessing"] = {
+                "enabled": True,
+                "modality": label,
+                "operations": operations,
+                "configuration": signature,
+                "combined_source": str(processed.img),
+                "combined_volume_count": expected,
+                "volume_range": [start, stop],
+            }
+            with out_json.open("w") as f:
+                json.dump(payload, f, indent=2)
+                f.write("\n")
+            outputs.append(ImageFile(img=out_path, entities=entities, json=out_json))
+
+        return [outputs[0]], [outputs[1]]
+
+    def _preprocess_joint_spgr_ssfp(
+        self,
+        spgr_files: List[ImageFile],
+        ssfp_files: List[ImageFile],
+        output_dir: Path,
+    ) -> tuple[List[ImageFile], List[ImageFile]]:
+        """Jointly denoise/unring one native 4D SPGR stack and one SSFP stack."""
+        if len(spgr_files) != 1 or len(ssfp_files) != 1:
+            raise ValueError(
+                "Joint SPGR/SSFP preprocessing requires exactly one 4D SPGR "
+                f"file and one 4D SSFP file; got {len(spgr_files)} SPGR and "
+                f"{len(ssfp_files)} SSFP files."
+            )
+
+        # Header-only reorientation remains modality-specific and precedes the
+        # joint operations so both inputs reach concatenation in one grid.
+        reoriented: list[ImageFile] = []
+        for source in (spgr_files[0], ssfp_files[0]):
+            current = source
+            for step in self.steps:
+                if isinstance(step, ReorientStep):
+                    self.advance_force_state(step)
+                    current = step(
+                        current,
+                        output_dir=output_dir,
+                        force=self.is_forced(),
+                    )
+            reoriented.append(current)
+        spgr_source, ssfp_source = reoriented
+
+        spgr_nii = self._four_dimensional_series(spgr_source, "SPGR")
+        ssfp_nii = self._four_dimensional_series(ssfp_source, "SSFP")
+        if spgr_nii.shape[:3] != ssfp_nii.shape[:3] or not np.allclose(
+            spgr_nii.affine, ssfp_nii.affine, rtol=1e-5, atol=1e-5
+        ):
+            raise ValueError(
+                "Joint SPGR/SSFP preprocessing requires matching native spatial "
+                "shape and affine; interpolation before denoising is not allowed."
+            )
+
+        spgr_count = int(spgr_nii.shape[3])
+        ssfp_count = int(ssfp_nii.shape[3])
+        joint_dir = output_dir / "joint_spgr_ssfp"
+        joint_dir.mkdir(parents=True, exist_ok=True)
+        entities = dict(spgr_source.entities)
+        entities.pop("acq", None)
+        entities.pop("chunk", None)
+        entities["desc"] = "SPGRSSFPjoint"
+        entities["suffix"] = entities.get("suffix") or "VFA"
+        joint_path = joint_dir / build_bids_name(entities)
+        joint_json = joint_path.with_suffix("").with_suffix(".json")
+
+        source_paths = (Path(spgr_source.img), Path(ssfp_source.img))
+        rebuild = (
+            not joint_path.exists()
+            or not joint_json.exists()
+            or max(path.stat().st_mtime for path in source_paths)
+            > joint_path.stat().st_mtime
+        )
+        if rebuild:
+            joint_data = np.concatenate(
+                (
+                    np.asanyarray(spgr_nii.dataobj),
+                    np.asanyarray(ssfp_nii.dataobj),
+                ),
+                axis=3,
+            )
+            header = spgr_nii.header.copy()
+            header.set_data_shape(joint_data.shape)
+            nib.save(nib.Nifti1Image(joint_data, spgr_nii.affine, header), joint_path)
+            with joint_json.open("w") as f:
+                json.dump(
+                    {
+                        "Sources": [str(path) for path in source_paths],
+                        "SPGRVolumeCount": spgr_count,
+                        "SSFPVolumeCount": ssfp_count,
+                    },
+                    f,
+                    indent=2,
+                )
+                f.write("\n")
+
+        current = ImageFile(img=joint_path, entities=entities, json=joint_json)
+        operations: list[str] = []
+        signature = self._joint_preprocessing_signature()
+        for step in self.steps:
+            if isinstance(step, (DenoisingStep, GibbsUnringingStep)):
+                self.advance_force_state(step)
+                current = step(
+                    current,
+                    output_dir=joint_dir,
+                    force=self.is_forced(),
+                )
+                operations.append(
+                    "denoised" if isinstance(step, DenoisingStep) else "Gibbs"
+                )
+
+        if not operations:
+            raise ValueError(
+                "Joint SPGR/SSFP preprocessing is enabled, but neither denoising "
+                "nor Gibbs correction is enabled."
+            )
+
+        self.logger.info(
+            "Jointly preprocessed %d SPGR and %d SSFP volumes with: %s",
+            spgr_count,
+            ssfp_count,
+            ", ".join(operations),
+        )
+        return self._split_joint_spgr_ssfp(
+            current,
+            spgr_source,
+            ssfp_source,
+            spgr_count=spgr_count,
+            ssfp_count=ssfp_count,
+            output_dir=joint_dir / "split",
+            operations=operations,
+            signature=signature,
+        )
+
     def _publish_preprocessed_series(
         self,
         images: List[ImageFile],
@@ -2280,12 +2508,32 @@ class RelaxometryWorkflow(BaseWorkflow):
             anat_out_dir, modality_label="SSFP", context=context
         )
 
-        spgr_pre = existing_spgr_moco or self._preprocess_images(
-            spgr_files, "SPGR", intermediate_dir
+        joint_enabled = self._joint_spgr_ssfp_enabled()
+        joint_signature = self._joint_preprocessing_signature()
+        reusable_joint_cache = (
+            bool(joint_signature)
+            and self._joint_series_was_used(existing_spgr_moco, joint_signature)
+            and self._joint_series_was_used(existing_ssfp_moco, joint_signature)
         )
-        ssfp_pre = existing_ssfp_moco or self._preprocess_images(
-            ssfp_files, "SSFP", intermediate_dir
-        )
+        if joint_enabled and not reusable_joint_cache:
+            spgr_pre, ssfp_pre = self._preprocess_joint_spgr_ssfp(
+                spgr_files, ssfp_files, intermediate_dir
+            )
+            existing_spgr_moco = []
+            existing_ssfp_moco = []
+        else:
+            if not joint_enabled and (
+                self._joint_series_was_used(existing_spgr_moco)
+                or self._joint_series_was_used(existing_ssfp_moco)
+            ):
+                existing_spgr_moco = []
+                existing_ssfp_moco = []
+            spgr_pre = existing_spgr_moco or self._preprocess_images(
+                spgr_files, "SPGR", intermediate_dir
+            )
+            ssfp_pre = existing_ssfp_moco or self._preprocess_images(
+                ssfp_files, "SSFP", intermediate_dir
+            )
         ir_pre = self._preprocess_images(
             irspgr_files, "IRSPGR", intermediate_dir
         )

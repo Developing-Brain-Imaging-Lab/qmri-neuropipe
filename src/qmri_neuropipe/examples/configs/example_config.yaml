@@ -491,6 +491,17 @@ dmri:
 #     # Optional: rerun this step and all later relaxometry preprocessing steps.
 #     # Examples: reorient, denoise, gibbs, motion_correction, brain_masking, b1.
 #     rerun_from_step: null
+#     # Concatenate one native 4D SPGR stack and one native 4D SSFP stack for
+#     # the enabled denoising/Gibbs steps, then split them at the original
+#     # volume boundary. Inputs must have matching spatial shape and affine.
+#     joint_spgr_ssfp:
+#       enabled: false
+#     denoising:
+#       enabled: false
+#       method: mrtrix
+#     degibbs:
+#       enabled: false
+#       method: mrtrix
 #     motion_correction:
 #       enabled: true
 #       method: ants

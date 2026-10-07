@@ -58,6 +58,7 @@ class RelaxometryPreprocConfig:
     degibbs: dict = field(
         default_factory=lambda: {"enabled": False, "method": "mrtrix"}
     )
+    joint_spgr_ssfp: dict = field(default_factory=lambda: {"enabled": False})
     motion_correction: dict = field(
         default_factory=lambda: {"enabled": False, "method": "ants"}
     )
