@@ -1,6 +1,9 @@
+import json
 from pathlib import Path
 from typing import List, Optional
+
 import nibabel as nib
+import numpy as np
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
@@ -79,6 +82,198 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                     path.unlink()
             except Exception:
                 pass
+
+    def _ssfp_two_stage_config(self) -> dict:
+        raw = self.options.get("ssfp_two_stage", {})
+        if isinstance(raw, bool):
+            return {"enabled": raw}
+        return dict(raw or {})
+
+    def _ssfp_two_stage_enabled(self, modality: Optional[str]) -> bool:
+        return (
+            str(modality or "").strip().upper() == "SSFP"
+            and bool(self._ssfp_two_stage_config().get("enabled", False))
+        )
+
+    def _stage_options(self, stage: str) -> dict:
+        """Merge shared motion options with optional SSFP stage overrides."""
+        options = {
+            key: value
+            for key, value in self.options.items()
+            if key != "ssfp_two_stage"
+        }
+        stage_overrides = self._ssfp_two_stage_config().get(
+            f"{stage}_options", {}
+        )
+        if isinstance(stage_overrides, dict):
+            options.update(stage_overrides)
+        return options
+
+    @staticmethod
+    def _build_ssfp_reference(
+        source: Path,
+        output: Path,
+        *,
+        mode: str = "median",
+        normalize: bool = True,
+        index: int = 0,
+    ) -> Path:
+        """Create a 3D SSFP reference without modifying modeling intensities."""
+        nii = nib.load(str(source))
+        if len(nii.shape) != 4 or int(nii.shape[3]) < 2:
+            raise ValueError(
+                "Two-stage SSFP motion correction requires a 4D SSFP series "
+                f"with at least two volumes; got {nii.shape}."
+            )
+
+        data = np.asanyarray(nii.dataobj, dtype=np.float32)
+        mode = str(mode or "median").strip().lower()
+        if mode == "index":
+            if index < 0 or index >= data.shape[3]:
+                raise ValueError(
+                    f"SSFP reference index {index} is out of range for "
+                    f"{data.shape[3]} volumes."
+                )
+            reference = data[..., index]
+        else:
+            reference_data = data.copy()
+            if normalize:
+                for volume_index in range(reference_data.shape[3]):
+                    volume = reference_data[..., volume_index]
+                    valid = np.isfinite(volume) & (volume > 0)
+                    scale = float(np.median(volume[valid])) if np.any(valid) else 0.0
+                    if scale > 0:
+                        reference_data[..., volume_index] = volume / scale
+            if mode == "median":
+                reference = np.nanmedian(reference_data, axis=3)
+            elif mode == "mean":
+                reference = np.nanmean(reference_data, axis=3)
+            else:
+                raise ValueError(
+                    "SSFP two-stage reference_mode must be 'median', 'mean', "
+                    f"or 'index'; got {mode!r}."
+                )
+
+        reference = np.nan_to_num(reference, copy=False)
+        header = nii.header.copy()
+        header.set_data_shape(reference.shape)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        nib.save(nib.Nifti1Image(reference, nii.affine, header), str(output))
+        return output
+
+    def _estimate_ants_transforms(
+        self,
+        moving: Path,
+        fixed: Path,
+        out_prefix: Path,
+        options: dict,
+    ) -> list[Path]:
+        """Estimate an ANTs transform while retaining it for composition."""
+        nthreads = int(options.get("nthreads", options.get("threads", 4)))
+        moving_for_reg, fixed_for_reg, _ = prepare_registration_images(
+            self.config,
+            self.logger,
+            Path(moving),
+            Path(fixed),
+            out_prefix.parent,
+            options,
+            nthreads,
+            force=True,
+        )
+        transform_type = self._normalize_ants_transform(
+            options.get(
+                "transform_type", options.get("type_of_transform", "Rigid")
+            )
+        )
+        interpolator = options.get(
+            "interpolation", options.get("interpolator", "linear")
+        )
+        registration_kwargs = {
+            key: value
+            for key, value in options.items()
+            if key
+            not in {
+                "transform_type",
+                "type_of_transform",
+                "threads",
+                "nthreads",
+                "interpolation",
+                "interpolator",
+                "args",
+                "extra_args",
+            }
+            | _ALL_SKULL_STRIP_OPTION_KEYS
+        }
+        _, transforms = ants.registration(
+            fixed_file=fixed_for_reg,
+            moving_file=moving_for_reg,
+            out_prefix=out_prefix,
+            transform_type=transform_type,
+            interpolator=interpolator,
+            nthreads=nthreads,
+            **registration_kwargs,
+        )
+        return [Path(transform) for transform in transforms]
+
+    def _run_two_stage_ssfp(
+        self,
+        volumes: List[Path],
+        ssfp_reference: Path,
+        spgr_reference: Path,
+        split_dir: Path,
+    ) -> List[Path]:
+        """Compose volume-to-SSFP and SSFP-to-SPGR transforms per volume."""
+        if self.method != "ants":
+            raise ValueError(
+                "Two-stage SSFP motion correction currently requires method: ants."
+            )
+
+        split_dir.mkdir(parents=True, exist_ok=True)
+        within_options = self._stage_options("within")
+        cross_options = self._stage_options("cross")
+        cross_prefix = split_dir / "ssfp_to_spgr_ants_"
+        cleanup_prefixes = [cross_prefix]
+        try:
+            cross_transforms = self._estimate_ants_transforms(
+                ssfp_reference,
+                spgr_reference,
+                cross_prefix,
+                cross_options,
+            )
+            corrected: List[Path] = []
+            for index, volume in enumerate(volumes):
+                within_prefix = split_dir / f"vol{index:04d}_to_ssfp_ants_"
+                cleanup_prefixes.append(within_prefix)
+                within_transforms = self._estimate_ants_transforms(
+                    Path(volume),
+                    ssfp_reference,
+                    within_prefix,
+                    within_options,
+                )
+                output = split_dir / f"vol{index:04d}_moco.nii.gz"
+                # ANTs lists the later transform first: original volume ->
+                # SSFP reference -> SPGR reference.
+                composed_transforms = [*cross_transforms, *within_transforms]
+                ants.apply_transforms(
+                    fixed_file=spgr_reference,
+                    moving_file=volume,
+                    out_file=output,
+                    transforms=composed_transforms,
+                    interpolator=cross_options.get(
+                        "interpolation",
+                        cross_options.get("interpolator", "linear"),
+                    ),
+                    nthreads=int(
+                        cross_options.get(
+                            "nthreads", cross_options.get("threads", 4)
+                        )
+                    ),
+                )
+                corrected.append(output)
+            return corrected
+        finally:
+            for prefix in cleanup_prefixes:
+                self._cleanup_ants_outputs(prefix)
         
     def run(self, 
             images: List[ImageFile], 
@@ -145,14 +340,29 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
             out_json = out_path.with_suffix("").with_suffix(".json")
             
             # Check if exists and valid
+            use_two_stage_ssfp = is_4d and self._ssfp_two_stage_enabled(modality)
             if out_path.exists() and not force:
                 try: 
                     check = nib.load(out_path)
                     if is_4d and (len(check.shape) != 4 or check.shape[3] < 2):
                          self.logger.warning(f"Existing output {out_name} appears truncated. Re-running.")
                     else:
+                         existing_metadata = {}
+                         if out_json.exists():
+                             existing_metadata = json.loads(out_json.read_text())
+                         existing_two_stage = (
+                             existing_metadata.get("MotionCorrection", {}).get("strategy")
+                             == "ssfp_two_stage"
+                         )
+                         if use_two_stage_ssfp != existing_two_stage:
+                             self.logger.info(
+                                 "Motion-correction strategy changed for %s; re-running.",
+                                 out_name,
+                             )
+                             raise ValueError("motion-correction strategy changed")
                          self.logger.info(f"Skipping Motion Correction (Exists): {out_name}")
-                         copy_json_with_metadata(getattr(img, "json", None), out_json)
+                         if not out_json.exists():
+                             copy_json_with_metadata(getattr(img, "json", None), out_json)
                          result_json = out_json if out_json.exists() else getattr(img, "json", None)
                          processed_outputs.append(ImageFile(img=out_path, entities=ents, json=result_json))
                          continue
@@ -178,11 +388,32 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 
                 vols = split(img.img, split_prefix)
                 
-                corrected_vols = []
-                for i, vol in enumerate(vols):
-                    vol_out = split_dir / f"vol{i:04d}_moco.nii.gz"
-                    self._register(vol, ref_path, vol_out)
-                    corrected_vols.append(vol_out)
+                if use_two_stage_ssfp:
+                    two_stage_cfg = self._ssfp_two_stage_config()
+                    ssfp_ref = split_dir / "ssfp_reference.nii.gz"
+                    self._build_ssfp_reference(
+                        Path(img.img),
+                        ssfp_ref,
+                        mode=two_stage_cfg.get("reference_mode", "median"),
+                        normalize=bool(two_stage_cfg.get("normalize", True)),
+                        index=int(two_stage_cfg.get("reference_index", 0)),
+                    )
+                    self.logger.info(
+                        "  Running two-stage SSFP motion correction via %s",
+                        ssfp_ref.name,
+                    )
+                    corrected_vols = self._run_two_stage_ssfp(
+                        vols,
+                        ssfp_ref,
+                        ref_path,
+                        split_dir,
+                    )
+                else:
+                    corrected_vols = []
+                    for i, vol in enumerate(vols):
+                        vol_out = split_dir / f"vol{i:04d}_moco.nii.gz"
+                        self._register(vol, ref_path, vol_out)
+                        corrected_vols.append(vol_out)
                     
                 merge(corrected_vols, out_path, dimension='t')
                 
@@ -193,6 +424,22 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 self._register(img.img, ref_path, out_path)
 
             copy_json_with_metadata(getattr(img, "json", None), out_json)
+            if use_two_stage_ssfp:
+                metadata = json.loads(out_json.read_text()) if out_json.exists() else {}
+                two_stage_cfg = self._ssfp_two_stage_config()
+                metadata["MotionCorrection"] = {
+                    "strategy": "ssfp_two_stage",
+                    "ssfp_reference_mode": two_stage_cfg.get(
+                        "reference_mode", "median"
+                    ),
+                    "ssfp_reference_normalized": bool(
+                        two_stage_cfg.get("normalize", True)
+                    ),
+                    "transform_application": "composed_single_resampling",
+                }
+                with out_json.open("w") as f:
+                    json.dump(metadata, f, indent=2)
+                    f.write("\n")
             result_json = out_json if out_json.exists() else getattr(img, "json", None)
                 
             processed_outputs.append(ImageFile(img=out_path, entities=ents, json=result_json))
@@ -229,7 +476,8 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                  k: v for k, v in self.options.items()
                  if k not in {
                      'transform_type', 'type_of_transform', 'threads', 'nthreads',
-                     'interpolation', 'interpolator', 'args', 'extra_args'
+                     'interpolation', 'interpolator', 'args', 'extra_args',
+                     'ssfp_two_stage'
                  } | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              ignored_shell_args = self.options.get('args') or self.options.get('extra_args')
@@ -282,7 +530,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
 
              extra_opts = {
                  k: v for k, v in self.options.items()
-                 if k not in {'dof', 'cost', 'extra_args', 'args'} | _ALL_SKULL_STRIP_OPTION_KEYS
+                 if k not in {'dof', 'cost', 'extra_args', 'args', 'ssfp_two_stage'} | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              if extra_opts:
                  flirt_kwargs['extra_opts'] = extra_opts

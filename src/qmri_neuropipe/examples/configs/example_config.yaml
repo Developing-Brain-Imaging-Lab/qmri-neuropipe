@@ -513,6 +513,18 @@ dmri:
 #       aff_iterations: [3000, 2000, 1000, 200]
 #       aff_shrink_factors: [8, 4, 2, 1]
 #       aff_smoothing_sigmas: [4, 2, 1, 0]
+#       # Optional SSFP-specific strategy: correct motion within SSFP contrast,
+#       # estimate one SSFP-reference-to-SPGR transform, compose both rigid
+#       # transforms, and resample each original SSFP volume once.
+#       ssfp_two_stage:
+#         enabled: false
+#         reference_mode: median  # median, mean, or index
+#         normalize: true         # reference synthesis only; data are not scaled
+#         # reference_index: 0
+#         # within_options:       # Optional overrides for volume -> SSFP reference
+#         #   aff_metric: mattes
+#         # cross_options:        # Optional overrides for SSFP -> SPGR reference
+#         #   aff_metric: mattes
 #       # Optional zero-based logical SPGR volume. When set, this overrides
 #       # spgr_reference.mode/index and the selected 3D reference is shared by
 #       # motion correction, masking, B1 alignment, modeling, and normalization.
