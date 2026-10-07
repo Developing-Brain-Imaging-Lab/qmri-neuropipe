@@ -505,6 +505,14 @@ dmri:
 #     motion_correction:
 #       enabled: true
 #       method: ants
+#       transform_type: DenseRigid
+#       aff_metric: mattes
+#       aff_sampling: 64
+#       aff_random_sampling_rate: 1.0
+#       # YAML lists are accepted and converted to ANTsPy registration schedules.
+#       aff_iterations: [3000, 2000, 1000, 200]
+#       aff_shrink_factors: [8, 4, 2, 1]
+#       aff_smoothing_sigmas: [4, 2, 1, 0]
 #       # Optional zero-based logical SPGR volume. When set, this overrides
 #       # spgr_reference.mode/index and the selected 3D reference is shared by
 #       # motion correction, masking, B1 alignment, modeling, and normalization.

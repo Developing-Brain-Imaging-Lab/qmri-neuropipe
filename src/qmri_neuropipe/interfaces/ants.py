@@ -139,6 +139,23 @@ def _normalize_interpolator(interpolator: str) -> str:
     return aliases.get(value.lower(), value)
 
 
+_REGISTRATION_SCHEDULE_KEYS = {
+    "aff_iterations",
+    "aff_shrink_factors",
+    "aff_smoothing_sigmas",
+}
+
+
+def _normalize_registration_schedule_kwargs(kwargs: dict) -> dict:
+    """Convert YAML sequence values to the tuples expected by ANTsPy."""
+    normalized = dict(kwargs)
+    for key in _REGISTRATION_SCHEDULE_KEYS:
+        value = normalized.get(key)
+        if isinstance(value, list):
+            normalized[key] = tuple(value)
+    return normalized
+
+
 def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, out_file: Path, transforms: list[Path], invert_transforms: list[bool] = None, interpolator: str = "linear", nthreads: int = 1, **kwargs):
     """
     Apply ANTs transforms.
@@ -224,6 +241,7 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     
     fixed_img = ants.image_read(str(fixed_p))
     moving_img = ants.image_read(str(moving_p))
+    kwargs = _normalize_registration_schedule_kwargs(kwargs)
 
     multivariate_extras = kwargs.pop("multivariate_extras", None)
     if multivariate_extras:
@@ -243,7 +261,11 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
         kwargs.pop('interpolator')
 
     mytx = ants.registration(fixed=fixed_img, moving=moving_img, type_of_transform=transform_type, outprefix=str(out_prefix), **kwargs)
-    apply_kwargs = {k: v for k, v in kwargs.items() if k not in {"multivariate_extras"}}
+    apply_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k not in {"multivariate_extras"} | _REGISTRATION_SCHEDULE_KEYS
+    }
     
     #Apply transforms to moving image (force implementation)
     apply_transforms(fixed_file=fixed_p, 
