@@ -540,6 +540,17 @@ dmri:
 #       # index: 7
 #     b1:
 #       method: afi
+#       registration:
+#         method: ants             # ants or fsl
+#         assume_aligned: false    # true: trust NIfTI headers; resample only
+#         match_resolution: true   # estimate using SPGR at AFI voxel size
+#         resolution_matching_interpolation: linear
+#         transform_type: DenseRigid  # ANTs only
+#         aff_metric: mattes          # ANTs only
+#         aff_sampling: 24            # ANTs Mattes histogram bins
+#         aff_random_sampling_rate: 1.0
+#         initial_transform: Identity
+#         interpolation: linear    # final B1/AFI resampling
 #   modeling:
 #     # Optional: rerun model fitting and all later relaxometry stages.
 #     # rerun_from_step: modeling

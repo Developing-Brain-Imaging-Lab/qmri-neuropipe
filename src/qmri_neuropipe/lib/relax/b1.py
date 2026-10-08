@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Optional, Dict
 import nibabel as nib
 import numpy as np
+from nibabel.affines import voxel_sizes
+from nibabel.processing import resample_from_to
 
 from ...core import BaseProcessingStep
 from ...core.types import ImageFile
@@ -44,6 +46,41 @@ class B1MappingStep(BaseProcessingStep):
             )
         )
 
+    def _fsl_interpolator(self) -> str:
+        value = self._registration_interpolator().strip()
+        aliases = {
+            "linear": "trilinear",
+            "nearest": "nearestneighbour",
+            "nearestneighbor": "nearestneighbour",
+            "nearestneighbour": "nearestneighbour",
+            "bspline": "spline",
+            "cubic": "spline",
+            "lanczoswindowedsinc": "sinc",
+        }
+        return aliases.get(value.lower(), value)
+
+    @staticmethod
+    def _as_bool(value) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+        return bool(value)
+
+    def _assume_aligned(self) -> bool:
+        return self._as_bool(
+            self.registration.get(
+                "assume_aligned",
+                self.registration.get("assume_registered", False),
+            )
+        )
+
+    def _match_registration_resolution(self) -> bool:
+        return self._as_bool(
+            self.registration.get(
+                "match_resolution",
+                self.registration.get("match_registration_resolution", False),
+            )
+        )
+
     def _ants_transform_type(self) -> str:
         mapping = {
             "r": "Rigid",
@@ -57,8 +94,121 @@ class B1MappingStep(BaseProcessingStep):
         return mapping.get(value.lower(), value)
 
     def _ants_registration_kwargs(self) -> Dict:
-        reserved = {"method", "transform_type", "interpolation", "interpolator", "dof", "cost"} | _ALL_SKULL_STRIP_OPTION_KEYS
+        reserved = {
+            "method",
+            "transform_type",
+            "interpolation",
+            "interpolator",
+            "dof",
+            "cost",
+            "assume_aligned",
+            "assume_registered",
+            "match_resolution",
+            "match_registration_resolution",
+            "resolution_matching_interpolation",
+            "moving_volume",
+            "fixed_volume",
+            "reference_volume",
+        } | _ALL_SKULL_STRIP_OPTION_KEYS
         return {k: v for k, v in self.registration.items() if k not in reserved}
+
+    @staticmethod
+    def _scipy_interpolation_order(value: str) -> int:
+        value = str(value).strip().lower()
+        if value in {"nearest", "nearestneighbor", "genericlabel", "label"}:
+            return 0
+        if value in {"cubic", "bspline", "spline"}:
+            return 3
+        return 1
+
+    def _interpolation_order(self) -> int:
+        return self._scipy_interpolation_order(self._registration_interpolator())
+
+    def _resample_assuming_aligned(
+        self,
+        source: Path,
+        reference: Path,
+        output: Path,
+    ) -> Path:
+        """Resample by NIfTI world coordinates without estimating a transform."""
+        source_img = nib.load(str(source))
+        reference_img = nib.load(str(reference))
+        if len(source_img.shape) != 3 or len(reference_img.shape) != 3:
+            raise ValueError("Header-based B1 resampling requires 3D images.")
+        resampled = resample_from_to(
+            source_img,
+            (reference_img.shape, reference_img.affine),
+            order=self._interpolation_order(),
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        data = np.asanyarray(resampled.dataobj, dtype=np.float32)
+        header = reference_img.header.copy()
+        header.set_data_dtype(np.float32)
+        nib.save(nib.Nifti1Image(data, reference_img.affine, header), str(output))
+        return output
+
+    def _fixed_resolution_proxy(
+        self,
+        moving: Path,
+        fixed: Path,
+        output_dir: Path,
+    ) -> Path:
+        """Downsample the fixed image to the moving voxel size for estimation."""
+        if not self._match_registration_resolution():
+            return Path(fixed)
+
+        moving_img = nib.load(str(moving))
+        fixed_img = nib.load(str(fixed))
+        moving_zooms = np.asarray(voxel_sizes(moving_img.affine)[:3], dtype=float)
+        fixed_zooms = np.asarray(voxel_sizes(fixed_img.affine)[:3], dtype=float)
+        if np.allclose(moving_zooms, fixed_zooms, rtol=0.05, atol=0.05):
+            return Path(fixed)
+
+        fixed_shape = np.asarray(fixed_img.shape[:3], dtype=int)
+        physical_extent = np.maximum(fixed_shape - 1, 1) * fixed_zooms
+        proxy_shape = np.maximum(
+            np.rint(physical_extent / moving_zooms).astype(int) + 1,
+            1,
+        )
+        directions = fixed_img.affine[:3, :3] / fixed_zooms
+        proxy_affine = fixed_img.affine.copy()
+        proxy_affine[:3, :3] = directions * moving_zooms
+
+        fixed_center_vox = (fixed_shape - 1) / 2.0
+        proxy_center_vox = (proxy_shape - 1) / 2.0
+        fixed_center_world = nib.affines.apply_affine(
+            fixed_img.affine, fixed_center_vox
+        )
+        proxy_affine[:3, 3] = (
+            fixed_center_world
+            - proxy_affine[:3, :3] @ proxy_center_vox
+        )
+
+        proxy = resample_from_to(
+            fixed_img,
+            (tuple(int(value) for value in proxy_shape), proxy_affine),
+            order=self._scipy_interpolation_order(
+                self.registration.get("resolution_matching_interpolation", "linear")
+            ),
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / "b1_registration_fixed_resolution_matched.nii.gz"
+        header = proxy.header.copy()
+        header.set_data_dtype(np.float32)
+        nib.save(
+            nib.Nifti1Image(
+                np.asanyarray(proxy.dataobj, dtype=np.float32),
+                proxy_affine,
+                header,
+            ),
+            str(output),
+        )
+        self.logger.info(
+            "Matched B1 registration resolution: fixed %s mm -> %s mm",
+            tuple(round(value, 3) for value in fixed_zooms),
+            tuple(round(value, 3) for value in moving_zooms),
+        )
+        return output
 
     def _ensure_3d_registration_image(self, image_path: Path, output_dir: Path, label: str) -> Path:
         image_path = Path(image_path)
@@ -83,11 +233,13 @@ class B1MappingStep(BaseProcessingStep):
             nib.save(nib.Nifti1Image(vol_data, img.affine, img.header.copy()), str(out_path))
         return out_path
 
-    def _register_with_ants(self, moving: Path, reference: Path, output_dir: Path, prefix_name: str):
+    def _prepare_registration_estimation_images(
+        self,
+        moving: Path,
+        reference: Path,
+        output_dir: Path,
+    ) -> tuple[Path, Path]:
         nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
-        out_prefix = output_dir / prefix_name
-        if not out_prefix.suffix:
-            out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
         moving_3d = self._ensure_3d_registration_image(moving, output_dir, "moving")
         reference_3d = self._ensure_3d_registration_image(reference, output_dir, "fixed")
         moving_for_reg, reference_for_reg, _ = prepare_registration_images(
@@ -99,6 +251,23 @@ class B1MappingStep(BaseProcessingStep):
             self.registration,
             nthreads,
             force=True,
+        )
+        reference_for_reg = self._fixed_resolution_proxy(
+            moving_for_reg,
+            reference_for_reg,
+            output_dir,
+        )
+        return Path(moving_for_reg), Path(reference_for_reg)
+
+    def _register_with_ants(self, moving: Path, reference: Path, output_dir: Path, prefix_name: str):
+        nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
+        out_prefix = output_dir / prefix_name
+        if not out_prefix.suffix:
+            out_prefix = output_dir / f"{prefix_name}transform.nii.gz"
+        moving_for_reg, reference_for_reg = self._prepare_registration_estimation_images(
+            moving,
+            reference,
+            output_dir,
         )
         warped, transforms = ants.registration(
             fixed_file=reference_for_reg,
@@ -139,6 +308,8 @@ class B1MappingStep(BaseProcessingStep):
         if out_path.exists() and not force:
              self.logger.info(f"Skipping B1 Alignment (Exists): {out_name}")
              return ImageFile(img=out_path, entities=ents)
+        if out_path.exists() and force:
+             out_path.unlink()
              
         self.logger.info(f"Aligning B1 Map ({self.method}) to {reference_image.img.name}")
         
@@ -170,11 +341,17 @@ class B1MappingStep(BaseProcessingStep):
                  if len(vols) < 2:
                      raise ValueError("AFI input seems to be 4D but found less than 2 volumes.")
                      
-                 # 2. Register Vol 0 (S1) to Reference
+                 # 2. Register Vol 0 (S1) to Reference, unless scanner-space
+                 # headers are explicitly trusted.
                  vol0 = vols[0]
                  mat_file = output_dir / "afi_to_spgr.mat"
                  
-                 if registration_method == "ants":
+                 if self._assume_aligned():
+                      self.logger.info(
+                          "AFI and SPGR are assumed aligned; skipping transform estimation."
+                      )
+                      transforms = None
+                 elif registration_method == "ants":
                       _, transforms, ants_fixed = self._register_with_ants(
                           moving=vol0,
                           reference=reference_image.img,
@@ -182,11 +359,22 @@ class B1MappingStep(BaseProcessingStep):
                           prefix_name="afi_to_spgr_ants_",
                       )
                  elif registration_method == "fsl":
+                      moving_for_reg, reference_for_reg = (
+                          self._prepare_registration_estimation_images(
+                              vol0,
+                              reference_image.img,
+                              output_dir,
+                          )
+                      )
+                      estimate_out = tmp_split / "vol0_aligned_ref.nii.gz"
+                      if force:
+                           mat_file.unlink(missing_ok=True)
+                           estimate_out.unlink(missing_ok=True)
                       if not mat_file.exists() or force:
                            fsl.flirt(
-                               in_file=vol0,
-                               ref_file=reference_image.img,
-                               out_file=tmp_split / "vol0_aligned_ref.nii.gz",
+                               in_file=moving_for_reg,
+                               ref_file=reference_for_reg,
+                               out_file=estimate_out,
                                omat=mat_file,
                                dof=int(self.registration.get("dof", 6)),
                                cost=str(self.registration.get("cost", "normmi")),
@@ -199,18 +387,30 @@ class B1MappingStep(BaseProcessingStep):
                  aligned_vols = []
                  for i, v in enumerate(vols):
                      out_v = tmp_split / f"vol{i}_aligned.nii.gz"
-                     if registration_method == "ants":
+                     if self._assume_aligned():
+                          self._resample_assuming_aligned(
+                              v,
+                              reference_image.img,
+                              out_v,
+                          )
+                     elif registration_method == "ants":
                           ants.apply_transforms(
-                              fixed_file=ants_fixed,
+                              fixed_file=reference_image.img,
                               moving_file=v,
                               out_file=out_v,
                               transforms=transforms,
                               interpolator=self._registration_interpolator(),
                           )
                      else:
-                          cmd = f"flirt -in {v} -ref {reference_image.img} -out {out_v} -init {mat_file} -applyxfm"
-                          from ...core.run import run_cmd
-                          run_cmd(cmd, label=f"apply_afi_prop_{i}")
+                          fsl.flirt(
+                              in_file=v,
+                              ref_file=reference_image.img,
+                              out_file=out_v,
+                              extra_args=(
+                                  f"-applyxfm -init {mat_file} "
+                                  f"-interp {self._fsl_interpolator()}"
+                              ),
+                          )
                      aligned_vols.append(out_v)
                      
                  # 4. Merge back to 4D
@@ -242,7 +442,16 @@ class B1MappingStep(BaseProcessingStep):
                  # 1. Register B1 Ref -> SPGR Ref
                  mat_file = output_dir / "b1_to_spgr.mat"
                  
-                 if registration_method == "ants":
+                 if self._assume_aligned():
+                      self.logger.info(
+                          "B1 and SPGR are assumed aligned; resampling by image headers."
+                      )
+                      self._resample_assuming_aligned(
+                          b1_map_path,
+                          reference_image.img,
+                          out_path,
+                      )
+                 elif registration_method == "ants":
                       self.logger.info("Registering B1 reference to SPGR with ANTs")
                       _, transforms, ants_fixed = self._register_with_ants(
                           moving=moving,
@@ -252,7 +461,7 @@ class B1MappingStep(BaseProcessingStep):
                       )
                       self.logger.info("Applying ANTs transform to B1 Map")
                       ants.apply_transforms(
-                          fixed_file=ants_fixed,
+                          fixed_file=reference_image.img,
                           moving_file=b1_map_path,
                           out_file=out_path,
                           transforms=transforms,
@@ -260,20 +469,17 @@ class B1MappingStep(BaseProcessingStep):
                       )
                  elif registration_method == "fsl":
                       # Calculate transform
-                      nthreads = int(self.registration.get("nthreads", self.registration.get("threads", self.config.get("n_cpus", 1))))
-                      moving_for_reg, reference_for_reg, registration_inputs_stripped = prepare_registration_images(
-                          self.config,
-                          self.logger,
-                          Path(moving),
-                          Path(reference_image.img),
-                          output_dir,
-                          self.registration,
-                          nthreads,
-                          force=True,
+                      moving_for_reg, reference_for_reg = (
+                          self._prepare_registration_estimation_images(
+                              Path(moving),
+                              Path(reference_image.img),
+                              output_dir,
+                          )
                       )
                       estimate_out = output_dir / "b1_ref_aligned.nii.gz"
-                      if registration_inputs_stripped:
-                          estimate_out = output_dir / "b1_ref_aligned_registration_estimate.nii.gz"
+                      if force:
+                           mat_file.unlink(missing_ok=True)
+                           estimate_out.unlink(missing_ok=True)
                       fsl.flirt(
                           in_file=moving_for_reg,
                           ref_file=reference_for_reg,
@@ -283,11 +489,17 @@ class B1MappingStep(BaseProcessingStep):
                           cost=str(self.registration.get("cost", "normmi")),
                       )
                       
-                      # Apply to B1 Map
+                      # Apply to B1 Map on the original SPGR output grid.
                       self.logger.info("Applying transform to B1 Map")
-                      cmd = f"flirt -in {b1_map_path} -ref {reference_for_reg} -out {out_path} -init {mat_file} -applyxfm"
-                      from ...core.run import run_cmd
-                      run_cmd(cmd, label="apply_b1_transform")
+                      fsl.flirt(
+                          in_file=b1_map_path,
+                          ref_file=reference_image.img,
+                          out_file=out_path,
+                          extra_args=(
+                              f"-applyxfm -init {mat_file} "
+                              f"-interp {self._fsl_interpolator()}"
+                          ),
+                      )
                  else:
                       raise ValueError(f"Unknown B1 registration method: {registration_method}")
             
