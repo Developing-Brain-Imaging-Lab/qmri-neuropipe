@@ -521,10 +521,15 @@ dmri:
 #         reference_mode: median  # median, mean, or index
 #         normalize: true         # reference synthesis only; data are not scaled
 #         # reference_index: 0
+#         aligned_templates:
+#           enabled: true         # Bridge aligned SSFP and SPGR templates
+#           mode: median          # median, mean, or index
+#           normalize: true       # registration templates only
 #         # within_options:       # Optional overrides for volume -> SSFP reference
 #         #   aff_metric: mattes
 #         # cross_options:        # Optional overrides for SSFP -> SPGR reference
 #         #   aff_metric: mattes
+#         #   initial_transform: null  # ANTs center-of-mass initialization
 #       # Optional zero-based logical SPGR volume. When set, this overrides
 #       # spgr_reference.mode/index and the selected 3D reference is shared by
 #       # motion correction, masking, B1 alignment, modeling, and normalization.

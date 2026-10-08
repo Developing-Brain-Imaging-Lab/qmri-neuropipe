@@ -1581,12 +1581,36 @@ class RelaxometryWorkflow(BaseWorkflow):
                 force=force_moco,
             )
             if ssfp_pre:
+                cross_reference = ref_img
+                if (
+                    moco_step.method == "ants"
+                    and moco_step._ssfp_two_stage_enabled("SSFP")
+                    and moco_step._aligned_templates_enabled()
+                ):
+                    template_cfg = moco_step._aligned_templates_config()
+                    spgr_template = intermediate_dir / "spgr_aligned_template.nii.gz"
+                    moco_step._build_aligned_template(
+                        spgr_moco,
+                        spgr_template,
+                        mode=template_cfg.get("mode", "median"),
+                        normalize=bool(template_cfg.get("normalize", True)),
+                        index=int(template_cfg.get("index", 0)),
+                    )
+                    cross_reference = ImageFile(
+                        img=spgr_template,
+                        entities={**ref_img.entities, "desc": "SPGRalignedTemplate"},
+                    )
+                    self.logger.info(
+                        "Built within-aligned SPGR template for SSFP registration: %s",
+                        spgr_template.name,
+                    )
                 ssfp_moco = moco_step(
                     ssfp_pre,
                     output_dir=intermediate_dir,
                     reference_image=ref_img,
                     modality="SSFP",
                     force=force_moco,
+                    cross_reference_image=cross_reference,
                 )
             if ir_pre:
                 ir_moco = moco_step(

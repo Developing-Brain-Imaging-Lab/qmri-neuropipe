@@ -95,6 +95,22 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
             and bool(self._ssfp_two_stage_config().get("enabled", False))
         )
 
+    def _aligned_templates_config(self) -> dict:
+        raw = self._ssfp_two_stage_config().get("aligned_templates", True)
+        if isinstance(raw, bool):
+            return {"enabled": raw}
+        config = dict(raw or {})
+        config.setdefault("enabled", True)
+        return config
+
+    def _aligned_templates_enabled(self) -> bool:
+        return bool(self._aligned_templates_config().get("enabled", True))
+
+    def _expected_ssfp_strategy(self) -> str:
+        if self._aligned_templates_enabled():
+            return "ssfp_two_stage_aligned_templates"
+        return "ssfp_two_stage"
+
     def _stage_options(self, stage: str) -> dict:
         """Merge shared motion options with optional SSFP stage overrides."""
         options = {
@@ -107,7 +123,104 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         )
         if isinstance(stage_overrides, dict):
             options.update(stage_overrides)
+        else:
+            stage_overrides = {}
+
+        if stage == "cross" and self._aligned_templates_enabled():
+            if not ({"transform_type", "type_of_transform"} & options.keys()):
+                options["transform_type"] = "DenseRigid"
+            options.setdefault("aff_metric", "mattes")
+            # Cross-modality templates benefit from ANTs' center-of-mass
+            # initialization even when the shared within-stage setting uses
+            # Identity. An explicit cross-stage value still takes precedence.
+            if "initial_transform" not in stage_overrides:
+                options["initial_transform"] = None
         return options
+
+    @staticmethod
+    def _build_aligned_template(
+        sources,
+        output: Path,
+        *,
+        mode: str = "median",
+        normalize: bool = True,
+        index: int = 0,
+    ) -> Path:
+        """Create a normalized 3D registration template from aligned images."""
+        if isinstance(sources, (str, Path, ImageFile)):
+            sources = [sources]
+
+        volumes = []
+        template_affine = None
+        template_header = None
+        template_shape = None
+        for source in sources:
+            source_path = Path(source.img if isinstance(source, ImageFile) else source)
+            nii = nib.load(str(source_path))
+            if len(nii.shape) not in {3, 4}:
+                raise ValueError(
+                    f"Registration-template input must be 3D or 4D; got {nii.shape}."
+                )
+            data = np.asanyarray(nii.dataobj, dtype=np.float32)
+            source_volumes = [data] if data.ndim == 3 else [
+                data[..., volume_index] for volume_index in range(data.shape[3])
+            ]
+            if template_shape is None:
+                template_shape = source_volumes[0].shape
+                template_affine = nii.affine
+                template_header = nii.header.copy()
+            elif source_volumes[0].shape != template_shape or not np.allclose(
+                nii.affine, template_affine, rtol=1e-5, atol=1e-5
+            ):
+                raise ValueError(
+                    "Aligned registration-template inputs must share a voxel grid."
+                )
+            volumes.extend(source_volumes)
+
+        if not volumes:
+            raise ValueError("Cannot build a registration template without images.")
+
+        mode = str(mode or "median").strip().lower()
+        if mode == "index":
+            if index < 0 or index >= len(volumes):
+                raise ValueError(
+                    f"Registration-template index {index} is out of range for "
+                    f"{len(volumes)} volumes."
+                )
+            reference = volumes[index]
+        else:
+            normalized_volumes = []
+            for volume in volumes:
+                template_volume = volume.copy()
+                if normalize:
+                    valid = np.isfinite(template_volume) & (template_volume > 0)
+                    scale = (
+                        float(np.median(template_volume[valid]))
+                        if np.any(valid)
+                        else 0.0
+                    )
+                    if scale > 0:
+                        template_volume /= scale
+                normalized_volumes.append(template_volume)
+            stacked = np.stack(normalized_volumes, axis=3)
+            if mode == "median":
+                reference = np.nanmedian(stacked, axis=3)
+            elif mode == "mean":
+                reference = np.nanmean(stacked, axis=3)
+            else:
+                raise ValueError(
+                    "Registration-template mode must be 'median', 'mean', "
+                    f"or 'index'; got {mode!r}."
+                )
+
+        reference = np.nan_to_num(reference, copy=False)
+        template_header.set_data_shape(reference.shape)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        nib.save(
+            nib.Nifti1Image(reference, template_affine, template_header),
+            str(output),
+        )
+        return output
 
     @staticmethod
     def _build_ssfp_reference(
@@ -118,48 +231,20 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         normalize: bool = True,
         index: int = 0,
     ) -> Path:
-        """Create a 3D SSFP reference without modifying modeling intensities."""
+        """Create the initial 3D SSFP within-modality registration target."""
         nii = nib.load(str(source))
         if len(nii.shape) != 4 or int(nii.shape[3]) < 2:
             raise ValueError(
                 "Two-stage SSFP motion correction requires a 4D SSFP series "
                 f"with at least two volumes; got {nii.shape}."
             )
-
-        data = np.asanyarray(nii.dataobj, dtype=np.float32)
-        mode = str(mode or "median").strip().lower()
-        if mode == "index":
-            if index < 0 or index >= data.shape[3]:
-                raise ValueError(
-                    f"SSFP reference index {index} is out of range for "
-                    f"{data.shape[3]} volumes."
-                )
-            reference = data[..., index]
-        else:
-            reference_data = data.copy()
-            if normalize:
-                for volume_index in range(reference_data.shape[3]):
-                    volume = reference_data[..., volume_index]
-                    valid = np.isfinite(volume) & (volume > 0)
-                    scale = float(np.median(volume[valid])) if np.any(valid) else 0.0
-                    if scale > 0:
-                        reference_data[..., volume_index] = volume / scale
-            if mode == "median":
-                reference = np.nanmedian(reference_data, axis=3)
-            elif mode == "mean":
-                reference = np.nanmean(reference_data, axis=3)
-            else:
-                raise ValueError(
-                    "SSFP two-stage reference_mode must be 'median', 'mean', "
-                    f"or 'index'; got {mode!r}."
-                )
-
-        reference = np.nan_to_num(reference, copy=False)
-        header = nii.header.copy()
-        header.set_data_shape(reference.shape)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        nib.save(nib.Nifti1Image(reference, nii.affine, header), str(output))
-        return output
+        return RelaxometryMotionCorrectionStep._build_aligned_template(
+            [source],
+            output,
+            mode=mode,
+            normalize=normalize,
+            index=index,
+        )
 
     def _estimate_ants_transforms(
         self,
@@ -221,6 +306,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         ssfp_reference: Path,
         spgr_reference: Path,
         split_dir: Path,
+        cross_reference: Optional[Path] = None,
     ) -> List[Path]:
         """Compose volume-to-SSFP and SSFP-to-SPGR transforms per volume."""
         if self.method != "ants":
@@ -234,13 +320,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         cross_prefix = split_dir / "ssfp_to_spgr_ants_"
         cleanup_prefixes = [cross_prefix]
         try:
-            cross_transforms = self._estimate_ants_transforms(
-                ssfp_reference,
-                spgr_reference,
-                cross_prefix,
-                cross_options,
-            )
-            corrected: List[Path] = []
+            within_transform_sets = []
             for index, volume in enumerate(volumes):
                 within_prefix = split_dir / f"vol{index:04d}_to_ssfp_ants_"
                 cleanup_prefixes.append(within_prefix)
@@ -250,6 +330,54 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                     within_prefix,
                     within_options,
                 )
+                within_transform_sets.append(within_transforms)
+
+            cross_moving = ssfp_reference
+            if self._aligned_templates_enabled():
+                aligned_volumes = []
+                for index, (volume, within_transforms) in enumerate(
+                    zip(volumes, within_transform_sets)
+                ):
+                    aligned_output = split_dir / f"vol{index:04d}_within_aligned.nii.gz"
+                    ants.apply_transforms(
+                        fixed_file=ssfp_reference,
+                        moving_file=volume,
+                        out_file=aligned_output,
+                        transforms=within_transforms,
+                        interpolator=within_options.get(
+                            "interpolation",
+                            within_options.get("interpolator", "linear"),
+                        ),
+                        nthreads=int(
+                            within_options.get(
+                                "nthreads", within_options.get("threads", 4)
+                            )
+                        ),
+                    )
+                    aligned_volumes.append(aligned_output)
+
+                template_cfg = self._aligned_templates_config()
+                cross_moving = split_dir / "ssfp_aligned_template.nii.gz"
+                self._build_aligned_template(
+                    aligned_volumes,
+                    cross_moving,
+                    mode=template_cfg.get("mode", "median"),
+                    normalize=bool(template_cfg.get("normalize", True)),
+                    index=int(template_cfg.get("index", 0)),
+                )
+
+            cross_fixed = Path(cross_reference or spgr_reference)
+            cross_transforms = self._estimate_ants_transforms(
+                cross_moving,
+                cross_fixed,
+                cross_prefix,
+                cross_options,
+            )
+
+            corrected: List[Path] = []
+            for index, (volume, within_transforms) in enumerate(
+                zip(volumes, within_transform_sets)
+            ):
                 output = split_dir / f"vol{index:04d}_moco.nii.gz"
                 # ANTs lists the later transform first: original volume ->
                 # SSFP reference -> SPGR reference.
@@ -280,7 +408,8 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
             output_dir: Path, 
             force: bool = False,
             reference_image: Optional[ImageFile] = None,
-            modality: Optional[str] = None
+            modality: Optional[str] = None,
+            cross_reference_image: Optional[ImageFile] = None,
            ) -> List[ImageFile]:
            
 
@@ -319,6 +448,12 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         except Exception as e:
             self.logger.warning(f"Could not check dimensions of ref: {e}")
 
+        cross_ref_path = (
+            Path(cross_reference_image.img)
+            if cross_reference_image is not None
+            else ref_path
+        )
+
         # 2. Process Inputs
         for img in images:
             # Check if 4D
@@ -350,11 +485,15 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                          existing_metadata = {}
                          if out_json.exists():
                              existing_metadata = json.loads(out_json.read_text())
-                         existing_two_stage = (
-                             existing_metadata.get("MotionCorrection", {}).get("strategy")
-                             == "ssfp_two_stage"
+                         existing_strategy = existing_metadata.get(
+                             "MotionCorrection", {}
+                         ).get("strategy")
+                         expected_strategy = (
+                             self._expected_ssfp_strategy()
+                             if use_two_stage_ssfp
+                             else None
                          )
-                         if use_two_stage_ssfp != existing_two_stage:
+                         if existing_strategy != expected_strategy:
                              self.logger.info(
                                  "Motion-correction strategy changed for %s; re-running.",
                                  out_name,
@@ -407,6 +546,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                         ssfp_ref,
                         ref_path,
                         split_dir,
+                        cross_reference=cross_ref_path,
                     )
                 else:
                     corrected_vols = []
@@ -427,8 +567,9 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
             if use_two_stage_ssfp:
                 metadata = json.loads(out_json.read_text()) if out_json.exists() else {}
                 two_stage_cfg = self._ssfp_two_stage_config()
+                aligned_templates_cfg = self._aligned_templates_config()
                 metadata["MotionCorrection"] = {
-                    "strategy": "ssfp_two_stage",
+                    "strategy": self._expected_ssfp_strategy(),
                     "ssfp_reference_mode": two_stage_cfg.get(
                         "reference_mode", "median"
                     ),
@@ -437,6 +578,18 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                     ),
                     "transform_application": "composed_single_resampling",
                 }
+                if self._aligned_templates_enabled():
+                    metadata["MotionCorrection"].update(
+                        {
+                            "cross_modality_templates": "within_aligned",
+                            "template_mode": aligned_templates_cfg.get(
+                                "mode", "median"
+                            ),
+                            "template_normalized": bool(
+                                aligned_templates_cfg.get("normalize", True)
+                            ),
+                        }
+                    )
                 with out_json.open("w") as f:
                     json.dump(metadata, f, indent=2)
                     f.write("\n")

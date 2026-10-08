@@ -259,6 +259,65 @@ def test_motion_correction_writes_all_sequences_to_intermediate_dir(
     assert output_dirs == [intermediate_dir, intermediate_dir, intermediate_dir]
 
 
+def test_two_stage_motion_passes_aligned_spgr_template_to_ssfp(tmp_path, monkeypatch):
+    workflow = _workflow(
+        tmp_path,
+        motion_correction={
+            "enabled": True,
+            "method": "ants",
+            "ssfp_two_stage": {
+                "enabled": True,
+                "aligned_templates": {
+                    "enabled": True,
+                    "mode": "median",
+                    "normalize": True,
+                },
+            },
+        },
+    )
+    motion_step = next(
+        step
+        for step in workflow.steps
+        if isinstance(step, RelaxometryMotionCorrectionStep)
+    )
+    spgr = _spgr(tmp_path, values=[1, 10], flip_angles=[2, 18])
+    ssfp_path = tmp_path / "sub-01_acq-SSFP_VFA.nii.gz"
+    nib.save(
+        nib.Nifti1Image(np.ones((3, 3, 3, 2), dtype=np.float32), np.eye(4)),
+        ssfp_path,
+    )
+    ssfp = ImageFile(
+        img=ssfp_path,
+        entities={"sub": "01", "acq": "SSFP", "suffix": "VFA"},
+    )
+    reference_path = tmp_path / "spgr_reference.nii.gz"
+    nib.save(
+        nib.Nifti1Image(np.ones((3, 3, 3), dtype=np.float32), np.eye(4)),
+        reference_path,
+    )
+    reference = ImageFile(
+        img=reference_path,
+        entities={"sub": "01", "desc": "spgrref", "suffix": "VFA"},
+    )
+    captured = {}
+
+    def fake_run(images, output_dir, **kwargs):
+        if kwargs["modality"] == "SSFP":
+            captured["cross_reference"] = kwargs["cross_reference_image"]
+        return images
+
+    monkeypatch.setattr(motion_step, "run", fake_run)
+    intermediate_dir = tmp_path / "work" / "anat" / "intermediate"
+
+    workflow._run_motion_correction(
+        [spgr], [ssfp], [], intermediate_dir, reference
+    )
+
+    template = captured["cross_reference"]
+    assert template.img == intermediate_dir / "spgr_aligned_template.nii.gz"
+    np.testing.assert_allclose(nib.load(template.img).get_fdata(), 1.0)
+
+
 @pytest.mark.parametrize("modality", ["SPGR", "SSFP"])
 def test_final_preprocessed_series_are_published_to_anat(tmp_path, modality):
     workflow = _workflow(tmp_path)

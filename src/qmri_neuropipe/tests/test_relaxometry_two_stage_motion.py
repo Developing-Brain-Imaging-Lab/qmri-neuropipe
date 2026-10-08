@@ -48,6 +48,33 @@ def test_normalized_median_ssfp_reference_preserves_geometry(tmp_path):
     assert result.get_fdata()[0, 0, 0] == 1.0
 
 
+def test_aligned_template_combines_multiple_series_and_normalizes_signal(tmp_path):
+    affine = np.diag([1.1, 1.2, 1.3, 1.0])
+    first = tmp_path / "first.nii.gz"
+    second = tmp_path / "second.nii.gz"
+    output = tmp_path / "template.nii.gz"
+    nib.save(
+        nib.Nifti1Image(
+            np.stack([np.ones((2, 2, 2)), np.full((2, 2, 2), 2)], axis=3),
+            affine,
+        ),
+        first,
+    )
+    nib.save(
+        nib.Nifti1Image(np.full((2, 2, 2), 10, dtype=np.float32), affine),
+        second,
+    )
+
+    RelaxometryMotionCorrectionStep._build_aligned_template(
+        [first, second], output, mode="mean", normalize=True
+    )
+
+    result = nib.load(output)
+    assert result.shape == (2, 2, 2)
+    np.testing.assert_allclose(result.affine, affine)
+    np.testing.assert_allclose(result.get_fdata(), 1.0)
+
+
 def test_stage_specific_options_override_shared_registration_options(tmp_path):
     step = _step(
         tmp_path,
@@ -70,26 +97,49 @@ def test_stage_specific_options_override_shared_registration_options(tmp_path):
         "transform_type": "DenseRigid",
         "aff_metric": "mattes",
         "aff_sampling": 64,
+        "initial_transform": None,
     }
 
 
-def test_two_stage_ssfp_composes_transforms_and_resamples_once(
+def test_explicit_cross_initialization_overrides_template_default(tmp_path):
+    step = _step(
+        tmp_path,
+        {
+            "initial_transform": "Identity",
+            "ssfp_two_stage": {
+                "enabled": True,
+                "cross_options": {"initial_transform": "Identity"},
+            },
+        },
+    )
+
+    assert step._stage_options("within")["initial_transform"] == "Identity"
+    assert step._stage_options("cross")["initial_transform"] == "Identity"
+
+
+def test_two_stage_ssfp_uses_templates_and_one_final_composed_resampling(
     tmp_path, monkeypatch
 ):
     step = _step(tmp_path)
     ssfp_reference = tmp_path / "ssfp_reference.nii.gz"
     spgr_reference = tmp_path / "spgr_reference.nii.gz"
+    spgr_template = tmp_path / "spgr_aligned_template.nii.gz"
     volumes = [tmp_path / "vol0000.nii.gz", tmp_path / "vol0001.nii.gz"]
     calls = []
 
     def estimate(moving, fixed, prefix, options):
-        if Path(moving) == ssfp_reference:
+        if Path(moving).name == "ssfp_aligned_template.nii.gz":
+            assert Path(fixed) == spgr_template
             return [tmp_path / "ssfp_to_spgr.mat"]
         return [tmp_path / f"{Path(moving).stem}_to_ssfp.mat"]
 
     def apply(**kwargs):
         calls.append(kwargs)
-        Path(kwargs["out_file"]).touch()
+        output = Path(kwargs["out_file"])
+        if output.name.endswith("_within_aligned.nii.gz"):
+            nib.save(nib.Nifti1Image(np.ones((2, 2, 2)), np.eye(4)), output)
+        else:
+            output.touch()
 
     monkeypatch.setattr(step, "_estimate_ants_transforms", estimate)
     monkeypatch.setattr(step, "_cleanup_ants_outputs", lambda prefix: None)
@@ -100,11 +150,20 @@ def test_two_stage_ssfp_composes_transforms_and_resamples_once(
         ssfp_reference,
         spgr_reference,
         tmp_path / "split",
+        cross_reference=spgr_template,
     )
 
     assert len(outputs) == 2
-    assert len(calls) == 2
-    for index, call in enumerate(calls):
+    assert len(calls) == 4
+    temporary_calls = calls[:2]
+    final_calls = calls[2:]
+    for index, call in enumerate(temporary_calls):
+        assert call["fixed_file"] == ssfp_reference
+        assert call["moving_file"] == volumes[index]
+        assert call["transforms"] == [
+            tmp_path / f"{volumes[index].stem}_to_ssfp.mat"
+        ]
+    for index, call in enumerate(final_calls):
         assert call["fixed_file"] == spgr_reference
         assert call["moving_file"] == volumes[index]
         assert call["transforms"] == [
@@ -155,7 +214,13 @@ def test_ssfp_run_routes_through_two_stage_strategy_and_records_metadata(
             outputs.append(output)
         return outputs
 
-    def fake_two_stage(volumes, ssfp_reference, spgr_reference, split_dir):
+    def fake_two_stage(
+        volumes,
+        ssfp_reference,
+        spgr_reference,
+        split_dir,
+        cross_reference=None,
+    ):
         captured["volumes"] = volumes
         captured["ssfp_reference"] = ssfp_reference
         captured["spgr_reference"] = spgr_reference
@@ -190,10 +255,13 @@ def test_ssfp_run_routes_through_two_stage_strategy_and_records_metadata(
     assert nib.load(str(result[0].img)).shape == (2, 2, 2, 2)
     metadata = json.loads(Path(result[0].json).read_text())
     assert metadata["MotionCorrection"] == {
-        "strategy": "ssfp_two_stage",
+        "strategy": "ssfp_two_stage_aligned_templates",
         "ssfp_reference_mode": "median",
         "ssfp_reference_normalized": True,
         "transform_application": "composed_single_resampling",
+        "cross_modality_templates": "within_aligned",
+        "template_mode": "median",
+        "template_normalized": True,
     }
 
     def fail_if_rerun(*args, **kwargs):
@@ -208,4 +276,7 @@ def test_ssfp_run_routes_through_two_stage_strategy_and_records_metadata(
         modality="SSFP",
     )
     cached_metadata = json.loads(Path(cached[0].json).read_text())
-    assert cached_metadata["MotionCorrection"]["strategy"] == "ssfp_two_stage"
+    assert (
+        cached_metadata["MotionCorrection"]["strategy"]
+        == "ssfp_two_stage_aligned_templates"
+    )
