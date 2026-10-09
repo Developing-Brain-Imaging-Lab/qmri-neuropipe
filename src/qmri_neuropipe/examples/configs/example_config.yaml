@@ -513,6 +513,16 @@ dmri:
 #       aff_iterations: [3000, 2000, 1000, 200]
 #       aff_shrink_factors: [8, 4, 2, 1]
 #       aff_smoothing_sigmas: [4, 2, 1, 0]
+#       # Optional ANTs multi-start angular initialization. This runs before
+#       # the configured rigid/affine registration. For rigid transforms, the
+#       # affine initializer is projected to rotation + translation.
+#       rotation_search:
+#         enabled: false
+#         search_factor: 10          # angular increment in degrees
+#         radian_fraction: 0.5       # fraction of the rotational arc searched
+#         use_principal_axis: false
+#         local_search_iterations: 20
+#         rigidize: true
 #       # Optional SSFP-specific strategy: correct motion within SSFP contrast,
 #       # estimate one SSFP-reference-to-SPGR transform, compose both rigid
 #       # transforms, and resample each original SSFP volume once.

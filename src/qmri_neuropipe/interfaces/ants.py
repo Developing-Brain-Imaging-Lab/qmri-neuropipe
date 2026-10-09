@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Optional
+import numpy as np
 from ..core.types import ImageLike
 from ..core.utils import ensure_dir, extract_image_path
 import os
@@ -156,6 +157,93 @@ def _normalize_registration_schedule_kwargs(kwargs: dict) -> dict:
     return normalized
 
 
+def _rotation_search_config(value) -> dict:
+    """Normalize the optional ANTs affine-initializer configuration."""
+    if value is None:
+        return {"enabled": False}
+    if isinstance(value, bool):
+        return {"enabled": value}
+    config = dict(value or {})
+    enabled = config.get("enabled", True)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+    config["enabled"] = bool(enabled)
+    return config
+
+
+def _rigidize_initializer(ants_module, initializer: Path, output: Path, dimension: int) -> Path:
+    """Project an affine initializer onto the nearest proper rigid transform."""
+    transform = ants_module.read_transform(str(initializer))
+    parameters = np.asarray(transform.parameters, dtype=float)
+    matrix_size = dimension * dimension
+    if parameters.size < matrix_size + dimension:
+        raise ValueError(
+            "ANTs rotation-search initializer did not contain a linear transform."
+        )
+    matrix = parameters[:matrix_size].reshape(dimension, dimension)
+    left, _, right = np.linalg.svd(matrix)
+    rotation = left @ right
+    if np.linalg.det(rotation) < 0:
+        left[:, -1] *= -1
+        rotation = left @ right
+    translation = parameters[matrix_size : matrix_size + dimension]
+    center = np.asarray(transform.fixed_parameters, dtype=float)[:dimension]
+    rigid = ants_module.create_ants_transform(
+        transform_type="AffineTransform",
+        dimension=dimension,
+        matrix=rotation,
+        translation=translation,
+        center=center,
+    )
+    ants_module.write_transform(rigid, str(output))
+    return output
+
+
+def _rotation_search_initializer(
+    ants_module,
+    fixed_img,
+    moving_img,
+    out_prefix: Path,
+    transform_type: str,
+    config: dict,
+) -> Path:
+    """Run ANTs' multi-start angular search and return an initial transform."""
+    search_factor = float(config.get("search_factor", 20))
+    radian_fraction = float(config.get("radian_fraction", 0.1))
+    local_iterations = int(config.get("local_search_iterations", 10))
+    if search_factor <= 0:
+        raise ValueError("rotation_search.search_factor must be greater than zero.")
+    if not 0 < radian_fraction <= 1:
+        raise ValueError("rotation_search.radian_fraction must be in (0, 1].")
+    if local_iterations < 0:
+        raise ValueError(
+            "rotation_search.local_search_iterations cannot be negative."
+        )
+
+    affine_path = Path(f"{out_prefix}RotationSearchAffine.mat")
+    initializer = Path(
+        ants_module.affine_initializer(
+            fixed_image=fixed_img,
+            moving_image=moving_img,
+            search_factor=search_factor,
+            radian_fraction=radian_fraction,
+            use_principal_axis=bool(config.get("use_principal_axis", False)),
+            local_search_iterations=local_iterations,
+            txfn=str(affine_path),
+        )
+    )
+    default_rigidize = "rigid" in str(transform_type).lower()
+    if bool(config.get("rigidize", default_rigidize)):
+        rigid_path = Path(f"{out_prefix}RotationSearchRigid.mat")
+        return _rigidize_initializer(
+            ants_module,
+            initializer,
+            rigid_path,
+            int(fixed_img.dimension),
+        )
+    return initializer
+
+
 def apply_transforms(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, out_file: Path, transforms: list[Path], invert_transforms: list[bool] = None, interpolator: str = "linear", nthreads: int = 1, **kwargs):
     """
     Apply ANTs transforms.
@@ -242,6 +330,25 @@ def registration(fixed_file: ImageLike | Path, moving_file: ImageLike | Path, ou
     fixed_img = ants.image_read(str(fixed_p))
     moving_img = ants.image_read(str(moving_p))
     kwargs = _normalize_registration_schedule_kwargs(kwargs)
+
+    rotation_search = _rotation_search_config(kwargs.pop("rotation_search", None))
+    if rotation_search.get("enabled", False):
+        existing_initializer = kwargs.get("initial_transform")
+        if existing_initializer not in (None, "Identity"):
+            raise ValueError(
+                "rotation_search cannot be combined with a custom "
+                "initial_transform. Remove one of these settings."
+            )
+        kwargs["initial_transform"] = str(
+            _rotation_search_initializer(
+                ants,
+                fixed_img,
+                moving_img,
+                out_prefix,
+                transform_type,
+                rotation_search,
+            )
+        )
 
     multivariate_extras = kwargs.pop("multivariate_extras", None)
     if multivariate_extras:

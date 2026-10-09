@@ -71,6 +71,24 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         return mapping.get(str(transform).strip().lower(), str(transform))
 
     @staticmethod
+    def _normalize_fsl_interpolator(interpolator: str) -> str:
+        """Translate shared interpolation names to FLIRT's ``-interp`` values."""
+        value = str(interpolator or "trilinear").strip()
+        aliases = {
+            "linear": "trilinear",
+            "nearest": "nearestneighbour",
+            "nearestneighbor": "nearestneighbour",
+            "nearestneighbour": "nearestneighbour",
+            "bspline": "spline",
+            "cubic": "spline",
+            "spline": "spline",
+            "sinc": "sinc",
+            "lanczos": "sinc",
+            "lanczoswindowedsinc": "sinc",
+        }
+        return aliases.get(value.lower(), value)
+
+    @staticmethod
     def _cleanup_ants_outputs(out_prefix: Path) -> None:
         candidates = list(out_prefix.parent.glob(f"{out_prefix.name}*"))
         for path in sorted(candidates, key=lambda item: len(item.parts), reverse=True):
@@ -677,13 +695,36 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
              if 'cost' in self.options:
                  flirt_kwargs['cost'] = self.options['cost']
 
-             extra_args = self.options.get('extra_args', self.options.get('args', ''))
-             if extra_args:
-                 flirt_kwargs['extra_args'] = extra_args
+             interpolator = self._normalize_fsl_interpolator(
+                 self.options.get(
+                     'interpolation', self.options.get('interpolator', 'trilinear')
+                 )
+             )
+             extra_args = str(
+                 self.options.get('extra_args', self.options.get('args', '')) or ''
+             ).strip()
+             if '-interp ' not in extra_args:
+                 extra_args = f"{extra_args} -interp {interpolator}".strip()
+             flirt_kwargs['extra_args'] = extra_args
 
+             ants_only_options = {
+                 'transform_type', 'type_of_transform', 'threads', 'nthreads',
+                 'interpolation', 'interpolator', 'aff_metric', 'aff_sampling',
+                 'aff_random_sampling_rate', 'aff_iterations',
+                 'aff_shrink_factors', 'aff_smoothing_sigmas',
+                 'initial_transform', 'smoothing_in_mm', 'random_seed',
+                 'write_composite_transform', 'restrict_transformation',
+                 'singleprecision', 'use_legacy_histogram_matching',
+                 'mask', 'moving_mask', 'mask_all_stages', 'grad_step',
+                 'flow_sigma', 'total_sigma', 'syn_metric', 'syn_sampling',
+                 'reg_iterations', 'multivariate_extras',
+                 'rotation_search',
+             }
              extra_opts = {
                  k: v for k, v in self.options.items()
-                 if k not in {'dof', 'cost', 'extra_args', 'args', 'ssfp_two_stage'} | _ALL_SKULL_STRIP_OPTION_KEYS
+                 if k not in {
+                     'dof', 'cost', 'extra_args', 'args', 'ssfp_two_stage'
+                 } | ants_only_options | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              if extra_opts:
                  flirt_kwargs['extra_opts'] = extra_opts
@@ -693,7 +734,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                      in_file=in_file,
                      ref_file=ref_for_reg,
                      out_file=out_file,
-                     extra_args=f"-applyxfm -init {mat_file} -interp {self.options.get('interpolation', 'trilinear')}",
+                     extra_args=f"-applyxfm -init {mat_file} -interp {interpolator}",
                  )
 
 
