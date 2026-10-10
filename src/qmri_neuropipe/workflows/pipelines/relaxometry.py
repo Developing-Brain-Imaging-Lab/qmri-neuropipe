@@ -103,8 +103,23 @@ class RelaxometryWorkflow(BaseWorkflow):
         # 1. Denoising
         den_cfg = preproc_cfg.denoising
         if den_cfg.get("enabled", False):
+            den_params = dict(den_cfg.get("parameters", {}) or {})
+
+            def denoise_option(name, default):
+                return den_params.get(name, den_cfg.get(name, default))
+
             self.add_step(
-                DenoisingStep(self.config, self.logger, self.provenance, method=den_cfg.get("method", "mrtrix"))
+                DenoisingStep(
+                    self.config,
+                    self.logger,
+                    self.provenance,
+                    method=den_cfg.get("method", "mrtrix"),
+                    patch_radius=denoise_option("patch_radius", 2),
+                    block_radius=denoise_option("block_radius", 5),
+                    mask_dilation=denoise_option("mask_dilation", 2),
+                    pca_method=denoise_option("pca_method", "eig"),
+                    model=denoise_option("model", "ridge"),
+                )
             )
 
         # 2. Gibbs Ringing
@@ -1267,12 +1282,18 @@ class RelaxometryWorkflow(BaseWorkflow):
             return setting
         return bool((setting or {}).get("enabled", False))
 
-    def _joint_preprocessing_signature(self) -> dict[str, str]:
+    def _joint_preprocessing_signature(self) -> dict[str, object]:
         """Describe the enabled joint operations for cache validation."""
-        signature: dict[str, str] = {}
+        signature: dict[str, object] = {}
         for step in self.steps:
             if isinstance(step, DenoisingStep):
                 signature["denoising"] = step.method
+                if step.method == "mppca":
+                    signature["denoising_options"] = {
+                        "patch_radius": step.patch_radius,
+                        "pca_method": step.pca_method,
+                        "mask_dilation": step.mask_dilation,
+                    }
             elif isinstance(step, GibbsUnringingStep):
                 signature["degibbs"] = step.method
         return signature

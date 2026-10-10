@@ -498,7 +498,12 @@ dmri:
 #       enabled: false
 #     denoising:
 #       enabled: false
-#       method: mrtrix
+#       method: mrtrix          # mrtrix or mppca (DIPY)
+#       # MP-PCA options; direct keys are also accepted for compatibility.
+#       # parameters:
+#       #   patch_radius: 2     # 2 -> 5x5x5 spatial patch
+#       #   pca_method: eig     # eig (faster) or svd
+#       #   mask_dilation: 2    # dilations applied to the temporary BET mask
 #     degibbs:
 #       enabled: false
 #       method: mrtrix

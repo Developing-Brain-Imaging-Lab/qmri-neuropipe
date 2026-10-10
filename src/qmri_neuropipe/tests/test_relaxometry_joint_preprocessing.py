@@ -159,6 +159,75 @@ def test_joint_preprocessing_config_defaults_off_and_parses_enabled():
     assert parsed.preprocessing.joint_spgr_ssfp == {"enabled": True}
 
 
+def test_relaxometry_forwards_mppca_parameters_to_denoising_step(tmp_path):
+    config = PipelineConfig(
+        bids_dir=tmp_path / "bids",
+        output_dir=tmp_path / "out",
+    )
+    preprocessing = RelaxometryPreprocConfig(
+        denoising={
+            "enabled": True,
+            "method": "mppca",
+            "parameters": {
+                "patch_radius": 3,
+                "pca_method": "svd",
+                "mask_dilation": 1,
+                "block_radius": 7,
+                "model": "ols",
+            },
+        }
+    )
+    workflow = RelaxometryWorkflow(
+        config,
+        logging.getLogger("test-relaxometry-mppca-options"),
+        {},
+        RelaxometryConfig(preprocessing=preprocessing),
+    )
+
+    step = next(item for item in workflow.steps if isinstance(item, DenoisingStep))
+    assert step.method == "mppca"
+    assert step.patch_radius == 3
+    assert step.pca_method == "svd"
+    assert step.mask_dilation == 1
+    assert step.block_radius == 7
+    assert step.model == "ols"
+    assert workflow._joint_preprocessing_signature() == {
+        "denoising": "mppca",
+        "denoising_options": {
+            "patch_radius": 3,
+            "pca_method": "svd",
+            "mask_dilation": 1,
+        },
+    }
+
+
+def test_relaxometry_accepts_direct_mppca_option_keys(tmp_path):
+    config = PipelineConfig(
+        bids_dir=tmp_path / "bids",
+        output_dir=tmp_path / "out",
+    )
+    preprocessing = RelaxometryPreprocConfig(
+        denoising={
+            "enabled": True,
+            "method": "mppca",
+            "patch_radius": 1,
+            "pca_method": "eig",
+            "mask_dilation": 0,
+        }
+    )
+    workflow = RelaxometryWorkflow(
+        config,
+        logging.getLogger("test-relaxometry-direct-mppca-options"),
+        {},
+        RelaxometryConfig(preprocessing=preprocessing),
+    )
+
+    step = next(item for item in workflow.steps if isinstance(item, DenoisingStep))
+    assert step.patch_radius == 1
+    assert step.pca_method == "eig"
+    assert step.mask_dilation == 0
+
+
 def test_joint_cache_requires_matching_operation_configuration(tmp_path):
     image = _series(tmp_path / "cached.nii.gz", [1, 2], "SPGR")
     metadata = json.loads(Path(image.json).read_text())
@@ -174,3 +243,26 @@ def test_joint_cache_requires_matching_operation_configuration(tmp_path):
     assert not RelaxometryWorkflow._joint_series_was_used(
         [image], {"denoising": "mppca", "degibbs": "mrtrix"}
     )
+
+
+def test_joint_cache_detects_changed_mppca_parameters(tmp_path):
+    image = _series(tmp_path / "cached-mppca.nii.gz", [1, 2], "SPGR")
+    metadata = json.loads(Path(image.json).read_text())
+    configuration = {
+        "denoising": "mppca",
+        "denoising_options": {
+            "patch_radius": 2,
+            "pca_method": "eig",
+            "mask_dilation": 2,
+        },
+    }
+    metadata["JointSPGRSSFPPreprocessing"] = {
+        "enabled": True,
+        "configuration": configuration,
+    }
+    Path(image.json).write_text(json.dumps(metadata))
+
+    assert RelaxometryWorkflow._joint_series_was_used([image], configuration)
+    changed = json.loads(json.dumps(configuration))
+    changed["denoising_options"]["patch_radius"] = 3
+    assert not RelaxometryWorkflow._joint_series_was_used([image], changed)
