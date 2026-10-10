@@ -118,6 +118,9 @@ class RelaxometryWorkflow(BaseWorkflow):
                     block_radius=denoise_option("block_radius", 5),
                     mask_dilation=denoise_option("mask_dilation", 2),
                     pca_method=denoise_option("pca_method", "eig"),
+                    preserve_outside_mask=denoise_option(
+                        "preserve_outside_mask", False
+                    ),
                     model=denoise_option("model", "ridge"),
                 )
             )
@@ -1293,6 +1296,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                         "patch_radius": step.patch_radius,
                         "pca_method": step.pca_method,
                         "mask_dilation": step.mask_dilation,
+                        "preserve_outside_mask": step.preserve_outside_mask,
                     }
             elif isinstance(step, GibbsUnringingStep):
                 signature["degibbs"] = step.method

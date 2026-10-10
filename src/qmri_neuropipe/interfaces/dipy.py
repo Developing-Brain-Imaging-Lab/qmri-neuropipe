@@ -115,7 +115,17 @@ def patch2self(in_file: Path, out_file: Path, bval_file: Path, patch_radius: Opt
     nib.Nifti1Image(den, img.affine, img.header).to_filename(out_file)
     return out_file
 
-def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: Optional[Path]=None, patch_radius: int=2, pca_method: str="eig", nthreads: int = 1, **kwargs)-> Tuple[Path, Optional[Path]]:
+def mppca(
+    in_file: Path,
+    out_file: Path,
+    mask: Optional[Path] = None,
+    noise_map: Optional[Path] = None,
+    patch_radius: int = 2,
+    pca_method: str = "eig",
+    preserve_outside_mask: bool = False,
+    nthreads: int = 1,
+    **kwargs,
+) -> Tuple[Path, Optional[Path]]:
         """
         Run Marchenko-Pastur PCA denoising.
         
@@ -125,6 +135,8 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
             in_img: 4D array (x, y, z, volumes)
             mask: Optional 3D binary mask
             pca_method: Method for PCA ('eig' or 'svd')
+            preserve_outside_mask: Restore original values outside the mask
+                after denoising instead of leaving DIPY's zero-filled exterior.
             **kwargs: Additional parameters
         
         Returns:
@@ -153,6 +165,9 @@ def mppca(in_file: Path, out_file: Path, mask: Optional[Path]=None, noise_map: O
         # Run MP-PCA
         os.environ['OMP_NUM_THREADS'] = str(nthreads)
         denoised_arr, sigma = dipy_mppca(data, mask=mask, patch_radius=patch_radius, pca_method=pca_method, return_sigma=True)
+
+        if mask is not None and preserve_outside_mask:
+            denoised_arr[~mask] = data[~mask]
         
         # Calculate noise reduction
         if mask is not None:

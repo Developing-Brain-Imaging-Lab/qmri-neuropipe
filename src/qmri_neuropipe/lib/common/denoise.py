@@ -71,6 +71,7 @@ class DenoisingStep(BaseProcessingStep):
         block_radius: int = 5,
         mask_dilation: int = 2,
         pca_method: str = 'eig',
+        preserve_outside_mask: bool = False,
         model: str = 'ridge',
     ):
         """
@@ -81,6 +82,8 @@ class DenoisingStep(BaseProcessingStep):
             method: Denoising method to use
             patch_radius: Patch size for local methods (default: 2)
             block_radius: Block size for non-local methods (default: 5)
+            preserve_outside_mask: Restore original values outside an MP-PCA
+                mask instead of retaining DIPY's zero-filled exterior.
             logger: Optional logger instance
             provenance: Optional provenance tracker
         
@@ -94,6 +97,7 @@ class DenoisingStep(BaseProcessingStep):
         self.block_radius = block_radius
         self.mask_dilation = mask_dilation
         self.pca_method = pca_method    
+        self.preserve_outside_mask = preserve_outside_mask
         self.model = model
         self.logger.info(f"Initialized denoising with method: {method}")
     
@@ -345,7 +349,10 @@ class DenoisingStep(BaseProcessingStep):
                 with threadpool_limits(limits=nthreads):
                     if self.method == 'mppca':
                         # Fetch pca_method from kwargs OR use instance default (from config/init)
-                        pca_method = call_kwargs.get('pca_method', self.pca_method)
+                        pca_method = call_kwargs.pop('pca_method', self.pca_method)
+                        preserve_outside_mask = call_kwargs.pop(
+                            'preserve_outside_mask', self.preserve_outside_mask
+                        )
                         
                         denoised, noise = dipy.mppca(in_file=input_img.img, 
                                                      out_file=output_img_path, 
@@ -354,6 +361,7 @@ class DenoisingStep(BaseProcessingStep):
                                                      patch_radius=self.patch_radius,
                                                      block_radius=self.block_radius,
                                                      pca_method=pca_method,
+                                                     preserve_outside_mask=preserve_outside_mask,
                                                      nthreads=nthreads,
                                                      **call_kwargs)
                     elif self.method == 'patch2self':

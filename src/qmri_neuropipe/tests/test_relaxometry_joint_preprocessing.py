@@ -172,6 +172,7 @@ def test_relaxometry_forwards_mppca_parameters_to_denoising_step(tmp_path):
                 "patch_radius": 3,
                 "pca_method": "svd",
                 "mask_dilation": 1,
+                "preserve_outside_mask": True,
                 "block_radius": 7,
                 "model": "ols",
             },
@@ -189,6 +190,7 @@ def test_relaxometry_forwards_mppca_parameters_to_denoising_step(tmp_path):
     assert step.patch_radius == 3
     assert step.pca_method == "svd"
     assert step.mask_dilation == 1
+    assert step.preserve_outside_mask is True
     assert step.block_radius == 7
     assert step.model == "ols"
     assert workflow._joint_preprocessing_signature() == {
@@ -197,6 +199,7 @@ def test_relaxometry_forwards_mppca_parameters_to_denoising_step(tmp_path):
             "patch_radius": 3,
             "pca_method": "svd",
             "mask_dilation": 1,
+            "preserve_outside_mask": True,
         },
     }
 
@@ -254,6 +257,7 @@ def test_joint_cache_detects_changed_mppca_parameters(tmp_path):
             "patch_radius": 2,
             "pca_method": "eig",
             "mask_dilation": 2,
+            "preserve_outside_mask": False,
         },
     }
     metadata["JointSPGRSSFPPreprocessing"] = {

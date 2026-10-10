@@ -551,7 +551,11 @@ class PreprocessingWorkflow(BaseWorkflow):
                 patch_radius=params.get('patch_radius', denoise_cfg.get('patch_radius', 2)),
                 block_radius=params.get('block_radius', denoise_cfg.get('block_radius', 5)),
                 mask_dilation=denoise_cfg.get('mask_dilation', 2),
-                pca_method=params.get('pca_method', denoise_cfg.get('pca_method', 'eig'))
+                pca_method=params.get('pca_method', denoise_cfg.get('pca_method', 'eig')),
+                preserve_outside_mask=params.get(
+                    'preserve_outside_mask',
+                    denoise_cfg.get('preserve_outside_mask', False),
+                ),
             ))
 
     def _add_gibbs_step(self, dmri_cfg: dict):

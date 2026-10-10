@@ -504,6 +504,7 @@ dmri:
 #       #   patch_radius: 2     # 2 -> 5x5x5 spatial patch
 #       #   pca_method: eig     # eig (faster) or svd
 #       #   mask_dilation: 2    # dilations applied to the temporary BET mask
+#       #   preserve_outside_mask: true  # denoise in mask, retain exterior data
 #     degibbs:
 #       enabled: false
 #       method: mrtrix
