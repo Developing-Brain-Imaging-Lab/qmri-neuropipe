@@ -112,6 +112,8 @@ def fit_despot1(
         "t1": _resolve_output_path(out_d, out_base, "T1"),
         "m0": _resolve_output_path(out_d, out_base, "M0"),
     }
+    if (extra_options or {}).get("save-rates", False):
+        outputs["r1"] = _resolve_output_path(out_d, out_base, "R1")
     return outputs
 
 def fit_despot1_hifi(
@@ -155,6 +157,8 @@ def fit_despot1_hifi(
         "m0": _resolve_output_path(out_d, out_base, "M0"),
         "b1": _resolve_output_path(out_d, out_base, "B1"), # Assuming HIFI outputs B1 map
     }
+    if (extra_options or {}).get("save-rates", False):
+        outputs["r1"] = _resolve_output_path(out_d, out_base, "R1")
     return outputs
 
 def fit_despot2(
@@ -204,6 +208,8 @@ def fit_despot2(
         "m0": _resolve_output_path(out_d, out_base, "M0"),
         "f0": _resolve_output_path(out_d, out_base, "F0"), # If estimated or passed through
     }
+    if (extra_options or {}).get("save-rates", False):
+        outputs["r2"] = _resolve_output_path(out_d, out_base, "R2")
     return outputs
 
 def fit_despot2_fm(
@@ -250,10 +256,13 @@ def fit_despot2_fm(
     _append_cli_options(cmd_parts, extra_options)
 
     run_cmd(" ".join(cmd_parts), label="despot2fm_fit")
+    output_metrics = ["T2", "M0", "F0"]
+    if (extra_options or {}).get("save-rates", False):
+        output_metrics.append("R2")
     _normalize_legacy_outputs(
         out_d,
         out_base,
-        ["T2", "M0", "F0"],
+        output_metrics,
     )
     
     outputs = {
@@ -261,6 +270,8 @@ def fit_despot2_fm(
         "m0": _resolve_output_path(out_d, out_base, "M0"),
         "f0": _resolve_output_path(out_d, out_base, "F0"),
     }
+    if (extra_options or {}).get("save-rates", False):
+        outputs["r2"] = _resolve_output_path(out_d, out_base, "R2")
     return outputs
 
 

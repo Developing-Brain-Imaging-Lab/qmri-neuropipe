@@ -277,6 +277,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             "t1csf": "T1csf",
             "t2csf": "T2csf",
             "tau": "Tau",
+            "r1": "R1",
+            "r2": "R2",
         }
         if token in alias_map:
             return alias_map[token]

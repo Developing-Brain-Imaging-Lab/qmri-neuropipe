@@ -3,7 +3,14 @@ from pathlib import Path
 from qmri_neuropipe.interfaces.relaxometry import (
     _append_cli_options,
     _get_qmri_fit_command,
+    fit_despot1,
+    fit_despot1_hifi,
+    fit_despot2,
+    fit_despot2_fm,
     fit_mcdespot,
+)
+from qmri_neuropipe.workflows.pipelines.relaxometry_config import (
+    RelaxometryModelingConfig,
 )
 
 
@@ -54,6 +61,92 @@ def test_value_boolean_options_emit_explicit_false():
         "--scale-to-mean=false",
         "--verbose",
     ]
+
+
+def test_model_config_accepts_save_rates_snake_case_alias():
+    config = RelaxometryModelingConfig(
+        despot1={"enabled": True, "save_rates": True},
+        despot2={"enabled": True, "save-rates": True},
+    )
+
+    assert config.despot1 == {"enabled": True, "save-rates": True}
+    assert config.despot2 == {"enabled": True, "save-rates": True}
+
+
+def test_despot_wrappers_return_native_rate_outputs(tmp_path, monkeypatch):
+    commands = []
+    metrics_by_label = {
+        "despot1_fit": ("T1", "M0", "R1"),
+        "despot1_hifi_fit": ("T1", "M0", "B1", "R1"),
+        "despot2_fit": ("T2", "M0", "F0", "R2"),
+        "despot2fm_fit": ("T2", "M0", "F0", "R2"),
+    }
+
+    def fake_run(command, label):
+        commands.append(command)
+        out_dir = next(
+            Path(token.split("=", 1)[1])
+            for token in command.split()
+            if token.startswith("--out_dir=")
+        )
+        out_base = next(
+            token.split("=", 1)[1]
+            for token in command.split()
+            if token.startswith("--out_base=")
+        )
+        for metric in metrics_by_label[label]:
+            (out_dir / f"{out_base}{metric}.nii.gz").touch()
+
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.relaxometry._get_qmri_fit_command",
+        lambda subcommand, **kwargs: ["qmri_fit", subcommand],
+    )
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.relaxometry.run_cmd",
+        fake_run,
+    )
+
+    common = {
+        "params_file": tmp_path / "params.json",
+        "out_dir": tmp_path / "out",
+        "extra_options": {"save-rates": True},
+    }
+    despot1 = fit_despot1(
+        spgr_file=tmp_path / "spgr.nii.gz",
+        out_base="despot1",
+        **common,
+    )
+    hifi = fit_despot1_hifi(
+        spgr_file=tmp_path / "spgr.nii.gz",
+        irspgr_file=tmp_path / "irspgr.nii.gz",
+        out_base="hifi",
+        **common,
+    )
+    despot2 = fit_despot2(
+        ssfp_file=tmp_path / "ssfp.nii.gz",
+        t1_file=tmp_path / "t1.nii.gz",
+        b1_file=tmp_path / "b1.nii.gz",
+        out_base="despot2",
+        **common,
+    )
+    despot2fm = fit_despot2_fm(
+        ssfp_file=tmp_path / "ssfp.nii.gz",
+        t1_file=tmp_path / "t1.nii.gz",
+        b1_file=tmp_path / "b1.nii.gz",
+        out_base="despot2fm",
+        **common,
+    )
+
+    assert despot1["r1"].name == "despot1_R1.nii.gz"
+    assert hifi["r1"].name == "hifi_R1.nii.gz"
+    assert despot2["r2"].name == "despot2_R2.nii.gz"
+    assert despot2fm["r2"].name == "despot2fm_R2.nii.gz"
+    assert all("--save-rates" in command for command in commands)
+    assert all(
+        path.exists()
+        for outputs in (despot1, hifi, despot2, despot2fm)
+        for path in outputs.values()
+    )
 
 
 def test_unified_mcdespot_command_does_not_emit_retired_t1_option(

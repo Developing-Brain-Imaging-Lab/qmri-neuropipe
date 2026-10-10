@@ -577,6 +577,12 @@ dmri:
 #     # rerun_from_step: modeling
 #     despot1:
 #       enabled: true
+#       # Ask qmri-fit to also write R1 (= 1/T1) in s^-1.
+#       save-rates: true
+#     despot2:
+#       enabled: true
+#       # Ask qmri-fit to also write R2 (= 1/T2) in s^-1.
+#       save-rates: true
 #     mcdespot:
 #       enabled: true
 #       # When enabled, mcDESPOT automatically reuses an existing or newly
@@ -611,7 +617,7 @@ dmri:
 #         lut: /path/to/JHU-ICBM-labels.xml
 #     # Optional map selection for ROI statistics. Supported forms:
 #     #   - model-scoped strings: ["DESPOT1:T1", "mcDESPOT:VFm"]
-#     #   - plain metric names: ["T1", "MWF"]
+#     #   - plain metric names: ["T1", "R1", "MWF"]
 #     #   - mapping form:
 #     #       DESPOT1: [T1]
 #     #       mcDESPOT: [VFm]

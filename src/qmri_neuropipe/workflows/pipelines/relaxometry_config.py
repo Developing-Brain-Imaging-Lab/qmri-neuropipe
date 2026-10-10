@@ -9,7 +9,10 @@ def canonicalize_model_options(options: Optional[dict]) -> dict:
     canonical = dict(options or {})
     if "nthreads" not in canonical and "threads" in canonical:
         canonical["nthreads"] = canonical["threads"]
+    if "save-rates" not in canonical and "save_rates" in canonical:
+        canonical["save-rates"] = canonical["save_rates"]
     canonical.pop("threads", None)
+    canonical.pop("save_rates", None)
     return canonical
 
 
