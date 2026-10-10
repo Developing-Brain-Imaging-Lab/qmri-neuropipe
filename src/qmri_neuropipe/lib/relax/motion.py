@@ -149,6 +149,11 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         else:
             stage_overrides = {}
 
+        # Backend selection is global for this processing step. Treat nested
+        # control keys as metadata rather than registration-program arguments.
+        for control_key in ("method", "backend", "enabled"):
+            options.pop(control_key, None)
+
         if (
             stage == "cross"
             and self._aligned_templates_enabled()
@@ -313,6 +318,9 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 "interpolator",
                 "args",
                 "extra_args",
+                "method",
+                "backend",
+                "enabled",
             }
             | _ALL_SKULL_STRIP_OPTION_KEYS
         }
@@ -343,6 +351,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         """Keep FLIRT options while excluding other backend configuration."""
         excluded = {
             "dof", "cost", "extra_args", "args", "ssfp_two_stage",
+            "method", "backend", "enabled",
             "transform_type", "type_of_transform", "threads", "nthreads",
             "interpolation", "interpolator", "aff_metric", "aff_sampling",
             "aff_random_sampling_rate", "aff_iterations",
@@ -863,7 +872,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                  if k not in {
                      'transform_type', 'type_of_transform', 'threads', 'nthreads',
                      'interpolation', 'interpolator', 'args', 'extra_args',
-                     'ssfp_two_stage'
+                     'ssfp_two_stage', 'method', 'backend', 'enabled'
                  } | _ALL_SKULL_STRIP_OPTION_KEYS
              }
              ignored_shell_args = self.options.get('args') or self.options.get('extra_args')

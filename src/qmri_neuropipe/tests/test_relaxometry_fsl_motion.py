@@ -66,6 +66,38 @@ def test_fsl_motion_maps_linear_to_trilinear():
     )
 
 
+def test_fsl_transform_estimation_does_not_forward_backend_control_keys(
+    tmp_path, monkeypatch
+):
+    moving = _image(tmp_path / "moving.nii.gz")
+    fixed = _image(tmp_path / "fixed.nii.gz")
+    calls = []
+
+    def fake_flirt(**kwargs):
+        calls.append(kwargs)
+        return kwargs["out_file"], kwargs.get("omat")
+
+    monkeypatch.setattr(fsl, "flirt", fake_flirt)
+    step = _step(tmp_path, {})
+
+    step._estimate_fsl_transform(
+        moving,
+        fixed,
+        tmp_path / "cross_",
+        {
+            "method": "fsl",
+            "backend": "flirt",
+            "enabled": True,
+            "cost": "normcorr",
+            "interpolation": "sinc",
+        },
+    )
+
+    assert calls[0]["cost"] == "normcorr"
+    assert calls[0]["extra_args"] == "-interp sinc"
+    assert calls[0]["extra_opts"] is None
+
+
 def test_synthmorph_motion_estimates_rigid_lta_and_applies_it(
     tmp_path, monkeypatch
 ):
