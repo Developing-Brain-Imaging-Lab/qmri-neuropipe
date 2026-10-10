@@ -504,7 +504,12 @@ dmri:
 #       method: mrtrix
 #     motion_correction:
 #       enabled: true
-#       method: ants
+#       method: ants             # ants, fsl (or flirt), synthmorph
+#       # SynthMorph uses a linear model so transforms can be composed and the
+#       # original quantitative images are resampled only once.
+#       # synthmorph_model: rigid  # rigid (recommended) or affine
+#       # synthmorph_register_args: ""
+#       # synthmorph_apply_args: "-m linear"
 #       transform_type: DenseRigid
 #       aff_metric: mattes
 #       aff_sampling: 64

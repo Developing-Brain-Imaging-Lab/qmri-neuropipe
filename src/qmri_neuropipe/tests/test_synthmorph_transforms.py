@@ -60,6 +60,24 @@ def test_synthmorph_register_accepts_model_compatible_transform(
     assert f"-m {model}" in commands[0]
 
 
+def test_mri_concatenate_lta_preserves_transform_order(tmp_path, monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        freesurfer,
+        "run_cmd",
+        lambda command, **kwargs: commands.append(command),
+    )
+    within = tmp_path / "volume_to_ssfp.lta"
+    cross = tmp_path / "ssfp_to_spgr.lta"
+    composed = tmp_path / "volume_to_spgr.lta"
+
+    freesurfer.mri_concatenate_lta(within, cross, composed)
+
+    assert commands == [
+        f"mri_concatenate_lta {within} {cross} {composed}"
+    ]
+
+
 def test_normalization_workflow_forwards_synthmorph_model():
     config = PipelineConfig(
         config_data={

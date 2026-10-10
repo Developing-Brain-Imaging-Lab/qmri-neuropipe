@@ -25,7 +25,12 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
 
     def __init__(self, config, logger, provenance, method="ants", options: dict = None):
         super().__init__(config, logger, provenance)
-        self.method = method
+        normalized_method = str(method or "ants").strip().lower()
+        if normalized_method in {"flirt"}:
+            normalized_method = "fsl"
+        elif normalized_method in {"mri_synthmorph", "freesurfer_synthmorph"}:
+            normalized_method = "synthmorph"
+        self.method = normalized_method
         self.options = options or {}
 
     @staticmethod
@@ -144,7 +149,11 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         else:
             stage_overrides = {}
 
-        if stage == "cross" and self._aligned_templates_enabled():
+        if (
+            stage == "cross"
+            and self._aligned_templates_enabled()
+            and self.method == "ants"
+        ):
             if not ({"transform_type", "type_of_transform"} & options.keys()):
                 options["transform_type"] = "DenseRigid"
             options.setdefault("aff_metric", "mattes")
@@ -318,6 +327,214 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         )
         return [Path(transform) for transform in transforms]
 
+    @staticmethod
+    def _synthmorph_model(options: dict) -> str:
+        """Return a linear SynthMorph model suitable for motion correction."""
+        model = str(options.get("synthmorph_model", "rigid") or "rigid").lower()
+        if model not in {"rigid", "affine"}:
+            raise ValueError(
+                "Relaxometry motion correction requires a linear SynthMorph "
+                "model: 'rigid' or 'affine'."
+            )
+        return model
+
+    @staticmethod
+    def _fsl_extra_options(options: dict) -> dict:
+        """Keep FLIRT options while excluding other backend configuration."""
+        excluded = {
+            "dof", "cost", "extra_args", "args", "ssfp_two_stage",
+            "transform_type", "type_of_transform", "threads", "nthreads",
+            "interpolation", "interpolator", "aff_metric", "aff_sampling",
+            "aff_random_sampling_rate", "aff_iterations",
+            "aff_shrink_factors", "aff_smoothing_sigmas",
+            "initial_transform", "smoothing_in_mm", "random_seed",
+            "write_composite_transform", "restrict_transformation",
+            "singleprecision", "use_legacy_histogram_matching",
+            "mask", "moving_mask", "mask_all_stages", "grad_step",
+            "flow_sigma", "total_sigma", "syn_metric", "syn_sampling",
+            "reg_iterations", "multivariate_extras", "rotation_search",
+            "synthmorph_model", "synthmorph_register_args",
+            "synthmorph_apply_args",
+        } | _ALL_SKULL_STRIP_OPTION_KEYS
+        return {key: value for key, value in options.items() if key not in excluded}
+
+    def _estimate_fsl_transform(
+        self,
+        moving: Path,
+        fixed: Path,
+        out_prefix: Path,
+        options: dict,
+    ) -> Path:
+        """Estimate and retain a FLIRT matrix without using its warped image."""
+        from ...interfaces import fsl
+
+        nthreads = int(options.get("nthreads", options.get("threads", 4)))
+        moving_for_reg, fixed_for_reg, _ = prepare_registration_images(
+            self.config,
+            self.logger,
+            Path(moving),
+            Path(fixed),
+            out_prefix.parent,
+            options,
+            nthreads,
+            force=True,
+        )
+        matrix = Path(f"{out_prefix}transform.mat")
+        estimate = Path(f"{out_prefix}estimate.nii.gz")
+        interpolator = self._normalize_fsl_interpolator(
+            options.get("interpolation", options.get("interpolator", "trilinear"))
+        )
+        extra_args = str(
+            options.get("extra_args", options.get("args", "")) or ""
+        ).strip()
+        if "-interp " not in extra_args:
+            extra_args = f"{extra_args} -interp {interpolator}".strip()
+        extra_opts = self._fsl_extra_options(options)
+        fsl.flirt(
+            in_file=moving_for_reg,
+            ref_file=fixed_for_reg,
+            out_file=estimate,
+            omat=matrix,
+            dof=int(options.get("dof", 6)),
+            cost=str(options.get("cost", "normmi")),
+            extra_args=extra_args,
+            extra_opts=extra_opts or None,
+        )
+        return matrix
+
+    def _estimate_synthmorph_transform(
+        self,
+        moving: Path,
+        fixed: Path,
+        out_prefix: Path,
+        options: dict,
+    ) -> Path:
+        """Estimate and retain a linear SynthMorph LTA."""
+        from ...interfaces import freesurfer
+
+        nthreads = int(options.get("nthreads", options.get("threads", 4)))
+        moving_for_reg, fixed_for_reg, _ = prepare_registration_images(
+            self.config,
+            self.logger,
+            Path(moving),
+            Path(fixed),
+            out_prefix.parent,
+            options,
+            nthreads,
+            force=True,
+        )
+        transform = Path(f"{out_prefix}transform.lta")
+        freesurfer.mri_synthmorph_register(
+            moving=moving_for_reg,
+            target=fixed_for_reg,
+            transform_out=transform,
+            model=self._synthmorph_model(options),
+            extra_args=str(options.get("synthmorph_register_args", "") or ""),
+            overwrite=True,
+        )
+        return transform
+
+    def _estimate_backend_transform(
+        self,
+        moving: Path,
+        fixed: Path,
+        out_prefix: Path,
+        options: dict,
+    ):
+        if self.method == "ants":
+            return self._estimate_ants_transforms(moving, fixed, out_prefix, options)
+        if self.method == "fsl":
+            return self._estimate_fsl_transform(moving, fixed, out_prefix, options)
+        if self.method == "synthmorph":
+            return self._estimate_synthmorph_transform(
+                moving, fixed, out_prefix, options
+            )
+        raise ValueError(
+            f"Unsupported relaxometry motion-correction method: {self.method!r}. "
+            "Choose 'ants', 'fsl', or 'synthmorph'."
+        )
+
+    def _apply_backend_transform(
+        self,
+        moving: Path,
+        fixed: Path,
+        output: Path,
+        transform,
+        options: dict,
+    ) -> Path:
+        """Apply one backend transform or transform chain."""
+        if self.method == "ants":
+            ants.apply_transforms(
+                fixed_file=fixed,
+                moving_file=moving,
+                out_file=output,
+                transforms=transform,
+                interpolator=options.get(
+                    "interpolation", options.get("interpolator", "linear")
+                ),
+                nthreads=int(options.get("nthreads", options.get("threads", 4))),
+            )
+        elif self.method == "fsl":
+            from ...interfaces import fsl
+
+            interpolator = self._normalize_fsl_interpolator(
+                options.get(
+                    "interpolation", options.get("interpolator", "trilinear")
+                )
+            )
+            fsl.flirt(
+                in_file=moving,
+                ref_file=fixed,
+                out_file=output,
+                extra_args=f"-applyxfm -init {transform} -interp {interpolator}",
+            )
+        elif self.method == "synthmorph":
+            from ...interfaces import freesurfer
+
+            freesurfer.mri_synthmorph_apply(
+                moving=moving,
+                target=fixed,
+                transform_in=transform,
+                out_file=output,
+                extra_args=str(options.get("synthmorph_apply_args", "") or ""),
+                overwrite=True,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported relaxometry motion-correction method: {self.method!r}."
+            )
+        return Path(output)
+
+    def _compose_backend_transforms(
+        self,
+        within_transform,
+        cross_transform,
+        output: Path,
+    ):
+        """Compose volume-to-SSFP followed by SSFP-to-SPGR transforms."""
+        if self.method == "ants":
+            return [*cross_transform, *within_transform]
+        if self.method == "fsl":
+            from ...interfaces import fsl
+
+            return fsl.convert_xfm(
+                in_file=within_transform,
+                concat_mat=cross_transform,
+                out_file=output.with_suffix(".mat"),
+            )
+        if self.method == "synthmorph":
+            from ...interfaces import freesurfer
+
+            return freesurfer.mri_concatenate_lta(
+                within_transform,
+                cross_transform,
+                output.with_suffix(".lta"),
+                overwrite=True,
+            )
+        raise ValueError(
+            f"Unsupported relaxometry motion-correction method: {self.method!r}."
+        )
+
     def _run_two_stage_ssfp(
         self,
         volumes: List[Path],
@@ -327,22 +544,23 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
         cross_reference: Optional[Path] = None,
     ) -> List[Path]:
         """Compose volume-to-SSFP and SSFP-to-SPGR transforms per volume."""
-        if self.method != "ants":
+        if self.method not in {"ants", "fsl", "synthmorph"}:
             raise ValueError(
-                "Two-stage SSFP motion correction currently requires method: ants."
+                "Two-stage SSFP motion correction requires method: ants, fsl, "
+                "or synthmorph."
             )
 
         split_dir.mkdir(parents=True, exist_ok=True)
         within_options = self._stage_options("within")
         cross_options = self._stage_options("cross")
-        cross_prefix = split_dir / "ssfp_to_spgr_ants_"
+        cross_prefix = split_dir / f"ssfp_to_spgr_{self.method}_"
         cleanup_prefixes = [cross_prefix]
         try:
             within_transform_sets = []
             for index, volume in enumerate(volumes):
-                within_prefix = split_dir / f"vol{index:04d}_to_ssfp_ants_"
+                within_prefix = split_dir / f"vol{index:04d}_to_ssfp_{self.method}_"
                 cleanup_prefixes.append(within_prefix)
-                within_transforms = self._estimate_ants_transforms(
+                within_transforms = self._estimate_backend_transform(
                     Path(volume),
                     ssfp_reference,
                     within_prefix,
@@ -357,20 +575,12 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                     zip(volumes, within_transform_sets)
                 ):
                     aligned_output = split_dir / f"vol{index:04d}_within_aligned.nii.gz"
-                    ants.apply_transforms(
-                        fixed_file=ssfp_reference,
-                        moving_file=volume,
-                        out_file=aligned_output,
-                        transforms=within_transforms,
-                        interpolator=within_options.get(
-                            "interpolation",
-                            within_options.get("interpolator", "linear"),
-                        ),
-                        nthreads=int(
-                            within_options.get(
-                                "nthreads", within_options.get("threads", 4)
-                            )
-                        ),
+                    self._apply_backend_transform(
+                        Path(volume),
+                        ssfp_reference,
+                        aligned_output,
+                        within_transforms,
+                        within_options,
                     )
                     aligned_volumes.append(aligned_output)
 
@@ -385,7 +595,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 )
 
             cross_fixed = Path(cross_reference or spgr_reference)
-            cross_transforms = self._estimate_ants_transforms(
+            cross_transforms = self._estimate_backend_transform(
                 cross_moving,
                 cross_fixed,
                 cross_prefix,
@@ -397,29 +607,24 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 zip(volumes, within_transform_sets)
             ):
                 output = split_dir / f"vol{index:04d}_moco.nii.gz"
-                # ANTs lists the later transform first: original volume ->
-                # SSFP reference -> SPGR reference.
-                composed_transforms = [*cross_transforms, *within_transforms]
-                ants.apply_transforms(
-                    fixed_file=spgr_reference,
-                    moving_file=volume,
-                    out_file=output,
-                    transforms=composed_transforms,
-                    interpolator=cross_options.get(
-                        "interpolation",
-                        cross_options.get("interpolator", "linear"),
-                    ),
-                    nthreads=int(
-                        cross_options.get(
-                            "nthreads", cross_options.get("threads", 4)
-                        )
-                    ),
+                composed_transforms = self._compose_backend_transforms(
+                    within_transforms,
+                    cross_transforms,
+                    split_dir / f"vol{index:04d}_to_spgr_composed",
+                )
+                self._apply_backend_transform(
+                    Path(volume),
+                    spgr_reference,
+                    output,
+                    composed_transforms,
+                    cross_options,
                 )
                 corrected.append(output)
             return corrected
         finally:
-            for prefix in cleanup_prefixes:
-                self._cleanup_ants_outputs(prefix)
+            if self.method == "ants":
+                for prefix in cleanup_prefixes:
+                    self._cleanup_ants_outputs(prefix)
         
     def run(self, 
             images: List[ImageFile], 
@@ -506,12 +711,21 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                          existing_strategy = existing_metadata.get(
                              "MotionCorrection", {}
                          ).get("strategy")
+                         existing_backend = existing_metadata.get(
+                             "MotionCorrection", {}
+                         ).get("backend")
                          expected_strategy = (
                              self._expected_ssfp_strategy()
                              if use_two_stage_ssfp
                              else None
                          )
-                         if existing_strategy != expected_strategy:
+                         if (
+                             existing_strategy != expected_strategy
+                             or (
+                                 use_two_stage_ssfp
+                                 and existing_backend != self.method
+                             )
+                         ):
                              self.logger.info(
                                  "Motion-correction strategy changed for %s; re-running.",
                                  out_name,
@@ -588,6 +802,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                 aligned_templates_cfg = self._aligned_templates_config()
                 metadata["MotionCorrection"] = {
                     "strategy": self._expected_ssfp_strategy(),
+                    "backend": self.method,
                     "ssfp_reference_mode": two_stage_cfg.get(
                         "reference_mode", "median"
                     ),
@@ -707,25 +922,7 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                  extra_args = f"{extra_args} -interp {interpolator}".strip()
              flirt_kwargs['extra_args'] = extra_args
 
-             ants_only_options = {
-                 'transform_type', 'type_of_transform', 'threads', 'nthreads',
-                 'interpolation', 'interpolator', 'aff_metric', 'aff_sampling',
-                 'aff_random_sampling_rate', 'aff_iterations',
-                 'aff_shrink_factors', 'aff_smoothing_sigmas',
-                 'initial_transform', 'smoothing_in_mm', 'random_seed',
-                 'write_composite_transform', 'restrict_transformation',
-                 'singleprecision', 'use_legacy_histogram_matching',
-                 'mask', 'moving_mask', 'mask_all_stages', 'grad_step',
-                 'flow_sigma', 'total_sigma', 'syn_metric', 'syn_sampling',
-                 'reg_iterations', 'multivariate_extras',
-                 'rotation_search',
-             }
-             extra_opts = {
-                 k: v for k, v in self.options.items()
-                 if k not in {
-                     'dof', 'cost', 'extra_args', 'args', 'ssfp_two_stage'
-                 } | ants_only_options | _ALL_SKULL_STRIP_OPTION_KEYS
-             }
+             extra_opts = self._fsl_extra_options(self.options)
              if extra_opts:
                  flirt_kwargs['extra_opts'] = extra_opts
              flirt(**flirt_kwargs)
@@ -736,6 +933,40 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
                      out_file=out_file,
                      extra_args=f"-applyxfm -init {mat_file} -interp {interpolator}",
                  )
+
+        elif self.method == 'synthmorph':
+             from ...interfaces import freesurfer
+
+             transform = (
+                 Path(out_file).parent
+                 / f"{get_nifti_stem(out_file)}_synthmorph.lta"
+             )
+             freesurfer.mri_synthmorph_register(
+                 moving=moving_for_reg,
+                 target=ref_for_reg,
+                 transform_out=transform,
+                 model=self._synthmorph_model(self.options),
+                 extra_args=str(
+                     self.options.get("synthmorph_register_args", "") or ""
+                 ),
+                 overwrite=True,
+             )
+             freesurfer.mri_synthmorph_apply(
+                 moving=in_file,
+                 target=ref_file,
+                 transform_in=transform,
+                 out_file=out_file,
+                 extra_args=str(
+                     self.options.get("synthmorph_apply_args", "") or ""
+                 ),
+                 overwrite=True,
+             )
+
+        else:
+             raise ValueError(
+                 f"Unsupported relaxometry motion-correction method: {self.method!r}. "
+                 "Choose 'ants', 'fsl', or 'synthmorph'."
+             )
 
 
 # Compatibility alias for external imports. Instances report the new,

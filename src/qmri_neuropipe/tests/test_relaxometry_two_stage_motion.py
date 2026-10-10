@@ -7,7 +7,7 @@ import numpy as np
 
 from qmri_neuropipe.core.config import PipelineConfig
 from qmri_neuropipe.core.types import ImageFile
-from qmri_neuropipe.interfaces import fsl
+from qmri_neuropipe.interfaces import freesurfer, fsl
 from qmri_neuropipe.lib.relax.motion import RelaxometryMotionCorrectionStep
 from qmri_neuropipe.lib.relax import motion as motion_module
 
@@ -256,6 +256,7 @@ def test_ssfp_run_routes_through_two_stage_strategy_and_records_metadata(
     metadata = json.loads(Path(result[0].json).read_text())
     assert metadata["MotionCorrection"] == {
         "strategy": "ssfp_two_stage_aligned_templates",
+        "backend": "ants",
         "ssfp_reference_mode": "median",
         "ssfp_reference_normalized": True,
         "transform_application": "composed_single_resampling",
@@ -280,3 +281,117 @@ def test_ssfp_run_routes_through_two_stage_strategy_and_records_metadata(
         cached_metadata["MotionCorrection"]["strategy"]
         == "ssfp_two_stage_aligned_templates"
     )
+
+
+def test_two_stage_ssfp_composes_flirt_matrices(tmp_path, monkeypatch):
+    step = _step(
+        tmp_path,
+        {
+            "cost": "normmi",
+            "interpolation": "sinc",
+            "ssfp_two_stage": {"enabled": True},
+        },
+    )
+    step.method = "fsl"
+    ssfp_reference = tmp_path / "ssfp_reference.nii.gz"
+    spgr_reference = tmp_path / "spgr_reference.nii.gz"
+    volumes = [tmp_path / "vol0000.nii.gz", tmp_path / "vol0001.nii.gz"]
+    estimates = []
+    applications = []
+    compositions = []
+
+    def estimate(moving, fixed, prefix, options):
+        transform = tmp_path / f"{Path(prefix).name}transform.mat"
+        estimates.append((Path(moving), Path(fixed), transform))
+        return transform
+
+    def fake_flirt(**kwargs):
+        applications.append(kwargs)
+        output = Path(kwargs["out_file"])
+        if output.name.endswith("_within_aligned.nii.gz"):
+            nib.save(nib.Nifti1Image(np.ones((2, 2, 2)), np.eye(4)), output)
+        else:
+            output.touch()
+        return output, kwargs.get("omat")
+
+    def fake_convert(in_file, out_file, inverse=False, concat_mat=None):
+        compositions.append((Path(in_file), Path(concat_mat), Path(out_file)))
+        Path(out_file).touch()
+        return Path(out_file)
+
+    monkeypatch.setattr(step, "_estimate_fsl_transform", estimate)
+    monkeypatch.setattr(fsl, "flirt", fake_flirt)
+    monkeypatch.setattr(fsl, "convert_xfm", fake_convert)
+
+    outputs = step._run_two_stage_ssfp(
+        volumes, ssfp_reference, spgr_reference, tmp_path / "fsl_split"
+    )
+
+    assert len(estimates) == 3
+    assert len(compositions) == 2
+    cross_transform = estimates[-1][2]
+    for index, (within, cross, composed) in enumerate(compositions):
+        assert within == estimates[index][2]
+        assert cross == cross_transform
+        assert composed.name == f"vol{index:04d}_to_spgr_composed.mat"
+    assert len(applications) == 4
+    assert all("-applyxfm" in call["extra_args"] for call in applications)
+    assert all("-interp sinc" in call["extra_args"] for call in applications)
+    assert all(output.exists() for output in outputs)
+
+
+def test_two_stage_ssfp_composes_synthmorph_ltas(tmp_path, monkeypatch):
+    step = _step(
+        tmp_path,
+        {
+            "synthmorph_model": "rigid",
+            "synthmorph_apply_args": "-m linear",
+            "ssfp_two_stage": {"enabled": True},
+        },
+    )
+    step.method = "synthmorph"
+    ssfp_reference = tmp_path / "ssfp_reference.nii.gz"
+    spgr_reference = tmp_path / "spgr_reference.nii.gz"
+    volumes = [tmp_path / "vol0000.nii.gz", tmp_path / "vol0001.nii.gz"]
+    estimates = []
+    applications = []
+    compositions = []
+
+    def estimate(moving, fixed, prefix, options):
+        transform = tmp_path / f"{Path(prefix).name}transform.lta"
+        estimates.append((Path(moving), Path(fixed), transform))
+        return transform
+
+    def fake_apply(**kwargs):
+        applications.append(kwargs)
+        output = Path(kwargs["out_file"])
+        if output.name.endswith("_within_aligned.nii.gz"):
+            nib.save(nib.Nifti1Image(np.ones((2, 2, 2)), np.eye(4)), output)
+        else:
+            output.touch()
+        return output
+
+    def fake_concatenate(first, second, output, overwrite=False):
+        compositions.append((Path(first), Path(second), Path(output), overwrite))
+        Path(output).touch()
+        return Path(output)
+
+    monkeypatch.setattr(step, "_estimate_synthmorph_transform", estimate)
+    monkeypatch.setattr(freesurfer, "mri_synthmorph_apply", fake_apply)
+    monkeypatch.setattr(freesurfer, "mri_concatenate_lta", fake_concatenate)
+
+    outputs = step._run_two_stage_ssfp(
+        volumes, ssfp_reference, spgr_reference, tmp_path / "synth_split"
+    )
+
+    assert len(estimates) == 3
+    assert len(compositions) == 2
+    cross_transform = estimates[-1][2]
+    for index, (within, cross, composed, overwrite) in enumerate(compositions):
+        assert within == estimates[index][2]
+        assert cross == cross_transform
+        assert composed.name == f"vol{index:04d}_to_spgr_composed.lta"
+        assert overwrite is True
+    assert len(applications) == 4
+    assert all(call["extra_args"] == "-m linear" for call in applications)
+    assert all(output.exists() for output in outputs)

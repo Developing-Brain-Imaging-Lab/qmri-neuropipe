@@ -204,6 +204,31 @@ def mri_synthmorph_apply(
     return out_p
 
 
+def mri_concatenate_lta(
+    first_transform: Path,
+    second_transform: Path,
+    out_file: Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Compose consecutive LTAs as ``second_transform * first_transform``."""
+    first_p = Path(first_transform)
+    second_p = Path(second_transform)
+    out_p = Path(out_file)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_p.exists():
+        if not overwrite:
+            return out_p
+        out_p.unlink()
+
+    run_cmd(
+        f"mri_concatenate_lta {first_p} {second_p} {out_p}",
+        label="mri_concatenate_lta",
+    )
+    return out_p
+
+
 def mri_warp_convert_to_itk(
     in_transform: Path,
     out_file: Path,
