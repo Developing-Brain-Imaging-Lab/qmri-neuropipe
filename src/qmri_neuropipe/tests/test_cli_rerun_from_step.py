@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 from qmri_neuropipe.cli import app
 from qmri_neuropipe.cli import merge_cli_and_config
 from qmri_neuropipe import __version__
+from qmri_neuropipe.io.bids import select_participants_sessions
 
 
 def test_cli_reports_package_version():
@@ -37,6 +38,58 @@ def test_cli_rerun_from_step_overrides_config(tmp_path: Path):
     )
 
     assert config.get("rerun_from_step") == "normalization"
+
+
+def test_cli_comma_separated_subject_and_session_labels(tmp_path: Path):
+    bids_dir = tmp_path / "bids"
+    for session in ("01", "02", "03", "04"):
+        (bids_dir / "sub-019" / f"ses-{session}").mkdir(parents=True)
+    (bids_dir / "sub-020" / "ses-01").mkdir(parents=True)
+
+    config = merge_cli_and_config(
+        None,
+        {
+            "bids_dir": bids_dir,
+            "participant_label": "019",
+            "session_label": "01, 02,03",
+        },
+    )
+
+    assert config.participant_label == ["019"]
+    assert config.session_label == ["01", "02", "03"]
+    assert select_participants_sessions(
+        bids_dir,
+        config.participant_label,
+        config.session_label,
+    ) == [
+        ("019", "01"),
+        ("019", "02"),
+        ("019", "03"),
+    ]
+
+
+def test_cli_accepts_comma_separated_sessions_in_command(tmp_path: Path):
+    bids_dir = tmp_path / "bids"
+    output_dir = tmp_path / "derivatives"
+    bids_dir.mkdir()
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--bids-dir",
+            str(bids_dir),
+            "--output-dir",
+            str(output_dir),
+            "--participant-label",
+            "019",
+            "--session-label",
+            "01,02,03",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "['01', '02', '03']" in result.output
 
 
 def test_pipeline_still_runs_without_explicit_run_subcommand(tmp_path: Path):

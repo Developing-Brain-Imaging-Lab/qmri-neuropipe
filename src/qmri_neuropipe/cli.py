@@ -421,7 +421,11 @@ def merge_cli_and_config(
         if value is None:
             continue
         if key in ['participant_label', 'session_label'] and isinstance(value, str):
-            value = [value]
+            value = [
+                label.strip()
+                for label in value.split(",")
+                if label.strip()
+            ]
         normalized_cli_args[key] = value
 
     # Start with config file if provided
@@ -775,12 +779,12 @@ def main(
     participant_label: Optional[str] = typer.Option(
         None, 
         "--participant-label", "-p",
-        help="Participant ID(s) to process (e.g., sub-01 or 01)"
+        help="Participant ID(s) to process, optionally comma-separated (e.g., 01,02)"
     ),
     session_label: Optional[str] = typer.Option(
         None, 
         "--session-label", "-s",
-        help="Session ID(s) to process (e.g., ses-01 or 01)"
+        help="Session ID(s) to process, optionally comma-separated (e.g., 01,02,03)"
     ),
     
     # Computational resources
