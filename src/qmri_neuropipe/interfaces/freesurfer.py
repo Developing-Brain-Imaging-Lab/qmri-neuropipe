@@ -160,11 +160,12 @@ def mri_synthmorph_register(
             if output_image is None or Path(output_image).exists():
                 return tx_p
 
-    out_arg = f"-o {output_image}" if output_image else ""
-    inv_arg = f"-T {inverse_transform_out}" if inverse_transform_out else ""
-    model_arg = f"-m {model}" if model else ""
+    out_arg = f"-o {shlex.quote(str(output_image))}" if output_image else ""
+    inv_arg = f"-T {shlex.quote(str(inverse_transform_out))}" if inverse_transform_out else ""
+    model_arg = f"-m {shlex.quote(model)}" if model else ""
     extra = extra_args or ""
-    cmd = f"mri_synthmorph register -t {tx_p} {inv_arg} {model_arg} {out_arg} {extra} {mov_p} {targ_p}".strip()
+    paths = shlex.join([str(mov_p), str(targ_p)])
+    cmd = f"mri_synthmorph register -t {shlex.quote(str(tx_p))} {inv_arg} {model_arg} {out_arg} {extra} {paths}"
     run_cmd(cmd, label="mri_synthmorph_register")
     return tx_p
 
@@ -199,7 +200,8 @@ def mri_synthmorph_apply(
         out_p.unlink()
 
     extra = extra_args or ""
-    cmd = f"mri_synthmorph apply {transform_in} {mov_p} {out_p} {extra}".strip()
+    paths = shlex.join([str(transform_in), str(mov_p), str(out_p)])
+    cmd = f"mri_synthmorph apply {extra} {paths}"
     run_cmd(cmd, label="mri_synthmorph_apply")
     return out_p
 

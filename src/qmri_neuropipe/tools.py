@@ -4,6 +4,7 @@ CLI Tools for direct function access (e.g. Model Fitting).
 This module exposes internal library functions as standalone CLI commands.
 """
 
+import json
 import logging
 import typer
 from pathlib import Path
@@ -48,6 +49,56 @@ def _require_gnl_backend(model_name: str, backend: str, grad_nonlin: Optional[Pa
             f"{model_name} gradient nonlinearity correction is only supported with the "
             f"'{supported_backend}' backend, not '{backend}'."
         )
+
+
+@app.command("build-template")
+def build_template(
+    cohort: Path = typer.Argument(..., help="JSON mapping cohort identifiers to 3D NIfTI paths."),
+    output_dir: Path = typer.Argument(..., help="New directory for the template and transforms."),
+    image_type: str = typer.Option(..., help="Input contrast or map, such as T1w, T1, or FA."),
+    method: str = typer.Option("ants", help="ants, fireants, or synthmorph."),
+    iterations: int = typer.Option(4, min=1),
+    initial_template: Optional[Path] = typer.Option(None),
+    registration_options: Optional[Path] = typer.Option(None, help="JSON object of backend options."),
+    nthreads: int = typer.Option(1, min=1),
+):
+    """Build a population template from a cohort of scalar images."""
+    from qmri_neuropipe.lib.common.population_template import build_population_template
+
+    entries = json.loads(cohort.read_text())
+    if not isinstance(entries, dict) or not all(isinstance(path, str) for path in entries.values()):
+        raise typer.BadParameter("Expected a JSON object mapping identifiers to image paths.")
+    options = json.loads(registration_options.read_text()) if registration_options else {}
+    if not isinstance(options, dict):
+        raise typer.BadParameter("Expected a JSON object of backend options.")
+    manifest = build_population_template(
+        {key: cohort.parent / path for key, path in entries.items()},
+        output_dir,
+        image_type=image_type,
+        method=method,
+        iterations=iterations,
+        initial_template=initial_template,
+        options=options,
+        nthreads=nthreads,
+    )
+    typer.echo(str(manifest))
+
+
+@app.command("apply-template-transform")
+def apply_template_transform(
+    manifest: Path,
+    subject: str,
+    moving: Path,
+    output: Path,
+    nearest: bool = typer.Option(False, help="Use nearest-neighbor interpolation for labels."),
+    nthreads: int = typer.Option(1, min=1),
+):
+    """Apply a saved cohort transform to another image in the subject's space."""
+    from qmri_neuropipe.lib.common.population_template import apply_population_transform
+
+    typer.echo(str(apply_population_transform(
+        manifest, subject, moving, output, nearest=nearest, nthreads=nthreads,
+    )))
 
 
 @app.command("enrich-gnl-metadata")

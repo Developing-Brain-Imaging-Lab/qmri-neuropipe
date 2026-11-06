@@ -15,7 +15,7 @@ import numpy as np
 from ...core import BaseProcessingStep, ValidationError, ProcessingError
 from ...core.run import run_cmd
 from ...core.types import DWIFile, ImageFile
-from ...interfaces import ants, fsl, freesurfer, c3d, mrtrix
+from ...interfaces import ants, fireants, fsl, freesurfer, c3d, mrtrix
 from ...core.utils import resolve_freesurfer_subjects_dir
 from ...io.bids import build_bids_name
 from ...core.utils import check_nifti_integrity
@@ -738,6 +738,24 @@ class NonlinearRegistrationStep(BaseProcessingStep):
                          shutil.copy(warped, output_img)
                      else:
                          self.logger.warning("ANTs SyN completed but warped image not found?")
+             elif method == "fireants":
+                 fireants.registration(
+                     fixed_for_reg,
+                     moving_for_reg,
+                     expected_transform,
+                     **{
+                         k: v for k, v in options.items()
+                         if k not in {"interpolation"} | _ALL_SKULL_STRIP_OPTION_KEYS
+                     },
+                 )
+                 ants.apply_transforms(
+                     fixed_file=target,
+                     moving_file=in_p,
+                     out_file=output_img,
+                     transforms=[expected_transform],
+                     interpolator=str(options.get("interpolation", "linear")),
+                     nthreads=nthreads,
+                 )
              elif method == "fsl":
                  output_mat = expected_transform
                  flirt_out = output_img

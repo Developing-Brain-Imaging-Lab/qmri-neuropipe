@@ -1513,7 +1513,7 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         interp: str,
         out_path: Path,
     ) -> Path:
-        """Apply an FSL affine or ANTs warp/affine transform pair."""
+        """Apply an FSL affine, FireANTs warp, or ANTs transform pair."""
         transform = Path(transform)
         if transform_type == "fsl" or transform.suffix == ".mat":
             fsl.applywarp(
@@ -1526,21 +1526,27 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             )
             return out_path
 
-        warp = transform.with_suffix("").parent / (
-            transform.name + "1Warp.nii.gz"
-        )
-        affine = transform.with_suffix("").parent / (
-            transform.name + "0GenericAffine.mat"
-        )
-        if not (warp.exists() and affine.exists()):
-            raise FileNotFoundError(
-                f"Missing {warp.name} or {affine.name}"
+        if transform_type == "fireants":
+            if not transform.exists():
+                raise FileNotFoundError(transform)
+            transforms = [transform]
+        else:
+            warp = transform.with_suffix("").parent / (
+                transform.name + "1Warp.nii.gz"
             )
+            affine = transform.with_suffix("").parent / (
+                transform.name + "0GenericAffine.mat"
+            )
+            if not (warp.exists() and affine.exists()):
+                raise FileNotFoundError(
+                    f"Missing {warp.name} or {affine.name}"
+                )
+            transforms = [warp, affine]
         ants.apply_transforms(
             fixed_file=Path(template),
             moving_file=in_img,
             out_file=out_path,
-            transforms=[warp, affine],
+            transforms=transforms,
             interpolator=(
                 "nearestNeighbor" if interp == "nn" else interp
             ),

@@ -261,7 +261,8 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
         --no-compile \
         --no-build-isolation \
         --prefer-binary \
-        "${PACKAGE_SPEC}"
+        "${PACKAGE_SPEC}" \
+        "fireants==1.5.0"
     ${CONDA_DIR}/bin/python -m pip check
     ${CONDA_DIR}/bin/python -c \
         "import amico; import ants; import antspynet; import cvxpy; import dmipy_fit; import jax; import jaxopt; import torch; import tractseg; assert 'SCS' in cvxpy.installed_solvers(), 'CVXPY SCS solver is unavailable'"
@@ -390,3 +391,7 @@ From: nvidia/cuda:12.2.0-runtime-ubuntu22.04
     set -e
     /opt/conda/bin/python -m pip check
     test -x /opt/conda/bin/qmri-neuropipe
+    /opt/conda/bin/python -c 'from fireants.io import BatchedImages, Image; from fireants.registration.affine import AffineRegistration; from fireants.registration.greedy import GreedyRegistration; import ants; import torch; assert torch.version.cuda is not None'
+    command -v mri_synthmorph >/dev/null
+    /opt/conda/bin/qmri-tools build-template --help >/dev/null
+    /opt/conda/bin/qmri-tools apply-template-transform --help >/dev/null
