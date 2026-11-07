@@ -2622,6 +2622,17 @@ class RelaxometryWorkflow(BaseWorkflow):
             spgr_moco = existing_spgr_moco
             ssfp_moco = existing_ssfp_moco
             ir_moco = None
+            # IR-SPGR may have been added after the SPGR/SSFP cache was
+            # created. Always send it through registration to the shared
+            # reference; the step handles its own validated output cache.
+            if ir_pre and moco_step:
+                ir_moco = moco_step(
+                    ir_pre,
+                    output_dir=intermediate_dir,
+                    reference_image=ref_img,
+                    modality="IR-SPGR",
+                    force=force_moco,
+                )
         else:
             spgr_moco, ssfp_moco, ir_moco = self._run_motion_correction(
                 existing_spgr_moco or spgr_pre,
@@ -2659,8 +2670,14 @@ class RelaxometryWorkflow(BaseWorkflow):
             anat_out_dir=anat_out_dir,
             modality_label="SSFP",
         )
+        ir_final = self._publish_preprocessed_series(
+            ir_moco if ir_moco is not None else ir_pre,
+            anat_out_dir=anat_out_dir,
+            modality_label="IRSPGR",
+        )
         context["processed_spgr"] = spgr_moco
         context["processed_ssfp"] = ssfp_moco
+        context["processed_irspgr"] = ir_final
 
         spgr_ref = ref_img
         context["relax_reference"] = spgr_ref
@@ -2669,7 +2686,6 @@ class RelaxometryWorkflow(BaseWorkflow):
         self.logger.info(
             "Materialized Relaxometry SPGR Reference: %s", spgr_ref.img.name
         )
-        ir_final = ir_moco if ir_moco is not None else ir_pre
         return spgr_moco, ssfp_moco, ir_final, spgr_ref
 
     def _finalize_intermediates(

@@ -510,3 +510,106 @@ def test_reference_builder_supports_separate_3d_spgr_images(tmp_path):
     )
 
     np.testing.assert_array_equal(nib.load(reference.img).get_fdata(), 12)
+
+
+def test_cached_spgr_still_registers_new_irspgr(tmp_path, monkeypatch):
+    source = _spgr(tmp_path, values=[1, 7, 3], flip_angles=[2, 18, 7])
+    workflow = _workflow(
+        tmp_path, skip_existing=True,
+        motion_correction={"enabled": True, "method": "fsl"},
+    )
+    monkeypatch.setattr(
+        workflow, "_find_existing_preprocessed_series",
+        lambda *args, modality_label, **kwargs: [source] if modality_label == "SPGR" else [],
+    )
+    ir = ImageFile(img=tmp_path / "ir.nii.gz", entities={"acq": "IRSPGR"})
+    nib.save(nib.Nifti1Image(np.ones((2, 2, 2)), np.diag([2., 2., 2., 1.])), ir.img)
+    calls = []
+
+    def fake_run(self, images, output_dir, reference_image, modality, **kwargs):
+        calls.append((images, reference_image, modality))
+        return images
+
+    monkeypatch.setattr(RelaxometryMotionCorrectionStep, "run", fake_run)
+    _, _, ir_final, reference = workflow._prepare_modeling_inputs(
+        [source], [], [ir], tmp_path / "anat", tmp_path / "work",
+        {"subject": "01", "session": None}, set(), set(),
+    )
+    assert calls == [([ir], reference, "IR-SPGR")]
+    assert len(ir_final) == 1
+    assert ir_final[0].img.parent == tmp_path / "anat"
+    np.testing.assert_array_equal(nib.load(ir_final[0].img).get_fdata(), nib.load(ir.img).get_fdata())
+
+
+@pytest.mark.parametrize("wrong_grid", [False, True])
+def test_irspgr_registration_and_cache_use_shared_reference_grid(tmp_path, monkeypatch, wrong_grid):
+    workflow = _workflow(tmp_path, motion_correction={"enabled": True, "method": "fsl"})
+    step = next(s for s in workflow.steps if isinstance(s, RelaxometryMotionCorrectionStep))
+    reference = ImageFile(img=tmp_path / "ref.nii.gz", entities={})
+    affine = np.diag([1.2, 1.3, 1.4, 1.])
+    nib.save(nib.Nifti1Image(np.ones((4, 5, 6)), affine), reference.img)
+    source = ImageFile(
+        img=tmp_path / "sub-01_acq-IRSPGR_T1w.nii.gz",
+        entities={"sub": "01", "acq": "IRSPGR", "suffix": "T1w"},
+    )
+    nib.save(nib.Nifti1Image(np.ones((2, 3, 4)), np.eye(4)), source.img)
+    output_dir = tmp_path / "corrected"
+    output_dir.mkdir()
+    if wrong_grid:
+        nib.save(nib.load(source.img), output_dir / "sub-01_acq-IRSPGR_desc-preproc_T1w.nii.gz")
+    registered = []
+
+    def fake_register(moving, fixed, output):
+        registered.append((moving, fixed))
+        nib.save(nib.load(fixed), output)
+
+    monkeypatch.setattr(step, "_register", fake_register)
+    result = step.run([source], output_dir, reference_image=reference, modality="IR-SPGR")
+    assert registered == [(source.img, reference.img)]
+    nii = nib.load(result[0].img)
+    assert nii.shape == (4, 5, 6)
+    np.testing.assert_allclose(nii.affine, affine)
+    step.run([source], output_dir, reference_image=reference, modality="IR-SPGR")
+    assert len(registered) == 1
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_irspgr_preprocessing_is_published_with_metadata(tmp_path, monkeypatch, enabled):
+    from qmri_neuropipe.workflows.pipelines import relaxometry as module
+
+    workflow = RelaxometryWorkflow(
+        PipelineConfig(bids_dir=tmp_path / "bids", output_dir=tmp_path / "out"),
+        logging.getLogger("test-ir-preproc"), {},
+        RelaxometryConfig(preprocessing=RelaxometryPreprocConfig(
+            reorient={"enabled": enabled},
+            denoising={"enabled": enabled, "method": "mrtrix"},
+            degibbs={"enabled": enabled, "method": "mrtrix"},
+        )),
+    )
+    spgr = _spgr(tmp_path, values=[1, 7, 3], flip_angles=[2, 18, 7])
+    ir = ImageFile(
+        img=tmp_path / "sub-01_desc-IRSPGR_T1w.nii.gz",
+        json=tmp_path / "sub-01_desc-IRSPGR_T1w.json",
+        entities={"sub": "01", "desc": "IRSPGR", "suffix": "T1w"},
+    )
+    nib.save(nib.Nifti1Image(np.ones((3, 3, 3)), np.eye(4)), ir.img)
+    ir.json.write_text(json.dumps({"InversionTime": 0.45, "FlipAngle": 5}))
+    calls = []
+
+    def fake_run(self, image, **kwargs):
+        calls.append((type(self).__name__, image.img))
+        return image
+
+    for cls in (module.ReorientStep, module.DenoisingStep, module.GibbsUnringingStep):
+        monkeypatch.setattr(cls, "run", fake_run)
+    context = {"subject": "01", "session": None}
+    _, _, outputs, _ = workflow._prepare_modeling_inputs(
+        [spgr], [], [ir], tmp_path / "anat", tmp_path / "work", context, set(), set(),
+    )
+    ir_calls = [name for name, path in calls if path == ir.img]
+    assert ir_calls == (["ReorientStep", "DenoisingStep", "GibbsUnringingStep"] if enabled else [])
+    assert context["processed_irspgr"] == outputs
+    assert outputs[0].img.parent == tmp_path / "anat"
+    assert outputs[0].img.name == "sub-01_desc-IRSPGRpreproc_T1w.nii.gz"
+    assert json.loads(outputs[0].json.read_text())["InversionTime"] == 0.45
+    np.testing.assert_array_equal(nib.load(outputs[0].img).get_fdata(), 1)

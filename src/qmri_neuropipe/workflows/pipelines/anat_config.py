@@ -69,6 +69,8 @@ class AnatomicalConfig:
     qc: QCConfig = field(default_factory=QCConfig)
     freesurfer: FreeSurferConfig = field(default_factory=FreeSurferConfig)
     super_synth: SuperSynthConfig = field(default_factory=SuperSynthConfig)
+    fastsurfer: dict[str, Any] = field(default_factory=dict)
+    deepprep: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_anatomical_config(config: Mapping[str, Any]) -> AnatomicalConfig:
@@ -90,7 +92,24 @@ def parse_anatomical_config(config: Mapping[str, Any]) -> AnatomicalConfig:
         brain_masking_cfg.get("output_skull_stripped", False),
     )
 
+    backends = {}
+    for backend in ("fastsurfer", "deepprep"):
+        settings = anat_cfg.get(backend, {}) or {}
+        if not isinstance(settings, Mapping):
+            raise ValueError(f"anat.{backend} must be a mapping")
+        if settings.get("enabled", False):
+            if settings.get("runtime", "native") not in {"native", "docker", "apptainer", "singularity"}:
+                raise ValueError(f"anat.{backend}.runtime is unsupported")
+            if settings.get("runtime", "native") != "native" and not settings.get("image"):
+                raise ValueError(f"anat.{backend}.image is required for containers")
+            if settings.get("input", "raw") not in {"raw", "preprocessed"}:
+                raise ValueError(f"anat.{backend}.input must be raw or preprocessed")
+            if backend == "fastsurfer" and settings.get("mode", "full") not in {"full", "segmentation"}:
+                raise ValueError("anat.fastsurfer.mode must be full or segmentation")
+        backends[backend] = dict(settings)
+
     return AnatomicalConfig(
+        **backends,
         preprocessing=PreprocessingConfig(
             resample=preprocessing_cfg.get("resample", {}),
             reorient=preprocessing_cfg.get("reorient", {}),

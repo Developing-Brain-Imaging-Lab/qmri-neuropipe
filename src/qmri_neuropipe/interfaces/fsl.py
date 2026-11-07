@@ -1643,3 +1643,67 @@ def save_volumes_to_file(
         raise ValueError(f"Unknown format: {format}")
         
     return out_path
+
+
+# Scalar, same-contrast human brain schedule based on FSL's unimodal example:
+# https://fsl.fmrib.ox.ac.uk/fsl/docs/registration/mmorf.html
+# Kept in Python so installed packages always include the default configuration.
+_MMORF_DEFAULT_CONFIG = """; qmri-neuropipe default: single scalar image pair
+warp_res_init = 32
+warp_scaling = 1 1 2 2 2
+lambda_reg = 4.0e5 3.7e-1 3.1e-1 2.6e-1 2.2e-1
+hires = 6
+optimiser_max_it_lowres = 5
+optimiser_max_it_hires = 5
+use_implicit_mask = 0
+use_mask_ref_scalar = 0 0 0 0 0
+use_mask_mov_scalar = 0 0 0 0 0
+mask_ref_scalar = NULL
+mask_mov_scalar = NULL
+fwhm_ref_scalar = 8 8 4 2 1
+fwhm_mov_scalar = 8 8 4 2 1
+lambda_scalar = 1 1 1 1 1
+estimate_bias = 0
+bias_res_init = 32
+lambda_bias_reg = 1e9 1e9 1e9 1e9 1e9
+"""
+
+
+def nonlinear_registration(fixed, moving, warp, *, method="fnirt", options=None, nthreads=1):
+    """Fit an FSL nonlinear transform.
+
+    MMORF defaults to a single scalar, same-contrast human brain schedule.
+    Supply options.config to replace it, or individual options to override it.
+    The default config is written beside the warp for reproducibility.
+    """
+    method = method.lower()
+    if method == "mmorph":
+        method = "mmorf"
+    if method not in {"fnirt", "mmorf"}:
+        raise ValueError(f"Unsupported FSL nonlinear method: {method}")
+    opts = dict(options or {})
+    warp = Path(warp)
+    warp.parent.mkdir(parents=True, exist_ok=True)
+    if method == "mmorf" and not opts.get("config"):
+        config = warp.parent / (warp.name + ".mmorf.conf")
+        config.write_text(_MMORF_DEFAULT_CONFIG)
+        opts["config"] = config
+    affine = warp.parent / (warp.name + ".affine.mat")
+    flirt(moving, fixed, warp.parent / (warp.name + ".affine.nii.gz"),
+          omat=affine, dof=12)
+    if method == "fnirt":
+        opts.update({"in": moving, "ref": fixed, "aff": affine, "cout": warp})
+        args = ["fnirt", *[f"--{key}={value}" for key, value in opts.items()]]
+    else:
+        identity = warp.parent / (warp.name + ".identity.mat")
+        np.savetxt(identity, np.eye(4))
+        basename = str(warp).removesuffix(".nii.gz").removesuffix(".nii")
+        opts.update(img_ref_scalar=fixed, img_mov_scalar=moving,
+                    aff_ref_scalar=identity, aff_mov_scalar=affine,
+                    img_warp_space=fixed, warp_out=basename)
+        args = ["mmorf"]
+        for key, value in opts.items():
+            args.append(f"--{key}")
+            args.extend(str(v) for v in (value if isinstance(value, (list, tuple)) else [value]))
+    run_cmd(shlex.join(args), label=method, n_threads=nthreads)
+    return warp

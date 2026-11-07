@@ -8,13 +8,18 @@ from tempfile import TemporaryDirectory
 import nibabel as nib
 import numpy as np
 
-from ...interfaces import ants, fireants, freesurfer
+from ...interfaces import ants, fireants, freesurfer, fsl
 
 
 def _register(fixed, moving, directory, method, options, nthreads):
     directory.mkdir(parents=True)
     warped = directory / "warped.nii.gz"
     options = dict(options)
+    if method in {"fnirt", "mmorf", "mmorph"}:
+        transform = fsl.nonlinear_registration(fixed, moving, directory / "warp.nii.gz",
+            method=method, options=options, nthreads=nthreads)
+        fsl.applywarp(moving, fixed, warped, warp=transform, force=True)
+        return warped, [transform]
     if method == "ants":
         options.setdefault("transform_type", "SyN")
         if "interpolation" in options:
@@ -58,7 +63,7 @@ def build_population_template(
     method = method.lower()
     if method == "mri_synthmorph":
         method = "synthmorph"
-    if method not in {"ants", "fireants", "synthmorph"}:
+    if method not in {"ants", "fireants", "synthmorph", "fnirt", "mmorf", "mmorph"}:
         raise ValueError(f"Unsupported population registration method: {method}")
     if iterations < 1 or len(subjects) < 2 or not image_type.strip():
         raise ValueError("Provide at least two subjects, a nonempty image type, and one or more iterations.")
@@ -134,6 +139,9 @@ def apply_population_transform(
     data = json.loads(manifest.read_text())
     transforms = [manifest.parent / path for path in data["subjects"][subject]["transforms"]]
     template = manifest.parent / data["template"]
+    if data["method"] in {"fnirt", "mmorf", "mmorph"}:
+        return fsl.applywarp(moving, template, output, warp=transforms[0],
+                             interp="nn" if nearest else "trilinear", force=True)
     if data["method"] == "synthmorph":
         return freesurfer.mri_synthmorph_apply(
             moving, template, transforms[0], output,

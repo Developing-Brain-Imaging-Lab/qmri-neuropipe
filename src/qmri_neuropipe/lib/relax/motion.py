@@ -711,6 +711,11 @@ class RelaxometryMotionCorrectionStep(BaseProcessingStep):
             if out_path.exists() and not force:
                 try: 
                     check = nib.load(out_path)
+                    reference_grid = nib.load(ref_path)
+                    if check.shape[:3] != reference_grid.shape[:3] or not np.allclose(
+                        check.affine, reference_grid.affine, rtol=1e-5, atol=1e-5
+                    ):
+                        raise ValueError("cached motion output does not match the shared reference grid")
                     if is_4d and (len(check.shape) != 4 or check.shape[3] < 2):
                          self.logger.warning(f"Existing output {out_name} appears truncated. Re-running.")
                     else:

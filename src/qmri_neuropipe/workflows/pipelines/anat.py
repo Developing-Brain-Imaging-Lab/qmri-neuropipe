@@ -52,6 +52,7 @@ from ...lib.common.registration import CoregistrationStep, NonlinearRegistration
 from ...lib.common.mask import BrainMaskingStep
 from ...lib.anat.recon import ReconAllStep, FreeSurferStatsStep
 from ...lib.anat.super_synth import SuperSynthStep
+from ...lib.anat.deep_anatomical import DeepAnatomicalStep, FastSurferStep, DeepPrepStep
 from ...lib.common.sharpen import SharpeningStep
 from ...lib.common.segmentation import SegmentationStep
 from ...interfaces.mriqc import run_mriqc
@@ -95,6 +96,7 @@ T1W_SKIP = (
     SegmentationStep,
     FreeSurferStatsStep,
     SuperSynthStep,
+    DeepAnatomicalStep,
 )
 T2W_SKIP = (
     ReconAllStep,
@@ -104,6 +106,7 @@ T2W_SKIP = (
     SegmentationStep,
     FreeSurferStatsStep,
     SuperSynthStep,
+    DeepAnatomicalStep,
 )
 FREESURFER_T1W_SKIP = (
     ResampleStep,
@@ -248,6 +251,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
                 metrics=seg_cfg.metrics,
                 atlas_threshold=seg_cfg.atlas_threshold
             ))
+
+        for backend, step_type in (("fastsurfer", FastSurferStep), ("deepprep", DeepPrepStep)):
+            if getattr(self.anat_config, backend).get("enabled", False):
+                self.add_step(step_type(self.config, self.logger, self.provenance))
 
         # 10. SuperSynth segmentation + optional volume extraction
         if self.anat_config.super_synth.enabled:
@@ -2135,6 +2142,34 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
 
         return context, step_metrics
 
+    def _run_deep_anatomical(self, output_dir, context, reporter, step_metrics):
+        """Run optional external backends without replacing native-space anatomy."""
+        target = getattr(self, "_anat_rerun_from_step", None) or get_rerun_from_step(
+            self.config, "anat.preprocessing", "anat")
+        for step in self.steps:
+            if not isinstance(step, DeepAnatomicalStep):
+                continue
+            force = bool(getattr(self, "_anat_force_from_step_active", False)) or step_matches(step, target)
+            self._anat_force_from_step_active = force
+            started = time.time()
+            try:
+                context.update(step(context, output_dir=output_dir, force=force))
+                step_metrics.append({"Step": step.backend, "Status": "Completed",
+                                     "Duration": f"{time.time() - started:.2f}s"})
+                if reporter:
+                    self._add_anat_step(step.backend, {"Status": "Complete",
+                        "Subject directory": str(context[f"{step.backend}_subject_dir"])})
+            except Exception as exc:
+                step_metrics.append({"Step": step.backend, "Status": "Failed",
+                                     "Duration": f"{time.time() - started:.2f}s"})
+                context.setdefault("errors", []).append(f"{step.backend} failed: {exc}")
+                self.logger.error("%s failed: %s", step.backend, exc)
+                if reporter:
+                    self._add_anat_step(step.backend, {"Status": "Failed", "error": str(exc)})
+                if self.config.stop_on_error:
+                    raise
+        return context, step_metrics
+
     def _run_super_synth(
         self,
         output_dir: Path,
@@ -2556,12 +2591,17 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
         rerun_hits_anat = any_step_matches(self.steps, rerun_from_step)
         if self.config.get("skip_existing", True) and not self.config.get("force", False) and not rerun_hits_anat:
             cached = self._load_preprocessed_from_output(context, final_output_dir)
-            if cached and self._recon_all_finished(context):
+            cache_context = {**context, **(cached or {})}
+            deep_steps = [s for s in self.steps if isinstance(s, DeepAnatomicalStep)]
+            deep_complete = all(s.is_complete(cache_context) for s in deep_steps)
+            if cached and self._recon_all_finished(context) and deep_complete:
                 self.logger.info(
                     f"⚡ FAST SKIP: Found preprocessed anatomical outputs in {final_output_dir}"
                 )
                 context = PipelineContext(context)
                 context.update({k: v for k, v in cached.items() if v is not None})
+                for step in deep_steps:
+                    context.update(step.outputs(context))
                 context["anat_preprocessing_skipped"] = True
                 return context
 
@@ -2628,6 +2668,10 @@ class AnatPreprocessingWorkflow(BaseWorkflow):
             final_output_dir,
             reporter,
             step_metrics
+        )
+
+        context, step_metrics = self._run_deep_anatomical(
+            output_dir, context, reporter, step_metrics
         )
 
         context, step_metrics = self._run_super_synth(

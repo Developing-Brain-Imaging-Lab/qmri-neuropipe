@@ -682,6 +682,8 @@ class NonlinearRegistrationStep(BaseProcessingStep):
                 {**entities, "desc": "norm", "suffix": "transform"},
                 extension=".mat",
             )
+        if method in {"fnirt", "mmorf", "mmorph"}:
+            expected_transform = output_dir / (output_transform.name + "_warp.nii.gz")
         transform_ref = expected_transform
         
         if output_img.exists() and expected_transform.exists() and not kwargs.get('force', False):
@@ -738,6 +740,15 @@ class NonlinearRegistrationStep(BaseProcessingStep):
                          shutil.copy(warped, output_img)
                      else:
                          self.logger.warning("ANTs SyN completed but warped image not found?")
+             elif method in {"fnirt", "mmorf", "mmorph"}:
+                 fsl.nonlinear_registration(
+                     fixed_for_reg, moving_for_reg, expected_transform,
+                     method=method, nthreads=nthreads,
+                     options={k: v for k, v in options.items()
+                              if k not in {"interpolation"} | _ALL_SKULL_STRIP_OPTION_KEYS},
+                 )
+                 fsl.applywarp(in_p, target, output_img, warp=expected_transform,
+                               interp=options.get("interpolation", "trilinear"), force=True)
              elif method == "fireants":
                  fireants.registration(
                      fixed_for_reg,

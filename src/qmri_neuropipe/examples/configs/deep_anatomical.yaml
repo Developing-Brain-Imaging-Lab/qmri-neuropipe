@@ -1,0 +1,22 @@
+# Merge these sections into a normal qmri-neuropipe configuration.
+# Both backends are optional and can be enabled independently or together.
+anat:
+  fastsurfer:
+    enabled: false
+    runtime: native              # native, docker, apptainer, singularity
+    executable: run_fastsurfer.sh # Or an absolute installed script path
+    mode: full                   # full or segmentation (FastSurferCNN/VINN only)
+    input: raw                   # Selected full-head T1w; or preprocessed
+    device: cpu                  # cpu, auto, cuda[:N], mps (native macOS)
+    fs_license: /path/to/freesurfer/license.txt # Not needed for segmentation mode
+    # image: deepmi/fastsurfer:<installed-version> # Required for containers
+    # output_dir: /path/to/derivatives/fastsurfer
+
+  deepprep:
+    enabled: false
+    runtime: docker
+    image: pbfslab/deepprep:25.1.0 # Explicit version; change to your tested release
+    input: raw
+    device: cpu                  # cpu, auto, or DeepPrep GPU index such as "0"
+    fs_license: /path/to/freesurfer/license.txt
+    # output_dir: /path/to/derivatives/deepprep
