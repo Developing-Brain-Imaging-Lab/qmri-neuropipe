@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from qmri_neuropipe.interfaces.relaxometry import (
     _append_cli_options,
     _get_qmri_fit_command,
@@ -240,7 +242,8 @@ def test_mcdespot_returns_native_3pool_outputs_with_single_separator(
     assert (tmp_path / "out/sub-01_model-mcDESPOT_run_metadata.json").exists()
 
 
-def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch):
+@pytest.mark.parametrize("retain_work", [False, True])
+def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch, retain_work):
     import json
     import nibabel as nib
     import numpy as np
@@ -255,8 +258,10 @@ def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "_get_qmri_fit_command", lambda *args, **kwargs: ["qmri-fit", "despot1_hifi"])
     def fake_run(command, label):
         calls.append(command)
+        fit_dir = Path(next(token.split("=", 1)[1] for token in command.split() if token.startswith("--out_dir=")))
+        assert fit_dir != tmp_path
         for metric in ("T1", "M0", "B1"):
-            nib.save(nib.Nifti1Image(data, affine), tmp_path / f"hifi_desc-unsmoothed_{metric}.nii.gz")
+            nib.save(nib.Nifti1Image(data, affine), fit_dir / f"hifi_desc-unsmoothed_{metric}.nii.gz")
     monkeypatch.setattr(module, "run_cmd", fake_run)
     def fake_refit(**kwargs):
         calls.append(kwargs)
@@ -272,12 +277,18 @@ def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch):
     outputs = module.fit_despot1_hifi(
         tmp_path / "spgr.nii.gz", tmp_path / "ir.nii.gz", tmp_path / "params.json",
         tmp_path, out_base="hifi", b1_smoothing_fwhm=4,
+        work_dir=tmp_path / "work" if retain_work else None,
     )
     assert len(calls) == 2
     assert outputs["t1"].name == "refit_T1.nii.gz"
     assert outputs["b1"].name == "hifi_B1.nii.gz"
     assert json.loads((tmp_path / "hifi_B1.json").read_text())["B1SmoothingFWHM"] == 4
-    np.testing.assert_array_equal(nib.load(tmp_path / "hifi_desc-unsmoothed_B1.nii.gz").get_fdata(), data)
+    assert not list(tmp_path.glob("*desc-unsmoothed*"))
+    fit_dir = Path(next(token.split("=", 1)[1] for token in calls[0].split() if token.startswith("--out_dir=")))
+    if retain_work:
+        np.testing.assert_array_equal(nib.load(fit_dir / "hifi_desc-unsmoothed_B1.nii.gz").get_fdata(), data)
+    else:
+        assert not fit_dir.exists()
 
 
 def test_hifi_smoothing_mask_preserves_constant_and_grid(tmp_path):

@@ -128,64 +128,74 @@ def fit_despot1_hifi(
     verbose: bool = False,
     extra_options: Optional[Dict[str, Any]] = None,
     b1_smoothing_fwhm: float = 0.0,
+    work_dir: Optional[Path] = None,
 ) -> Dict[str, Path]:
     """
     Wrapper for `qmri_fit despot1_hifi`.
     """
     import math
+    from contextlib import ExitStack
+    from tempfile import TemporaryDirectory
 
     fwhm = float(b1_smoothing_fwhm)
     if not math.isfinite(fwhm) or fwhm < 0:
         raise ValueError("b1_smoothing_fwhm must be finite and nonnegative (mm)")
-    out_d = ensure_dir(out_dir)
-    final_base = out_base
-    if fwhm > 0:
-        out_base = f"{out_base}_desc-unsmoothed"
+    with ExitStack() as stack:
+        out_d = ensure_dir(out_dir)
+        fit_dir = out_d
+        final_base = out_base
+        if fwhm > 0:
+            out_base = f"{out_base}_desc-unsmoothed"
+            fit_dir = ensure_dir(work_dir) if work_dir is not None else Path(
+                stack.enter_context(TemporaryDirectory(prefix="hifi-unsmoothed-"))
+            )
+            if fit_dir.resolve() == out_d.resolve():
+                raise ValueError("HiFi work_dir must differ from the final output directory")
     
-    cmd_parts = _get_qmri_fit_command("despot1_hifi", legacy_binary="qmri_fit_despot1_hifi") + [
-        f"--spgr={extract_image_path(spgr_file)}",
-        f"--irspgr={extract_image_path(irspgr_file)}",
-        f"--params={params_file}",
-        f"--out_dir={out_d}",
-        f"--out_base={out_base}",
-        f"--algo={algo}",
-        f"--nthreads={nthreads}"
-    ]
+        cmd_parts = _get_qmri_fit_command("despot1_hifi", legacy_binary="qmri_fit_despot1_hifi") + [
+            f"--spgr={extract_image_path(spgr_file)}",
+            f"--irspgr={extract_image_path(irspgr_file)}",
+            f"--params={params_file}",
+            f"--out_dir={fit_dir}",
+            f"--out_base={out_base}",
+            f"--algo={algo}",
+            f"--nthreads={nthreads}"
+        ]
     
-    if mask_file:
-        cmd_parts.append(f"--mask={extract_image_path(mask_file)}")
+        if mask_file:
+            cmd_parts.append(f"--mask={extract_image_path(mask_file)}")
     
-    if verbose:
-        cmd_parts.append("--verbose")
-    _append_cli_options(cmd_parts, extra_options)
+        if verbose:
+            cmd_parts.append("--verbose")
+        _append_cli_options(cmd_parts, extra_options)
         
-    run_cmd(" ".join(cmd_parts), label="despot1_hifi_fit")
+        run_cmd(" ".join(cmd_parts), label="despot1_hifi_fit")
     
-    outputs = {
-        "t1": _resolve_output_path(out_d, out_base, "T1"),
-        "m0": _resolve_output_path(out_d, out_base, "M0"),
-        "b1": _resolve_output_path(out_d, out_base, "B1"), # Assuming HIFI outputs B1 map
-    }
-    if (extra_options or {}).get("save-rates", False):
-        outputs["r1"] = _resolve_output_path(out_d, out_base, "R1")
-    if fwhm > 0:
-        smoothed_b1 = out_d / f"{final_base}_B1.nii.gz"
-        _smooth_hifi_b1(outputs["b1"], smoothed_b1, fwhm, mask_file)
-        # Fit SPGR alone, fixing B1 to the smoothed HiFi estimate. Keep the
-        # original joint-fit maps under desc-unsmoothed for inspection.
-        outputs = fit_despot1(
-            spgr_file=spgr_file, params_file=params_file, out_dir=out_d,
-            b1_file=smoothed_b1, mask_file=mask_file, out_base=final_base,
-            algo=algo, nthreads=nthreads, verbose=verbose,
-            extra_options=extra_options,
-        )
-        outputs["b1"] = smoothed_b1
-    import json
-    (out_d / f"{final_base}_B1.json").write_text(json.dumps({
-        "B1SmoothingFWHM": fwhm,
-        "T1RefitWithFixedB1": fwhm > 0,
-    }, indent=2) + "\n")
-    return outputs
+        outputs = {
+            "t1": _resolve_output_path(fit_dir, out_base, "T1"),
+            "m0": _resolve_output_path(fit_dir, out_base, "M0"),
+            "b1": _resolve_output_path(fit_dir, out_base, "B1"), # Assuming HIFI outputs B1 map
+        }
+        if (extra_options or {}).get("save-rates", False):
+            outputs["r1"] = _resolve_output_path(fit_dir, out_base, "R1")
+        if fwhm > 0:
+            smoothed_b1 = out_d / f"{final_base}_B1.nii.gz"
+            _smooth_hifi_b1(outputs["b1"], smoothed_b1, fwhm, mask_file)
+            # Fit SPGR alone, fixing B1 to the smoothed HiFi estimate. Keep the
+            # original joint-fit maps in the work directory only.
+            outputs = fit_despot1(
+                spgr_file=spgr_file, params_file=params_file, out_dir=out_d,
+                b1_file=smoothed_b1, mask_file=mask_file, out_base=final_base,
+                algo=algo, nthreads=nthreads, verbose=verbose,
+                extra_options=extra_options,
+            )
+            outputs["b1"] = smoothed_b1
+        import json
+        (out_d / f"{final_base}_B1.json").write_text(json.dumps({
+            "B1SmoothingFWHM": fwhm,
+            "T1RefitWithFixedB1": fwhm > 0,
+        }, indent=2) + "\n")
+        return outputs
 
 
 def _smooth_hifi_b1(source: Path, output: Path, fwhm: float, mask_file=None) -> None:

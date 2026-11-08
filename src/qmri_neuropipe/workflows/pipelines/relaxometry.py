@@ -2110,6 +2110,12 @@ class RelaxometryWorkflow(BaseWorkflow):
                 mask_file=mask_file,
                 out_base=f"{base_prefix}_model-DESPOT1HIFI",
                 b1_smoothing_fwhm=smoothing_fwhm,
+                work_dir=(
+                    Path(self.config.get("work_dir")).joinpath(
+                        *base_prefix.split("_"), "anat", "hifi_unsmoothed"
+                    )
+                    if self.config.get("work_dir") else None
+                ),
                 algo=algo,
                 nthreads=nthreads,
                 verbose=verbose,
