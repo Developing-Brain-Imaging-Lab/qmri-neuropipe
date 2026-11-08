@@ -127,11 +127,20 @@ def fit_despot1_hifi(
     nthreads: int = 1,
     verbose: bool = False,
     extra_options: Optional[Dict[str, Any]] = None,
+    b1_smoothing_fwhm: float = 0.0,
 ) -> Dict[str, Path]:
     """
     Wrapper for `qmri_fit despot1_hifi`.
     """
+    import math
+
+    fwhm = float(b1_smoothing_fwhm)
+    if not math.isfinite(fwhm) or fwhm < 0:
+        raise ValueError("b1_smoothing_fwhm must be finite and nonnegative (mm)")
     out_d = ensure_dir(out_dir)
+    final_base = out_base
+    if fwhm > 0:
+        out_base = f"{out_base}_desc-unsmoothed"
     
     cmd_parts = _get_qmri_fit_command("despot1_hifi", legacy_binary="qmri_fit_despot1_hifi") + [
         f"--spgr={extract_image_path(spgr_file)}",
@@ -159,7 +168,52 @@ def fit_despot1_hifi(
     }
     if (extra_options or {}).get("save-rates", False):
         outputs["r1"] = _resolve_output_path(out_d, out_base, "R1")
+    if fwhm > 0:
+        smoothed_b1 = out_d / f"{final_base}_B1.nii.gz"
+        _smooth_hifi_b1(outputs["b1"], smoothed_b1, fwhm, mask_file)
+        # Fit SPGR alone, fixing B1 to the smoothed HiFi estimate. Keep the
+        # original joint-fit maps under desc-unsmoothed for inspection.
+        outputs = fit_despot1(
+            spgr_file=spgr_file, params_file=params_file, out_dir=out_d,
+            b1_file=smoothed_b1, mask_file=mask_file, out_base=final_base,
+            algo=algo, nthreads=nthreads, verbose=verbose,
+            extra_options=extra_options,
+        )
+        outputs["b1"] = smoothed_b1
+    import json
+    (out_d / f"{final_base}_B1.json").write_text(json.dumps({
+        "B1SmoothingFWHM": fwhm,
+        "T1RefitWithFixedB1": fwhm > 0,
+    }, indent=2) + "\n")
     return outputs
+
+
+def _smooth_hifi_b1(source: Path, output: Path, fwhm: float, mask_file=None) -> None:
+    """Smooth valid B1 samples using normalized Gaussian weights in mm."""
+    import nibabel as nib
+    import numpy as np
+    from scipy.ndimage import gaussian_filter
+
+    image = nib.load(str(source))
+    data = image.get_fdata()
+    if data.ndim != 3:
+        raise ValueError("HiFi B1 smoothing requires a 3D map")
+    valid = np.isfinite(data) & (data > 0)
+    if mask_file is not None:
+        mask = nib.load(str(extract_image_path(mask_file)))
+        if mask.shape != image.shape or not np.allclose(mask.affine, image.affine):
+            raise ValueError("HiFi B1 mask must match the B1 voxel grid")
+        valid &= np.isfinite(mask.get_fdata()) & (mask.get_fdata() > 0)
+    if not np.any(valid):
+        raise ValueError("HiFi B1 map has no valid positive samples to smooth")
+    sigma = fwhm / np.sqrt(8 * np.log(2)) / np.asarray(image.header.get_zooms()[:3])
+    weights = gaussian_filter(valid.astype(float), sigma, mode="constant")
+    weighted = gaussian_filter(np.where(valid, data, 0), sigma, mode="constant")
+    smoothed = np.zeros_like(data)
+    np.divide(weighted, weights, out=smoothed, where=valid & (weights > 0))
+    header = image.header.copy()
+    header.set_data_dtype(np.float32)
+    nib.save(nib.Nifti1Image(smoothed.astype(np.float32), image.affine, header), str(output))
 
 def fit_despot2(
     ssfp_file: ImageLike | Path,

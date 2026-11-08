@@ -339,6 +339,8 @@ class RelaxometryWorkflow(BaseWorkflow):
             except Exception:
                 entities = {}
 
+            if entities.get("desc") == "unsmoothed" or "_desc-unsmoothed_" in metric_file.name:
+                continue
             raw_model = entities.get("model")
             raw_metric = entities.get("suffix")
             if not raw_model or not raw_metric:
@@ -2053,6 +2055,11 @@ class RelaxometryWorkflow(BaseWorkflow):
             return {}
 
         use_hifi = despot1_cfg.get("use_hifi", False)
+        smoothing_fwhm = float(despot1_cfg.get("b1_smoothing_fwhm", 0.0))
+        if not np.isfinite(smoothing_fwhm) or smoothing_fwhm < 0:
+            raise ValueError("b1_smoothing_fwhm must be finite and nonnegative (mm)")
+        if smoothing_fwhm and not use_hifi:
+            raise ValueError("b1_smoothing_fwhm requires despot1.use_hifi: true")
         model_name = "DESPOT1HIFI" if use_hifi else "DESPOT1"
         required_metrics = self._required_model_metrics(model_name)
         if skip_existing and self._model_has_metrics(
@@ -2088,6 +2095,7 @@ class RelaxometryWorkflow(BaseWorkflow):
             {
                 "enabled",
                 "use_hifi",
+                "b1_smoothing_fwhm",
                 "algo",
                 "nthreads",
                 "verbose",
@@ -2101,6 +2109,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 out_dir=fit_out_dir,
                 mask_file=mask_file,
                 out_base=f"{base_prefix}_model-DESPOT1HIFI",
+                b1_smoothing_fwhm=smoothing_fwhm,
                 algo=algo,
                 nthreads=nthreads,
                 verbose=verbose,
@@ -2295,6 +2304,16 @@ class RelaxometryWorkflow(BaseWorkflow):
             self.advance_force_state("modeling")
             force_modeling = self.is_forced()
         skip_existing = bool(self.config.get("skip_existing", False)) and not force_modeling
+        if modeling_cfg.despot1.get("enabled") and modeling_cfg.despot1.get("use_hifi"):
+            expected_fwhm = float(modeling_cfg.despot1.get("b1_smoothing_fwhm", 0.0))
+            settings_file = fit_out_dir / f"{base_prefix}_model-DESPOT1HIFI_B1.json"
+            try:
+                previous_fwhm = json.loads(settings_file.read_text()).get("B1SmoothingFWHM", 0.0)
+            except (OSError, ValueError):
+                previous_fwhm = 0.0
+            if previous_fwhm != expected_fwhm:
+                # T1/B1 changes invalidate every dependent DESPOT fit too.
+                skip_existing = False
 
         # Ensure output directory exists
         fit_out_dir.mkdir(parents=True, exist_ok=True)

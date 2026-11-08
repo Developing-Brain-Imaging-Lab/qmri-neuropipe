@@ -238,3 +238,62 @@ def test_mcdespot_returns_native_3pool_outputs_with_single_separator(
     assert outputs["vfm"].name == "sub-01_model-mcDESPOT_VFm.nii.gz"
     assert all(path.exists() for path in outputs.values())
     assert (tmp_path / "out/sub-01_model-mcDESPOT_run_metadata.json").exists()
+
+
+def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch):
+    import json
+    import nibabel as nib
+    import numpy as np
+    from qmri_neuropipe.interfaces import relaxometry as module
+
+    calls = []
+    affine = np.diag([1., 2., 3., 1.])
+    data = np.ones((7, 7, 7), dtype=np.float32)
+    data[0] = 0
+    data[3, 3, 3] = 2
+
+    monkeypatch.setattr(module, "_get_qmri_fit_command", lambda *args, **kwargs: ["qmri-fit", "despot1_hifi"])
+    def fake_run(command, label):
+        calls.append(command)
+        for metric in ("T1", "M0", "B1"):
+            nib.save(nib.Nifti1Image(data, affine), tmp_path / f"hifi_desc-unsmoothed_{metric}.nii.gz")
+    monkeypatch.setattr(module, "run_cmd", fake_run)
+    def fake_refit(**kwargs):
+        calls.append(kwargs)
+        b1 = nib.load(kwargs["b1_file"])
+        assert b1.shape == data.shape
+        np.testing.assert_allclose(b1.affine, affine)
+        assert 1 < b1.get_fdata()[3, 3, 3] < 2
+        assert b1.get_fdata()[1, 1, 1] >= 0.999
+        assert np.all(b1.get_fdata()[0] == 0)
+        assert "irspgr_file" not in kwargs
+        return {"t1": tmp_path / "refit_T1.nii.gz", "m0": tmp_path / "refit_M0.nii.gz"}
+    monkeypatch.setattr(module, "fit_despot1", fake_refit)
+    outputs = module.fit_despot1_hifi(
+        tmp_path / "spgr.nii.gz", tmp_path / "ir.nii.gz", tmp_path / "params.json",
+        tmp_path, out_base="hifi", b1_smoothing_fwhm=4,
+    )
+    assert len(calls) == 2
+    assert outputs["t1"].name == "refit_T1.nii.gz"
+    assert outputs["b1"].name == "hifi_B1.nii.gz"
+    assert json.loads((tmp_path / "hifi_B1.json").read_text())["B1SmoothingFWHM"] == 4
+    np.testing.assert_array_equal(nib.load(tmp_path / "hifi_desc-unsmoothed_B1.nii.gz").get_fdata(), data)
+
+
+def test_hifi_smoothing_mask_preserves_constant_and_grid(tmp_path):
+    import nibabel as nib
+    import numpy as np
+    from qmri_neuropipe.interfaces.relaxometry import _smooth_hifi_b1
+
+    affine = np.diag([1., 2., 3., 1.])
+    data = np.full((7, 7, 7), 1.2, dtype=np.float32)
+    mask = np.zeros_like(data)
+    mask[2:5, 2:5, 2:5] = 1
+    source, mask_file, output = [tmp_path / name for name in ("b1.nii.gz", "mask.nii.gz", "smooth.nii.gz")]
+    nib.save(nib.Nifti1Image(data, affine), source)
+    nib.save(nib.Nifti1Image(mask, affine), mask_file)
+    _smooth_hifi_b1(source, output, 5, mask_file)
+    result = nib.load(output)
+    np.testing.assert_allclose(result.get_fdata()[mask > 0], 1.2)
+    assert np.all(result.get_fdata()[mask == 0] == 0)
+    np.testing.assert_allclose(result.affine, affine)

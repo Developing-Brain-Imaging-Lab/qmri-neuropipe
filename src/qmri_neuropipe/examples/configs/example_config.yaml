@@ -577,6 +577,11 @@ dmri:
 #     # rerun_from_step: modeling
 #     despot1:
 #       enabled: true
+#       # Optional HiFi -> smooth B1 -> fixed-B1 DESPOT1 refit (SPGR only).
+#       # Requires IR-SPGR inputs. Zero disables smoothing/refitting.
+#       # Original joint-fit maps are retained with desc-unsmoothed.
+#       # use_hifi: true
+#       # b1_smoothing_fwhm: 5.0  # Gaussian FWHM in mm
 #       # Ask qmri-fit to also write R1 (= 1/T1) in s^-1.
 #       save-rates: true
 #     despot2:
