@@ -1,4 +1,5 @@
 from pathlib import Path
+import shlex
 
 import pytest
 
@@ -41,6 +42,66 @@ def test_get_qmri_fit_command_accepts_underscore_cli(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(bin_dir))
 
     assert _get_qmri_fit_command("mcdespot") == [str(qmri_fit), "mcdespot"]
+
+
+def test_get_qmri_fit_command_prefers_v4_when_both_are_installed(tmp_path, monkeypatch):
+    _make_executable(tmp_path / "qmri")
+    _make_executable(tmp_path / "qmri_fit")
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert _get_qmri_fit_command("despot1_hifi") == [str(tmp_path / "qmri"), "despot1_hifi"]
+
+
+@pytest.mark.parametrize(
+    "name,help_text,expected",
+    [
+        ("qmri_cuda", "", ["mcdespot", "--device=gpu"]),
+        ("qmr_cuda", "", ["mcdespot", "--device=gpu"]),
+        ("qmri_fit_cuda", "mcdespot_cuda    mcDESPOT CUDA GPU", ["mcdespot_cuda"]),
+        ("qmri_fit", "mcdespot_cuda    mcDESPOT CUDA GPU", ["mcdespot_cuda"]),
+        ("qmri_fit_mcdespot_cuda", "", []),
+    ],
+)
+def test_mcdespot_cuda_selects_gpu_entry_point(tmp_path, monkeypatch, name, help_text, expected):
+    bin_dir = tmp_path / "fitter bin"
+    bin_dir.mkdir()
+    binary = bin_dir / name
+    binary.write_text(f"#!/bin/sh\nprintf '%s\\n' '{help_text}'\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    captured = []
+    monkeypatch.setattr(
+        "qmri_neuropipe.interfaces.relaxometry.run_cmd",
+        lambda command, label: captured.extend(shlex.split(command)),
+    )
+    mask = tmp_path / "brain mask.nii.gz"
+    f0 = tmp_path / "off resonance.nii.gz"
+    fit_mcdespot(
+        spgr_file=tmp_path / "spgr.nii.gz",
+        ssfp_file=tmp_path / "ssfp.nii.gz",
+        t1_file=tmp_path / "t1.nii.gz",
+        b1_file=tmp_path / "b1.nii.gz",
+        params_file=tmp_path / "params.json",
+        out_dir=tmp_path / "out",
+        mask_file=mask,
+        f0_file=f0,
+        cuda=True,
+        extra_options={"model": "3pool", "fix-f0": True},
+    )
+
+    assert captured[:1 + len(expected)] == [str(binary), *expected]
+    assert not any(arg.startswith("--t1=") for arg in captured)
+    assert {f"--mask={mask}", f"--f0={f0}", "--model=3pool", "--fix-f0"} <= set(captured)
+
+
+def test_cuda_request_rejects_cpu_only_fitter(tmp_path, monkeypatch):
+    binary = tmp_path / "qmri_fit"
+    binary.write_text("#!/bin/sh\nprintf 'mcdespot    CPU\\n'\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="CUDA mcDESPOT requires"):
+        _get_qmri_fit_command("mcdespot", cuda=True)
 
 
 def test_value_boolean_options_emit_explicit_false():

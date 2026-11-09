@@ -573,6 +573,7 @@ dmri:
 #         initial_transform: Identity
 #         interpolation: linear    # final B1/AFI resampling
 #   modeling:
+#     # CPU fits use qmri from PATH when available, followed by qmri-fit or qmri_fit.
 #     # Optional: rerun model fitting and all later relaxometry stages.
 #     # rerun_from_step: modeling
 #     despot1:
@@ -582,14 +583,17 @@ dmri:
 #       # Original joint-fit maps stay in work_dir, or temporary storage.
 #       # use_hifi: true
 #       # b1_smoothing_fwhm: 5.0  # Gaussian FWHM in mm
-#       # Ask qmri-fit to also write R1 (= 1/T1) in s^-1.
+#       # Write R1 (= 1/T1) in s^-1 with a fitter that supports --save-rates.
 #       save-rates: true
 #     despot2:
 #       enabled: true
-#       # Ask qmri-fit to also write R2 (= 1/T2) in s^-1.
+#       # Write R2 (= 1/T2) in s^-1 with a fitter that supports --save-rates.
 #       save-rates: true
 #     mcdespot:
 #       enabled: true
+#       # CUDA uses qmri_cuda (also qmr_cuda) or a CUDA-enabled qmri_fit.
+#       # cuda: true
+#       # model: 3pool
 #       # When enabled, mcDESPOT automatically reuses an existing or newly
 #       # computed DESPOT2FM F0 map. An explicit per-subject template overrides
 #       # automatic discovery; supported fields include {subject}, {session},

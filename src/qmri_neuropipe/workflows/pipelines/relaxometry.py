@@ -1993,13 +1993,31 @@ class RelaxometryWorkflow(BaseWorkflow):
     def _model_nthreads(self, config: Dict) -> int:
         return int((config or {}).get("nthreads", self.config.get("n_cpus", 1)))
 
-    def _required_model_metrics(self, model_name: str) -> List[str]:
-        return list(
+    def _required_model_metrics(self, model_name: str, model_cfg: Dict) -> List[str]:
+        metrics = dict.fromkeys(
             self._relax_model_specs()
             .get(model_name, {})
             .get("metrics", {})
             .values()
         )
+        if model_name == "DESPOT2":
+            metrics.pop("F0", None)  # F0 is an input to this model.
+        if model_name == "mcDESPOT":
+            if str(model_cfg.get("model", "2pool")).lower() != "3pool":
+                for metric in ("VFcsf", "T1csf", "T2csf"):
+                    metrics.pop(metric)
+            if model_cfg.get("fix-f0", model_cfg.get("fix_f0", False)) and not model_cfg.get("f0-sd"):
+                metrics.pop("F0")
+            if model_cfg.get("no-exchange", False):
+                metrics.pop("Tau")
+        if str(model_cfg.get("scale-to-mean", False)).lower() == "true":
+            metrics.pop("M0", None)
+        if model_cfg.get("save-rates", False):
+            if model_name in {"DESPOT1", "DESPOT1HIFI"}:
+                metrics["R1"] = None
+            if model_name in {"DESPOT2", "DESPOT2FM"}:
+                metrics["R2"] = None
+        return list(metrics)
 
     def _raw_results_from_existing(
         self,
@@ -2061,7 +2079,7 @@ class RelaxometryWorkflow(BaseWorkflow):
         if smoothing_fwhm and not use_hifi:
             raise ValueError("b1_smoothing_fwhm requires despot1.use_hifi: true")
         model_name = "DESPOT1HIFI" if use_hifi else "DESPOT1"
-        required_metrics = self._required_model_metrics(model_name)
+        required_metrics = self._required_model_metrics(model_name, despot1_cfg)
         if skip_existing and self._model_has_metrics(
             model_name,
             required_metrics,
@@ -2199,7 +2217,7 @@ class RelaxometryWorkflow(BaseWorkflow):
                 ssfp_stack,
                 b1_path,
             )
-            required_metrics = self._required_model_metrics(spec.name)
+            required_metrics = self._required_model_metrics(spec.name, model_cfg)
             if skip_existing and self._model_has_metrics(
                 spec.name,
                 required_metrics,
