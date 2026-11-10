@@ -92,8 +92,6 @@ def _run_fit(
         # These docopt entry points read omitted paths as strings.
         if not any(arg.startswith("--mask=") for arg in cmd_parts):
             cmd_parts.append("--mask=")
-        if cmd_parts[1] == "despot1_hifi" and not any(arg.startswith("--b1=") for arg in cmd_parts):
-            cmd_parts.append("--b1=")
     run_cmd(shlex.join(cmd_parts), label=label)
 
 
@@ -177,12 +175,16 @@ def fit_despot1_hifi(
     work_dir: Optional[Path] = None,
 ) -> Dict[str, Path]:
     """
-    Wrapper for `qmri_fit despot1_hifi`.
+    Fit T1 and B1 jointly from SPGR and IR-SPGR.
     """
     import math
     from contextlib import ExitStack
     from tempfile import TemporaryDirectory
 
+    # HiFi estimates B1. Only the optional SPGR refit takes a B1 map.
+    extra_options = {
+        key: value for key, value in (extra_options or {}).items() if key != "b1"
+    }
     fwhm = float(b1_smoothing_fwhm)
     if not math.isfinite(fwhm) or fwhm < 0:
         raise ValueError("b1_smoothing_fwhm must be finite and nonnegative (mm)")

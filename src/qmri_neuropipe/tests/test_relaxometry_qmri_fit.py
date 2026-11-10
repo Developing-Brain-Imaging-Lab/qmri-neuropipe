@@ -202,6 +202,7 @@ def test_despot_wrappers_return_native_rate_outputs(tmp_path, monkeypatch):
 
     assert despot1["r1"].name == "despot1_R1.nii.gz"
     assert hifi["r1"].name == "hifi_R1.nii.gz"
+    assert not any(arg.startswith("--b1") for arg in shlex.split(commands[1]))
     assert despot2["r2"].name == "despot2_R2.nii.gz"
     assert despot2fm["r2"].name == "despot2fm_R2.nii.gz"
     assert all("--save-rates" in command for command in commands)
@@ -326,6 +327,7 @@ def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch, retain_work):
     monkeypatch.setattr(module, "run_cmd", fake_run)
     def fake_refit(**kwargs):
         calls.append(kwargs)
+        assert "b1" not in kwargs["extra_options"]
         b1 = nib.load(kwargs["b1_file"])
         assert b1.shape == data.shape
         np.testing.assert_allclose(b1.affine, affine)
@@ -338,9 +340,11 @@ def test_hifi_smooths_b1_and_refits_spgr(tmp_path, monkeypatch, retain_work):
     outputs = module.fit_despot1_hifi(
         tmp_path / "spgr.nii.gz", tmp_path / "ir.nii.gz", tmp_path / "params.json",
         tmp_path, out_base="hifi", b1_smoothing_fwhm=4,
+        extra_options={"b1": tmp_path / "external_b1.nii.gz"},
         work_dir=tmp_path / "work" if retain_work else None,
     )
     assert len(calls) == 2
+    assert not any(arg.startswith("--b1") for arg in shlex.split(calls[0]))
     assert outputs["t1"].name == "refit_T1.nii.gz"
     assert outputs["b1"].name == "hifi_B1.nii.gz"
     assert json.loads((tmp_path / "hifi_B1.json").read_text())["B1SmoothingFWHM"] == 4
