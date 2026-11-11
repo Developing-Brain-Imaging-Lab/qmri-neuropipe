@@ -16,11 +16,14 @@ qmri-tools build-template cohort.json fa-template --image-type FA --method ants 
 qmri-tools apply-template-transform fa-template/transforms.json sub-01 sub-01_MD.nii.gz sub-01_space-cohort_MD.nii.gz
 ```
 
-The output directory must be new. Use `--initial-template` to choose a starting
-image and output grid. The first cohort entry in identifier order is the
-default seed. Each round registers the original subject images to the current
-template and takes their voxelwise mean. The grid stays fixed and the workflow
-does not perform ANTs-style average-warp shape recentering. After averaging,
+The output directory must be new. By default, the builder resamples the cohort
+into a common world-space grid spanning all input fields of view, with median
+voxel spacing. It writes `initial_mean.nii.gz` using equal weights for all
+images that cover each voxel. Header alignment determines how well the images
+overlap in this initial mean. Use `--initial-template` to supply a starting
+image and its grid. Each round registers the original subject images to the
+current template and takes their voxelwise mean. The grid stays fixed and the
+workflow does not perform ANTs-style average-warp shape recentering. After averaging,
 the workflow fits a final transform from each original image to the finished
 template. The manifest records those transforms in application order.
 

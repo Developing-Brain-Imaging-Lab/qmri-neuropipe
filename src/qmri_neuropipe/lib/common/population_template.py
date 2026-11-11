@@ -7,8 +7,45 @@ from tempfile import TemporaryDirectory
 
 import nibabel as nib
 import numpy as np
+from nibabel.processing import resample_from_to
 
 from ...interfaces import ants, fireants, freesurfer, fsl
+
+
+def _cohort_mean(sources, output):
+    lower_bounds = []
+    upper_bounds = []
+    voxel_sizes = []
+    for source in sources:
+        image = nib.as_closest_canonical(nib.load(source))
+        corners = np.array(list(np.ndindex(2, 2, 2))) * (np.array(image.shape) - 1)
+        world = nib.affines.apply_affine(image.affine, corners)
+        lower_bounds.append(world.min(axis=0))
+        upper_bounds.append(world.max(axis=0))
+        voxel_sizes.append(nib.affines.voxel_sizes(image.affine))
+
+    spacing = np.median(voxel_sizes, axis=0)
+    lower = np.min(lower_bounds, axis=0)
+    upper = np.max(upper_bounds, axis=0)
+    shape = tuple(np.ceil((upper - lower) / spacing).astype(int) + 1)
+    affine = np.diag([*spacing, 1.0])
+    affine[:3, 3] = lower
+    total = np.zeros(shape, dtype=np.float64)
+    count = np.zeros(shape, dtype=np.int32)
+    for source in sources:
+        image = nib.load(source)
+        data = image.get_fdata(dtype=np.float32)
+        if not np.isfinite(data).all():
+            raise ValueError(f"Expected finite intensities in cohort image: {source}")
+        resampled = resample_from_to(
+            nib.Nifti1Image(data, image.affine), (shape, affine), order=1, cval=np.nan,
+        )
+        data = np.asarray(resampled.dataobj)
+        covered = np.isfinite(data)
+        total[covered] += data[covered]
+        count += covered
+    np.divide(total, count, out=total, where=count > 0)
+    nib.save(nib.Nifti1Image(total.astype(np.float32), affine), output)
 
 
 def _register(fixed, moving, directory, method, options, nthreads):
@@ -71,15 +108,19 @@ def build_population_template(
     sources = {key: Path(path).resolve() for key, path in sorted(subjects.items())}
     if len(set(sources.values())) != len(sources):
         raise ValueError("Provide a distinct source image for each cohort identifier.")
-    seed = Path(initial_template).resolve() if initial_template else next(iter(sources.values()))
-    reference = nib.load(seed)
-    for source in [seed, *sources.values()]:
+    seed = Path(initial_template).resolve() if initial_template else None
+    inputs = list(sources.values())
+    for source in [*inputs, *([seed] if seed else [])]:
         if len(nib.load(source).shape) != 3:
             raise ValueError(f"Expected a scalar 3D image: {source}")
 
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
     template = output_dir / "template.nii.gz"
+    if seed is None:
+        seed = output_dir / "initial_mean.nii.gz"
+        _cohort_mean(inputs, seed)
+    reference = nib.load(seed)
     fixed = seed
     with TemporaryDirectory(prefix="iterations-", dir=output_dir) as scratch:
         for iteration in range(iterations):
