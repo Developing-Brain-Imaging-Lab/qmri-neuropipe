@@ -18,6 +18,7 @@ import warnings
 import numpy as np
 
 from .dmipy_jax_gnl import corrected_scheme_arrays
+from .dmipy_jax_initialization import initialize_in_batches, is_out_of_memory
 
 
 _DIAMETER = (
@@ -75,7 +76,7 @@ def _nominal_scheme_arrays(acquisition_scheme: Any, n_voxels: int):
         value = np.asarray(value, dtype=np.float32).reshape(-1)
         arrays[name] = np.broadcast_to(
             value, (n_voxels, value.size)
-        ).copy()
+        )
     return arrays
 
 
@@ -168,11 +169,6 @@ def _parameter_grid(bounds: np.ndarray, ns: int) -> np.ndarray:
     return np.asarray(list(product(*axes)), dtype=np.float32)
 
 
-def _is_out_of_memory(exc: BaseException) -> bool:
-    message = str(exc).lower()
-    return "resource_exhausted" in message or "out of memory" in message
-
-
 def fit_sandi_jax(
     model: Any,
     acquisition_scheme: Any,
@@ -248,30 +244,16 @@ def fit_sandi_jax(
         )
     valid_data = data_array[valid] / s0[valid, None]
 
+    valid_tensors = None
     if gradient_tensors is None:
-        scheme_arrays = _nominal_scheme_arrays(
-            acquisition_scheme, len(valid_data)
-        )
+        scheme_arrays = _nominal_scheme_arrays(acquisition_scheme, len(valid_data))
     else:
         tensors = np.asarray(gradient_tensors)
         if tensors.shape[0] != n_voxels:
             raise ValueError(
                 "JAX SANDI requires one gradient tensor per input voxel."
             )
-        corrected = corrected_scheme_arrays(
-            acquisition_scheme, tensors[valid]
-        )
-        scheme_arrays = {
-            name: corrected.arrays[name]
-            for name in ("bvalues", "gradient_strengths", "delta", "Delta")
-        }
-        if corrected.fallback_count:
-            warnings.warn(
-                f"{corrected.fallback_count} invalid GNL tensor(s) fell back "
-                "to the nominal acquisition scheme.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+        valid_tensors = tensors[valid]
 
     bounds_np, scales_np = _sandi_bounds_and_scales(model)
     lower = jnp.asarray(bounds_np[:, 0], dtype=jnp.float32)
@@ -286,7 +268,6 @@ def fit_sandi_jax(
         for name in ("bvalues", "gradient_strengths", "delta", "Delta")
     }
     grid_np = _parameter_grid(bounds_np, ns)
-    grid_parameters = jnp.asarray(grid_np)
     margin = 0.05 * (bounds_np[:, 1] - bounds_np[:, 0])
     grid_initials = jnp.asarray(
         np.clip(
@@ -302,24 +283,26 @@ def fit_sandi_jax(
     evaluate_grid_chunk = jax.jit(
         jax.vmap(lambda parameters: forward(parameters, nominal))
     )
-    grid_chunks = []
+    # Assemble on the host to avoid holding both the GPU chunks and their
+    # concatenated dictionary at the same time.
+    grid_signals_host = np.empty((len(grid_np), n_measurements), dtype=np.float32)
     grid_chunk_size = min(256, len(grid_np))
     for start in range(0, len(grid_np), grid_chunk_size):
         end = min(start + grid_chunk_size, len(grid_np))
-        chunk = grid_parameters[start:end]
+        chunk = grid_np[start:end]
         count = end - start
         if count < grid_chunk_size:
-            chunk = jnp.concatenate(
-                [
-                    chunk,
-                    jnp.repeat(chunk[-1:], grid_chunk_size - count, axis=0),
-                ]
+            chunk = np.concatenate(
+                [chunk, np.repeat(chunk[-1:], grid_chunk_size - count, axis=0)]
             )
-        signals = jax.block_until_ready(evaluate_grid_chunk(chunk))
-        grid_chunks.append(signals[:count])
-    grid_signals = jnp.concatenate(grid_chunks, axis=0)
+        grid_signals_host[start:end] = np.asarray(
+            evaluate_grid_chunk(jnp.asarray(chunk))
+        )[:count]
+    grid_signals = jnp.asarray(grid_signals_host)
+    del grid_signals_host
     grid_sq = jnp.sum(grid_signals * grid_signals, axis=1)
 
+    @jax.jit
     def initialize(data_batch):
         data_sq = jnp.sum(data_batch * data_batch, axis=1)
         cross = data_batch @ grid_signals.T
@@ -327,6 +310,9 @@ def fit_sandi_jax(
             data_sq[:, None] + grid_sq[None, :] - 2.0 * cross
         ) / n_measurements
         return grid_initials[jnp.argmin(mse, axis=1)]
+
+    x0_all = initialize_in_batches(initialize, valid_data, batch_size)
+    del initialize, grid_signals, grid_sq, grid_initials
 
     def loss(parameters, datum, scheme):
         residual = forward(parameters, scheme) - datum
@@ -340,8 +326,7 @@ def fit_sandi_jax(
     )
 
     @jax.jit
-    def fit_batch(data_batch, scheme_batch):
-        x0 = initialize(data_batch)
+    def fit_batch(x0, data_batch, scheme_batch):
         results = jax.vmap(
             lambda initial, datum, scheme: optimizer.run(
                 initial,
@@ -357,14 +342,18 @@ def fit_sandi_jax(
         (n_valid, len(_OPTIMIZED_PARAMETERS)), dtype=np.float32
     )
 
+    next_voxel = 0
+    fallback_count = 0
+
     def run_batches(active_batch_size: int):
-        starts = range(0, n_valid, active_batch_size)
+        nonlocal next_voxel, fallback_count
+        starts = range(next_voxel, n_valid, active_batch_size)
         try:
             from tqdm import tqdm
 
             starts = tqdm(
                 starts,
-                total=-(-n_valid // active_batch_size),
+                total=len(starts),
                 desc="JAX SANDI LBFGS-B vmap",
                 unit="batch",
             )
@@ -373,13 +362,26 @@ def fit_sandi_jax(
         for start in starts:
             end = min(start + active_batch_size, n_valid)
             count = end - start
+            x0_batch = jnp.asarray(x0_all[start:end])
             data_batch = jnp.asarray(valid_data[start:end])
+            if valid_tensors is None:
+                batch_arrays = {
+                    name: values[start:end] for name, values in scheme_arrays.items()
+                }
+            else:
+                corrected = corrected_scheme_arrays(
+                    acquisition_scheme, valid_tensors[start:end], spherical_mean=True
+                )
+                batch_arrays = corrected.arrays
             scheme_batch = {
-                name: jnp.asarray(values[start:end], dtype=jnp.float32)
-                for name, values in scheme_arrays.items()
+                name: jnp.asarray(values, dtype=jnp.float32)
+                for name, values in batch_arrays.items()
             }
             if count < active_batch_size:
                 pad = active_batch_size - count
+                x0_batch = jnp.concatenate(
+                    [x0_batch, jnp.repeat(x0_batch[-1:], pad, axis=0)]
+                )
                 data_batch = jnp.concatenate(
                     [data_batch, jnp.repeat(data_batch[-1:], pad, axis=0)]
                 )
@@ -390,9 +392,12 @@ def fit_sandi_jax(
                     for name, value in scheme_batch.items()
                 }
             fitted = np.asarray(
-                jax.block_until_ready(fit_batch(data_batch, scheme_batch))
+                jax.block_until_ready(fit_batch(x0_batch, data_batch, scheme_batch))
             )
             fitted_normalized[start:end] = fitted[:count]
+            next_voxel = end
+            if valid_tensors is not None:
+                fallback_count += corrected.fallback_count
 
     active_batch_size = min(batch_size, n_valid)
     while True:
@@ -400,7 +405,7 @@ def fit_sandi_jax(
             run_batches(active_batch_size)
             break
         except RuntimeError as exc:
-            if not _is_out_of_memory(exc) or active_batch_size <= 1:
+            if not is_out_of_memory(exc) or active_batch_size <= 1:
                 raise
             smaller_batch = max(1, active_batch_size // 2)
             warnings.warn(
@@ -410,6 +415,13 @@ def fit_sandi_jax(
                 stacklevel=2,
             )
             active_batch_size = smaller_batch
+
+    if fallback_count:
+        warnings.warn(
+            f"{fallback_count} invalid GNL tensor(s) fell back to the nominal acquisition scheme.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     fitted_si = fitted_normalized * scales_np[None, :]
     complete = np.full(

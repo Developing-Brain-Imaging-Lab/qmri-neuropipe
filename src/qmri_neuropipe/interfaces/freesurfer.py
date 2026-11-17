@@ -308,8 +308,8 @@ def lta_to_fsl(
     src_p = extract_image_path(src)
     trg_p = extract_image_path(trg)
     cmd = (
-        f"lta_convert --inlta {in_p} --outfsl {out_p} "
-        f"--src {src_p} --trg {trg_p} {invert_arg}"
+        shlex.join(["lta_convert", "--inlta", str(in_p), "--outfsl", str(out_p),
+                    "--src", str(src_p), "--trg", str(trg_p)]) + f" {invert_arg}"
     ).strip()
     run_cmd(cmd, label="lta_convert")
     return out_p
@@ -335,10 +335,8 @@ def mri_coreg(
             return out_p
         out_p.unlink()
 
-    cmd = (
-        f"mri_coreg --mov {moving_p} --ref {reference_p} "
-        f"--reg {out_p} --dof {int(dof)} --threads {int(nthreads)}"
-    )
+    cmd = shlex.join(["mri_coreg", "--mov", str(moving_p), "--ref", str(reference_p),
+                      "--reg", str(out_p), "--dof", str(int(dof)), "--threads", str(int(nthreads))])
     run_cmd(cmd, label="mri_coreg")
     return out_p
 

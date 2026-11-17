@@ -502,3 +502,40 @@ def test_released_jax_cpu_solver_matches_native_synthetic_result():
     recovered = fitted.fitted_parameters["G1Ball_1_lambda_iso"][0]
     assert runtime.backend == "cpu"
     assert recovered == pytest.approx(expected, rel=1e-3)
+
+
+@pytest.mark.parametrize("device", ["auto", "gpu"])
+def test_jax_cpu_retry_is_reported_or_blocked(monkeypatch, device):
+    import warnings
+
+    monkeypatch.setattr(
+        dmipy_backend, "install_dmipy_jax_postprocessing_workaround", lambda: None
+    )
+    runtime = dmipy_backend.DmipyRuntime("2.3.0", "jax", device, "gpu")
+    completed = []
+
+    def fit(scheme, data, solver):
+        warnings.warn(
+            "solver='jax' failed on the GPU backend (RuntimeError: out of memory). "
+            "Retrying on CPU -- this is much slower",
+            RuntimeWarning,
+        )
+        completed.append("cpu")
+        return object()
+
+    request = dmipy_backend.DmipyFitRequest(
+        model_name="noddi",
+        model=SimpleNamespace(fit=fit),
+        acquisition_scheme=None,
+        data=np.ones((1, 2)),
+        runtime=runtime,
+    )
+    if device == "gpu":
+        with pytest.raises(dmipy_backend.ProcessingError, match="requires GPU"):
+            dmipy_backend.execute_dmipy_fit(request)
+        assert completed == []
+    else:
+        with pytest.warns(RuntimeWarning, match="Retrying on CPU"):
+            execution = dmipy_backend.execute_dmipy_fit(request)
+        assert completed == ["cpu"]
+        assert execution.runtime.provenance()["ExecutionBackend"] == "cpu"

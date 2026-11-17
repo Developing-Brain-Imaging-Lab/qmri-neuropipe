@@ -16,6 +16,8 @@ import warnings
 
 import numpy as np
 
+from .dmipy_jax_initialization import initialize_in_batches, is_out_of_memory
+
 
 @dataclass(frozen=True)
 class CorrectedSchemes:
@@ -28,6 +30,8 @@ class CorrectedSchemes:
 def corrected_scheme_arrays(
     acquisition_scheme: Any,
     gradient_tensors: np.ndarray,
+    *,
+    spherical_mean: bool = False,
 ) -> CorrectedSchemes:
     """Build exact voxel-specific PGSE arrays from gradient tensors.
 
@@ -66,35 +70,37 @@ def corrected_scheme_arrays(
         local_vectors = np.einsum("nij,mj->nmi", safe_tensors, directions)
         norms = np.linalg.norm(local_vectors, axis=-1)
     corrected_bvalues = bvalues[None, :] * norms**2
-    corrected_directions = np.zeros_like(local_vectors)
-    np.divide(
-        local_vectors,
-        norms[..., None],
-        out=corrected_directions,
-        where=norms[..., None] > 0,
-    )
-
-    arrays: dict[str, np.ndarray] = {
-        "bvalues": corrected_bvalues,
-        "gradient_directions": corrected_directions,
-    }
-    for name in ("delta", "Delta", "TE"):
+    arrays = {"bvalues": corrected_bvalues}
+    if not spherical_mean:
+        corrected_directions = np.zeros_like(local_vectors)
+        np.divide(
+            local_vectors,
+            norms[..., None],
+            out=corrected_directions,
+            where=norms[..., None] > 0,
+        )
+        arrays["gradient_directions"] = corrected_directions
+    for name in ("delta", "Delta") if spherical_mean else ("delta", "Delta", "TE"):
         value = getattr(acquisition_scheme, name, None)
         if value is not None:
             value = np.asarray(value, dtype=float)
             arrays[name] = np.broadcast_to(
                 value, (len(tensors), value.size)
-            ).copy()
+            )
 
     if "delta" in arrays and "Delta" in arrays:
-        tau = arrays["Delta"] - arrays["delta"] / 3.0
-        arrays["tau"] = tau
-        arrays["qvalues"] = np.sqrt(corrected_bvalues / tau) / (2.0 * np.pi)
+        tau = np.asarray(acquisition_scheme.Delta, dtype=float) - np.asarray(
+            acquisition_scheme.delta, dtype=float
+        ) / 3.0
+        wave_number = np.sqrt(corrected_bvalues / tau)
+        if not spherical_mean:
+            arrays["tau"] = np.broadcast_to(tau, corrected_bvalues.shape)
+            arrays["qvalues"] = wave_number / (2.0 * np.pi)
         # Match dmipy_fit.core.constants without importing the optional
         # dependency in this otherwise NumPy-only preprocessing helper.
         gamma = 267.513e6
         arrays["gradient_strengths"] = (
-            np.sqrt(corrected_bvalues / tau) / (gamma * arrays["delta"])
+            wave_number / (gamma * arrays["delta"])
         )
 
     # TE-dependent factors in dmipy use tau_perp. For PGSE this is TE.
@@ -300,15 +306,6 @@ def fit_model_jax_gnl(
     data_norm = (
         valid_data / (valid_s0 if valid_s0.ndim > 1 else valid_s0[:, None])
     ).astype(np.float32)
-    corrected = corrected_scheme_arrays(acquisition_scheme, valid_tensors)
-    if corrected.fallback_count:
-        warnings.warn(
-            f"{corrected.fallback_count} invalid GNL tensor(s) fell back to the "
-            "nominal acquisition scheme.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-
     optimizer = JaxOptimizer(
         model,
         acquisition_scheme,
@@ -335,7 +332,8 @@ def fit_model_jax_gnl(
         Ns=ns,
         N_sphere_samples=sphere_samples,
     )
-    x0_all = np.asarray(brute(jnp.asarray(data_norm, dtype=jnp.float32)))
+    x0_all = initialize_in_batches(brute, data_norm, batch_size)
+    del brute
     scales = jnp.asarray(optimizer._scales, dtype=jnp.float32)
 
     def forward_nested(params_nested, scheme):
@@ -380,29 +378,37 @@ def fit_model_jax_gnl(
         )
         if batch_size < 1:
             raise ValueError("DMIPY_JAX_BATCH must be a positive integer.")
+    batch_size = min(batch_size, n_voxels)
     fitted_nested = np.empty_like(x0_all)
 
+    next_voxel = 0
+    fallback_count = 0
+
     def run_batches(active_batch_size):
-        n_batches = -(-n_voxels // active_batch_size)
+        nonlocal next_voxel, fallback_count
+        starts = range(next_voxel, n_voxels, active_batch_size)
         try:
             from tqdm import tqdm
 
             starts = tqdm(
-                range(0, n_voxels, active_batch_size),
-                total=n_batches,
+                starts,
+                total=len(starts),
                 desc="JAX GNL LBFGS-B vmap",
                 unit="batch",
             )
         except ImportError:
-            starts = range(0, n_voxels, active_batch_size)
+            pass
 
         for start in starts:
             end = min(start + active_batch_size, n_voxels)
             count = end - start
             x0_batch = jnp.asarray(x0_all[start:end], dtype=jnp.float32)
             data_batch = jnp.asarray(data_norm[start:end], dtype=jnp.float32)
+            corrected = corrected_scheme_arrays(
+                acquisition_scheme, valid_tensors[start:end]
+            )
             scheme_batch = {
-                key: jnp.asarray(value[start:end], dtype=jnp.float32)
+                key: jnp.asarray(value, dtype=jnp.float32)
                 for key, value in corrected.arrays.items()
             }
             if count < active_batch_size:
@@ -421,6 +427,8 @@ def fit_model_jax_gnl(
                 }
             result = np.asarray(fit_batch(x0_batch, data_batch, scheme_batch))
             fitted_nested[start:end] = result[:count]
+            next_voxel = end
+            fallback_count += corrected.fallback_count
 
     active_batch_size = batch_size
     while True:
@@ -428,12 +436,7 @@ def fit_model_jax_gnl(
             run_batches(active_batch_size)
             break
         except RuntimeError as exc:
-            message = str(exc)
-            out_of_memory = (
-                "RESOURCE_EXHAUSTED" in message
-                or "out of memory" in message.lower()
-            )
-            if not out_of_memory or active_batch_size <= 1:
+            if not is_out_of_memory(exc) or active_batch_size <= 1:
                 raise
             smaller_batch = max(1, active_batch_size // 2)
             warnings.warn(
@@ -443,6 +446,14 @@ def fit_model_jax_gnl(
                 stacklevel=2,
             )
             active_batch_size = smaller_batch
+
+    if fallback_count:
+        warnings.warn(
+            f"{fallback_count} invalid GNL tensor(s) fell back to the "
+            "nominal acquisition scheme.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     fitted_normalized = np.asarray(
         [optimizer._unnest(row) for row in fitted_nested]

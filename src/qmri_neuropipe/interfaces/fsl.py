@@ -155,7 +155,7 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     omat_cmd = ""
     if omat:
         omat_p = Path(omat)
-        omat_cmd = f"-omat {omat_p}"
+        omat_cmd = f"-omat {shlex.quote(str(omat_p))}"
         # Skip only if BOTH exist
         if out_p.exists() and omat_p.exists():
              return out_p, omat_p
@@ -167,7 +167,8 @@ def flirt(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: Path,
     # Format extra options
     extra_flags = " ".join(_format_extra_opts(extra_opts, prefix="-"))
     
-    cmd = f"flirt -in {in_p} -ref {ref_p} -out {out_p} {omat_cmd} -dof {dof} -cost {cost} {extra_args} {extra_flags}"
+    inputs = shlex.join(["flirt", "-in", str(in_p), "-ref", str(ref_p), "-out", str(out_p)])
+    cmd = f"{inputs} {omat_cmd} -dof {dof} -cost {shlex.quote(cost)} {extra_args} {extra_flags}"
     stdout = run_cmd(cmd, label="flirt")
     
     if not out_p.exists():
@@ -308,10 +309,11 @@ def applywarp(in_file: ImageLike | Path, ref_file: ImageLike | Path, out_file: P
     if out_p.exists() and not force:
         return out_p
 
-    warp_cmd = f"-w {warp}" if warp else ""
-    premat_cmd = f"--premat={premat}" if premat else ""
+    warp_cmd = f"-w {shlex.quote(str(warp))}" if warp else ""
+    premat_cmd = shlex.quote(f"--premat={premat}") if premat else ""
     
-    cmd = f"applywarp -i {in_p} -r {ref_p} -o {out_p} {warp_cmd} {premat_cmd} --interp={interp} {extra_args}"
+    inputs = shlex.join(["applywarp", "-i", str(in_p), "-r", str(ref_p), "-o", str(out_p)])
+    cmd = f"{inputs} {warp_cmd} {premat_cmd} --interp={interp} {extra_args}"
     run_cmd(cmd, label="applywarp")
     
     return out_p

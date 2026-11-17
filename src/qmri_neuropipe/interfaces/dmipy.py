@@ -335,7 +335,8 @@ def _fit_chunk(args):
     Helper function to fit a chunk of data in a separate process.
     Models are instantiated LOCALLY to support chunk-specific fixed parameters (e.g., FISO map).
     """
-    chunk_id, data_chunk, scheme, model_config, chunk_fixed_params, keys_to_keep, solver, solver_kwargs = args
+    chunk_id, data_chunk, scheme, model_config, chunk_fixed_params, keys_to_keep, solver, solver_kwargs = args[:8]
+    parent_runtime = args[8] if len(args) > 8 else None
     
     batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
     batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
@@ -373,8 +374,8 @@ def _fit_chunk(args):
             },
         )
 
-        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
-        fit_obj = execute_dmipy_fit(
+        runtime = parent_runtime or DmipyRuntime.resolve(solver=solver, device="auto")
+        execution = execute_dmipy_fit(
             DmipyFitRequest(
                 model_name="noddi",
                 model=noddi,
@@ -385,7 +386,8 @@ def _fit_chunk(args):
                 solver_options=solver_kwargs,
                 heartbeat_interval=None,
             )
-        ).fitted
+        )
+        fit_obj = execution.fitted
         
         # Return only the requested parameters
         full_params = fit_obj.fitted_parameters
@@ -397,6 +399,8 @@ def _fit_chunk(args):
             ret = full_params
             
         print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
+        if parent_runtime is not None:
+            return ret, execution.runtime
         return ret
         
     except Exception as e:
@@ -457,6 +461,11 @@ def _fit_chunk_gnl(args):
                 key: np.asarray(value)
                 for key, value in fit_obj.fitted_parameters.items()
             }
+        if solver == "jax":
+            print(
+                "NODDI GNL is using voxelwise fitting for SMT or voxel-specific constraints.",
+                flush=True,
+            )
         merged = None
         failed_voxels = 0
         fallback_voxels = 0
@@ -985,6 +994,10 @@ def fit_noddi(
                 (i, chunks[i], gtab, model_config, c_fixed, keys_to_keep, solver, solver_kwargs)
             )
 
+    report_worker_backend = runtime.uses_jax and gnl_data_flat is None
+    if report_worker_backend:
+        chunk_args = [(*args, runtime) for args in chunk_args]
+
     # 4. Run Pool
     fiso_constrained = fiso_data_flat is not None
     print(
@@ -1029,6 +1042,11 @@ def fit_noddi(
         print("Waiting for workers to exit (joining pool)...")
         pool.join()
         
+    if report_worker_backend and results:
+        # JAX uses a single worker. Its fit may have finished on the CPU.
+        (parameters, runtime), = results
+        results = [parameters]
+
     print("Workers finished. Reassembling results...")
 
     # 5. Reassemble Results

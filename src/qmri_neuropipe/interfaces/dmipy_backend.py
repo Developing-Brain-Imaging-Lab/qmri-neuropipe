@@ -9,8 +9,8 @@ interfaces.
 
 from __future__ import annotations
 
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
-from dataclasses import dataclass, field
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from dataclasses import dataclass, field, replace
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
@@ -21,6 +21,7 @@ import multiprocessing
 import os
 import sys
 import time
+import warnings
 
 import numpy as np
 
@@ -630,8 +631,8 @@ def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
                     mask=mask,
                     solver_kwargs=options,
                 )
-                return fitted
-            fitted, _ = fit_model(
+                return fitted, request.runtime
+            return fit_model(
                 request.model,
                 request.acquisition_scheme,
                 data,
@@ -641,7 +642,6 @@ def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
                 solver_kwargs=options,
                 runtime=request.runtime,
             )
-            return fitted
 
     if request.runtime.uses_jax and request.heartbeat_interval is not None:
         started = time.monotonic()
@@ -649,7 +649,7 @@ def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
             pending = executor.submit(run)
             while True:
                 try:
-                    fitted = pending.result(
+                    fitted, runtime = pending.result(
                         timeout=request.heartbeat_interval
                     )
                 except FutureTimeout:
@@ -662,11 +662,11 @@ def execute_dmipy_fit(request: DmipyFitRequest) -> DmipyFitExecution:
                 else:
                     break
     else:
-        fitted = run()
+        fitted, runtime = run()
 
     return DmipyFitExecution(
         fitted=fitted,
-        runtime=request.runtime,
+        runtime=runtime,
         model_name=request.model_name,
         voxel_count=voxel_count,
         used_gradient_nonlinearity=gradient_tensors is not None,
@@ -753,4 +753,43 @@ def fit_model(
         raise ValueError(
             "Unsupported dmipy-fit solver option(s): " + ", ".join(unknown)
         )
-    return model.fit(acquisition_scheme, data, **options), runtime
+    batch_context = nullcontext()
+    if runtime.uses_jax and _release_tuple(runtime.version) == (2, 3, 0):
+        from .dmipy_jax_initialization import batch_dmipy_brute_search
+
+        batch_context = batch_dmipy_brute_search(options.get("batch_size"))
+
+    if not runtime.uses_jax or runtime.backend != "gpu":
+        with batch_context:
+            return model.fit(acquisition_scheme, data, **options), runtime
+
+    # dmipy-fit warns before entering its internal CPU retry. Turn that warning
+    # into an exception for GPU-only requests, or observe it for auto requests.
+    fallback_message = r"solver='jax' failed on the GPU backend .*Retrying on CPU"
+    require_gpu = runtime.requested_device == "gpu" or runtime.gpu_device is not None
+    caught = []
+    try:
+        with warnings.catch_warnings(record=not require_gpu) as recorded, batch_context:
+            caught = recorded if recorded is not None else []
+            warnings.filterwarnings(
+                "error" if require_gpu else "always",
+                message=fallback_message,
+                category=RuntimeWarning,
+            )
+            fitted = model.fit(acquisition_scheme, data, **options)
+    except RuntimeWarning as exc:
+        if require_gpu and str(exc).startswith("solver='jax' failed on the GPU backend"):
+            detail = str(exc).split(". Retrying on CPU", 1)[0]
+            raise ProcessingError(f"dmipy requires GPU execution. {detail}") from exc
+        raise
+    finally:
+        for warning in caught:
+            warnings.warn_explicit(
+                warning.message, warning.category, warning.filename, warning.lineno
+            )
+    if any(
+        str(item.message).startswith("solver='jax' failed on the GPU backend")
+        for item in caught
+    ):
+        runtime = replace(runtime, backend="cpu")
+    return fitted, runtime

@@ -154,3 +154,22 @@ def test_fit_model_jax_gnl_runs_vectorized_optimizer_and_returns_maps():
         [true_diffusivity, true_diffusivity],
         rtol=2e-3,
     )
+
+
+def test_sandi_gradient_correction_preserves_measurements_across_batches():
+    scheme = _scheme()
+    tensors = np.array([np.eye(3), np.diag([1.2, 0.8, 1.0]), np.full((3, 3), np.nan)])
+    expected = corrected_scheme_arrays(scheme, tensors)
+    batches = [
+        corrected_scheme_arrays(scheme, batch, spherical_mean=True)
+        for batch in (tensors[:2], tensors[2:])
+    ]
+
+    assert set(batches[0].arrays) == {"bvalues", "gradient_strengths", "delta", "Delta"}
+    for field in batches[0].arrays:
+        np.testing.assert_array_equal(
+            np.concatenate([batch.arrays[field] for batch in batches]),
+            expected.arrays[field],
+        )
+    assert sum(batch.fallback_count for batch in batches) == expected.fallback_count == 1
+    assert not batches[0].arrays["delta"].flags.owndata

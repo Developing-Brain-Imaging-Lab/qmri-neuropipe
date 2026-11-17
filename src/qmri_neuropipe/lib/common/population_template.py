@@ -9,7 +9,8 @@ import nibabel as nib
 import numpy as np
 from nibabel.processing import resample_from_to
 
-from ...interfaces import ants, fireants, freesurfer, fsl
+from ...interfaces import ants, freesurfer, fsl
+from .image_registration import estimate_and_resample, register_images
 
 
 def _cohort_mean(sources, output):
@@ -48,37 +49,19 @@ def _cohort_mean(sources, output):
     nib.save(nib.Nifti1Image(total.astype(np.float32), affine), output)
 
 
-def _register(fixed, moving, directory, method, options, nthreads):
-    directory.mkdir(parents=True)
-    warped = directory / "warped.nii.gz"
-    options = dict(options)
-    if method in {"fnirt", "mmorf", "mmorph"}:
-        transform = fsl.nonlinear_registration(fixed, moving, directory / "warp.nii.gz",
-            method=method, options=options, nthreads=nthreads)
-        fsl.applywarp(moving, fixed, warped, warp=transform, force=True)
-        return warped, [transform]
-    if method == "ants":
-        options.setdefault("transform_type", "SyN")
-        if "interpolation" in options:
-            options["interpolator"] = options.pop("interpolation")
-        warped, transforms = ants.registration(
-            fixed, moving, directory / "registration_", nthreads=nthreads, **options,
-        )
-        return Path(warped), [Path(transform) for transform in transforms]
-    if method == "fireants":
-        interpolation = options.pop("interpolation", "linear")
-        transform = fireants.registration(fixed, moving, directory / "warp.nii.gz", **options)
-        ants.apply_transforms(
-            fixed, moving, warped, [transform], interpolator=interpolation, nthreads=nthreads,
-        )
-    else:
-        model = options.pop("model", "joint")
-        extension = freesurfer.synthmorph_transform_extension(model)
-        transform = freesurfer.mri_synthmorph_register(
-            moving, fixed, directory / f"transform{extension}", output_image=warped,
-            model=model, **options,
-        )
-    return warped, [transform]
+def _recenter_fireants_mean(mean, output, displacement, geometry, work_dir, nthreads):
+    """Resample the intensity mean through the inverse mean displacement."""
+    import ants as antspy
+
+    field = antspy.from_numpy(displacement.astype(np.float32), has_components=True, **geometry)
+    inverse = antspy.invert_displacement_field(
+        field, field * -1, enforce_boundary_condition=False,
+    )
+    if not np.isfinite(inverse.numpy()).all():
+        raise ValueError("FireANTs shape averaging produced a nonfinite inverse displacement.")
+    inverse_path = work_dir / "inverse_mean_warp.nii.gz"
+    antspy.image_write(inverse, str(inverse_path))
+    ants.apply_transforms(mean, mean, output, [inverse_path], nthreads=nthreads)
 
 
 def build_population_template(
@@ -89,6 +72,7 @@ def build_population_template(
     method: str = "ants",
     iterations: int = 4,
     initial_template: Path | None = None,
+    initial_registration: str = "none",
     options: dict | None = None,
     nthreads: int = 1,
 ) -> Path:
@@ -98,12 +82,38 @@ def build_population_template(
     of the selected contrast or parameter map. Returns the transform manifest.
     """
     method = method.lower()
-    if method == "mri_synthmorph":
-        method = "synthmorph"
-    if method not in {"ants", "fireants", "synthmorph", "fnirt", "mmorf", "mmorph"}:
+    method = {"fsl": "fnirt", "mmorph": "mmorf", "mri_synthmorph": "synthmorph"}.get(method, method)
+    if method not in {"ants", "fireants", "synthmorph", "fnirt", "mmorf"}:
         raise ValueError(f"Unsupported population registration method: {method}")
     if iterations < 1 or len(subjects) < 2 or not image_type.strip():
         raise ValueError("Provide at least two subjects, a nonempty image type, and one or more iterations.")
+    initial_registration = initial_registration.lower()
+    if initial_registration not in {"none", "rigid", "affine"}:
+        raise ValueError("Choose none, rigid, or affine for initial registration.")
+    registration_options = dict(options or {})
+    initial_options = registration_options.pop("initial_options", {})
+    if not isinstance(initial_options, dict):
+        raise ValueError("initial_options must be a JSON object.")
+    if initial_options and initial_registration == "none":
+        raise ValueError("Set --initial-registration to rigid or affine to use initial_options.")
+    initial_method = "flirt" if method in {"fnirt", "mmorf"} else method
+    shape_averaging = False
+    if method == "fireants":
+        shape_averaging = registration_options.pop("shape_averaging", True)
+        if not isinstance(shape_averaging, bool):
+            raise ValueError("FireANTs shape_averaging must be a JSON boolean.")
+        initial_defaults = {
+            key: registration_options[key]
+            for key in ("device", "scales", "affine_iterations", "interpolation")
+            if key in registration_options
+        }
+        if "initial_iterations" in registration_options:
+            if initial_registration == "none":
+                raise ValueError("Set --initial-registration to rigid or affine to use initial_iterations.")
+            initial_defaults["iterations"] = registration_options.pop("initial_iterations")
+        initial_options = {**initial_defaults, **initial_options}
+        if shape_averaging:
+            import ants as antspy
 
     sources = {key: Path(path).resolve() for key, path in sorted(subjects.items())}
     if len(set(sources.values())) != len(sources):
@@ -123,11 +133,24 @@ def build_population_template(
     reference = nib.load(seed)
     fixed = seed
     with TemporaryDirectory(prefix="iterations-", dir=output_dir) as scratch:
-        for iteration in range(iterations):
+        first_round = 0 if initial_registration == "none" else -1
+        for iteration in range(first_round, iterations):
+            initializing = iteration == -1
+            update_shape = shape_averaging and not initializing
             total = np.zeros(reference.shape, dtype=np.float64)
+            displacement_sum = np.zeros((*reference.shape, 3), dtype=np.float64) if update_shape else None
             round_dir = Path(scratch) / str(iteration)
             for index, source in enumerate(sources.values()):
-                warped, _ = _register(fixed, source, round_dir / str(index), method, options or {}, nthreads)
+                subject_dir = round_dir / str(index)
+                if initializing:
+                    warped, transforms = register_images(
+                        fixed, source, subject_dir, method=initial_method,
+                        transform=initial_registration, options=initial_options, nthreads=nthreads,
+                    )
+                else:
+                    warped, transforms = estimate_and_resample(
+                        fixed, source, subject_dir, method, registration_options, nthreads,
+                    )
                 image = nib.load(warped)
                 if image.shape != reference.shape or not np.allclose(image.affine, reference.affine, atol=1e-4):
                     raise ValueError(f"Registration output grid differs from the seed grid: {warped}")
@@ -135,8 +158,27 @@ def build_population_template(
                 if not np.isfinite(data).all():
                     raise ValueError(f"Registration produced nonfinite intensities: {source}")
                 total += data
-            fixed = template if iteration == iterations - 1 else round_dir / "mean.nii.gz"
-            nib.save(nib.Nifti1Image((total / len(sources)).astype(np.float32), reference.affine), fixed)
+                if displacement_sum is not None:
+                    warp_path, = transforms
+                    if not np.allclose(nib.load(warp_path).affine, reference.affine, atol=1e-4):
+                        raise ValueError(f"FireANTs warp grid differs from the seed grid: {warp_path}")
+                    field = antspy.image_read(str(warp_path))
+                    displacement = field.numpy()
+                    if displacement.shape != displacement_sum.shape or not np.isfinite(displacement).all():
+                        raise ValueError(f"Expected a finite 3D FireANTs displacement field: {warp_path}")
+                    displacement_sum += displacement
+            if initializing:
+                fixed = output_dir / "initial_aligned_mean.nii.gz"
+            else:
+                fixed = template if iteration == iterations - 1 else round_dir / "mean.nii.gz"
+            mean = round_dir / "intensity_mean.nii.gz" if update_shape else fixed
+            nib.save(nib.Nifti1Image((total / len(sources)).astype(np.float32), reference.affine), mean)
+            if displacement_sum is not None:
+                _recenter_fireants_mean(
+                    mean, fixed, displacement_sum / len(sources),
+                    dict(origin=field.origin, spacing=field.spacing, direction=field.direction),
+                    round_dir, nthreads,
+                )
             # Keep only the current mean and release intermediate transforms.
             for path in round_dir.iterdir():
                 if path.is_dir():
@@ -144,8 +186,8 @@ def build_population_template(
 
     records = {}
     for index, (key, source) in enumerate(sources.items()):
-        _, transforms = _register(
-            template, source, output_dir / "subjects" / f"{index:04d}", method, options or {}, nthreads,
+        _, transforms = estimate_and_resample(
+            template, source, output_dir / "subjects" / f"{index:04d}", method, registration_options, nthreads,
         )
         if any(not path.is_file() for path in transforms) or not transforms:
             raise RuntimeError(f"Registration did not produce a forward transform for {key}.")
@@ -160,6 +202,8 @@ def build_population_template(
         "image_type": image_type,
         "method": method,
         "iterations": iterations,
+        **({"shape_averaging": shape_averaging} if method == "fireants" else {}),
+        **({"initial_registration": initial_registration} if initial_registration != "none" else {}),
         "seed": str(seed),
         "subjects": records,
     }, indent=2) + "\n")

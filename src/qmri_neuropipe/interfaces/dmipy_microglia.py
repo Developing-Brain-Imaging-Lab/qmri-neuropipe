@@ -175,7 +175,8 @@ def _build_microglia_model(
 
 
 def _fit_microglia_chunk(args):
-    chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args
+    chunk_id, data_chunk, scheme, model_config, solver, solver_kwargs = args[:6]
+    parent_runtime = args[6] if len(args) > 6 else None
     batch_size = solver_kwargs.get("batch_size") if solver == "jax" else None
     batch_note = f"; optimizer batch size {batch_size}" if batch_size else ""
     print(
@@ -214,8 +215,8 @@ def _fit_microglia_chunk(args):
             model_config,
         )
         
-        runtime = DmipyRuntime.resolve(solver=solver, device="auto")
-        fit_obj = execute_dmipy_fit(
+        runtime = parent_runtime or DmipyRuntime.resolve(solver=solver, device="auto")
+        execution = execute_dmipy_fit(
             DmipyFitRequest(
                 model_name="microglia",
                 model=microglia_model,
@@ -226,9 +227,12 @@ def _fit_microglia_chunk(args):
                 solver_options=solver_kwargs,
                 heartbeat_interval=None,
             )
-        ).fitted
+        )
+        fit_obj = execution.fitted
         
         print(f"[Worker {chunk_id}] Finished fitting.", flush=True)
+        if parent_runtime is not None:
+            return fit_obj.fitted_parameters, execution.runtime
         return fit_obj.fitted_parameters
         
     except Exception as e:
@@ -529,6 +533,10 @@ def fit_microglia(
                 (i, chunks[i], gtab, model_config, solver, solver_kwargs)
             )
 
+    report_worker_backend = runtime.uses_jax and gnl_data_flat is None
+    if report_worker_backend:
+        chunk_args = [(*args, runtime) for args in chunk_args]
+
     print(f"Fitting Microglia Model ({n_voxels} voxels)...")
     for line in jax_run_summary(runtime, n_voxels, solver_kwargs):
         print(line, flush=True)
@@ -563,6 +571,11 @@ def fit_microglia(
         pool.close()
         pool.join()
         
+    if report_worker_backend and results:
+        # JAX uses a single worker. Its fit may have finished on the CPU.
+        (parameters, runtime), = results
+        results = [parameters]
+
     if not results:
          raise ProcessingError("Fitting failed produced no results.")
          

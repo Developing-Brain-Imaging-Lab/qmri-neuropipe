@@ -56,13 +56,17 @@ def build_template(
     cohort: Path = typer.Argument(..., help="JSON mapping cohort identifiers to 3D NIfTI paths."),
     output_dir: Path = typer.Argument(..., help="New directory for the template and transforms."),
     image_type: str = typer.Option(..., help="Input contrast or map, such as T1w, T1, or FA."),
-    method: str = typer.Option("ants", help="ants, fireants, or synthmorph."),
+    method: str = typer.Option("ants", help="ants, fireants, synthmorph, fsl (fnirt), or mmorf (mmorph)."),
     iterations: int = typer.Option(4, min=1),
     initial_template: Optional[Path] = typer.Option(None),
+    initial_registration: str = typer.Option(
+        "none", help="Optional seed alignment pass: none, rigid, or affine.",
+    ),
     registration_options: Optional[Path] = typer.Option(None, help="JSON object of backend options."),
     nthreads: int = typer.Option(1, min=1),
 ):
     """Build a population template from a cohort of scalar images."""
+    _setup_threading(nthreads)
     from qmri_neuropipe.lib.common.population_template import build_population_template
 
     entries = json.loads(cohort.read_text())
@@ -78,6 +82,7 @@ def build_template(
         method=method,
         iterations=iterations,
         initial_template=initial_template,
+        initial_registration=initial_registration,
         options=options,
         nthreads=nthreads,
     )
@@ -99,6 +104,39 @@ def apply_template_transform(
     typer.echo(str(apply_population_transform(
         manifest, subject, moving, output, nearest=nearest, nthreads=nthreads,
     )))
+
+
+@app.command("register")
+def register_cli(
+    fixed: Path = typer.Option(..., exists=True, dir_okay=False, help="Fixed 3D NIfTI defining the output grid."),
+    moving: Path = typer.Option(..., exists=True, dir_okay=False, help="Moving 3D NIfTI to register."),
+    output_dir: Path = typer.Option(..., "--output-dir", "-o", help="New directory for the warped image and transforms."),
+    method: str = typer.Option("ants", help="ants, fsl, flirt, fnirt, mmorf, fireants, synthmorph, or freesurfer."),
+    transform: str = typer.Option("rigid", "--transform", "--transform-type", help="rigid, affine, or nonlinear, depending on method."),
+    registration_options: Optional[Path] = typer.Option(
+        None, exists=True, dir_okay=False, help="JSON file of backend settings. The method and transform flags select the registration model.",
+    ),
+    nthreads: int = typer.Option(1, min=1),
+):
+    """Register a moving image to a fixed image and save the forward transforms."""
+    _setup_threading(nthreads)
+    from qmri_neuropipe.lib.common.image_registration import register_images
+
+    try:
+        options = json.loads(registration_options.read_text()) if registration_options else {}
+        if not isinstance(options, dict):
+            raise ValueError("Expected a JSON object of backend options.")
+        warped, transforms = register_images(
+            fixed, moving, output_dir, method=method, transform=transform,
+            options=options, nthreads=nthreads,
+        )
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Registered image: {warped}")
+    for path in transforms:
+        typer.echo(f"Forward transform: {path}")
 
 
 @app.command("enrich-gnl-metadata")
